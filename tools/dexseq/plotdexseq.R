@@ -1,6 +1,7 @@
 ## Setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
-    cat(geterrmessage(), file = stderr()); q("no", 1, F)
+options(show.error.messages = FALSE, error = function() {
+    cat(geterrmessage(), file = stderr())
+    q("no", 1, FALSE)
 })
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
@@ -25,8 +26,8 @@ spec <- matrix(c(
     "names", "a", 1, "logical",
     "normcounts", "n", 1, "logical",
     "splicing", "s", 1, "logical"
-), byrow = TRUE, ncol = 4);
-opt <- getopt(spec);
+), byrow = TRUE, ncol = 4)
+opt <- getopt(spec)
 
 res <- readRDS(opt$rdata)
 

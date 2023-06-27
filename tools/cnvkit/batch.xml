@@ -1,0 +1,283 @@
+<tool id="cnvkit_batch" name="CNVkit Batch" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>Run the CNVkit pipeline on one or more BAM files</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[   
+        ln -s '$CNV_reference.input_sample_file' ./tumor.bam &&
+        ln -s '$CNV_reference.input_sample_file.metadata.bam_index' ./tumor.bam.bai &&
+        #if str($CNV_reference.CNV_reference_availabel) == "yes":
+            ln -s '$CNV_reference.reference' ./reference.cnn &&
+        #end if 
+        #if str($CNV_reference.CNV_reference_availabel) == "no":
+            ln -s '$CNV_reference.normal' ./normal.bam &&
+            ln -s '$CNV_reference.normal.metadata.bam_index' ./normal.bam.bai &&
+            #if $CNV_reference.advanced_settings.antitargets
+                ln -s '$CNV_reference.advanced_settings.antitargets' ./antitargets.bed &&
+            #end if
+            #if $CNV_reference.advanced_settings.annotate
+                ln -s '$CNV_reference.advanced_settings.annotate' ./annotate.bed &&
+            #end if
+            #if $CNV_reference.advanced_settings.access
+                ln -s '$CNV_reference.advanced_settings.access' ./access.bed &&
+            #end if
+            ln -s '$CNV_reference.targets' ./capture.bed &&
+            #if str($CNV_reference.reference_source.ref_selector) == 'history':
+                ln -s '$CNV_reference.reference_source.fasta' ./genome.fa &&
+                samtools faidx ./genome.fa 2>&1 || echo 'Error running samtools faidx for indexing fasta reference for CNVkit' >&2 &&
+            #else
+                ln -s '$CNV_reference.reference_source.fasta.fields.path' ./genome.fa &&
+                ln -s '${CNV_reference.reference_source.fasta.fields.path}.fai' ./genome.fa.fai &&
+            #end if
+        #end if
+        #import os
+        cnvkit.py batch
+            ./tumor.bam
+            #if str($CNV_reference.CNV_reference_availabel) == "no":
+                --normal ./normal.bam
+                --targets ./capture.bed
+                --fasta ./genome.fa
+                #if $CNV_reference.advanced_settings.antitargets
+                    --antitargets ./antitargets.bed
+                #end if
+                #if $CNV_reference.advanced_settings.annotate
+                    --annotate ./annotate.bed
+                #end if
+                #if $CNV_reference.advanced_settings.access
+                    --access ./access.bed
+                #end if
+            #end if
+            #if str($CNV_reference.CNV_reference_availabel) == "yes":
+                --reference ./reference.cnn
+            #end if
+            $output_section.scatter
+            $output_section.diagram
+            --processes \${GALAXY_SLOTS:-4}
+            #if $CNV_reference.advanced_settings.method == "hybrid"
+                #set $method_val = "hybrid"
+                --method '$method_val'
+            #else
+                --method '$CNV_reference.advanced_settings.method'
+            #end if
+            
+            #if $CNV_reference.advanced_settings.segment_method == "cbs"
+                #set $segment_method_val = "cbs"
+                --segment-method '$segment_method_val'
+            #else
+                --segment-method '$CNV_reference.advanced_settings.segment_method'
+            #end if
+            $CNV_reference.advanced_settings.male_reference
+            $CNV_reference.advanced_settings.countreads
+            $CNV_reference.advanced_settings.drop_low_coverage
+            
+            #if str($CNV_reference.CNV_reference_availabel) == "no":
+                $CNV_reference.advanced_settings.short_names
+                #if str($CNV_reference.advanced_settings.target_avg_size)
+                    --target-avg-size $CNV_reference.advanced_settings.target_avg_size
+                #end if 
+                #if str($CNV_reference.advanced_settings.antitarget_avg_size)
+                    --antitarget-avg-size $CNV_reference.advanced_settings.antitarget_avg_size
+                #end if
+                #if str($CNV_reference.advanced_settings.antitarget_min_size)
+                    --antitarget-min-size $CNV_reference.advanced_settings.antitarget_min_size
+                #end if 
+                $CNV_reference.advanced_settings.cluster
+            #end if            
+    ]]></command>
+    <inputs>
+        <conditional name="CNV_reference">
+            <param name="CNV_reference_availabel" type="select" label="Build or reuse a copy number reference file (.cnn)?" help="">
+                <option value="no" selected="True">Build a new copy number reference file</option>
+                <option value="yes">Reuse a copy number reference file</option>
+            </param>
+            <when value="no">
+                <expand macro="create_CNV_reference_file" />
+                <expand macro="reference_interface" />
+                <section name="advanced_settings" title="Advanced settings" expanded="false">
+                    <expand macro="advanced_no_reference" />
+                    <expand macro="shared" />
+                </section>
+            </when>
+            <when value="yes">
+                <expand macro="reuse_an_existing_cnv_reference_file" />
+                <section name="advanced_settings" title="Advanced settings" expanded="false">
+                    <expand macro="shared" />
+                </section>
+            </when>
+        </conditional>
+        <expand macro="output_section" />
+    </inputs>
+    <outputs>
+        <data name="out_sample_bintest" format="tabular" label="${tool.name} on ${on_string}: Sample Bintest" from_work_dir="tumor.bintest.cns" />
+        <data name="out_sample_antitargetcoverage" format="tabular" label="${tool.name} on ${on_string}: Sample Antitarget Coverage" from_work_dir="tumor.antitargetcoverage.cnn" />
+        <data name="out_sample_call" format="tabular" label="${tool.name} on ${on_string}: rounded absolute scale copy numbers integer (not log2 ratios) " from_work_dir="tumor.call.cns" />
+        <data name="out_sample_targetcoverage_cnn" format="tabular" label="${tool.name} on ${on_string}: Sample Target Coverage" from_work_dir="tumor.targetcoverage.cnn" />
+        <data name="out_sample_cns" format="tabular" label="${tool.name} on ${on_string}: CN segmentation calls" from_work_dir="tumor.cns" />
+        <data name="out_sample_cnr" format="tabular" label="${tool.name} on ${on_string}: Bin-Level log2 Ratios/Coverages" from_work_dir="tumor.cnr" />
+        <data name="out_capture_antitarget" format="bed" label="${tool.name} on ${on_string}: Capture Antitarget" from_work_dir="capture.antitarget.bed">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'no'</filter>
+        </data>
+        <data name="out_control_targetcoverage" format="tabular" label="${tool.name} on ${on_string}: Output Normal Sample Target Coverage" from_work_dir="normal.targetcoverage.cnn">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'no'</filter>
+        </data>
+        <data name="out_control_antitargetcoverage" format="tabular" label="${tool.name} on ${on_string}: Output Normal Sample Antitarget Coverage" from_work_dir="normal.antitargetcoverage.cnn">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'no'</filter>
+        </data>
+        <data name="out_reference_cnn" format="tabular" label="${tool.name} on ${on_string}: Output Copy Number Reference Profile" from_work_dir="reference.cnn">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'no'</filter>
+        </data>
+        <data name="out_capture_target" format="bed" label="${tool.name} on ${on_string}: Output Capture Target" from_work_dir="capture.target.bed">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'no'</filter>
+        </data>
+        <data name="out_reference_target_bed" format="tabular" label="${tool.name} on ${on_string}: Output Reference Target" from_work_dir="reference.target-tmp.bed">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'yes'</filter>
+        </data>
+        <data name="out_reference_antitarget_bed" format="bed" label="${tool.name} on ${on_string}: Output Reference Antitarget" from_work_dir="reference.antitarget-tmp.bed">
+            <filter>(CNV_reference['CNV_reference_availabel']) == 'yes'</filter>
+        </data>
+        <data name="out_sample_diagram_pdf" format="pdf" label="${tool.name} on ${on_string}: Output Sample Diagram" from_work_dir="tumor-diagram.pdf">
+            <filter>output_section['diagram']</filter>
+        </data>
+        <data name="out_sample_scatter_png" format="png" label="${tool.name} on ${on_string}: Output Sample Scatter " from_work_dir="tumor-scatter.png">
+            <filter>output_section['scatter']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="13">
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="fasta" ftype="fasta" value="genome.fasta" />
+            </conditional>
+            <param name="CNV_reference_availabel" value="no" />
+            <param name="input_sample_file" ftype="bam" value="tumor.bam" />
+            <param name="normal" ftype="bam" value="normal.bam" />
+            <param name="targets" ftype="bed" value="capture.bed" />
+            <param name="scatter" value="1"/>
+            <param name="diagram" value="1"/>
+            <output name="out_sample_bintest" file="tumor.bintest.cns" />
+            <output name="out_sample_antitargetcoverage">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_call">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_cnr">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_targetcoverage_cnn">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_cns">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_capture_antitarget" file="capture.antitarget.bed" />
+            <output name="out_control_targetcoverage" file="normal.targetcoverage.cnn" />
+            <output name="out_control_antitargetcoverage" file="normal.antitargetcoverage.cnn" />
+            <output name="out_reference_cnn" file="reference.cnn" />
+            <output name="out_capture_target">
+                <assert_contents><has_text_matching expression="chrM"/></assert_contents>
+            </output>
+            <output name="out_sample_scatter_png" file="tumor-scatter.png" ftype="png" compare="sim_size">
+                <assert_contents><has_size value="13000" delta="3000" /></assert_contents>
+            </output>                        
+            <output name="out_sample_diagram_pdf" file="tumor-diagram.pdf" ftype="pdf" compare="sim_size">
+                <assert_contents><has_size value="6000" delta="2000" /></assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="13">
+            <conditional name="reference_source">
+                <param name="ref_selector" value="cached"/>
+                <param name="fasta" value="test_buildid"/>
+            </conditional>
+            <param name="CNV_reference_availabel" value="no" />
+            <param name="input_sample_file" ftype="bam" value="tumor.bam" />
+            <param name="normal" ftype="bam" value="normal.bam" />
+            <param name="targets" ftype="bed" value="capture.bed" />
+            <param name="scatter" value="1"/>
+            <param name="diagram" value="1"/>
+            <output name="out_sample_bintest" file="tumor.bintest.cns" />
+            <output name="out_sample_antitargetcoverage">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_call">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_cnr">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_targetcoverage_cnn">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_cns">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_capture_antitarget" file="capture.antitarget.bed" />
+            <output name="out_control_targetcoverage" file="normal.targetcoverage.cnn" />
+            <output name="out_control_antitargetcoverage" file="normal.antitargetcoverage.cnn" />
+            <output name="out_reference_cnn" file="reference.cnn" />
+            <output name="out_capture_target">
+                <assert_contents><has_text_matching expression="chrM"/></assert_contents>
+            </output>
+            <output name="out_sample_scatter_png" file="tumor-scatter.png" ftype="png" compare="sim_size">
+                <assert_contents><has_size value="13000" delta="3000" /></assert_contents>
+            </output>                        
+            <output name="out_sample_diagram_pdf" file="tumor-diagram.pdf" ftype="pdf" compare="sim_size">
+                <assert_contents><has_size value="6000" delta="2000" /></assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="10">
+            <param name="CNV_reference_availabel" value="yes" />
+            <param name="input_sample_file" ftype="bam" value="tumor.bam" />
+            <param name="reference" ftype="tabular" value="reference.cnn" />
+            <param name="scatter" value="1"/>
+            <param name="diagram" value="1"/>
+            <output name="out_sample_bintest" file="tumor.bintest.cns" />
+            <output name="out_sample_antitargetcoverage">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_call">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_cnr">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_targetcoverage_cnn">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_sample_cns">
+                <assert_contents><has_text text="chromosome"/></assert_contents>
+            </output>
+            <output name="out_reference_target_bed" file="reference.target-tmp.bed" />
+            <output name="out_reference_antitarget_bed" file="reference.antitarget-tmp.bed" />
+            <output name="out_sample_diagram_pdf" file="tumor-diagram.pdf" ftype="pdf" compare="sim_size">
+                <assert_contents><has_size value="6000" delta="2000" /></assert_contents>
+            </output>
+            <output name="out_sample_scatter_png" file="tumor-scatter.png" ftype="png" compare="sim_size">
+                <assert_contents><has_size value="13000" delta="3000" /></assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+          CNVkit pipeline for  copy-number changes and allelic imbalances detection
+          cnn, cnr and cns are tabuler files extintions:
+          
+          The reference .cnn file has the columns:
+          chromosome, Start, end, gene, GC content of the sequence region (gc), RepeatMasker-masked proportion
+          of the sequence region (rmask), Statistical spread or dispersion (spread), Robust average of coverage
+          depths (log2 ) and Robust average of absolute-scale coverage depths without any bias corrections (depth)
+          
+          Target and antitarget bin-level coverages (.cnn)
+          chromosome, Start, end, gene, log2 and depth
+          
+          Bin-level log2 ratios (.cnr)
+          chromosome, Start, end, gene, log2, depth and proportional weight or reliability (weight)
+          
+          Segmented log2 ratios (.cns)
+          chromosome, Start, end, gene, log2, depth, weight and number of bins covered by the segment (probes)
+          
+          
+    ]]></help>
+    <expand macro="citations" />
+</tool>
