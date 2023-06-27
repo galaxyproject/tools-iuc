@@ -89,7 +89,7 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False):
             if line.startswith("REGION"):
                 continue
 
-            # fields: 
+            # fields:
             # 0 REGION
             # 1 POS
             # 2 REF
@@ -141,7 +141,7 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False):
             ref_dp = int(line[4])
             ref_dp_rev = int(line[5])
             ref_dp_fwd = ref_dp - ref_dp_rev
-            
+
             alt_dp = int(line[7])
             alt_dp_rev = int(line[8])
             alt_dp_fwd = alt_dp - alt_dp_rev
