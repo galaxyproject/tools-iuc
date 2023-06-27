@@ -49,7 +49,7 @@ heatmaps <- as.logical(params$heatmaps)
 end_step <- as.integer(params$end_step)
 norm_out <- as.logical(params$norm_out)
 comparison <- as.logical(params$comparison)
-feature <- unlist(strsplit(as.character(params$feat_comp), ", "))
+feature <- trimws(unlist(strsplit(as.character(params$feat_comp), ", ")))
 marker_compare <- as.logical(params$marker_compare)
 top_x <- as.integer(params$top_x)
 
@@ -185,7 +185,7 @@ if (pca_out == TRUE) {
 
 if (showcode == TRUE && nmds == TRUE) print("tSNE and UMAP")
 #+ echo = `showcode`, warning = `warn`, include = `nmds`
-seuset <- Seurat::FindNeighbors(object = seuset, dims=1:num_pcs)
+seuset <- Seurat::FindNeighbors(object = seuset)
 seuset <- Seurat::FindClusters(object = seuset)
 if (perplexity == -1) {
     seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, check_duplicates = FALSE)
