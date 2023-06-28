@@ -54,3 +54,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     process_files(args.primer_file, args.ampl_file, args.output_file.name)
+
