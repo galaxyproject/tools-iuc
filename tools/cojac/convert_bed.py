@@ -3,6 +3,7 @@
 import argparse
 import csv
 
+
 def process_files(primer_file, ampl_file, output_file):
     primer_data = {}
     with primer_file:
@@ -36,6 +37,7 @@ def process_files(primer_file, ampl_file, output_file):
 
                 writer.writerow([chrom, start, end, name, score, strand])
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Write an amplicon info file for Cojac '
@@ -54,4 +56,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     process_files(args.primer_file, args.ampl_file, args.output_file.name)
-
