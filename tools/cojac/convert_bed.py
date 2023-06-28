@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
+import argparse
 import csv
 
 def process_files(primer_file, ampl_file, output_file):
-    # Read the primer file
     primer_data = {}
-    with open(primer_file, 'r') as primer:
-        reader = csv.reader(primer, delimiter='\t')
+    with primer_file:
+        reader = csv.reader(primer_file, delimiter='\t')
         for row in reader:
             primer_data[row[3]] = {
                 'chrom': row[0],
@@ -17,11 +17,10 @@ def process_files(primer_file, ampl_file, output_file):
                 'strand': row[5]
             }
 
-    # Process the ampl_info file and generate the output file
-    with open(ampl_file, 'r') as ampl, open(output_file, 'w', newline='') as output:
+    with ampl_file, open(output_file, 'w', newline='') as output:
         writer = csv.writer(output, delimiter='\t')
 
-        for row in csv.reader(ampl, delimiter='\t'):
+        for row in csv.reader(ampl_file, delimiter='\t'):
             name1 = row[0]
             name2 = row[1]
 
@@ -37,5 +36,21 @@ def process_files(primer_file, ampl_file, output_file):
 
                 writer.writerow([chrom, start, end, name, score, strand])
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Write an amplicon info file for Cojac '
+                    'from a BED file describing primer positions '
+                    'and amplicon info file for iVar'
+    )
+    parser.add_argument(
+        'primer_file', type=argparse.FileType(), help='Primer file'
+    )
+    parser.add_argument(
+        'ampl_file', type=argparse.FileType(), help='Amplicon info file'
+    )
+    parser.add_argument(
+        'output_file', type=argparse.FileType('w'), help='Output file: amplicon info file for Cojac'
+    )
+    args = parser.parse_args()
 
-process_files('primers.bed', 'ampl_info.tsv', 'bed_cojac.bed')
+    process_files(args.primer_file, args.ampl_file, args.output_file.name)
