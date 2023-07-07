@@ -3,6 +3,7 @@
 import argparse
 import re
 
+
 class Scheme:
     amplicon_pat = re.compile(
         r'(?P<prefix>(.*_)*)(?P<num>\d+).*_(?P<name>L(?:EFT)?|R(?:IGHT)?)'
@@ -83,10 +84,10 @@ class Scheme:
             fields = record.strip('\n').split('\t')
 
             primer_dat = (
-                int(fields[1]), # start
-                int(fields[2]), # end
-                fields[3],      # name
-                fields[5]       # strand
+                int(fields[1]),  # start
+                int(fields[2]),  # end
+                fields[3],       # name
+                fields[5]        # strand
             )
             ref_id = fields[0]
             pool_id = fields[4]
@@ -99,9 +100,11 @@ class Scheme:
 
     def write_sanitized_bed(self, o):
         records = sorted(
-            ((primer, ref, pool)
-            for primers, ref, pool in self.amplicons.values()
-            for primer in primers),
+            (
+                (primer, ref, pool)
+                for primers, ref, pool in self.amplicons.values()
+                for primer in primers
+            ),
             # sort by ref, start, end
             key=lambda x: (x[1], x[0][0], x[0][1])
         )
@@ -154,7 +157,7 @@ class Scheme:
                 insert_name = f'INSERT_{amplicon_id}'
             o.write(
                 f'{amplicon[1]}\t{insert_start}\t{insert_end}\t{insert_name}\t{amplicon[2]}\t+\n'
-                )
+            )
 
 
 if __name__ == '__main__':
