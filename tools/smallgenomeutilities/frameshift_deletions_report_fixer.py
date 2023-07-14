@@ -11,7 +11,6 @@ import sys
 
 
 def matchrepl(matchobj):
-    print(matchobj.groups())
     bytes_string_content = matchobj.group(1)
     if bytes_string_content is not None:
         return bytes_string_content
