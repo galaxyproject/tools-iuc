@@ -21,20 +21,27 @@ echo 'is CRAM' >&2 &&
 #else:
 # raise TypeError('Unknown input alignment type ${input.ext}')
 #end if
-ln -vs '$consensus' 'consensus.${consensus.ext}' >&2 &&
-ln -vs '$reference' 'reference.${reference.ext}' >&2 &&
+ln -vs '$consensus' consensus.fa >&2 &&
+#if str($ref_data.choice) == 'custom':
+ln -vs '$reference' reference.fa >&2 &&
+#else:
+ln -s '$__tool_directory__'/ref_NC_045512.2.fasta reference.fa &&
+#end if
 
 frameshift_deletions_checks 
     --input='input.${input.ext}'
-    --consensus='consensus.${consensus.ext}'
-    --reference='reference.${reference.ext}'
-    --genes='$genes'
-    --output=report.tsv 
-#if $orf1ab != '':
-    --orf1ab='$orf1ab'
+    --consensus=consensus.fa
+    --reference=reference.fa
+#if str($ref_data.choice) == 'standard':
+    --genes='$__tool_directory__'/annotations_NC_045512.2.gff3
+    --orf1ab='cds-YP_009724389.1'
+#else:
+    --genes='$ref_data.genes'
+    --orf1ab='$ref_data.orf1ab'
 #end if
-    '$english'
-    $zero_based &&
+    $out_options.english
+    $out_options.zero_based
+    --output=report.tsv &&
 python '$__tool_directory__'/frameshift_deletions_report_fixer.py report.tsv '$report'
 ]]>
     <!-- ##cores \${GALAXY_SLOTS:-4} -->
@@ -42,17 +49,29 @@ python '$__tool_directory__'/frameshift_deletions_report_fixer.py report.tsv '$r
     <inputs>
         <param argument="--consensus" type="data" format="fasta" label="Consensus" help="Fasta file containing the sample's consensus sequence (majority, with indels)" />
         <param argument="--input" type="data" format="bam,cram" label="Input BAM" help="Input BAM file with sample's sequencing reads, aligned against the reference" />
-        <param argument="--reference" type="data" format="fasta" label="Reference" help="Fasta file containing the reference sequence (used during alignment) to compare against" />
-        <param argument="--genes" type="data" format="gff" label="Genes GFF" help="GFF file listing genes positions on the reference sequence" />
-        
-        <param argument="--english" type="boolean" truevalue="--english" falsevalue="--no-english" checked="true" optional="true" label="Write Summary Diagnosis?" help="If checked writes english summary diagnosis." />
-        <param argument="--zero-based" type="boolean" truevalue="--zero-based" falsevalue="" checked="false" optional="true" label="Use 0-based Sequence Positions?" help="Use 0-based (python) instead of 1-based (standard) seq positions" />
-        <param argument="--orf1ab" type="text" value="cds-YP_009724389.1" optional="true" label="ORF1AB" help="CDS ID for the full Orf1ab CDS, comprising the ribosomal shift. In the GFF this CDS should consist of 2 entries with the same CDS ID due to the partial overlap caused by the ribosomal shift at translation time."/>
+        <conditional name="ref_data">
+            <param name="choice" type="select" label="Reference data selection" help="Select built-in genome files to base reported positions and annotations on the SARS-CoV-2 reference sequence NC_045512.2. If you have mapped to a different reference, select custom genome files and provide the reference sequence and genomic feature annotations for it in fasta and gff format, repsectively.">
+                <option value="standard">Use built-in genome files</option>
+                <option value="custom">Provide custom genome files</option>
+            </param>
+            <when value="standard" />
+            <when value="custom">
+                <param argument="--reference" type="data" format="fasta" label="Reference" help="Fasta input containing the reference sequence (used during alignment) to compare against" />
+                <param argument="--genes" type="data" format="gff" label="Genes GFF" help="GFF input listing genes positions on the reference sequence" />
+                <param argument="--orf1ab" type="text" value="cds-YP_009724389.1" optional="false" label="Coding sequence containing ribosomal slippage site" help="ID of the full CDS comprising the ribosomal shift as given in the GFF input. In the GFF this CDS should consist of 2 entries with the same CDS ID due to the partial overlap caused by the ribosomal shift at translation time.">
+                    <validator type="expression">value.strip()</validator>
+                </param>
+            </when>
+        </conditional>
+        <section name="out_options" title="Output format options" expanded="true">
+            <param argument="--english" type="boolean" truevalue="--english" falsevalue="--no-english" checked="true" label="Write Summary Diagnosis?" help="If checked writes english summary diagnosis." />
+            <param argument="--zero-based" type="boolean" truevalue="--zero-based" falsevalue="" checked="false" optional="true" label="Use 0-based Sequence Positions?" help="Use 0-based (python) instead of 1-based (standard) seq positions" />
+        </section>
     </inputs>
     <outputs>
         <data name="report" format="tabular">
             <actions>
-                <conditional name="english">
+                <conditional name="out_options.english">
                     <!-- The "english" flag removes certain numerical columns and collapses them into new text columns -->
                     <when value="--english">
                         <action name="column_names" type="metadata" default="ref_id,start_position,length,VARIANT,gene_region,reads_all,reads_fwd,reads_rev,deletions,freq_del,freq_del_fwd,freq_del_rev,deletions_fwd,deletions_rev,insertions,freq_insert,freq_insert_fwd,freq_insert_rev,insertions_fwd,insertions_rev,stops,freq_stop,freq_stop_fwd,freq_stop_rev,stops_fwd,stops_rev,matches_ref,pos_critical_inserts,pos_critical_dels,homopolymeric,ref_base,cons_id,variant_position_english,variant_diagnosis" />
@@ -68,8 +87,30 @@ python '$__tool_directory__'/frameshift_deletions_report_fixer.py report.tsv '$r
         <test>
             <param name="consensus" value="consensus.bcftools.fasta.gz" />
             <param name="input" value="REF_aln_trim.cram" />
-            <param name="reference" value="NC_045512.2.fasta.gz" />
-            <param name="genes" value="Genes_NC_045512.2.GFF3" />
+            <conditional name="ref_data">
+                <param name="choice" value="standard" />
+            </conditional>
+            <output name="report" value="frameshift_deletions_check.tsv" />
+        </test>
+        <test>
+            <param name="consensus" value="consensus.bcftools.fasta.gz" />
+            <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="ref_data">
+                <param name="choice" value="standard" />
+            </conditional>
+            <section name="out_options">
+                <param name="english" value="false" />
+            </section>
+            <output name="report" value="frameshift_deletions_check_no_english.tsv" />
+        </test>
+        <test>
+            <param name="consensus" value="consensus.bcftools.fasta.gz" />
+            <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="ref_data">
+                <param name="choice" value="custom" />
+                <param name="reference" value="NC_045512.2.fasta.gz" />
+                <param name="genes" value="Genes_NC_045512.2.GFF3" />
+            </conditional>
             <output name="report" value="frameshift_deletions_check.tsv" />
         </test>
     </tests>
