@@ -23,7 +23,7 @@ def matchrepl(matchobj):
     none_cell = matchobj.group(3)
     if none_cell is not None:
         return '\t.\t'
-        
+
     raise ValueError('Error in regex parsing code')
 
 
