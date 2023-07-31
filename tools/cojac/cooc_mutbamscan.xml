@@ -1,96 +1,150 @@
 <tool id="cooc_mutbamscan" name="Cojac: mutbamscan" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@"
       profile="@PROFILE@">
     <description>
-        scan an alignment file for mutation co-occurrences
+        scans an alignment file for mutation co-occurrences
     </description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="biotools"/>
-    <expand macro="requirements"/>
+    <expand macro="requirements">
+        <requirement type="package" version="0.1.0">viramp-hub</requirement>
+    </expand>
     <expand macro="version"/>
     <command detect_errors="exit_code"><![CDATA[
-ln -s '$bed_file' 'bed_file' &&
-@VOCDIR_COMMAND@
-#import re
-#set identifier = re.sub('[^\s\w\-\\.]', '_', str($bam_file.element_identifier))
-ln -s '$bam_file' ${identifier}.bam &&
-ln -s '${bam_file.metadata.bam_index}' ${identifier}.bai &&
-cooc-mutbamscan
-    -a '${identifier}.bam'
-    -b 'bed_file'
-    -m '$vocdir'
-    -y cooc.yaml
-    -j cooc.json
-    #if $amplicons_file.choice == 'build'
-        -A amplicons.yaml
+## arrange BAM inputs and index files into a V-pipe-style folder structure
+## that cojac understands
+sh arrange_samples.sh &&
+
+#if $spec_layout.mode == 'separate':
+  #set $voc_config = $spec_layout.voc_source
+  @VOCDIR_COMMAND@
+  ## prepare amplicon information
+  #if $spec_layout.amplicon_definitions.choice == 'insert_scheme':
+    ln -s '$spec_layout.amplicon_definitions.insert_bed' bed_cojac.bed &&
+  #else if $spec_layout.amplicon_definitions.choice == 'primer_scheme':
+    scheme-convert '$spec_layout.amplicon_definitions.primer_bed' -t bed -b cojac -o bed_cojac.bed &&
+  #else:
+    scheme-convert '$spec_layout.amplicon_definitions.primer_bed' -t bed -b cojac -a '$spec_layout.amplicon_definitions.amplicon_info' -o bed_cojac.bed &&
+  #end if
+#end if
+
+## run cojac
+cojac cooc-mutbamscan
+    ## use a sample list file to tell cojac to look for the inputs in the
+    ## V-pipe-style folder stucture we've created earlier.
+    -s samples_list.tsv
+    -p inputs
+    -b bed_cojac.bed
+    #if $spec_layout.mode == 'separate':
+      -m voc/
+      -A amplicons.yaml
+      --cooc $spec_layout.cooc
     #else
-        -Q '$amplicons_file.in_amp'
+      -Q '$spec_layout.in_amp'
     #end if
-    -t cooc.tsv
-    --cooc $cooc
+    #if 'yaml' in $out_opts.output_formats:
+      -y cooc.yaml
+    #end if
+    #if 'json' in $out_opts.output_formats:
+      -j cooc.json
+    #end if
+    #if 'tabular' in $out_opts.output_formats:
+      -t cooc.tsv
+    #end if
     ]]></command>
+    <configfiles>
+        <configfile filename="arrange_samples.sh"><![CDATA[#for $dataset in $mapped_input:
+  #set $sample_id = $dataset.element_identifier.replace("'", '_').replace('/', '_')
+mkdir -p 'inputs/$sample_id/1/alignments/' &&
+ln -s '$dataset' 'inputs/$sample_id/1/alignments/REF_aln.bam' &&
+ln -s '$dataset.metadata.bam_index' 'inputs/$sample_id/1/alignments/REF_aln.bam.bai' &&
+#end for
+#set $num_samples = len($mapped_input)
+echo "Gathered $num_samples sample and index files for cojac to discover from a samples list."
+        ]]></configfile>
+        <configfile filename="samples_list.tsv"><![CDATA[#for $dataset in $mapped_input:
+  #set $line = '\t'.join([$dataset.element_identifier.replace("'", '_').replace('/', '_'), '1', str($dataset)])
+$line
+#end for]]></configfile>
+    </configfiles>
     <inputs>
-        <expand macro="vocdir_input"/>
-        <param name="bed_file" type="data" format="bed"
-               label="BED file defining the amplicons"/>
-        <param name="bam_file" type="data" format="bam,cram,sam"
-               label="Alignment BAM/CRAM/SAM file"/>
-        <param argument="--cooc" type="integer" min="1" value="2"
-               label="Minimum number of cooccurence mutations on the same amplicon"/>
-        <conditional name="amplicons_file">
-            <param name="choice" type="select" label="Source of amplicons YAML file">
-                <option value="build">Build from BED + set of YAMLs for variants of concern</option>
-                <option value="custom">From history</option>
+        <param name="mapped_input" type="data" format="bam" multiple="true" label="Aligned reads input to analyze"/>
+        <conditional name="spec_layout">
+            <param name="mode" type="select" label="How would you like to provide amplicon and lineage information?">
+                <option value="separate">Separately</option>
+                <option value="combined">Combined</option>
             </param>
-            <when value="build"/>
-            <when value="custom">
-                <param name="in_amp" type="data" format="yaml"
-                       label="YAML file to query amplicons"/>
+            <when value="separate">
+                <expand macro="vocdir_input"/>
+                <conditional name="amplicon_definitions">
+                    <param name="choice" type="select" label="Format of amplicon definitions">
+                        <option value="insert_scheme">Amplicon insert scheme (Cojac-native format)</option>
+                        <option value="primer_scheme">Primer scheme (with autodetection of grouping into amplicons</option>
+                        <option value="primer_scheme_plus">Primer scheme and explicit amplicon grouping information</option>
+                    </param>
+                    <when value="insert_scheme">
+                        <param name="insert_bed" type="data" format="bed" label="Amplicon insert scheme" help="BED dataset providing the positions of the amplicon inserts (i.e. excluding the primer sequences) on the reference sequence."/>
+                    </when>
+	                <when value="primer_scheme">
+		                <param name="primer_bed" type="data" format="bed" label="Primer scheme" help="The tool will attempt to autodetect the relationship between primers and amplicons based on the primer names."/>
+                    </when>
+                    <when value="primer_scheme_plus">
+                        <param name="primer_bed" type="data" format="bed" label="Primer scheme" />
+                        <param name="amplicon_info" type="data" format="tabular" label="Primers to amplicons assignments" help ="This input should have one line of tab-separated primer names (as they appear in the primer scheme) per amplicon."/>
+                    </when>
+                </conditional>
+                <param argument="--cooc" type="integer" min="1" value="2" label="Minimum number of mutations required to co-occur on an amplicon"/>
+                <param name="output_cojac_ampl" type="boolean" checked="true" label="Produce combined per-amplicon lineage definition output" help="The tool can generate a YAML-formatted report of expected co-occurrences of mutations per amplicon and lineage. This output combines amplicon scheme and lineage definitions and can be used for rerunning the tool with identical configuration in 'Combined' mode. It is also a recommended input to the cojac pubmut tool so leave this option checked if you are intending to use this downstream tool."/>
+            </when>
+            <when value="combined">
+                <param name="in_amp" type="data" format="yaml" label="Combined per-amplicon lineage definitions"
+                help="YAML-formatted report of expected co-occurrences of mutations per amplicon and lineage generated by a previous run of the tool."/>
             </when>
         </conditional>
-        <param name="output_files" type="select" display="checkboxes"
-               multiple="true" label="Output files">
-            <option value="yaml" selected="true">YAML</option>
-            <option value="json">JSON</option>
-            <option value="tabular">tabular</option>
-        </param>
+        <section name="out_opts" title="Output options" expanded="true">
+            <param name="output_formats" type="select" display="checkboxes" multiple="true" label="Produce output in these formats"
+            help="Please note that only yaml- and json-formatted results can be processed with the downstream pubmut and tabmut tools.">
+                <option value="yaml">YAML</option>
+                <option value="json" selected="true">JSON</option>
+                <option value="tabular">tabular</option>
+            </param>
+        </section>
     </inputs>
     <outputs>
-        <data name="cooc_yaml" format="yaml"
-              label="${tool.name} on ${on_string}: Mutation cooccurrence (yaml)"
-              from_work_dir="cooc.yaml">
-            <filter>'yaml' in output_files</filter>
+        <data name="cooc_yaml" format="yaml" from_work_dir="cooc.yaml" label="${tool.name} on ${on_string}: Mutation co-occurrence (yaml)">
+            <filter>'yaml' in out_opts['output_formats']</filter>
         </data>
-        <data name="cooc_json" format="json"
-              label="${tool.name} on ${on_string}: Mutation cooccurrence (json)"
-              from_work_dir="cooc.json">
-            <filter>'json' in output_files</filter>
+        <data name="cooc_json" format="json" from_work_dir="cooc.json" label="${tool.name} on ${on_string}: Mutation co-occurrence (json)">
+            <filter>'json' in out_opts['output_formats']</filter>
         </data>
-        <data name="cooc_tsv" format="tabular"
-              label="${tool.name} on ${on_string}: Mutation cooccurrence (tabular)"
-              from_work_dir="cooc.tsv">
-            <filter>'tabular' in output_files</filter>
+        <data name="cooc_tsv" format="tabular" from_work_dir="cooc.tsv" label="${tool.name} on ${on_string}: Mutation co-occurrence (tabular)">
+            <filter>'tabular' in out_opts['output_formats']</filter>
         </data>
-        <data name="amplicons" format="yaml"
-              label="${tool.name} on ${on_string}: Amplicons (yaml)"
-              from_work_dir="amplicons.yaml">
-            <filter>amplicons_file['choice'] == 'build'</filter>
+        <data name="amplicons" format="yaml" from_work_dir="amplicons.yaml" label="${tool.name} on ${on_string}: Combined per-amplicon lineage definitions">
+            <filter>spec_layout['mode'] == 'separate' and spec_layout['output_cojac_ampl']</filter>
         </data>
     </outputs>
     <tests>
         <!-- Test 1: build yaml for amplicons from bed and voc/ -->
         <test expect_num_outputs="4">
-            <conditional name="vocdir_option">
-                <param name="choice" value="custom"/>
-                <param name="voc_file" value="omicron_ba1_mutations.yaml"/>
+            <param name="mapped_input" value="tbam11.bam"/>
+            <conditional name="spec_layout">
+                <conditional name="voc_source">
+                    <param name="choice" value="custom"/>
+                    <param name="collection">
+                        <collection type="list">
+                            <element name="BA.1" ftype="yaml" value="omicron_ba1_mutations.yaml" />
+                        </collection>
+                    </param>
+                </conditional>
+                <conditional name="amplicon_definitions">
+                    <param name="insert_bed" value="nCoV-2019.insert.V3.bed" ftype="bed"/>
+                </conditional>
             </conditional>
-            <param name="bam_file" value="tbam11.bam"/>
-            <param name="bed_file" value="nCoV-2019.insert.V3.bed"/>
-            <conditional name="amplicons_file">
-                <param name="choice" value="build"/>
-            </conditional>
-            <param name="output_files" value="yaml,json,tabular"/>
+            <section name="out_opts">
+                <param name="output_formats" value="yaml,json,tabular"/>
+            </section>
             <output name="cooc_yaml" ftype="yaml">
                 <assert_contents>
                     <has_text text="76_om1"/>
@@ -116,18 +170,75 @@ cooc-mutbamscan
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 2: supply yaml for amplicons and voc/ from cache -->
+        <!-- Test 2: configure via cojac yaml -->
         <test expect_num_outputs="2">
-            <conditional name="vocdir_option">
-                <param name="choice" value="cache"/>
-            </conditional>
-            <param name="bam_file" value="tbam11.bam"/>
-            <param name="bed_file" value="nCoV-2019.insert.V3.bed"/>
-            <conditional name="amplicons_file">
-                <param name="choice" value="custom"/>
+            <param name="mapped_input" value="tbam11.bam"/>
+            <conditional name="spec_layout">
+                <param name="mode" value="combined"/>
                 <param name="in_amp" value="amplicons111.yaml"/>
             </conditional>
-            <param name="output_files" value="yaml,tabular"/>
+            <section name="out_opts">
+                <param name="output_formats" value="yaml,tabular"/>
+            </section>
+            <output name="cooc_yaml" ftype="yaml">
+                <assert_contents>
+                    <has_text text="76_om1"/>
+                    <has_text text="81_om1"/>
+                </assert_contents>
+            </output>
+            <output name="cooc_tsv" ftype="tabular">
+                <assert_contents>
+                    <has_text text="76_om1"/>
+                    <has_text text="81_om1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: use computed cojac format amplicon definitions from 2 files -->
+        <test expect_num_outputs="2">
+            <param name="mapped_input" value="tbam11.bam"/>
+            <conditional name="spec_layout">
+                <conditional name="voc_source">
+                    <param name="choice" value="builtin"/>
+                </conditional>
+                <conditional name="amplicon_definitions">
+                    <param name="choice" value="primer_scheme_plus"/>
+                    <param name="primer_bed" value="primers.bed" ftype="bed"/>
+                    <param name="amplicon_info" value="ampl_info.tsv"/>
+                </conditional>
+                <param name="output_cojac_ampl" value="false"/>
+            </conditional>
+            <section name="out_opts">
+                <param name="output_formats" value="yaml,tabular"/>
+            </section>
+            <output name="cooc_yaml" ftype="yaml">
+                <assert_contents>
+                    <has_text text="76_om1"/>
+                    <has_text text="81_om1"/>
+                </assert_contents>
+            </output>
+            <output name="cooc_tsv" ftype="tabular">
+                <assert_contents>
+                    <has_text text="76_om1"/>
+                    <has_text text="81_om1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: test primer scheme as input -->
+        <test expect_num_outputs="2">
+            <param name="mapped_input" value="tbam11.bam"/>
+            <conditional name="spec_layout">
+                <conditional name="voc_source">
+                    <param name="choice" value="builtin"/>
+                </conditional>
+                <conditional name="amplicon_definitions">
+                    <param name="choice" value="primer_scheme"/>
+                    <param name="primer_bed" value="primers.bed" ftype="bed"/>
+                </conditional>
+                <param name="output_cojac_ampl" value="false"/>
+            </conditional>
+            <section name="out_opts">
+                <param name="output_formats" value="yaml,tabular"/>
+            </section>
             <output name="cooc_yaml" ftype="yaml">
                 <assert_contents>
                     <has_text text="76_om1"/>
@@ -145,11 +256,11 @@ cooc-mutbamscan
     <help><![CDATA[
 @HELP_HEADER@
 
-Information about **cooc-mutbamscan** method
-============================================
+Information about **cojac cooc-mutbamscan**
+===========================================
 
-The method scans an alignment BAM/CRAM/SAM file for mutation co-occurrences and output a JSON or YAML file.
-
+The tool scans an alignment BAM/CRAM/SAM file for mutation co-occurrences.
+It can report its findings in json, yaml and/or tabular format.
     ]]></help>
     <expand macro="citations"/>
 </tool>
