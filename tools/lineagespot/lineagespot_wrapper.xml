@@ -15,28 +15,77 @@
         <exit_code range="1:" />
     </stdio>
     <command><![CDATA[
-        ln -s 'SampleA_freebayes_ann.vcf' ./test-data/extdata/vcf-files/SampleA_freebayes_ann.vcf &&
-        ln -s 'SampleB_freebayes_ann.vcf' ./test-data/extdata/vcf-files/SampleB_freebayes_ann.vcf &&
-        ln -s 'SampleC_freebayes_ann.vcf' ./test-data/extdata/vcf-files/SampleC_freebayes_ann.vcf &&
-        ln -s 'AY.1.txt' ./test-data/extdata/ref/AY.1.txt &&
-        ln -s 'AY.2.txt' ./test-data/extdata/ref/AY.2.txt &&
-        ln -s 'AY.3.1.txt' ./test-data/extdata/ref/AY.3.1.txt &&
-        ln -s 'AY.3.txt' ./test-data/extdata/ref/AY.3.txt &&
-        ln -s 'B.1.1.7.txt' ./test-data/extdata/ref/B.1.1.7.txt &&
-        ln -s 'B.1.1.7+S_E484K.txt' ./test-data/extdata/ref/B.1.1.7+S_E484K.txt &&
-        ln -s 'B.1.351.2.txt' ./test-data/extdata/ref/B.1.351.2.txt &&
-        ln -s 'B.1.351.3.txt' ./test-data/extdata/ref/B.1.351.3.txt &&
-        ln -s 'B.1.351.txt' ./test-data/extdata/ref/B.1.351.txt &&
-        ln -s 'B.1.617.2.txt' ./test-data/extdata/ref/B.1.617.2.txt &&
-        ln -s 'P.1.1.txt' ./test-data/extdata/ref/P.1.1.txt &&
-        ln -s 'P.1.2.txt' ./test-data/extdata/ref/P.1.2.txt &&
-        ln -s 'P.1.txt' ./test-data/extdata/ref/P.1.txt &&
-        Rscript '${__tool_directory__}/lineagespot_verbose.R --in_vcf ${__tool_directory__}/test-data/extdata/vcf-files --in_gff3 ${__tool_directory__}/test-data/extdata/NC_045512.2_annot.gff3 --in_ref ${__tool_directory__}/test-data/extdata/ref --in_voc "B.1.617.2, B.1.1.7, B.1.351, P.1" --in_threshold 0.8'
+## Prepare lineage definitions
+mkdir refs &&
+#if str($voc_source.choice) == 'cached':
+	python '${__tool_directory__}/convert_lineage_defs.py' -i '${constellations.release.fields.path}' -o refs &&
+#end if
+
+## Symlink the VCFs of all samples into a vcfs folder
+## and all custom lineage definitions into refs/
+sh arrange_custom_inputs.sh &&
+
+Rscript '${__tool_directory__}/lineagespot_verbose.R'
+  --in_vcf vcfs/
+  --in_ref refs/
+  #if str($ref_data.choice) == 'standard':
+    --in_gff3 '${__tool_directory__}/NC_045512.2_annot.gff3'
+  #else:
+    --in_gff3 '$in_gff3'
+  #end if
+  --in_voc "B.1.617.2, B.1.1.7, B.1.351, P.1" --in_threshold 0.8'
     ]]></command>
+    <configfiles>
+        <configfile filename="arrange_custom_inputs.sh"><![CDATA[mkdir vcfs &&
+#for $c, $vcf in enumerate($in_vcf):
+ln -s '$vcf' vcfs/${c}.vcf &&
+#end for
+#set $num_samples = len($in_vcf)
+echo "Gathered $num_samples samples for lineagespot run."
+#if str($voc_source.choice) == 'custom':
+  #for $lineage_def in $voc_source.collection:
+    #set $lineage_name = $lineage_def.element_identifier.replace("'", '_').replace('/', '_')
+&& ln -s '$ref' 'refs/${lineage_name}.txt'
+#set $num_lineages = len($voc_source.collection)
+&& echo "Gathered $num_lineages custom lineage definitions for the analysis."
+  #end for
+#end if]]></configfile>
+    </configfiles>
     <inputs>
-        <param type="data" name="in_vcf" format="vcf" label="vcf file(s)" />
-        <param type="data" name="in_gff3" format="gff3" label="gff3 file(s)" />
-        <param type="data" name="in_ref" format="txt" label="ref file(s)" />
+        <param type="data" name="in_vcf" format="vcf" multiple="true" label="vcf file(s)" />
+        <conditional name="ref_data">
+            <param name="choice" type="select" label="Reference data selection" help="Select built-in genome file to use built-in annotations for the SARS-CoV-2 reference sequence NC_045512.2. If you have mapped to a different reference, select custom genome file and provide an appropriate dataset with genomic feature annotations in gff format for it.">
+                <option value="standard">Use built-in genome file</option>
+                <option value="custom">Provide custom genome file</option>
+            </param>
+            <when value="standard" />
+            <when value="custom">
+                <param argument="--in_gff3" type="data" format="gff" label="Genes GFF" help="GFF input listing genes positions on the reference sequence" />
+            </when>
+        </conditional>
+        <conditional name="voc_source">
+            <param name="choice" type="select"
+                   label="Source of lineage definitions"
+                   help="Lineagespot detects lineage evidence based on lineage mutation patterns defined in tool-specific definition files. The Galaxy tool can also use lineage definitions released under cov-lineages/constellations and cached on the server.">
+                <option value="cached">Lineage definitions from cached constellations data</option>
+                <option value="custom">Collection of lineagespot-specific definitions in history</option>
+            </param>
+            <when value="cached">
+                <param name="release" label="Cached constellations release" type="select">
+                    <options from_data_table="pangolin_constellations">
+                        <column name="value" index="0" />
+                        <column name="description" index="1" />
+                        <column name="date" index="3" />
+                        <column name="path" index="4" />
+                        <filter type="sort_by" column="3" />
+                        <validator type="no_options" message="No cached constellations release available" />
+                    </options>
+                </param>
+            </when>
+            <when value="custom">
+                <param name="collection" type="data_collection" collection_type="list" format="txt" label="Collection of lineage definitions" />
+            </when>
+        </conditional>
         <param type="text" name="in_voc" value="1" label="Kmer size to count"/>
         <param type="float" name="in_threshold" value="0.8" label="Kmer size to count"/>
     </inputs>
