@@ -20,17 +20,8 @@ library.path <- .libPaths()
 
 suppressPackageStartupMessages({
   library("getopt", lib.loc = library.path)
-  library("VariantAnnotation", lib.loc = library.path)
-  library("MatrixGenerics", lib.loc = library.path)
-  library("SummarizedExperiment", lib.loc = library.path)
   library("data.table", lib.loc = library.path)
-  library("httr", lib.loc = library.path)
-  library("BiocStyle", lib.loc = library.path)
-  library("RefManageR", lib.loc = library.path)
-  library("rmarkdown", lib.loc = library.path)
-  library("testthat", lib.loc = library.path) 
   library("lineagespot", lib.loc = library.path)
-  
 }) 
 
 
