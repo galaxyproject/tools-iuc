@@ -97,7 +97,7 @@ def read_lineage_variants(x, lineage_name):
                 gene = 'ORF1a'
             else:
                 gene = 'ORF1b'
-                #4715 == 314 in constellations
+                # 4715 == 314 in constellations
                 pos = pos - 4401
         if gene not in sites:
             sites[gene] = {}
@@ -126,6 +126,7 @@ def read_lineage_variants(x, lineage_name):
                 sites[gene] = muts
     # done with this lineage and all of its parents
     definitions[lineage_name] = sites
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
