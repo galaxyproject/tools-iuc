@@ -1,32 +1,30 @@
 #!/usr/bin/env python
 
 import argparse
-import gzip
 import json
 import os
 import shutil
-import subprocess as sp
-import sys
 import tarfile
 from datetime import datetime
 
 import wget
 
 DB_paths = {
-    "mgnify_lsu":"ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_lsu-20200130.tar.gz",
-    "mgnify_ssu":"ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_ssu-20200130.tar.gz",
-    "mgnify_its_unite":"ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/UNITE-20200214.tar.gz",
-    "mgnify_its_itsonedb":"ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/ITSoneDB-20200214.tar.gz",
-    "test_lsu":"https://zenodo.org/record/8205348/files/test_lsu.tar.gz",
+    "mgnify_lsu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_lsu-20200130.tar.gz",
+    "mgnify_ssu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_ssu-20200130.tar.gz",
+    "mgnify_its_unite": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/UNITE-20200214.tar.gz",
+    "mgnify_its_itsonedb": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/ITSoneDB-20200214.tar.gz",
+    "test_lsu": "https://zenodo.org/record/8205348/files/test_lsu.tar.gz",
 }
 
 DB_names = {
-    "mgnify_lsu":"MGnify LSU (v5.0.7) - silva_lsu-20200130",
-    "mgnify_ssu":"MGnify SSU (v5.0.7) - silva_ssu-20200130",
-    "mgnify_its_unite":"MGnify ITS ITSonedb (v5.0.7) - ITSoneDB-20200214",
-    "mgnify_its_itsonedb":"MGnify ITS UNITE (v5.0.7) - UNITE-20200214",
-    "test_lsu":"Trimmed LSU Test DB",
+    "mgnify_lsu": "MGnify LSU (v5.0.7) - silva_lsu-20200130",
+    "mgnify_ssu": "MGnify SSU (v5.0.7) - silva_ssu-20200130",
+    "mgnify_its_unite": "MGnify ITS ITSonedb (v5.0.7) - ITSoneDB-20200214",
+    "mgnify_its_itsonedb": "MGnify ITS UNITE (v5.0.7) - UNITE-20200214",
+    "test_lsu": "Trimmed LSU Test DB",
 }
+
 
 def download_untar_store(url, tmp_path, dest_path):
     """
@@ -56,6 +54,7 @@ def download_untar_store(url, tmp_path, dest_path):
     
     shutil.rmtree(tmp_path)
 
+
 def main():
     # Parse Command Line
     parser = argparse.ArgumentParser(description="Create data manager JSON.")
@@ -84,7 +83,7 @@ def main():
     time = datetime.utcnow().strftime("%Y-%m-%d")
     db_value = f"{args.db_type}_from_{time}"
 
-    #output paths
+    # output paths
     db_path = os.path.join(workdir, db_value)
     tmp_path = os.path.join(workdir, "tmp")
 
@@ -113,6 +112,7 @@ def main():
 
     with open(os.path.join(args.output), "w+") as fh:
         json.dump(data_manager_entry, fh, sort_keys=True)
+
 
 if __name__ == "__main__":
     main()
