@@ -108,7 +108,15 @@ def read_lineage_variants(x, lineage_name):
     if "parent_lineage" in data["variant"]:
         x_parent = data["variant"]["parent_lineage"]
         if x_parent not in definitions:
-            parent_file = os.path.join(os.path.dirname(x.name), f"c{x_parent}.json")
+            parent_filename = f"c{x_parent}.json"
+            lineage_def_dir = os.path.dirname(x.name)
+            parent_file = os.path.join(lineage_def_dir, parent_filename)
+            if not os.path.isfile(parent_file):
+                raise FileNotFoundError(
+                    f"{x_parent} is defined as a parent of {lineage_name}, but "
+                    f"definitions file {parent_filename} not found in "
+                    f"{lineage_def_dir}."
+                )
             with open(parent_file) as parent_in:
                 read_lineage_variants(parent_in, x_parent)
 
@@ -131,7 +139,7 @@ def read_lineage_variants(x, lineage_name):
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "-i", "--input", required=True,
-    help="Name of the Input folder"
+    help="Name of the input folder"
 )
 parser.add_argument(
     "-o", "--output", required=True,
@@ -146,12 +154,14 @@ for definitions_file in os.listdir(args.input):
     # In constellations, the only reliable way to get the lineage name is from
     # the file name by stripping the .json suffix from it and dropping the
     # leading 'c' (e.g. cBA.5.json holds the definition for lineage BA.5).
-    lineage_name = definitions_file[1:-5]
-    if lineage_name in definitions:
+    if definitions_file[0] != 'c' or definitions_file[-5:] != '.json':
+        continue
+    lineage_name_from_file = definitions_file[1:-5]
+    if lineage_name_from_file in definitions:
         # seems we have parsed this lineage already as a parent of another lineage
         continue
     with open(os.path.join(args.input, definitions_file)) as data_in:
-        read_lineage_variants(data_in, lineage_name)
+        read_lineage_variants(data_in, lineage_name_from_file)
 
 for lineage, sites in definitions.items():
     # if path isn't there, create one could be added
