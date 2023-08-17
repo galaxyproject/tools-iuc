@@ -11,9 +11,9 @@ filt_rev <- c("filterAndTrim_F3D0_R2.fq.gz", "filterAndTrim_F3D141_R2.fq.gz")
 print("filterAndTrim")
 
 for (i in seq_len(fwd)) {
-    ftout <- dada2::filterAndTrim(fwd[i], filt_fwd[i], rev[i], filt_rev[i])
-    b <- paste(strsplit(fwd[i], ".", fixed = TRUE)[[1]][1], "tab", sep = ".")
-    write.table(ftout, b, quote = FALSE, sep = "\t", col.names = NA)
+  ftout <- dada2::filterAndTrim(fwd[i], filt_fwd[i], rev[i], filt_rev[i])
+  b <- paste(strsplit(fwd[i], ".", fixed = TRUE)[[1]][1], "tab", sep = ".")
+  write.table(ftout, b, quote = FALSE, sep = "\t", col.names = NA)
 }
 
 # In the test only the 1st data set is used
@@ -64,15 +64,15 @@ print("dada")
 dada_fwd <- dada2::dada(filt_fwd, err_fwd)
 dada_rev <- dada2::dada(filt_rev, err_rev)
 for (id in sample_names) {
-    saveRDS(dada_fwd[[id]], file = paste("dada_", id, "_R1.Rdata", sep = ""))
-    saveRDS(dada_rev[[id]], file = paste("dada_", id, "_R2.Rdata", sep = ""))
+  saveRDS(dada_fwd[[id]], file = paste("dada_", id, "_R1.Rdata", sep = ""))
+  saveRDS(dada_rev[[id]], file = paste("dada_", id, "_R2.Rdata", sep = ""))
 }
 
 # merge pairs
 print("mergePairs")
 merged <- dada2::mergePairs(dada_fwd, filt_fwd, dada_rev, filt_rev)
 for (id in sample_names) {
-    saveRDS(merged[[id]], file = paste("mergePairs_", id, ".Rdata", sep = ""))
+  saveRDS(merged[[id]], file = paste("mergePairs_", id, ".Rdata", sep = ""))
 }
 
 
@@ -85,8 +85,8 @@ reads_per_seqlen <- tapply(colSums(seqtab), factor(nchar(getSequences(seqtab))),
 df <- data.frame(length = as.numeric(names(reads_per_seqlen)), count = reads_per_seqlen)
 pdf("makeSequenceTable.pdf")
 ggplot(data = df, aes(x = length, y = count)) +
-    geom_col() +
-    theme_bw()
+  geom_col() +
+  theme_bw()
 bequiet <- dev.off()
 
 # remove bimera
@@ -119,7 +119,7 @@ dada2::filterAndTrim(fwd, c("filterAndTrim_single_filters_F3D0_R1.fq.gz", "filte
 
 merged_nondef <- dada2::mergePairs(dada_fwd, filt_fwd, dada_rev, filt_rev, minOverlap = 8, maxMismatch = 1, justConcatenate = TRUE, trimOverhang = TRUE)
 for (id in sample_names) {
-    saveRDS(merged_nondef[[id]], file = paste("mergePairs_", id, "_nondefault.Rdata", sep = ""))
+  saveRDS(merged_nondef[[id]], file = paste("mergePairs_", id, "_nondefault.Rdata", sep = ""))
 }
 rb_dada_fwd <- dada2::removeBimeraDenovo(dada_fwd[["F3D0_S188_L001"]])
 write.table(rb_dada_fwd, file = "removeBimeraDenovo_F3D0_dada_uniques.tab", quote = FALSE, sep = "\t", row.names = TRUE, col.names = FALSE)
@@ -129,7 +129,7 @@ saveRDS(rb_merged, file = "removeBimeraDenovo_F3D0_mergepairs.Rdata")
 
 # SeqCounts
 get_n <- function(x) {
-    sum(dada2::getUniques(x))
+  sum(dada2::getUniques(x))
 }
 
 print("seqCounts ft")
