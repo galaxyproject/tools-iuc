@@ -87,8 +87,9 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
         self._commit_number = None
 
     def git_clone(self):
-        git.Repo.clone_from(url=self._plasmidfinder_url, to_path=self._output_dir)
-        self._plasmidfinder_repository = git.Repo(path=self._output_dir)
+        self.plasmidfinder_db_path = f'{self._output_dir}/{self._db_name}'
+        git.Repo.clone_from(url=self._plasmidfinder_url, to_path=self.plasmidfinder_db_path)
+        self._plasmidfinder_repository = git.Repo(path=self.plasmidfinder_db_path)
 
     def get_commit_number(self):
         sha = self._plasmidfinder_repository.head.commit.hexsha
