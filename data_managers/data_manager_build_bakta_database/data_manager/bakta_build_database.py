@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import tarfile
 from datetime import datetime
@@ -132,7 +133,6 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         self.get_database_type()
 
     def download(self):
-        #self.db_name = f"{self.db_name}_{self.db_version}{self.db_type}"
         bakta_path = Path(self.db_dir).joinpath(self.tar_name)
         try:
             with bakta_path.open("wb") as fh_out, requests.get(
@@ -160,9 +160,24 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             ) as tar_file:
                 tar_file.extractall(path=db_path)
                 print(f"Untar the database in {db_path}")
-#                return db_path
+
+            if not self.test_mode:
+                self.moove_files(db_path=db_path)
+
         except OSError:
             sys.exit(f"ERROR: Could not extract {self.tar_name} " f"to {db_path}")
+
+    def moove_files(self, db_path):
+        if os.path.isdir(db_path.joinpath("db-light")):
+            input_dir = db_path.joinpath("db-light")
+        elif os.path.isdir(db_path.joinpath("db")):
+            input_dir = db_path.joinpath("db")
+        file_list = os.listdir(input_dir)
+        output_dir = db_path
+        for file in file_list:
+            input = input_dir.joinpath(file)
+            output = output_dir.joinpath(file)
+            shutil.move(input, output)
 
     def calc_md5_sum(self, buffer_size=1048576):
         tarball_path = Path(self.db_dir).joinpath(self.tar_name)
