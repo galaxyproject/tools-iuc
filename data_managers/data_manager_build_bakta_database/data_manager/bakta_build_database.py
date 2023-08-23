@@ -116,10 +116,10 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
     """
 
     def __init__(
-        self, 
-        db_dir=Path.cwd(), 
+        self,
+        db_dir=Path.cwd(),
         db_name="bakta-db",
-        db_version="latest", 
+        db_version="latest",
         test_mode=False
     ):
         super().__init__()
