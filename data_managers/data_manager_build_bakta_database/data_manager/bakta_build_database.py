@@ -20,17 +20,16 @@ class GetBaktaDatabaseInfo:
     def __init__(
         self,
         data_table_name="bakta_database",
-        db_name=Path.cwd().joinpath("db"),
         db_version="latest",
         tarball_name="db.tar.gz",
         test_mode=False,
     ):
         self.bakta_table_list = None
         self.db_url = None
+        self.db_name = "bakta-db"
         self.db_type = ""
         self.data_table_entry = None
         self.data_table_name = data_table_name
-        self.db_name = db_name
         self.tar_name = tarball_name
         self.db_version = db_version
         self.DB_VERSIONS_URL = "https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json"
@@ -103,7 +102,7 @@ class GetBaktaDatabaseInfo:
             value=bakta_name,
             dbkey=bakta_database_info["record"],
             bakta_version=tool_version,
-            path="db",
+            path=self.db_name,
         )
         self.bakta_table_list["data_tables"][self.data_table_name] = [data_info]
         return self.bakta_table_list
@@ -117,7 +116,11 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
     """
 
     def __init__(
-        self, db_dir=Path.cwd(), db_name="bakta", db_version="latest", test_mode=False
+        self, 
+        db_dir=Path.cwd(), 
+        db_name="bakta-db",
+        db_version="latest", 
+        test_mode=False
     ):
         super().__init__()
         self.md5 = None
@@ -129,7 +132,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         self.get_database_type()
 
     def download(self):
-        self.db_name = f"{self.db_name}_{self.db_version}{self.db_type}"
+        #self.db_name = f"{self.db_name}_{self.db_version}{self.db_type}"
         bakta_path = Path(self.db_dir).joinpath(self.tar_name)
         try:
             with bakta_path.open("wb") as fh_out, requests.get(
@@ -150,16 +153,16 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             )
 
     def untar(self):
-        db_path = Path(self.db_dir).as_posix()
+        db_path = Path(self.db_dir).joinpath(self.db_name)
         try:
             with self.tarball_path.open("rb") as fh_in, tarfile.open(
                 fileobj=fh_in, mode="r:gz"
             ) as tar_file:
                 tar_file.extractall(path=db_path)
                 print(f"Untar the database in {db_path}")
-                return db_path
+#                return db_path
         except OSError:
-            sys.exit(f"ERROR: Could not extract {self.tar_name} " f"to {self.db_name}")
+            sys.exit(f"ERROR: Could not extract {self.tar_name} " f"to {db_path}")
 
     def calc_md5_sum(self, buffer_size=1048576):
         tarball_path = Path(self.db_dir).joinpath(self.tar_name)
