@@ -1,21 +1,39 @@
-<tool id="mapseq" name="MAPseq" version="2.1.1+galaxy0" profile="21.05">
-    <description>fast and accurate sequence read classification tool designed to assign taxonomy and OTU classifications to ribosomal RNA sequences.</description>
+<tool id="mapseq" name="MAPseq" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>sequence read classification designed to assign taxonomy and OTU classifications</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.1.1</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
     <requirements>
-        <requirement type="package" version="2.1.1">mapseq</requirement>
+        <requirement type="package" version="5.26">perl</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">mapseq</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 
-        ## the DB should contain only one fasta and txt file
-        #if $ref_db.db_source == "cached":
-            ls -la ${ref_db.db_cached.fields.path} &&
-            ln -s ${ref_db.db_cached.fields.path}/*.fasta db.fasta &&
-            ln -s ${ref_db.db_cached.fields.path}/*.txt taxonomy.txt &&
-            ln -s ${ref_db.db_cached.fields.path}/*.mscluster db.fasta.mscluster &&
-        #else:
-            ln -s ${ref_db.database} db.fasta &&
-            ln -s ${ref_db.taxonomy} taxonomy.txt &&
-            ln -s ${ref_db.mscluster} db.fasta.mscluster &&
+        #if $ref_db.db_source == "cached" and $ref_db.mapseq2biom.mapseq2biom == "no":
+            ln -s '${ref_db.db_cached.fields.path}'/*.fasta db.fasta &&
+            ln -s '${ref_db.db_cached.fields.path}'/*.txt taxonomy.txt &&
+            ln -s '${ref_db.db_cached.fields.path}'/*.mscluster db.fasta.mscluster &&
+        #end if
 
+        #if $ref_db.db_source == "cached" and $ref_db.mapseq2biom.mapseq2biom == "yes":
+            ln -s '${ref_db.db_cached.fields.path}'/*.fasta db.fasta &&
+            ln -s '${ref_db.db_cached.fields.path}'/*.txt taxonomy.txt &&
+            ln -s '${ref_db.db_cached.fields.path}'/*.mscluster db.fasta.mscluster &&
+            ln -s '${ref_db.db_cached.fields.path}'/*.otu db.otu &&
+        #end if
+
+        #if $ref_db.db_source == "history" and $ref_db.mapseq2biom.mapseq2biom == "no":
+            ln -s '${ref_db.database}' db.fasta &&
+            ln -s '${ref_db.taxonomy}' taxonomy.txt &&
+            ln -s '${ref_db.mscluster}' db.fasta.mscluster &&
+        #end if
+
+        #if $ref_db.db_source == "history" and $ref_db.mapseq2biom.mapseq2biom == "yes":
+            ln -s '${ref_db.database}' db.fasta &&
+            ln -s '${ref_db.taxonomy}' taxonomy.txt &&
+            ln -s '${ref_db.mscluster}' db.fasta.mscluster &&
+            ln -s '${ref_db.mapseq2biom.otu_table}' db.otu &&
         #end if
 
         mapseq
@@ -27,7 +45,16 @@
         -minid2 '$minid2'
         -otulim '$otulim'
         -outfmt '$outfmt'
-        '$sequences' db.fasta taxonomy.txt > '$classifications'
+        '$sequences' db.fasta taxonomy.txt > '$classifications';
+
+        #if $ref_db.mapseq2biom.mapseq2biom == "yes":
+            perl '$__tool_directory__/mapseq2biom.pl' --otuTable db.otu --query '$classifications' --outfile '$otu_tsv' --taxid --notaxidfile '$otu_tsv_notaxid' 
+            #if $ref_db.mapseq2biom.krona_input == 'yes':
+                --krona '$krona_format'
+            #end if
+            ;
+        #end if
+
     ]]></command>
 
     <inputs>
@@ -45,91 +72,161 @@
                     </options>
                     <validator type="no_options" message="A built-in mapseq DB is not available. Please ask the galaxy admins to install one on the server." />
                 </param>
+                <conditional name="mapseq2biom">
+                    <param type="select" name="mapseq2biom" label="Create out of the MAPseq output a tab-separated output file?">
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </param>
+                    <when value="yes">
+                        <param type="boolean" name="krona_input" truevalue="yes" falsevalue="no" help="Generates an output file suitable for the use with Krona" />
+                    </when>
+                    <when value="no" />
+                </conditional>
             </when>
             <when value="history">
                 <param type="data" name="database" label="Database file (FASTA format)" format="fasta" />
                 <param type="data" name="taxonomy" label="Taxonomy file" format="tabular" />
-                <param type="data" name="mscluster" label="Database cluster" format="txt" optional="true" /> 
+                <param type="data" name="mscluster" label="Database cluster" format="txt" optional="true" />
+                <conditional name="mapseq2biom">
+                    <param type="select" name="mapseq2biom" label="Create out of the MAPseq output a tab-separated output file?">
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </param>
+                    <when value="yes">
+                        <param type="data" name="otu_table" format="txt" label="OTU table" help="The OTU table produced for the taxonomies found in the reference databases that was used with MAPseq" />
+                        <param type="boolean" name="krona_input" truevalue="yes" falsevalue="no" help="Generates an output file suitable for the use with Krona" />
+                    </when>
+                    <when value="no" />
+                </conditional>
             </when>
         </conditional>
                
-        <param argument="-tophits" type="integer" label="number of reference sequences to include in alignment phase" 
-               value="20" help="(-tophits)" />
+        <param argument="-tophits" type="integer" label="Top hits" help="Number of reference sequences to include in alignment phase"
+                value="20" min="1" max="200" />
                
-        <param argument="-topotus" type="integer" label="number of internal reference otus to include in alignment phase" 
-               value="10" help="(-topotus)" />
+        <param argument="-topotus" type="integer" label="Top OTUs" help="Number of internal reference otus to include in alignment phase"
+                value="10" min="1" max="200" />
                
-        <param argument="-minscore" type="integer" label="minimum score cutoff to consider for a classification, should be reduced when searching very small sequences, i.e.: primer search" 
-               value="30" help="(-minscore)" />
+        <param argument="-minscore" type="integer" label="Minimum score" 
+                help="Minimum score cutoff to consider for a classification, should be reduced when searching very small sequences, i.e.: primer search"
+                value="30" min="1" max="50" />
                
-        <param argument="-minid1" type="integer" label="minimum number of shared kmers to consider hit in second phase kmer search" 
-               value="1" help="(-minid1)" />
+        <param argument="-minid1" type="integer" label="Minimum number of shared kmers" help="Minimum number of shared kmers to consider hit in second phase kmer search" 
+                value="1" min="1" max="10" />
                
-        <param argument="-minid2" type="integer" label="number of reference sequences to include in alignment phase" 
-               value="1" help="(-minid2)" />
+        <param argument="-minid2" type="integer" label="Number of ref. sequences" help="Number of reference sequences to include in alignment phase"
+                value="1" min="1" max="10" />
                
-        <param argument="-otulim" type="integer" label="minimum number of shared kmers to consider hit in alignment phase" 
-               value="50" help="(-otulim)" />
+        <param argument="-otulim" type="integer" label="OTU limit" help="Minimum number of shared kmers to consider hit in alignment phase" 
+                value="50" min="1" max="60" />
 
-        <param argument="-outfmt" type="select" label="output format">
+        <param argument="-outfmt" type="select" label="Output format">
             <option value="simple">simple</option>
             <option value="confidences">confidences</option>
-        </param>       
+        </param>
     </inputs>
 
     <outputs>
         <data format="tabular" name="classifications" label="Classification results"/>
+        <data name="otu_tsv" format="tabular" label="tab-output including taxIDs">
+            <filter>(ref_db['mapseq2biom']['mapseq2biom'] == "yes")</filter>
+        </data>
+        <data name="otu_tsv_notaxid" format="tabular" label="tab-output without taxIDs" >
+            <filter>(ref_db['mapseq2biom']['mapseq2biom'] == "yes")</filter>
+        </data>
+        <data name="krona_format" format="tabular" label="Krona input" >
+            <filter>(ref_db['mapseq2biom']['mapseq2biom'] == "yes" and ref_db['mapseq2biom']['krona_input'])</filter>
+        </data>
     </outputs>
 
     <tests>
         <test expect_num_outputs="1">
             <param name="db_source" value="history" />
-            <param name="sequences" value="ERR2237853_MERGED_FASTQ.fasta"/>
+            <param name="sequences" value="sequences.fasta"/>
             <param name="database" value="mapseq_db/LSU_trimmed.fasta"/>
             <param name="taxonomy" value="mapseq_db/slv_lsu_filtered2_trimmed.txt"/>
-            <param name="mscluster" value="mapseq_db/LSU.fasta_trimmed.mscluster"/>
-            <param name="minscore" value="10"/>
-            <output name="classifications" file="ERR2237853_MERGED_FASTQ.mapseq" sort="true"/>
+            <param name="mscluster" value="mapseq_db/LSU_trimmed.fasta.mscluster"/>
+            <param name="mapseq2biom" value="no"/>
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
         </test>
         <test expect_num_outputs="1">
             <param name="db_source" value="history" />
-            <param name="sequences" value="ERR2237853_MERGED_FASTQ.fasta"/>
+            <param name="sequences" value="sequences.fasta"/>
             <param name="database" value="mapseq_db/LSU_trimmed.fasta"/>
             <param name="taxonomy" value="mapseq_db/slv_lsu_filtered2_trimmed.txt"/>
-            <param name="minscore" value="10"/>
-            <output name="classifications" file="ERR2237853_MERGED_FASTQ.mapseq" sort="true"/>
+            <param name="mapseq2biom" value="no"/>
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="db_source" value="history" />
+            <param name="sequences" value="sequences.fasta"/>
+            <param name="database" value="mapseq_db/LSU_trimmed.fasta"/>
+            <param name="taxonomy" value="mapseq_db/slv_lsu_filtered2_trimmed.txt"/>
+            <param name="mscluster" value="mapseq_db/LSU_trimmed.fasta.mscluster"/>
+            <param name="mapseq2biom" value="yes"/>
+            <param name="krona_input" value="no"/>
+            <param name="otu_table" value="mapseq_db/test.otu" />
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
+            <output name="otu_tsv" file="mapseq2biom/tab-output_including_taxIDs.tabular" />
+            <output name="otu_tsv_notaxid" file="mapseq2biom/tab-output_without_taxIDs.tabular" />
+        </test>
+        <test expect_num_outputs="4">
+            <param name="db_source" value="history" />
+            <param name="sequences" value="sequences.fasta"/>
+            <param name="database" value="mapseq_db/LSU_trimmed.fasta"/>
+            <param name="taxonomy" value="mapseq_db/slv_lsu_filtered2_trimmed.txt"/>
+            <param name="mscluster" value="mapseq_db/LSU_trimmed.fasta.mscluster"/>
+            <param name="mapseq2biom" value="yes"/>
+            <param name="krona_input" value="yes"/>
+            <param name="otu_table" value="mapseq_db/test.otu" />
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
+            <output name="otu_tsv" file="mapseq2biom/tab-output_including_taxIDs.tabular" />
+            <output name="otu_tsv_notaxid" file="mapseq2biom/tab-output_without_taxIDs.tabular" />
+            <output name="krona_format" file="mapseq2biom/krona_input.tabular" />
         </test>
         <test expect_num_outputs="1">
             <param name="db_source" value="cached" />
-            <param name="db_cached" value="mapseq_db" />
-            <param name="sequences" value="ERR2237853_MERGED_FASTQ.fasta"/>
-            <param name="minscore" value="10"/>
-            <output name="classifications" file="ERR2237853_MERGED_FASTQ.mapseq" sort="true"/>
+            <param name="db_cached" value="MGnify LSU Reference Database" />
+            <param name="sequences" value="sequences.fasta"/>
+            <param name="mapseq2biom" value="no"/>
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="db_source" value="cached" />
+            <param name="db_cached" value="MGnify LSU Reference Database" />
+            <param name="sequences" value="sequences.fasta"/>
+            <param name="mapseq2biom" value="yes"/>
+            <param name="krona_input" value="no"/>
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
+            <output name="otu_tsv" file="mapseq2biom/tab-output_including_taxIDs.tabular" />
+            <output name="otu_tsv_notaxid" file="mapseq2biom/tab-output_without_taxIDs.tabular" />
+        </test>
+        <test expect_num_outputs="4">
+            <param name="db_source" value="cached" />
+            <param name="db_cached" value="MGnify LSU Reference Database" />
+            <param name="sequences" value="sequences.fasta"/>
+            <param name="mapseq2biom" value="yes"/>
+            <param name="krona_input" value="yes"/>
+            <output name="classifications" file="sequences.mapseq" sort="true"/>
+            <output name="otu_tsv" file="mapseq2biom/tab-output_including_taxIDs.tabular" />
+            <output name="otu_tsv_notaxid" file="mapseq2biom/tab-output_without_taxIDs.tabular" />
+            <output name="krona_format" file="mapseq2biom/krona_input.tabular" />
         </test>
     </tests>
 
     <help><![CDATA[
-    
-MAPseq v1.2.6
-by Joao F. Matias Rodrigues, Thomas S. B. Schmidt, Janko Tackmann, and Christian von Mering
-Institute of Molecular Life Sciences, University of Zurich, Switzerland
-Matias Rodrigues JF, Schmidt TSB, Tackmann J, and von Mering C (2017) MAPseq: highly efficient k-mer search with confidence estimates, for rRNA sequence analysis. Bioinformatics. http://doi.org/10.1093/bioinformatics/btx517
-
-Usage:
-    mapseq input.fa [<db> <tax1> <tax2> ...]
-
 Classify a fasta file containing sequence reads to the default NCBI taxonomy and OTU classifications.
 Example: mapseq -nthreads 4 rawreads.fa
 
 Optional arguments:
-           -nthreads   <int>  number of threads to use [default: 4]
+            -nthreads   <int>  number of threads to use [default: 4]
 
 Performance/sensitivity:
             -tophits   <int>  number of reference sequences to include in alignment phase [default: 20]
             -topotus   <int>  number of internal reference otus to include in alignment phase [default: 10]
 
 Search parameters:
-           -minscore   <int>  minimum score cutoff to consider for a classification, should be reduced when searching very small sequences, i.e.: primer search [default: 30]
+             -minscore   <int>  minimum score cutoff to consider for a classification, should be reduced when searching very small sequences, i.e.: primer search [default: 30]
              -minid1   <int>  minimum number of shared kmers to consider hit in second phase kmer search [default: 1]
              -minid2   <int>  minimum number of shared kmers to consider hit in alignment phase [default: 1]
              -otulim   <int>  number of sequences per internal cluster to include in alignment phase [default: 50]
@@ -144,16 +241,66 @@ Generating count summaries from mapseq output:
           -otutable   <sample1.mseq> [sample2.mseq [...]]
                               generates a tsv file with taxonomic labels as rows and samples as columns from classification output files
 
-Report bugs to: joao.rodrigues@imls.uzh.ch
-http://meringlab.org/software/mapseq/
-http://github.org/jfmrod/MAPseq/
+**mapseq2biom Example:**
 
+**test.mapseq:**
+
+# mapseq v1.2.3 (Oct  2 2018)
+
+#query	dbhit	bitscore	identity	matches	mismatches	gaps	query_start	query_end	dbhit_start	dbhit_end	strand		ITS2
+
+test.1	355527192	204	0.9863636493682861	217	1	2	0	218	0	220	-		sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Didymellaceae;g__Ectophoma;s__Ectophoma_multirostrata
+
+test.2	555948006	248	0.8478803038597107	340	42	19	200	582	192	593	-		sk__Eukaryota;k__Fungi
+
+test.4	406352048	217	0.9127272963523865	251	22	2	106	381	169	442	-		sk__Eukaryota;k__Fungi;p__
+
+**test.otu:**
+
+1	sk__Eukaryota;k__Fungi
+
+2	sk__Eukaryota;k__Fungi;p__;c__;o__;f__;g__;s__uncultured_fungus
+
+3	sk__Eukaryota;k__Fungi;p__Ascomycota
+
+4	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales
+
+5	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Astrosphaeriellaceae;g__Pithomyces
+
+6	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Coniothyriaceae;g__Coniothyrium
+
+7	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Didymellaceae
+
+8	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Didymellaceae;g__Ectophoma
+
+9	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Didymellaceae;g__Ectophoma;s__Ectophoma_multirostrata
+
+10	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Didymosphaeriaceae;g__Paraconiothyrium;s__Paraconiothyrium_cyclothyrioides
+
+**output_no_taxID:**
+
+# Constructed from biom file
+
+# OTU ID	label	taxonomy
+
+1	2.0	sk__Eukaryota;k__Fungi
+
+9	1.0	sk__Eukaryota;k__Fungi;p__Ascomycota;c__Dothideomycetes;o__Pleosporales;f__Didymellaceae;g__Ectophoma;s__Ectophoma_multirostrata
+
+**output_for_krona:**
+
+2	sk__Eukaryota	k__Fungi
+
+1	sk__Eukaryota	k__Fungi	p__Ascomycota	c__Dothideomycetes	o__Pleosporales	f__Didymellaceae	g__Ectophoma	s__Ectophoma_multirostrata
 
     ]]></help>
 
     <citations>
             <citation type="doi">
                 10.1093/bioinformatics/btx517
+            </citation>
+            <citation type="doi">
+                10.1093/nar/gkac1080
             </citation>
     </citations>
 </tool>
