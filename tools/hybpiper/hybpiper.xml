@@ -26,7 +26,9 @@
         #else:
             #set sample_prefix = str($R1.name).split('.')[0]
         #end if
-        ln -s \$_GALAXY_JOB_TMP_DIR '${sample_prefix}'
+        my_tmpdir=\$( mktemp -d )
+        &&
+        ln -s "\${my_tmpdir}" '${sample_prefix}'
         &&
         hybpiper assemble
         --readfiles '$R1' '$R2'
@@ -38,12 +40,43 @@
         --cpu \${GALAXY_SLOTS:-1}
         --prefix '${sample_prefix}'
         &&
-        tar -cvf sample.tar
-        --directory=\$_GALAXY_JOB_TMP_DIR .
+        ls -lh "\${my_tmpdir}"
+        &&
+        tar -cvf sample.tar --directory="\${my_tmpdir}" .
     #elif str( $job_conditional.hybpiper_job ) == "stats":
         #for $sample in $job_conditional.hybpiper_results
-            printf "%s\n" $sample
+            #set sample_name = str($sample.name)
+            ## ln -s '${sample}' '${sample_name}'
+            mkdir -p '${sample_name}'
+            &&
+            tar -xf '$sample'
+            -C '${sample_name}'
+            &&
+            echo '${sample_name}' >> namelist.txt
+            &&
         #end for
+        #if 'stats' in $job_conditional.output_type:
+            hybpiper stats
+            --targetfile_dna target_file.fasta
+            --stats_filename stats
+            --seq_lengths_filename seq_lengths
+            gene
+            namelist.txt
+            &&
+        #end if
+        #if 'sequences' in $job_conditional.output_type:
+            mkdir fasta_out
+            &&
+            hybpiper retrieve_sequences
+            --targetfile_dna target_file.fasta
+            --sample_names namelist.txt
+            --fasta_dir fasta_out
+            dna
+            &&
+            ls -lhrt fasta_out/
+            &&
+        #end if
+        ls -lhrt
     #end if
     
 ]]></command>
@@ -86,10 +119,21 @@
             <data name="targetfile_ctl_file" format="txt" from_work_dir="hybpiper.ctl" />
             <data name="targetfile_report" format="tabular" from_work_dir="fix_targetfile_report.tsv" />
             <filter>job_conditional['hybpiper_job'] == 'check_and_fix_targetfile'</filter>
-        </collection>       
-        <data name="assembly_archive" format="tar" label="${tool.name} assembly on ${on_string}" from_work_dir="sample.tar">
+        </collection>
+        <data name="assembly_archive" format="tar" label="${job_conditional.prefix}" from_work_dir="sample.tar">
             <filter>job_conditional['hybpiper_job'] == 'assemble'</filter>
         </data>
+        <!-- <collection type="list" name="stats_output" label="${tool.name} stats output"> -->
+        <data name="stats" format="tabular" from_work_dir="stats.tsv" label="hybpiper stats">
+            <filter>'stats' in job_conditional['output_type']</filter>
+        </data>
+        <data name="seq_lengths" format="tabular" from_work_dir="seq_lengths.tsv" label="hybpiper seqlengths">
+            <filter>'stats' in job_conditional['output_type']</filter>
+        </data>
+        <collection name="hybpiper_sequences" type="list" label="Assembled sequences">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.FNA" format="fasta" directory="fasta_out" recurse="false" />
+            <filter>'sequences' in job_conditional['output_type']</filter>
+        </collection>
     </outputs>
     <tests>
     <!-- test1: check and fix targetfile -->
