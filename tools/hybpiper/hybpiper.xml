@@ -6,9 +6,16 @@
     <expand macro="xrefs"/>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-   
+
+    ## set up files
     ln -s '$targetfile_dna' ./target_file.fasta
     &&
+    my_tmpdir=\$( mktemp -d )
+    &&
+
+    ###############################
+    ## hybpiper check_targetfile ##
+    ###############################
 
     #if str( $job_conditional.hybpiper_job ) == "check_and_fix_targetfile":
         hybpiper check_targetfile 
@@ -20,16 +27,19 @@
         --targetfile_dna target_file.fasta
         --allow_gene_removal
         hybpiper.ctl
+    
+    #######################
+    ## hybpiper assemble ##
+    #######################
+
     #elif str( $job_conditional.hybpiper_job ) == "assemble":
         #if str($job_conditional.prefix) != '':
             #set sample_prefix = str($job_conditional.prefix)
         #else:
             #import re
-            #set sample_name = re.sub(r'[._]([Rr])?1([._])?.*', '', str($R1.name))
+            #set sample_name = re.sub(r'[._]([Rr])?1([._])?.*', '', str($R1.element_identifier))
             #set sample_prefix = re.sub(r'[^A-Za-z0-9_\-]', '', sample_name)
         #end if
-        my_tmpdir=\$( mktemp -d )
-        &&
         ln -s "\${my_tmpdir}" '${sample_prefix}'
         &&
         hybpiper assemble
@@ -43,10 +53,17 @@
         --prefix '${sample_prefix}'
         &&
         tar -cvf '${sample_prefix}.tar' --directory="\${my_tmpdir}" .
+
+        &&
+        cp '$c1' galaxy.json
+
+    #######################################
+    ## hybpiper stats/retrieve_sequences ##
+    #######################################
+
     #elif str( $job_conditional.hybpiper_job ) == "stats":
         #for $sample in $job_conditional.hybpiper_results
-            #set sample_name = str($sample.name)
-            ## ln -s '${sample}' '${sample_name}'
+            #set sample_name = str($sample.designation)
             mkdir -p '${sample_name}'
             &&
             tar -xf '$sample'
@@ -80,6 +97,18 @@
     #end if
     
 ]]></command>
+    <configfiles>
+        <configfile name="c1">
+        #import re
+        #import json
+        #set $elems = []
+        #if str( $job_conditional.hybpiper_job ) == "assemble"
+            #set sample_name = re.sub(r'[._]([Rr])?1([._])?.*', '', str($R1.element_identifier))
+            #set sample_prefix = re.sub(r'[^A-Za-z0-9_\-]', '', sample_name)
+            #set $elems = [{'filename': '%s.tar' % sample_prefix, 'designation': '%s' % sample_prefix, 'name':  'Hybpiper assembly archive for %s' % sample_prefix, 'ext': 'tar',  'dbkey': str($R1.dbkey)}]
+        #end if
+        #echo json.dumps({'archives': {'datasets': $elems}})</configfile>
+    </configfiles>
     <inputs>
         <param argument="--targetfile_dna" type="data" format="fasta" label="Target file" help="Target file in FASTA format" />
         <conditional name="job_conditional">
@@ -120,22 +149,18 @@
             <data name="targetfile_report" format="tabular" from_work_dir="fix_targetfile_report.tsv" />
             <filter>job_conditional['hybpiper_job'] == 'check_and_fix_targetfile'</filter>
         </collection>
-        <!-- FIXME! this MUST be labelled with the sample_prefix. -->
-        <!-- Use discover_datasets -->
-        <data name="assembly_archive" format="tar">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tar" visible="true" />            
+        <data name="archives">
+            <discover_datasets from_provided_metadata="true" visible="true" />
             <filter>job_conditional['hybpiper_job'] == 'assemble'</filter>
         </data>
 
-        <!-- FIXME! put all this junk in a collection -->
-        <!-- ######################################## -->
-        <data name="stats" format="tabular" from_work_dir="stats.tsv" label="hybpiper stats">
+        <collection name="hybpiper_stats" type="list" label="Hybpiper Stats">
+            <data name="stats" format="tabular" from_work_dir="stats.tsv" label="hybpiper stats">
+            </data>
+            <data name="seq_lengths" format="tabular" from_work_dir="seq_lengths.tsv" label="hybpiper seqlengths">
+            </data>
             <filter>job_conditional['hybpiper_job'] == 'stats' and 'stats' in job_conditional['output_type']</filter>
-        </data>
-        <data name="seq_lengths" format="tabular" from_work_dir="seq_lengths.tsv" label="hybpiper seqlengths">
-            <filter>job_conditional['hybpiper_job'] == 'stats' and 'stats' in job_conditional['output_type']</filter>
-        </data>
-        <!-- ######################################## -->
+        </collection>
 
         <collection name="hybpiper_sequences" type="list" label="Assembled sequences">
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\.FNA" format="fasta" directory="fasta_out" recurse="false" />
