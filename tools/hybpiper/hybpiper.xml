@@ -11,9 +11,6 @@
     ln -s '$targetfile_dna' ./target_file.fasta
     &&
 
-    my_tmpdir=\$( mktemp -d )
-    &&
-
     ###############################
     ## hybpiper check_targetfile ##
     ###############################
@@ -37,31 +34,18 @@
     #######################
 
     #elif str( $job_conditional.hybpiper_job ) == "assemble":
-        #if str($job_conditional.prefix) != '':
-            #set sample_prefix = str($job_conditional.prefix)
-        #else:
-            #import re
-            #set sample_name = re.sub(r'[._]([Rr])?1([._])?.*', '', str($R1.element_identifier))
-            #set sample_prefix = re.sub(r'[^A-Za-z0-9_\-]', '', sample_name)
-        #end if
-        ln -s "\${my_tmpdir}" '${sample_prefix}'
-        &&
-
+        #set sample_prefix = str($job_conditional.paired_input.element_identifier)        
         hybpiper assemble
-        --readfiles '$R1' '$R2'
-        #if $unpaired:
-            --unpaired '${unpaired}'
-        #end if
+        --readfiles
+        $job_conditional.paired_input.forward
+        $job_conditional.paired_input.reverse
         --targetfile_dna target_file.fasta
         --diamond
         --cpu \${GALAXY_SLOTS:-1}
         --prefix '${sample_prefix}'
         &&
 
-        tar -cvf '${sample_prefix}.tar' --directory="\${my_tmpdir}" .
-        &&
-
-        cp '$c1' galaxy.json
+        tar -cvf '${hybpiper_archive}' --directory='${sample_prefix}' .
         &&
 
     #######################################
@@ -69,15 +53,8 @@
     #######################################
 
     #elif str( $job_conditional.hybpiper_job ) == "stats":
-        #set $n = 1
         #for $sample in $job_conditional.hybpiper_results
-            ## This if/else allows tests to run without sample.designation
-            #if str($sample.designation) != 'None'
-                #set sample_name = str($sample.designation)
-            #else
-                #set sample_name = 'sample_' + str(n)
-                #set $n += 1
-            #end if
+            #set sample_name = str($sample.element_identifier)
             
             mkdir -p '${sample_name}'
             &&
@@ -126,23 +103,6 @@
     wait
 
 ]]></command>
-
-    <configfiles>
-        <configfile name="c1">
-        #import re
-        #import json
-        #set $elems = []
-        #if str( $job_conditional.hybpiper_job ) == "assemble"
-            #if str($job_conditional.prefix) != '':
-                #set sample_prefix = str($job_conditional.prefix)
-            #else
-                #set sample_name = re.sub(r'[._]([Rr])?1([._])?.*', '', str($R1.element_identifier))
-                #set sample_prefix = re.sub(r'[^A-Za-z0-9_\-]', '', sample_name)
-            #end if
-            #set $elems = [{'filename': '%s.tar' % sample_prefix, 'designation': '%s' % sample_prefix, 'name':  'Hybpiper assembly archive for %s' % sample_prefix, 'ext': 'tar'}]
-        #end if
-        #echo json.dumps({'archives': {'datasets': $elems}})</configfile>
-    </configfiles>
     
     <inputs>
         <param argument="--targetfile_dna" type="data" format="fasta" label="Target file" help="Target file in FASTA format" />
@@ -158,17 +118,11 @@
             </when>
     
             <when value="assemble">
-                <param name="R1" type="data" format="fastqsanger" label="R1 read file"/>
-                <param name="R2" type="data" format="fastqsanger" label="R2 read file" />
-                <param name="unpaired" optional="true" type="data" format="fastqsanger" label="Unpaired reads" help="If you kept the unpaired reads from adaptor trimming, you can use them here." />
-                <!-- TODO: hide prefix in a parameter. -->
-                <param argument="--prefix" optional="true" type="text" value="" label="Override the sample name." help="If you leave this blank, the name of the R1 read file will be used (recommended).">
-                    <validator type="regex">[0-9a-zA-Z_]+</validator>     
-                </param>
+                <param name="paired_input" format="fastqsanger" type="data_collection" collection_type="paired" label="Input reads" help="Your input must be a paired collection. If you need help formatting your data, see the &quot;Using Galaxy and Managing your Data&quot; section of the Galaxy training site. Single-end and unpaired input is currently unavailable for Hybpiper on Galaxy." />
             </when>
     
             <when value="stats">
-                <param name="hybpiper_results" type="data" format="tar" multiple="true" label="Results from Hybpiper assemble runs" />
+                <param name="hybpiper_results" type="data_collection" collection_type="list" format="tar" multiple="true" label="Results from Hybpiper assemble runs" />
                 <param name="stats_type_select" type="select" label="Choose statistics to report" display="checkboxes" multiple="true">
                     <option value="gene" selected="true">Gene</option>
                     <option value="supercontig">Supercontig</option>
@@ -186,34 +140,31 @@
     
     <outputs>
         <!-- check_targetfile output -->
-        <collection type="list" name="output_targetfile" label="${targetfile_dna.element_identifier} (fixed)">
-            <data name="fixed_targetfile" label="${targetfile_dna.element_identifier} (fixed)" format="fasta" from_work_dir="target_file_fixed.fasta"/>
+        <data name="fixed_targetfile" label="${targetfile_dna.element_identifier} (fixed)" format="fasta" from_work_dir="target_file_fixed.fasta">
+            <filter>job_conditional['hybpiper_job'] == 'check_and_fix_targetfile'</filter>
+        </data>
+        <collection type="list" name="output_targetfile" label="Hybpiper logs for ${targetfile_dna.element_identifier}">
             <data name="targetfile_ctl_file" label="Hybpiper .ctl file for ${on_string}" format="txt" from_work_dir="hybpiper.ctl" />
             <data name="targetfile_report" label="Hybpiper targetfile report" format="tabular" from_work_dir="fix_targetfile_report.tsv" />
             <filter>job_conditional['hybpiper_job'] == 'check_and_fix_targetfile'</filter>
         </collection>
 
         <!-- assemble output -->
-        <data name="archives" format="tar">
-            <discover_datasets from_provided_metadata="true" visible="true" />
+        <data name="hybpiper_archive" format="tar">
             <filter>job_conditional['hybpiper_job'] == 'assemble'</filter>
         </data>
 
         <!-- stats / stats output -->
         <collection name="hybpiper_stats" type="list" label="Hybpiper statistics">
             <data name="stats_gene" label="Hybpiper statistics (gene)" format="tabular" from_work_dir="stats.gene.tsv">
-                <filter>'gene' in job_conditional['stats_type_select']</filter>
             </data>
             <data name="stats_supercontig" label="Hybpiper statistics (supercontig)" format="tabular" from_work_dir="stats.supercontig.tsv">
-                <filter>'supercontig' in job_conditional['stats_type_select']</filter>
             </data>
             <data name="seqlengths_gene" label="Assembled sequence lengths (gene)" format="tabular" from_work_dir="seq_lengths.gene.tsv">
-                <filter>'gene' in job_conditional['stats_type_select']</filter>
             </data>
             <data name="seqlengths_supercontig" label="Assembled sequence lengths (supercontig)" format="tabular" from_work_dir="seq_lengths.supercontig.tsv">
-                <filter>'supercontig' in job_conditional['stats_type_select']</filter>
             </data>
-            <filter>job_conditional['hybpiper_job'] == 'stats'</filter>
+            <filter>job_conditional['hybpiper_job'] == 'stats' and ('gene' in job_conditional['stats_type_select'] or 'supercontig' in job_conditional['stats_type_select'])</filter>
         </collection>
 
         <!-- stats/heatmap output -->
@@ -249,58 +200,42 @@
         <conditional name="job_conditional">
             <param name="hybpiper_job" value="check_and_fix_targetfile"/>
         </conditional>
-        <output_collection name="output_targetfile" type="list">
-            <element name="fixed_targetfile" file="test1_out.fasta"/>
+        <output name="fixed_targetfile" file="test1_out.fasta"/>
+        <output_collection name="output_targetfile" type="list" count="2">
             <element name="targetfile_ctl_file" file="test1_out.ctl"/>    
             <element name="targetfile_report" file="test1_out.tsv"/>
         </output_collection>
     </test>
 
-    <!-- test2: assemble with r1, r2 and unpaired -->
+    <!-- test2: assemble with paired collection -->
     <test expect_num_outputs="1">
-        <param name="targetfile_dna" value="test1_out.fasta"/>
+        <param name="targetfile_dna" value="test_targets.fasta.gz"/>
         <conditional name="job_conditional">
             <param name="hybpiper_job" value="assemble"/>
-            <param name="R1" value="NZ874_R1_test.fastq.gz"/>
-            <param name="R2" value="NZ874_R2_test.fastq.gz"/>
-            <param name="unpaired" value="NZ874_unpaired_test.fastq.gz"/>
+            <param name="paired_input">
+                <collection type="paired" name="NZ874">
+                    <element name="forward" ftype="fastqsanger.gz" value="NZ874_R1_test.fastq.gz" />
+                    <element name="reverse" ftype="fastqsanger.gz" value="NZ874_R2_test.fastq.gz" />
+                </collection>
+            </param>
         </conditional>
-        <!-- should be one output, but assign_primary_output doesn't work -->
-        <output name="archives" file="test2_out.tar" count="2"/>
+        <output name="hybpiper_archive">
+            <assert_contents>
+                <has_size value="2386944" delta="200000" />
+            </assert_contents>
+        </output>
     </test>
 
-    <!-- test3: assemble with r1 and r2 but no unpaired. -->
-    <test expect_num_outputs="1">
-        <param name="targetfile_dna" value="test1_out.fasta"/>
-        <conditional name="job_conditional">
-            <param name="hybpiper_job" value="assemble"/>
-            <param name="R1" value="NZ874_R1_test.fastq.gz"/>
-            <param name="R2" value="NZ874_R2_test.fastq.gz"/>
-        </conditional>
-        <!-- should be one output, but assign_primary_output doesn't work -->
-        <output name="archives" file="test3_out.tar" count="2"/>
-    </test>
-
-    <!-- test4: set the prefix. -->
-    <test expect_num_outputs="1">
-        <param name="targetfile_dna" value="test1_out.fasta"/>
-        <conditional name="job_conditional">
-            <param name="hybpiper_job" value="assemble"/>
-            <param name="R1" value="NZ874_R1_test.fastq.gz"/>
-            <param name="R2" value="NZ874_R2_test.fastq.gz"/>
-            <param name="prefix" value="my_sample"/>
-        </conditional>
-        <!-- should be one output, but assign_primary_output doesn't work -->
-        <output name="archives" file="test4_out.tar" count="2"/>
-    </test>
-
-    <!-- test5: all stats output -->
-    <!-- This won't work yet, because stats relies on the sample identifier being passed  -->
+    <!-- test3: all stats output -->
     <test expect_num_outputs="10">
-        <param name="targetfile_dna" value="test1_out.fasta"/>
+        <param name="targetfile_dna" value="test_targets.fasta.gz"/>
         <conditional name="job_conditional">
             <param name="hybpiper_job" value="stats"/>
-            <param name="hybpiper_results" value="NZ874_assembled.tar,NZ874_assembled_with_different_name.tar" />
+            <param name="hybpiper_results" >
+                <collection type="list">
+                    <element name="NZ874" value="NZ874.tar.gz" />
+                </collection>
+            </param>
             <param name="stats_type_select" value="gene,supercontig"/>
             <param name="heatmap" value="true"/>
             <param name="sequence_type_select" value="dna,aa,intron,supercontig"/>
