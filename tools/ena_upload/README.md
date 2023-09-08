@@ -1,5 +1,5 @@
 # ena-upload-wrapper
-Galaxy wrapper for ena-cli-upload
+Galaxy wrapper of the [ena-upload-cli](https://github.com/usegalaxy-eu/ena-upload-cli). Templates that can be used in as input for the metadata can be found [here](https://github.com/ELIXIR-Belgium/ENA-metadata-templates)
 
 This tool is shipped in a ready to use Galaxy container found [here](https://github.com/ELIXIR-Belgium/ena-upload-container).
 
