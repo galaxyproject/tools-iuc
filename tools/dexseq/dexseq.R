@@ -1,6 +1,7 @@
 ## Setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
-    cat(geterrmessage(), file = stderr()); q("no", 1, F)
+options(show.error.messages = FALSE, error = function() {
+    cat(geterrmessage(), file = stderr())
+    q("no", 1, FALSE)
 })
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
@@ -27,14 +28,14 @@ spec <- matrix(c(
     "factors", "f", 1, "character",
     "threads", "p", 1, "integer",
     "fdr", "c", 1, "double"
-), byrow = TRUE, ncol = 4);
-opt <- getopt(spec);
+), byrow = TRUE, ncol = 4)
+opt <- getopt(spec)
 
 # if help was asked for print a friendly message
 # and exit with a non-zero error code
 if (!is.null(opt$help)) {
-    cat(getopt(spec, usage = TRUE));
-    q(status = 1);
+    cat(getopt(spec, usage = TRUE))
+    q(status = 1)
 }
 
 trim <- function(x) gsub("^\\s+|\\s+$", "", x)
@@ -110,7 +111,8 @@ last_column <- ncol(export_table)
 for (i in seq_len(nrow(export_table))) {
   export_table[i, last_column] <- paste(export_table[i, last_column][[1]], collapse = ", ")
 }
-write.table(export_table, file = opt$outfile, sep = "\t", quote = FALSE, col.names = FALSE)
+export_table[, c(last_column)] <- sapply(export_table[, c(last_column)], as.character)
+write.table(export_table, file = opt$outfile, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
 print("Written Results")
 
 if (!is.null(opt$rds)) {
