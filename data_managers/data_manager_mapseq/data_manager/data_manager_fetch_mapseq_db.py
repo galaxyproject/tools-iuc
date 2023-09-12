@@ -102,9 +102,8 @@ def main():
         "data_tables": {
             "mapseq_db": {
                 "value": db_value,
-                "dbkey": db_value,
-                "version": args.version,
                 "name": f"{db_name} downloaded at {time}",
+                "version": args.version,
                 "path": db_path,
             }
         }
