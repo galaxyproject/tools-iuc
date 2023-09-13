@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-import csv
 import argparse
-import sys
+import csv
 import logging
+import sys
 
 
 logging.basicConfig(level=logging.INFO)

@@ -11,11 +11,11 @@ import argparse
 import csv
 import logging as log
 import os
-import re
 import random
+import re
+
 import pandas as pd
 import xlsxwriter
-
 from Bio import SeqIO
 from Bio.Align.Applications import ClustalOmegaCommandline
 from ete3 import NodeStyle, SeqGroup, SeqMotifFace, Tree, TreeStyle
