@@ -4,15 +4,15 @@
 # Name: blast2tsv
 # Author(s): Sebastien Theil, Marie Lefebvre - INRAE
 # Aims: Convert blast xml output to tsv and add taxonomy
-#
 
 
 import argparse
 import logging as log
-from Bio.Blast import NCBIXML
-from Bio import SeqIO
 from Bio import Entrez
+from Bio import SeqIO
 from ete3 import NCBITaxa
+
+from Bio.Blast import NCBIXML
 ncbi = NCBITaxa()
 
 

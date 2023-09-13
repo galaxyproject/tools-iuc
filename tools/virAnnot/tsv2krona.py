@@ -7,8 +7,8 @@
 
 
 import argparse
-import logging as log
 import csv
+import logging as log
 import os
 
 
