@@ -8,9 +8,10 @@
 
 import argparse
 import gzip
-import os
 import logging as log
+import os
 import subprocess
+
 from Bio.Blast import NCBIXML
 
 

@@ -8,16 +8,17 @@
 
 
 import argparse
-import logging as log
 import csv
-import re
+import logging as log
 import os
+import re
 import random
+import pandas as pd
+import xlsxwriter
+
 from Bio import SeqIO
 from Bio.Align.Applications import ClustalOmegaCommandline
-import xlsxwriter
-import pandas as pd
-from ete3 import Tree, NodeStyle, TreeStyle, SeqGroup, SeqMotifFace
+from ete3 import NodeStyle, SeqGroup, SeqMotifFace, Tree, TreeStyle
 
 
 def main():
