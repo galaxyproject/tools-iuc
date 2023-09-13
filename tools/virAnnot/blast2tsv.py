@@ -8,11 +8,12 @@
 
 import argparse
 import logging as log
+
 from Bio import Entrez
 from Bio import SeqIO
+from Bio.Blast import NCBIXML
 from ete3 import NCBITaxa
 
-from Bio.Blast import NCBIXML
 ncbi = NCBITaxa()
 
 
