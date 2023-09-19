@@ -387,7 +387,8 @@ filtered_count <- prefilter_count - postfilter_count
 
 # Name rows of factors according to their sample
 row.names(factors) <- names(data$counts)
-factor_list <- sapply(names(factors), paste_listname)
+# factor_list <- sapply(names(factors), paste_listname)
+factor_list <- names(factors)
 
 # Generating the DGEList object "data"
 samplenames <- colnames(data$counts)
@@ -405,7 +406,7 @@ for (i in seq_along(factor_list)) {
 }
 
 formula <- formula(formula)
-design <- model.matrix(formula)
+design <- model.matrix(formula, factors)
 
 for (i in seq_along(factor_list)) {
   colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)
