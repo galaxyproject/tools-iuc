@@ -40,9 +40,9 @@
 time_start <- as.character(Sys.time())
 
 # setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
+options(show.error.messages = FALSE, error = function() {
   cat(geterrmessage(), file = stderr())
-  q("no", 1, F)
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -105,8 +105,7 @@ cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL
     } else if (substring(file, 1L, 1L) == "|") {
       file <- pipe(substring(file, 2L), "w")
       on.exit(close(file))
-    }
-    else {
+    } else {
       file <- file(file, ifelse(append, "a", "w"))
       on.exit(close(file))
     }
@@ -181,7 +180,7 @@ byrow = TRUE, ncol = 4
 opt <- getopt(spec)
 
 
-if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
+if (is.null(opt$matrixPath) && is.null(opt$filesPath)) {
   cat("A counts matrix (or a set of counts files) is required.\n")
   q(status = 1)
 }
@@ -387,7 +386,6 @@ filtered_count <- prefilter_count - postfilter_count
 
 # Name rows of factors according to their sample
 row.names(factors) <- names(data$counts)
-# factor_list <- sapply(names(factors), paste_listname)
 factor_list <- names(factors)
 
 # Generating the DGEList object "data"
