@@ -232,8 +232,8 @@ def extr_img(inp):
     genes_with_morph_mps = requests.get(gene_by_phenotypes_query).json()
     list_of_gene_bundle_urls = [
         gene["_links"]["geneBundle"]["href"] for gene in
-            genes_with_morph_mps["_embedded"]["genes"]
-        ]
+        genes_with_morph_mps["_embedded"]["genes"]
+    ]
 
     gene_bundles = []
     for gene_bundle_url in list_of_gene_bundle_urls:
