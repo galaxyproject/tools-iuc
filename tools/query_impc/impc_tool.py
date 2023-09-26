@@ -1,8 +1,8 @@
 import sys
 
 import mygene
-import requests
 import pandas as pd
+import requests
 
 
 impc_api_url = "https://www.ebi.ac.uk/mi/impc/bulkdata-api"
@@ -134,8 +134,8 @@ def get_genes(inp, g_out):
     head = sys.argv[4]
     target_mp_terms = inp
 
-    ## All the data is paginated using the page and size parameters,
-    # by default the endpoint returns the first 20 hits
+# All the data is paginated using the page and size parameters,
+# by default the endpoint returns the first 20 hits
     gene_by_phenotypes_query = f"{impc_api_search_url}" \
                                f"/search/findAllBySignificantMpTermIdsContains" \
                                f"?mpTermIds={target_mp_terms}&page=0&size=20"
@@ -232,7 +232,7 @@ def extr_img(inp):
     genes_with_morph_mps = requests.get(gene_by_phenotypes_query).json()
     list_of_gene_bundle_urls = [
         gene["_links"]["geneBundle"]["href"] for gene in
-                                genes_with_morph_mps["_embedded"]["genes"]
+            genes_with_morph_mps["_embedded"]["genes"]
         ]
 
     gene_bundles = []
@@ -246,7 +246,6 @@ def extr_img(inp):
     display_fields = ["geneSymbol", "parameterName", "biologicalSampleGroup",
                       "colonyId", "zygosity", "sex", "downloadUrl",
                       "externalSampleId", "thumbnailUrl"]
-
 
     for gene_bundle in gene_bundles[:20]:
         if len(gene_bundle) == 4:
