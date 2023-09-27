@@ -283,7 +283,7 @@ if (!is.null(opt$filesPath)) {
     }
     # order samples as in counts matrix
     factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
-    factors <- factordata[, -1, drop = FALSE]
+    factors <- sapply(factordata[, -1, drop = FALSE], make.names)
   } else {
     factors <- unlist(strsplit(opt$factInput, "|", fixed = TRUE))
     factordata <- list()
