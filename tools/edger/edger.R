@@ -314,8 +314,13 @@ if (have_anno) {
 out_path <- opt$outPath
 dir.create(out_path, showWarnings = FALSE)
 
-# Split up contrasts separated by comma into a vector then sanitise
-contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
+# Check if contrastData is a file or not
+if (file.exists(opt$contrastData)) {
+  contrast_data <- unlist(read.table(opt$contrastData, sep="\t", header=TRUE)[[1]])
+} else {
+  # Split up contrasts separated by comma into a vector then sanitise
+  contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
+}
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
 
@@ -399,7 +404,7 @@ data$samples <- factors
 data$genes <- genes
 
 
-if(!is.null(opt$formula)) {
+if (!is.null(opt$formula)) {
   formula <- opt$formula
 } else {
   formula <- "~0"
