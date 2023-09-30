@@ -316,7 +316,7 @@ dir.create(out_path, showWarnings = FALSE)
 
 # Check if contrastData is a file or not
 if (file.exists(opt$contrastData)) {
-  contrast_data <- unlist(read.table(opt$contrastData, sep="\t", header=TRUE)[[1]])
+  contrast_data <- unlist(read.table(opt$contrastData, sep = "\t", header = TRUE)[[1]])
 } else {
   # Split up contrasts separated by comma into a vector then sanitise
   contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
@@ -407,7 +407,7 @@ data$genes <- genes
 if (!is.null(opt$formula)) {
   formula <- opt$formula
   # sanitisation can be getting rid of the "~"
-  if(!startsWith(formula, "~")) {
+  if (!startsWith(formula, "~")) {
     formula <- paste0("~", formula)
   }
 } else {
