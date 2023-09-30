@@ -8,6 +8,7 @@
 #       matrixPath", "m", 2, "character"    -Path to count matrix
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
+#       formula", "F", 2, "character".      -String containing a formula to override default use of factInput
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
 #       contrastData", "C", 1, "character"  -String containing contrasts of interest
 #       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
@@ -159,6 +160,7 @@ spec <- matrix(c(
   "filesPath", "j", 2, "character",
   "matrixPath", "m", 2, "character",
   "factFile", "f", 2, "character",
+  "formula", "F", 2, "character",
   "factInput", "i", 2, "character",
   "annoPath", "a", 2, "character",
   "contrastData", "C", 1, "character",
@@ -397,10 +399,13 @@ data$samples <- factors
 data$genes <- genes
 
 
-
-formula <- "~0"
-for (i in seq_along(factor_list)) {
-  formula <- paste(formula, factor_list[i], sep = "+")
+if(!is.null(opt$formula)) {
+  formula <- opt$formula
+} else {
+  formula <- "~0"
+  for (i in seq_along(factor_list)) {
+    formula <- paste(formula, factor_list[i], sep = "+")
+  }
 }
 
 formula <- formula(formula)
