@@ -406,6 +406,10 @@ data$genes <- genes
 
 if (!is.null(opt$formula)) {
   formula <- opt$formula
+  # sanitisation can be getting rid of the "~"
+  if(!startsWith(formula, "~")) {
+    formula <- paste0("~", formula)
+  }
 } else {
   formula <- "~0"
   for (i in seq_along(factor_list)) {
