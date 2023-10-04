@@ -46,8 +46,7 @@ for study_index, study in enumerate(studies_dict):
                                        'taxon_id', 'sample_description', 'collection date',
                                        'geographic location (country and/or sea)', 'host common name', 'host subject id',
                                        'host health state', 'host sex', 'host scientific name',
-                                       'collector name', 'collecting institution', 'isolate'
-                                      ]) + '\n')
+                                       'collector name', 'collecting institution', 'isolate']) + '\n')
     else:
         samples_table.write('\t'.join(['alias', 'status', 'title', 'scientific_name',
                                        'taxon_id', 'sample_description', 'collection date',
@@ -65,7 +64,7 @@ for study_index, study in enumerate(studies_dict):
                                            sample['host_sex'], sample['host_scientific_name'],
                                            sample['collector_name'],
                                            sample['collecting_institution'], sample['isolate']
-                                          ]) + '\n')
+                                           ]) + '\n')
         else:
             samples_table.write('\t'.join([sample_alias, action, sample['title'],
                                            sample['tax_name'], sample['tax_id'],
@@ -80,8 +79,7 @@ for study_index, study in enumerate(studies_dict):
                                                exp['library_source'], exp['library_selection'],
                                                exp['library_layout'].lower(), exp['insert_size'],
                                                exp['library_construction_protocol'],
-                                               exp['platform'], exp['instrument_model']
-                                               ]) + '\n')
+                                               exp['platform'], exp['instrument_model']]) + '\n')
             run_index = 0
             # exp['runs'] is a list of lists
             for (base_run, run_files) in exp['runs']:
