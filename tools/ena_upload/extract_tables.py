@@ -43,11 +43,11 @@ for study_index, study in enumerate(studies_dict):
                                    study['type'], study['abstract'], study['pubmed_id']]))
     if "host_subject_id" in study['samples'][0].keys():           # sample belongs to a viral sample
         samples_table.write('\t'.join(['alias', 'status', 'title', 'scientific_name',
-                                    'taxon_id', 'sample_description', 'collection date',
-                                    'geographic location (country and/or sea)', 'host common name', 'host subject id',
-                                    'host health state', 'host sex', 'host scientific name',
-                                    'collector name', 'collecting institution', 'isolate'
-                                    ]) + '\n')
+                                       'taxon_id', 'sample_description', 'collection date',
+                                       'geographic location (country and/or sea)', 'host common name', 'host subject id',
+                                       'host health state', 'host sex', 'host scientific name',
+                                       'collector name', 'collecting institution', 'isolate'
+                                      ]) + '\n')
     else:
         samples_table.write('\t'.join(['alias', 'status', 'title', 'scientific_name',
                                        'taxon_id', 'sample_description', 'collection date',
@@ -58,19 +58,19 @@ for study_index, study in enumerate(studies_dict):
             if sample['collector_name'] == '':
                 sample['collector_name'] = 'unknown'
             samples_table.write('\t'.join([sample_alias, action, sample['title'],
-                                        sample['tax_name'], sample['tax_id'],
-                                        sample['description'], sample['collection_date'],
-                                        sample['geo_location'], sample['host_common_name'],
-                                        sample['host_subject_id'], sample['host_health_state'],
-                                        sample['host_sex'], sample['host_scientific_name'],
-                                        sample['collector_name'],
-                                        sample['collecting_institution'], sample['isolate']
-                                        ]) + '\n')
+                                           sample['tax_name'], sample['tax_id'],
+                                           sample['description'], sample['collection_date'],
+                                           sample['geo_location'], sample['host_common_name'],
+                                           sample['host_subject_id'], sample['host_health_state'],
+                                           sample['host_sex'], sample['host_scientific_name'],
+                                           sample['collector_name'],
+                                           sample['collecting_institution'], sample['isolate']
+                                          ]) + '\n')
         else:
             samples_table.write('\t'.join([sample_alias, action, sample['title'],
-                                        sample['tax_name'], sample['tax_id'],
-                                        sample['description'], sample['collection_date'],
-                                        sample['geo_location']]) + '\n')
+                                           sample['tax_name'], sample['tax_id'],
+                                           sample['description'], sample['collection_date'],
+                                           sample['geo_location']]) + '\n')
         for exp_index, exp in enumerate(sample['experiments']):
             exp_alias = 'experiment_' + str(exp_index) + '.' + str(sample_index) + '_' + timestamp
             lib_alias = 'library_' + str(exp_index) + '_' + str(sample_index)
