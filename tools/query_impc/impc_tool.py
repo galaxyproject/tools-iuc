@@ -51,6 +51,13 @@ def main():
                 g_out = str(sys.argv[6])
             genes_in_pipeline(inp, g_out)
             sys.exit(0)
+        elif query == "9":
+            if str(sys.argv[5]) == "txt":
+                g_out = str(sys.argv[7])
+            else:
+                g_out = str(sys.argv[6])
+            sign_mp(inp, g_out)
+            sys.exit(0)
         elif query == "10":
             par_pip_ma(inp)
             sys.exit(0)
@@ -84,13 +91,6 @@ def main():
             sys.exit(0)
         elif query == "6":
             sign_par(inp)
-            sys.exit(0)
-        elif query == "9":
-            if str(sys.argv[5]) == "txt":
-                g_out = str(sys.argv[7])
-            else:
-                g_out = str(sys.argv[6])
-            sign_mp(inp, g_out)
             sys.exit(0)
         else:
             stop_err("Error, non-implemented query selected: " + query)
