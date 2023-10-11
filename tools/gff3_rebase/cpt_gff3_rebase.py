@@ -188,7 +188,7 @@ def rebase(parent, child, interpro=False, protein2dna=False, map_by="ID"):
                     for y in ("status", "Target"):
                         try:
                             del x.qualifiers[y]
-                        except:
+                        except Exception:
                             pass
 
                 fixed_features.append(x)
