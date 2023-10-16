@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-import copy
-import sys
-import logging
 import argparse
+import copy
+import logging
+import sys
+
 from BCBio import GFF
 from Bio.SeqFeature import FeatureLocation
 
