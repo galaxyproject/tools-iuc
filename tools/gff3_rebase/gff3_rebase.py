@@ -160,7 +160,7 @@ def __update_feature_location(feature, parent, protein2dna):
             __update_feature_location(subfeature, parent, protein2dna)
 
 
-def rebase(parent, child, interpro=False, protein2dna=False, map_by="ID"):
+def rebase(parent, child, interpro=False, protein2dna=False, map_by="ID", rebase_to='cds'):
     # get all of the features we will be re-mapping in a dictionary, keyed by parent feature ID
     child_features = __get_features(child, interpro=interpro)
 
@@ -220,7 +220,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Map protein translated results to original DNA data",
     )
-    parser.add_argument("--map_by", help="Map by key", default="ID")
+    parser.add_argument(
+        "--rebase-to",
+        help="What parent feature it should be rebased relative to? (gene, cds)",
+        default="gene",
+    )
+    parser.add_argument("--map-by", help="Map by key", default="ID")
     args = parser.parse_args()
     rebase(**vars(args))
-    print("Running cpt_gff3_rebase.py")
