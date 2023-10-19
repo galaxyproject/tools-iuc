@@ -66,29 +66,27 @@ class LocFile:
 # #end if
 # --output_file '${output_file}'
 
-# --configure --add
-# --configure --update
-# --configure --delete
-# 
-# --manage --download
-# --manage --delete
+# --mode add
+# --mode update
+# --mode delete
+
+# --context manage
+# --mode download
+# --mode delete
         
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--context', required=True)
+    parser.add_argument('--mode', required=True)
     parser.add_argument('--tag', required=True)
     parser.add_argument('--output_file', required=True)
-    subparsers = parser.add_subparsers()
-
-    parser_configure = subparsers.add_parser('--configure')
-    parser_configure.add_argument('--description')
-    parser_configure.add_argument('--default')
-    parser_configure.add_argument('--manifest')
-    parser_configure.add_argument('--local_cache_dir')
-    parser_configure.add_argument('--tool_cache_dir')
-
-    parser_manage = subparsers.add_parser('--manage')
+    parser.add_argument('--description')
+    parser.add_argument('--default')
+    parser.add_argument('--manifest')
+    parser.add_argument('--local_cache_dir')
+    parser.add_argument('--tool_cache_dir')
 
     args = parser.parse_args()
 
