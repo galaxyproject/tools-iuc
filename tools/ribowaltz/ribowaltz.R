@@ -49,7 +49,7 @@ if (opt$refseq_sep == "") {
   sep <- NULL
 }
 # convert alignments in BAM files into list of data tables
-reads_list <- bamtolist(bamfolder = opt$bamdir, annotation = annotation_dt, refseq_sep = sep, indel_threshold=opt$indel_threshold)
+reads_list <- bamtolist(bamfolder = opt$bamdir, annotation = annotation_dt, refseq_sep = sep, indel_threshold = opt$indel_threshold)
 
 library("jsonlite")
 # remove duplicate reads
@@ -64,21 +64,21 @@ if (!is.null(opt$params_duplicate_filterting)) {
 
 # selection of read lengths - periodicity filtering
 if (!is.null(opt$params_peridiocity_filterting)) {
-    json_peridiocity_filterting <- fromJSON(opt$params_peridiocity_filterting)
-    reads_list <- length_filter(
-      data = reads_list,
-      length_filter_mode = "periodicity",
-      periodicity_threshold = json_peridiocity_filterting$periodicity_threshold
-    )
+  json_peridiocity_filterting <- fromJSON(opt$params_peridiocity_filterting)
+  reads_list <- length_filter(
+    data = reads_list,
+    length_filter_mode = "periodicity",
+    periodicity_threshold = json_peridiocity_filterting$periodicity_threshold
+  )
 }
 # selection of read lengths - length range filtering
 if (!is.null(opt$params_custom_filterting)) {
-    json_custom_filterting <- fromJSON(opt$params_custom_filterting)
-    reads_list <- length_filter(
-      data = reads_list,
-      length_filter_mode = "custom",
-      length_range = json_custom_filterting$length_range
-    )
+  json_custom_filterting <- fromJSON(opt$params_custom_filterting)
+  reads_list <- length_filter(
+    data = reads_list,
+    length_filter_mode = "custom",
+    length_range = json_custom_filterting$length_range
+  )
 }
 
 # compute P-site offset
