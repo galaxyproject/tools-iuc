@@ -8,71 +8,172 @@ import subprocess
 import dataclasses
 
 
-# @dataclasses.dataclass
-# class LocFileEntry:
-#     tag: str
-#     description: str
-#     default: int = 0
-#     manifest: str
-#     local_cache_dir: str
-#     tool_cache_dir: str
+# TypeError: non-default argument 'manifest' follows default argument
+
+@dataclasses.dataclass
+class LocFileEntry:
+    tag: str
+    description: str
+    manifest: str
+    local_cache_dir: str
+    tool_cache_dir: str
+    default: int = 0
+    phone_home: int = 0
 
 class LocFile:
     def __init__(self, pathname):
         self.pathname = pathname
-        self.comments = []
         self.entries = {}
+        self.entries_to_add = {}
+        self.entries_to_remove = {}
         self._load_file()
 
-    def _load_file():
+    def _load_file(self):
         with open(self.pathname) as f:
             for line in f:
                 line = line.rstrip('\n')
                 if line.startswith('#'):
-                    self.comments.append(line)
-                else:
-                    tag, description, default, manifest, local_cache_dir, tool_cache_dir = line.split('\t', 5)
+                    continue
+
+                tag, description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = line.split('\t', 6)
+
+                try:
                     default = int(default)
-                    entry = LocFileEntry(tag, description, default, manifest, local_cache_dir, tool_cache_dir)
-                    self.add_entry(entry)
+                except:
+                    default = 0
+
+                try:
+                    phone_home = int(phone_home)
+                except:
+                    phone_home = 0
+
+                entry = LocFileEntry(tag, description, manifest, local_cache_dir, tool_cache_dir, default, phone_home)
+                self.entries[entry.tag] = entry
 
     def add_entry(self, entry):
-        self.entries[entry.tag] = entry
-#        if entry.tag in self.entries:
-#            # should this be an error??
-#            self.update_entry(entry)
-#        else:
-#            self.entries[entry.tag] = entry
+        if entry.tag in self.entries:
+            sys.exit(f'entry with tag {args.tag} already exists')
+        else:
+            self.entries[entry.tag] = entry
+            self.entries_to_add[entry.tag] = entry
 
-# python '$__tool_directory__/data_manager_ncbi_fcs_gx_database_downloader.py'
-# --'${context.context_selector}'
-# --'${context.mode.mode_selector}'
-# #if $context.context_selector == 'configure'
-#     #if $varExists('context.mode.tag')
-#     --tag '${context.mode.tag}'
-#     #else
-#     --tag '${context.mode.database}'
-#     #end if
-# 
-#     #if $context.mode_selector in ('add', 'update')
-#     --description '${context.mode.description}'
-#     --default '${context.mode.default}'
-#     --manifest '${context.mode.manifest}'
-#     --local_cache_dir '${context.mode.local_cache_dir}'
-#     --tool_cache_dir '${context.mode.tool_cache_dir}'
-#     #end if
-# #else if $context.context_selector == 'manage'
-#     --tag '${context.mode.database}'
-# #end if
-# --output_file '${output_file}'
+    def remove_entry(self, entry):
+        if entry.tag not in self.entries:
+            sys.exit(f'entry with tag {args.tag} does not exist')
+        else:
+            self.entries_to_remove[entry.tag] = entry
+            del self.entries[entry.tag]
 
+    def get_entry(self, tag):
+        return self.entries.get(tag, None)
+
+    def configure_database(self, args, params):
+        entry = self.get_entry(args.tag)
+        new_entry = LocFileEntry(args.tag, args.description, args.manifest, args.local_cache_dir, args.tool_cache_dir, args.default, args.phone_home)
+
+        if args.mode in ['update', 'remove']:
+            self.remove_entry(entry)
+
+        if args.mode in ['add', 'update']:
+            self.add_entry(new_entry)
+
+        update_dict = self.get_update_dict()
+        with open(args.output_file, 'w') as fh:
+            json.dump(update_dict, fh, indent=2, sort_keys=True)
+
+    def get_update_dict(self):
+        update_dict = {
+            'data_tables': {
+                'ncbi_fcs_gx_databases': {
+                }
+            }
+        }
+
+        database_dict = update_dict['data_tables']['ncbi_fcs_gx_databases']
+
+        for tag in self.entries_to_add.keys():
+            entry = self.entries_to_add[tag]
+            database_dict.setdefault('add', [])
+
+            entry_dict = dataclasses.asdict(entry)
+
+            entry_dict['value'] = entry_dict['tag']
+            del entry_dict['tag']
+
+            entry_dict['name'] = entry_dict['description']
+            del entry_dict['description']
+
+            if 'default' in entry_dict:
+                entry_dict['default'] = str(entry_dict['default'])
+            if 'phone_home' in entry_dict:
+                entry_dict['phone_home'] = str(entry_dict['phone_home'])
+
+            database_dict['add'].append(entry_dict)
+
+        for tag in self.entries_to_remove.keys():
+            entry = self.entries_to_remove[tag]
+            database_dict.setdefault('remove', [])
+
+            entry_dict = dataclasses.asdict(entry)
+
+            entry_dict['value'] = entry_dict['tag']
+            del entry_dict['tag']
+
+            entry_dict['name'] = entry_dict['description']
+            del entry_dict['description']
+
+            if 'default' in entry_dict:
+                entry_dict['default'] = str(entry_dict['default'])
+            if 'phone_home' in entry_dict:
+                entry_dict['phone_home'] = str(entry_dict['phone_home'])
+
+            database_dict['remove'].append(entry_dict)
+
+        return update_dict
+
+
+
+
+
+# {
+#   "data_tables": {
+#     "testbeta": {
+#       "add": [
+#         {
+#           "value": "newvalue",
+#           "path": "newvalue.txt"
+#         },
+#         {
+#           "value": "newvalue2",
+#           "path": "newvalue2.txt"
+#         }
+#       ],
+#       "remove": [
+#         {
+#           "value": "newvalue",
+#           "path": "newvalue.txt"
+#         }
+#       ]
+#     }
+#   }
+# }
+        
+
+
+# --context configure
 # --mode add
 # --mode update
-# --mode delete
+# --mode remove
 
 # --context manage
 # --mode download
 # --mode delete
+
+def manage_database(args, params, locfile):
+    entry = locfile.get_entry(args.tag)
+    if entry is None:
+        sys.exit(f'invalid database tag: {args.tag}')
+
         
 
 
@@ -83,24 +184,35 @@ def main():
     parser.add_argument('--tag', required=True)
     parser.add_argument('--output_file', required=True)
     parser.add_argument('--description')
-    parser.add_argument('--default')
+    parser.add_argument('--default', default=0)
     parser.add_argument('--manifest')
     parser.add_argument('--local_cache_dir')
     parser.add_argument('--tool_cache_dir')
+    parser.add_argument('--phone_home', default=0)
 
     args = parser.parse_args()
 
-    print (args)
+    with open(args.output_file) as f:
+        params = json.load(f)
+
+    with open('/var/tmp/dump.json', 'w') as ofh:
+        print(json.dumps(params, indent=4), file=ofh)
+
+    locfile_dir = params['param_dict']['__tool_directory__']
+    locfile_path = os.path.join(locfile_dir, '..', 'test-data', 'ncbi_fcs_gx_databases.loc')
+    locfile = LocFile(locfile_path)
+
+    if args.context == 'configure':
+        locfile.configure_database(args, params)
+    elif args.context == 'manage':
+        manage_database(args, params, locfile)
+        
 
 
-
-#    with open(args.output_file) as f:
-#    params = json.load(f)
 
 ################################################################################
 
 #    loc_file_dir = params[param_dict]['GALAXY_DATA_INDEX_DIR']
-#    loc_file_path = os.path.join(loc_file_dir, 'ncbi_fcs_gx_databases.loc')
 
 #    loc_file = LocFile(loc_file_path)
 
