@@ -21,6 +21,7 @@ spec <- matrix(c(
   "cds_coverage_info", "Z", 1, "character",
   "psite_info_rdata", "O", 0, "character",
   "refseq_sep", "s", 0, "character",
+  "indel_threshold", "t", 0, "integer",
   "params_duplicate_filterting", "d", 0, "character",
   "params_peridiocity_filterting", "l", 0, "character",
   "params_custom_filterting", "c", 0, "character",
@@ -48,7 +49,7 @@ if (opt$refseq_sep == "") {
   sep <- NULL
 }
 # convert alignments in BAM files into list of data tables
-reads_list <- bamtolist(bamfolder = opt$bamdir, annotation = annotation_dt, refseq_sep = sep)
+reads_list <- bamtolist(bamfolder = opt$bamdir, annotation = annotation_dt, refseq_sep = sep, indel_threshold=opt$indel_threshold)
 
 library("jsonlite")
 # remove duplicate reads
