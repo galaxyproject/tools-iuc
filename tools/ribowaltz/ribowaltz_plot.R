@@ -139,14 +139,14 @@ if (!is.null(opt$params_codon_usage_psite)) {
   json_codon_usage_psite <- fromJSON(opt$params_codon_usage_psite)
   for (sample_name in names(reads_psite_list)) {
     cu_barplot <- codon_usage_psite(
-    reads_psite_list,
-    annotation_dt,
-    sample = sample_name,
-    fastapath = json_codon_usage_psite$fastapath,
-    fasta_genome = FALSE,
-    frequency_normalization = json_codon_usage_psite$frequency
-  )
-  print(cu_barplot[["plot"]])
+      reads_psite_list,
+      annotation_dt,
+      sample = sample_name,
+      fastapath = json_codon_usage_psite$fastapath,
+      fasta_genome = FALSE,
+      frequency_normalization = json_codon_usage_psite$frequency
+    )
+    print(cu_barplot[["plot"]])
   }
   dev.off()
 }
