@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
+import argparse
 import io
 import json
-import optparse
 import os
+import pathlib
 import shutil
-import sys
 import tarfile
 import tempfile
-import urllib.error
-import urllib.parse
 import urllib.request
 import zipfile
-from functools import reduce
+from typing import Dict, Generator, Iterable, List, Optional, Union
 
 # When extracting files from archives, skip names that
 # start with the following strings
@@ -21,8 +19,9 @@ IGNORE_PATHS = ('.', '__MACOSX/', '__')
 
 # Map file extensions to data table names
 MOTHUR_FILE_TYPES = {".map": "map",
-                     ".fasta": "aligndb",
-                     ".align": "aligndb",
+                     ".fasta": "alignandseqdb",
+                     ".align": "alignandseqdb",
+                     ".refalign": "alignandseqdb",
                      ".pat": "lookup",
                      ".tax": "taxonomy"}
 
@@ -93,6 +92,11 @@ MOTHUR_REFERENCE_DATA = {
                 "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v138_1.tgz",
                 "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v138_1.tgz", ],
     },
+    "silva_release_132": {
+        "SILVA release 132":
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v132.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v132.tgz", ],
+    },
     "silva_release_128": {
         "SILVA release 128":
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v128.tgz",
@@ -139,6 +143,23 @@ MOTHUR_REFERENCE_DATA = {
         "Greengenes gold alignment":
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.gold.alignment.zip", ],
     },
+    # UNITE https://unite.ut.ee/repository.php
+    "UNITE_2018-11-18_fungi": {
+        "UNITE Fungi v8 singletons set as RefS (in dynamic files) (2018-11-18)":
+        ["https://files.plutof.ut.ee/public/orig/56/25/5625BDC830DC246F5B8C7004220089E032CC33EEF515C76CD0D92F25BDFA9F78.zip"],
+    },
+    "UNITE_2018-11-18_fungi_s": {
+        "UNITE Fungi v8 global and 97% singletons (2018-11-18)":
+        ["https://files.plutof.ut.ee/doi/7B/05/7B05C7CFD5F16459EDCC5A897C26A725C3CFC3AD3FDA1314CA56020681D993BD.zip"],
+    },
+    "UNITE_2018-11-18_euk": {
+        "UNITE Eukaryotes v8 singletons set as RefS (in dynamic files) (2018-11-18)":
+        ["https://files.plutof.ut.ee/public/orig/B3/9B/B39B0C26364A56759FBAE9A488E22C712BC4627A8C16601C4A5268BD044656B3.zip"],
+    },
+    "UNITE_2018-11-18_euk_s": {
+        "UNITE Eukaryotes v8 global and 97% singletons (2018-11-18)":
+        ["https://files.plutof.ut.ee/doi/DC/92/DC92B7C050E9DEE3D0611D4327C71534363135C66FECAC94EE9236A5D0223FB1.zip"],
+    },
     # Secondary structure maps
     # http://www.mothur.org/wiki/Secondary_structure_map
     "secondary_structure_maps_silva": {
@@ -161,78 +182,15 @@ MOTHUR_REFERENCE_DATA = {
 }
 
 
-# Utility functions for interacting with Galaxy JSON
-def read_input_json(jsonfile):
-    """Read the JSON supplied from the data manager tool
-
-    Returns a tuple (param_dict,extra_files_path)
-
-    'param_dict' is an arbitrary dictionary of parameters
-    input into the tool; 'extra_files_path' is the path
-    to a directory where output files must be put for the
-    receiving data manager to pick them up.
-
-    NB the directory pointed to by 'extra_files_path'
-    doesn't exist initially, it is the job of the script
-    to create it if necessary.
-
-    """
-    with open(jsonfile) as fh:
-        params = json.load(fh)
-    return (params['param_dict'],
-            params['output_data'][0]['extra_files_path'])
-
-
-# Utility functions for creating data table dictionaries
-#
-# Example usage:
-# >>> d = create_data_tables_dict()
-# >>> add_data_table(d,'my_data')
-# >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
-# >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print(json.dumps(d))
-def create_data_tables_dict():
-    """Return a dictionary for storing data table information
-
-    Returns a dictionary that can be used with 'add_data_table'
-    and 'add_data_table_entry' to store information about a
-    data table. It can be converted to JSON to be sent back to
-    the data manager.
-
-    """
-    d = {}
-    d['data_tables'] = {}
-    return d
-
-
-def add_data_table(d, table):
-    """Add a data table to the data tables dictionary
-
-    Creates a placeholder for a data table called 'table'.
-
-    """
-    d['data_tables'][table] = []
-
-
-def add_data_table_entry(d, table, entry):
-    """Add an entry to a data table
-
-    Appends an entry to the data table 'table'. 'entry'
-    should be a dictionary where the keys are the names of
-    columns in the data table.
-
-    Raises an exception if the named data table doesn't
-    exist.
-
-    """
-    try:
-        d['data_tables'][table].append(entry)
-    except KeyError:
-        raise Exception("add_data_table_entry: no table '%s'" % table)
+def _is_ignored_path(path: str) -> bool:
+    for ignore_path in IGNORE_PATHS:
+        if path.startswith(ignore_path):
+            return True
+    return False
 
 
 # Utility functions for downloading and unpacking archive files
-def download_file(url, target=None, wd=None):
+def download_file(url: str, target: str = None, wd: str = None) -> str:
     """Download a file from a URL
 
     Fetches a file from the specified URL.
@@ -263,7 +221,7 @@ def download_file(url, target=None, wd=None):
     return target
 
 
-def unpack_zip_archive(filen, wd=None):
+def unpack_zip_archive(filen: str, wd: Optional[str] = None) -> Generator[str, None, None]:
     """Extract files from a ZIP archive
 
     Given a ZIP archive, extract the files it contains
@@ -278,42 +236,31 @@ def unpack_zip_archive(filen, wd=None):
     file is deleted from the file system.
 
     """
-    if not zipfile.is_zipfile(filen):
-        print(f"{filen}: not ZIP formatted file")
-        return [filen]
-    file_list = []
     with zipfile.ZipFile(filen) as z:
         for name in z.namelist():
-            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+            if _is_ignored_path(name):
                 print(f"Ignoring {name}")
                 continue
-            if wd:
-                target = os.path.join(wd, name)
-            else:
-                target = name
+            target = os.path.join(wd, name) if wd else name
             if name.endswith('/'):
                 # Make directory
                 print(f"Creating dir {target}")
-                try:
-                    os.makedirs(target)
-                except OSError:
-                    pass
+                os.makedirs(target, exist_ok=True)
             else:
                 # Extract file
-                print("Extracting {target}")
-                try:
-                    os.makedirs(os.path.dirname(target))
-                except OSError:
-                    pass
+                print(f"Extracting {target}")
+                os.makedirs(os.path.dirname(target), exist_ok=True)
                 with open(target, 'wb') as fh:
-                    fh.write(z.read(name))
-                file_list.append(target)
-    print(f"Removing {filen}")
-    os.remove(filen)
-    return file_list
+                    with z.open(name) as zh:
+                        while True:
+                            block = zh.read(io.DEFAULT_BUFFER_SIZE)
+                            if block == b"":
+                                break
+                            fh.write(block)
+                yield target
 
 
-def unpack_tar_archive(filen, wd=None):
+def unpack_tar_archive(filen: str, wd: Optional[str] = None) -> Generator[str, None, None]:
     """Extract files from a TAR archive
 
     Given a TAR archive (which optionally can be
@@ -329,30 +276,23 @@ def unpack_tar_archive(filen, wd=None):
     file is deleted from the file system.
 
     """
-    file_list = []
-    if not tarfile.is_tarfile(filen):
-        print(f"{filen}: not TAR file")
-        return [filen]
     with tarfile.open(filen) as t:
         for name in t.getnames():
             # Check for unwanted files
-            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+            if _is_ignored_path(name):
                 print(f"Ignoring {name}")
                 continue
             # Extract file
             print(f"Extracting {name}")
-            t.extract(name, wd)
             if wd:
-                target = os.path.join(wd, name)
+                t.extract(name, wd)
+                yield os.path.join(wd, name)
             else:
-                target = name
-            file_list.append(target)
-    print(f"Removing {filen}")
-    os.remove(filen)
-    return file_list
+                t.extract(name)
+                yield name
 
 
-def unpack_archive(filen, wd=None):
+def unpack_archive(filen: str, wd: Optional[str] = None) -> Generator[str, None, None]:
     """Extract files from an archive
 
     Wrapper function that calls the appropriate
@@ -368,61 +308,17 @@ def unpack_archive(filen, wd=None):
     print(f"Unpack {filen}")
     ext = os.path.splitext(filen)[1]
     print(f"Extension: {ext}")
-    if ext == ".zip":
-        return unpack_zip_archive(filen, wd=wd)
-    elif ext == ".tgz":
-        return unpack_tar_archive(filen, wd=wd)
+    if ext == ".zip" and zipfile.is_zipfile(filen):
+        yield from unpack_zip_archive(filen, wd=wd)
+    elif ext == ".tgz" and tarfile.is_tarfile(filen):
+        yield from unpack_tar_archive(filen, wd=wd)
     else:
-        return [filen]
+        yield filen
 
 
-def fetch_files(urls, wd=None, files=None):
-    """Download and unpack files from a list of URLs
-
-    Given a list of URLs, download and unpack each
-    one, and return a list of the extracted files.
-
-    'wd' specifies the working directory to extract
-    the files to, otherwise they are extracted to the
-    current working directory.
-
-    If 'files' is given then the list of extracted
-    files will be appended to this list before being
-    returned.
-
-    """
-    if files is None:
-        files = []
-    for url in urls:
-        filen = download_file(url, wd=wd)
-        files.extend(unpack_archive(filen, wd=wd))
-    return files
-
-
-# Utility functions specific to the Mothur reference data
-def identify_type(filen):
-    """Return the data table name based on the file name
-
-    """
-    ext = os.path.splitext(filen)[1]
-    try:
-        return MOTHUR_FILE_TYPES[ext]
-    except KeyError:
-        print(f"WARNING: unknown file type for {filen}, skipping")
-        return None
-
-
-def get_name(filen):
-    """Generate a descriptive name based on the file name
-    """
-    # type_ = identify_type(filen)
-    name = os.path.splitext(os.path.basename(filen))[0]
-    for delim in ('.', '_'):
-        name = name.replace(delim, ' ')
-    return name
-
-
-def fetch_from_mothur_website(data_tables, target_dir, datasets):
+def fetch_from_mothur_website(data_tables: dict,
+                              target_dir: str,
+                              datasets: List[str]):
     """Fetch reference data from the Mothur website
 
     For each dataset in the list 'datasets', download (and if
@@ -439,33 +335,42 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
       datasets: a list of dataset names corresponding to keys in
         the MOTHUR_REFERENCE_DATA dictionary
     """
-    # Make working dir
     wd = tempfile.mkdtemp(suffix=".mothur", dir=os.getcwd())
     print(f"Working dir {wd}")
     # Iterate over all requested reference data URLs
     for dataset in datasets:
         print(f"Handling dataset '{dataset}'")
-        for name in MOTHUR_REFERENCE_DATA[dataset]:
-            for f in fetch_files(MOTHUR_REFERENCE_DATA[dataset][name], wd=wd):
-                type_ = identify_type(f)
-                name_from_file = os.path.splitext(os.path.basename(f))[0]
-                entry_name = f"{name_from_file} ({name})"
-                print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
-                if type_ is not None:
-                    # Move to target dir
-                    ref_data_file = os.path.basename(f)
-                    f1 = os.path.join(target_dir, ref_data_file)
-                    print(f"Moving {f} to {f1}")
-                    shutil.move(f, f1)
-                    # Add entry to data table
-                    table_name = f"mothur_{type_}"
-                    add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
-    # Remove working dir
+        for name, urls in MOTHUR_REFERENCE_DATA[dataset].items():
+            for url in urls:
+                filen = download_file(url, wd=wd)
+                for unpacked_file in unpack_archive(filen, wd=wd):
+                    ref_data_file = os.path.basename(unpacked_file)
+                    name_from_file, ext = os.path.splitext(ref_data_file)
+                    type_ = MOTHUR_FILE_TYPES.get(ext)
+                    if type_ is None:
+                        print(f"WARNING: unknown file type for {filen}, skipping")
+                        continue
+                    entry_name = f"{name_from_file} ({name})"
+                    print(f"{type_}\t\'{entry_name}'\t.../{ref_data_file}")
+                    target = os.path.join(target_dir, ref_data_file)
+                    print(f"Moving {unpacked_file} to {target}")
+                    shutil.move(unpacked_file, target)
+                    table_entry = dict(name=entry_name, value=ref_data_file)
+                    if type_ == "alignandseqdb":
+                        table_entry["aligned"] = str(ext != ".fasta")
+                    data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
+                print(f"Removing downloaded file: {filen}")
+                # check if file was not moved and therefore already deleted.
+                if os.path.exists(filen):
+                    # Removing file early here minimizes temporary storage
+                    # needed on the server.
+                    os.remove(filen)
     print(f"Removing {wd}")
     shutil.rmtree(wd)
 
 
-def files_from_filesystem_paths(paths):
+def files_from_filesystem_paths(paths: Iterable[Union[str, os.PathLike]]
+                                ) -> Generator[str, None, None]:
     """Return list of file paths from arbitrary input paths
 
     Given a list of filesystem paths, return a list of
@@ -474,20 +379,15 @@ def files_from_filesystem_paths(paths):
 
     """
     # Collect files to add
-    files = []
-    for path in paths:
-        path = os.path.abspath(path)
-        print(f"Examining '{path}'...")
-        if os.path.isfile(path):
-            # Store full path for file
-            files.append(path)
-        elif os.path.isdir(path):
-            # Descend into directory and collect the files
-            for f in os.listdir(path):
-                files.extend(files_from_filesystem_paths((os.path.join(path, f), )))
+    for raw_path in paths:
+        path = pathlib.Path(raw_path).absolute()
+        print(f"Examining '{str(path)}'...")
+        if path.is_file():
+            yield str(path)
+        elif path.is_dir():
+            yield from files_from_filesystem_paths(path.iterdir())
         else:
             print("Not a file or directory, ignored")
-    return files
 
 
 def import_from_server(data_tables, target_dir, paths, description, link_to_data=False):
@@ -510,64 +410,58 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
         the data file
 
     """
-    # Collect list of files based on input paths
-    files = files_from_filesystem_paths(paths)
-    # Handle each file individually
-    for f in files:
-        type_ = identify_type(f)
+    for f in files_from_filesystem_paths(paths):
+        ref_data_file = os.path.basename(f)
+        target_file = os.path.join(target_dir, ref_data_file)
+        entry_name, ext = os.path.splitext(ref_data_file)
+        type_ = MOTHUR_FILE_TYPES.get(ext)
         if type_ is None:
             print(f"{f}: unrecognised type, skipped")
             continue
-        ref_data_file = os.path.basename(f)
-        target_file = os.path.join(target_dir, ref_data_file)
-        entry_name = "%s" % os.path.splitext(ref_data_file)[0]
         if description:
-            entry_name += " (%s)" % description
+            entry_name += f" ({description})"
         print(f"{type_}\t\'{entry_name}'\t.../{ref_data_file}")
         # Link to or copy the data
         if link_to_data:
             os.symlink(f, target_file)
         else:
             shutil.copyfile(f, target_file)
-        # Add entry to data table
-        table_name = f"mothur_{type_}"
-        add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
+        table_entry = dict(name=entry_name, value=ref_data_file)
+        if type_ == "alignandseqdb":
+            table_entry["aligned"] = str(ext != ".fasta")
+        data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
 
 
 if __name__ == "__main__":
     print("Starting...")
 
     # Read command line
-    parser = optparse.OptionParser()
-    parser.add_option('--source', action='store', dest='data_source')
-    parser.add_option('--datasets', action='store', dest='datasets', default='')
-    parser.add_option('--paths', action='store', dest='paths', default=[])
-    parser.add_option('--description', action='store', dest='description', default='')
-    parser.add_option('--link', action='store_true', dest='link_to_data')
-    options, args = parser.parse_args()
-    print(f"options: {options}")
-    print(f"args   : {args}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("json", metavar="JSON")
+    parser.add_argument('--source', action='store', dest='data_source')
+    parser.add_argument('--datasets', action='store', dest='datasets', default='')
+    parser.add_argument('--paths', action='store', dest='paths', default=[])
+    parser.add_argument('--description', action='store', dest='description', default='')
+    parser.add_argument('--link', action='store_true', dest='link_to_data')
+    options = parser.parse_args()
 
-    # Check for JSON file
-    if len(args) != 1:
-        sys.stderr.write("Need to supply JSON file name")
-        sys.exit(1)
-
-    jsonfile = args[0]
-
-    # Read the input JSON
-    params, target_dir = read_input_json(jsonfile)
+    with open(options.json, "rt") as fh:
+        json_params = json.load(fh)
+    params = json_params["param_dict"]
+    target_dir = json_params["output_data"][0]["extra_files_path"]
 
     # Make the target directory
     print(f"Making {target_dir}")
     os.mkdir(target_dir)
 
     # Set up data tables dictionary
-    data_tables = create_data_tables_dict()
-    add_data_table(data_tables, 'mothur_lookup')
-    add_data_table(data_tables, 'mothur_aligndb')
-    add_data_table(data_tables, 'mothur_map')
-    add_data_table(data_tables, 'mothur_taxonomy')
+    data_tables: Dict[str, Dict[str, List[str]]] = {
+        "data_tables": {
+            "mothur_lookup": [],
+            "mothur_alignandseqdb": [],
+            "mothur_map": [],
+            "mothur_taxonomy": []
+        }}
 
     # Fetch data from specified data sources
     if options.data_source == 'mothur_website':
@@ -582,6 +476,6 @@ if __name__ == "__main__":
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
     print("Outputting JSON")
-    with open(jsonfile, 'w') as fh:
+    with open(options.json, 'w') as fh:
         json.dump(data_tables, fh, sort_keys=True)
     print("Done.")
