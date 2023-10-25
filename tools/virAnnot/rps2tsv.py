@@ -7,37 +7,22 @@
 
 
 import argparse
-import gzip
 import logging as log
-import os
-import subprocess
+import json
+from urllib import request
+from urllib.error import URLError, HTTPError
 
 from Bio.Blast import NCBIXML
+from ete3 import NCBITaxa
+
+ncbi = NCBITaxa()
 
 
 def main():
     options = _set_options()
     _set_log_level(options.verbosity)
-    _get_db()
     hits = _read_xml(options)
     _write_tsv(options, hits)
-
-
-def _get_db():
-    try:
-        from urllib import urlretrieve
-    except ImportError:
-        from urllib.request import urlretrieve
-    if not os.path.exists("pfamA_tax_depth.txt"):
-        log.info('Downloading pfamA_tax_depth.txt.gz from NCBI FTP site (via HTTP)...')
-        urlretrieve("http://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/database_files/pfamA_tax_depth.txt.gz", 'pfamA_tax_depth.txt.gz')
-        log.info('Done. Parsing...')
-        input = gzip.GzipFile("pfamA_tax_depth.txt.gz", 'rb')
-        gz_content = input.read()
-        input.close()
-        output = open("pfamA_tax_depth.txt", "wb")
-        output.write(gz_content)
-        output.close()
 
 
 def _read_xml(options):
@@ -69,17 +54,32 @@ def _read_xml(options):
             hsp["query_length"] = blast_record.query_length  # length of the query
             hsp["description"] = aln.hit_def
             hsp["accession"] = aln.accession
-            hsp["pfam_id"] = hsp["description"].split(",")[0]
-            cmd = "grep " + hsp["pfam_id"].replace("pfam", "PF") + " " + options.pfamA_tax_depth
-            log.debug(cmd)
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
-            (out, err) = proc.communicate()
-            out = str(out).replace('b\'', '').replace('\'', '').split("\\n")
-            hsp["taxonomy"] = ""
-            for pf in out[:-1]:  # loop except last item which is empty
-                pf = pf.split("\\t")
-                if int(pf[2]) > 9:  # count
-                    hsp["taxonomy"] += pf[1] + "(" + pf[2] + ");"
+            hsp["pfam_id"] = hsp["description"].split(",")[0].replace("pfam", "PF")
+            log.info("Requeting Interpro for " + hsp["pfam_id"])
+            url = "https://www.ebi.ac.uk/interpro/api/entry/pfam/" + hsp["pfam_id"] + "/taxonomy/uniprot/"
+            req = request.Request(url)
+            try:
+                response = request.urlopen(req)
+            except HTTPError as e:
+                log.debug('Http error for interpro: ', e.code)
+            except URLError as e:
+                log.debug('Url error for interpro: ', e.reason)
+            else:
+                encoded_response = response.read()
+                decoded_response = encoded_response.decode()
+                payload = json.loads(decoded_response)
+                kingdoms = []
+                for item in payload["taxonomy_subset"]:
+                    lineage_string = item["lineage"]
+                    lineage = [int(i) for i in lineage_string]
+                    translation = ncbi.get_taxid_translator(lineage)
+                    names = list(translation.values())
+                    taxonomy = names[1:]  # remove 'root' at the begining
+                    kingdoms.append(taxonomy[0])
+                frequency = {kingdom: kingdoms.count(kingdom) for kingdom in kingdoms}  # {'Pseudomonadota': 9, 'cellular organisms': 4}
+                sorted_freq = dict(sorted(frequency.items(), key=lambda x: x[1], reverse=True))
+                concat_freq = ";".join("{}({})".format(k, v) for k, v in sorted_freq.items())
+                hsp["taxonomy"] = concat_freq
             xml_results[hsp["query_id"]] = hsp
     return xml_results
 
@@ -105,9 +105,7 @@ def _set_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('-x', '--xml', help='XML files with results of blast', action='store', required=True, dest='xml_file')
     parser.add_argument('-e', '--max_evalue', help='Max evalue', action='store', type=float, default=0.0001, dest='max_evalue')
-    parser.add_argument('-pf', '--pfam', help='pfamA_tax_depth.txt file http://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/database_files/',
-                        action='store', default='pfamA_tax_depth.txt', dest='pfamA_tax_depth')
-    parser.add_argument('-o', '--out', help='The output file (.csv).', action='store', type=str, default='./', dest='output')
+    parser.add_argument('-o', '--out', help='The output file (.tab).', action='store', type=str, default='./rps2tsv_output.tab', dest='output')
     parser.add_argument('-v', '--verbosity', help='Verbose level', action='store', type=int, choices=[1, 2, 3, 4], default=1)
     args = parser.parse_args()
     return args
