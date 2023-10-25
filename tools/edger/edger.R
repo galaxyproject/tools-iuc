@@ -8,6 +8,7 @@
 #       matrixPath", "m", 2, "character"    -Path to count matrix
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
+#       formula", "F", 2, "character".      -String containing a formula to override default use of factInput
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
 #       contrastData", "C", 1, "character"  -String containing contrasts of interest
 #       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
@@ -40,9 +41,9 @@
 time_start <- as.character(Sys.time())
 
 # setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
+options(show.error.messages = FALSE, error = function() {
   cat(geterrmessage(), file = stderr())
-  q("no", 1, F)
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -105,8 +106,7 @@ cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL
     } else if (substring(file, 1L, 1L) == "|") {
       file <- pipe(substring(file, 2L), "w")
       on.exit(close(file))
-    }
-    else {
+    } else {
       file <- file(file, ifelse(append, "a", "w"))
       on.exit(close(file))
     }
@@ -160,6 +160,7 @@ spec <- matrix(c(
   "filesPath", "j", 2, "character",
   "matrixPath", "m", 2, "character",
   "factFile", "f", 2, "character",
+  "formula", "F", 2, "character",
   "factInput", "i", 2, "character",
   "annoPath", "a", 2, "character",
   "contrastData", "C", 1, "character",
@@ -181,7 +182,7 @@ byrow = TRUE, ncol = 4
 opt <- getopt(spec)
 
 
-if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
+if (is.null(opt$matrixPath) && is.null(opt$filesPath)) {
   cat("A counts matrix (or a set of counts files) is required.\n")
   q(status = 1)
 }
@@ -284,7 +285,7 @@ if (!is.null(opt$filesPath)) {
     }
     # order samples as in counts matrix
     factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
-    factors <- factordata[, -1, drop = FALSE]
+    factors <- data.frame(sapply(factordata[, -1, drop = FALSE], make.names))
   } else {
     factors <- unlist(strsplit(opt$factInput, "|", fixed = TRUE))
     factordata <- list()
@@ -313,8 +314,13 @@ if (have_anno) {
 out_path <- opt$outPath
 dir.create(out_path, showWarnings = FALSE)
 
-# Split up contrasts separated by comma into a vector then sanitise
-contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
+# Check if contrastData is a file or not
+if (file.exists(opt$contrastData)) {
+  contrast_data <- unlist(read.table(opt$contrastData, sep = "\t", header = TRUE)[[1]])
+} else {
+  # Split up contrasts separated by comma into a vector then sanitise
+  contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
+}
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
 
@@ -387,7 +393,7 @@ filtered_count <- prefilter_count - postfilter_count
 
 # Name rows of factors according to their sample
 row.names(factors) <- names(data$counts)
-factor_list <- sapply(names(factors), paste_listname)
+factor_list <- names(factors)
 
 # Generating the DGEList object "data"
 samplenames <- colnames(data$counts)
@@ -398,14 +404,21 @@ data$samples <- factors
 data$genes <- genes
 
 
-
-formula <- "~0"
-for (i in seq_along(factor_list)) {
-  formula <- paste(formula, factor_list[i], sep = "+")
+if (!is.null(opt$formula)) {
+  formula <- opt$formula
+  # sanitisation can be getting rid of the "~"
+  if (!startsWith(formula, "~")) {
+    formula <- paste0("~", formula)
+  }
+} else {
+  formula <- "~0"
+  for (i in seq_along(factor_list)) {
+    formula <- paste(formula, factor_list[i], sep = "+")
+  }
 }
 
 formula <- formula(formula)
-design <- model.matrix(formula)
+design <- model.matrix(formula, factors)
 
 for (i in seq_along(factor_list)) {
   colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)

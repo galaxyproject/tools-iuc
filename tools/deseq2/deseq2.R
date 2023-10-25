@@ -36,9 +36,6 @@ options(show.error.messages = FALSE, error = function() {
   q("no", 1, FALSE)
 })
 
-# we need that to not crash galaxy with an UTF8 error on German LC settings.
-loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
-
 library("getopt")
 library("tools")
 options(stringAsFactors = FALSE, useFancyQuotes = FALSE)
@@ -69,7 +66,7 @@ spec <- matrix(c(
   "outlier_replace_off", "a", 0, "logical",
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
-  "beta_prior_off", "d", 0, "logical",
+  "use_beta_priors", "d", 0, "logical",
   "alpha_ma", "A", 1, "numeric",
   "prefilter", "P", 0, "logical",
   "prefilter_value", "V", 1, "numeric"
@@ -217,10 +214,26 @@ if (verbose) {
 }
 
 dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = design_formula, tximport = opt$tximport, txtype = opt$txtype, tx2gene = opt$tx2gene)
-# estimate size factors for the chosen method
+
+# use/estimate size factors with the chosen method
 if (!is.null(opt$esf)) {
-    dds <- estimateSizeFactors(dds, type = opt$esf)
+    if (opt$esf %in% list("ratio", "poscounts", "iterate")) {
+        cat("Calculating size factors de novo\n")
+        dds <- estimateSizeFactors(dds, type = opt$esf)
+    } else {
+        sf_table <- read.table(opt$esf)
+        # Sort the provided size factors just in case the order differs from the input file order.
+        merged_table <- merge(sample_table, sf_table, by.x = 0, by.y = 1, sort = FALSE)
+        sf_values <- as.numeric(unlist(merged_table[5]))
+        "sizeFactors"(dds) <- sf_values
+
+        cat("Using user-provided size factors:\n")
+        print(sf_values)
+    }
+} else {
+    cat("No size factor was used\n")
 }
+
 
 # estimate size factors for each sample
 # - https://support.bioconductor.org/p/97676/
@@ -312,12 +325,15 @@ if (is.null(opt$auto_mean_filter_off)) {
 }
 
 # shrinkage of LFCs
-if (is.null(opt$beta_prior_off)) {
-  beta_prior <- TRUE
-} else {
+if (is.null(opt$use_beta_priors)) {
   beta_prior <- FALSE
-  if (verbose) cat("beta prior off\n")
+  if (verbose)
+    cat("Applied default - beta prior off\n")
+} else {
+  beta_prior <- opt$use_beta_priors
 }
+sprintf("use_beta_prior is set to %s", beta_prior)
+
 
 # dispersion fit type
 if (is.null(opt$fit_type)) {

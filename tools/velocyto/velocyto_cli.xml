@@ -1,4 +1,4 @@
-<tool id="velocyto_cli" name="velocyto CLI" version="@VERSION@+galaxy0">
+<tool id="velocyto_cli" name="velocyto CLI" version="@VERSION@+galaxy1">
     <description>pre-process data for the analysis of RNA velocity</description>
     <macros>
         <import>macros.xml</import>
@@ -22,10 +22,15 @@
 #import re
 
 #if str($main.do) == "run10x":
+  #if str($main.sample_definition.sample_definition_select) == "manual":
+      #set sample = str($main.sample_definition.sample)
+  #else:
+      #set sample = re.sub('[^\w\-\s]', '_', str($main.BAM.element_identifier))
+  #end if
   ## We need to reproduce cell ranger structure:
-  mkdir -p '$main.sample/outs/filtered_gene_bc_matrices/whatever/' &&
-  ln -s '${main.BAM}' '$main.sample/outs/possorted_genome_bam.bam' &&
-  ln -s '${main.barcodes}' '$main.sample/outs/filtered_gene_bc_matrices/whatever/barcodes.tsv' &&
+  mkdir -p '$sample/outs/filtered_gene_bc_matrices/whatever/' &&
+  ln -s '${main.BAM}' '$sample/outs/possorted_genome_bam.bam' &&
+  ln -s '${main.barcodes}' '$sample/outs/filtered_gene_bc_matrices/whatever/barcodes.tsv' &&
 #else if str($main.do) in ['run', 'run-smartseq2']:
   #for $bam in $main.bamfiles:
     #set input_name = re.sub('[^\w\-\s]', '_', str($bam.element_identifier))
@@ -67,9 +72,9 @@ run10x
   -t '$main.t'
   @SAMTOOLS_OPTS@
   '$verbosity'
-  '$main.sample'
+  '$sample'
   '$main.gtffile'
-&& mv '$main.sample/velocyto/'*.loom 'output.loom'
+&& mv '$sample/velocyto/'*.loom 'output.loom'
 
 #else if str($main.do) == "run-smartseq2":
 run-smartseq2
@@ -119,14 +124,23 @@ tools dropest-bc-correct
                 <option value="dropest-bc-correct">Correct DropEst barcodes and produce valid barcodes file</option>
             </param>
             <when value="run10x" >
-                <param name="sample" type="text" value="sample" label="sample name" help="This name will appear as prefix of each cell barcode.">
-                    <sanitizer invalid_char="">
-                        <valid initial="string.letters,string.digits">
-                            <add value="_" />
-                        </valid>
-                    </sanitizer>
-                    <validator type="regex">[0-9a-zA-Z_]+</validator>
-                </param>
+                <conditional name="sample_definition">
+                    <param name="sample_definition_select" type="select" label="How to set sample name" help="This name will appear as prefix of each cell barcode.">
+                        <option value="manual">Manually</option>
+                        <option value="identifier">Automatic (use identifier in history)</option>
+                    </param>
+                    <when value="manual">
+                        <param name="sample" type="text" value="sample" label="sample name" help="">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.letters,string.digits">
+                                    <add value="_" />
+                                </valid>
+                            </sanitizer>
+                            <validator type="regex">[0-9a-zA-Z_]+</validator>
+                        </param>
+                    </when>
+                    <when value="identifier"/>
+                </conditional>
                 <param name="BAM" type="data" format="bam" label="BAM file including CB tag" help="Can be Cell ranger output or STAR solo output" />
                 <param name="barcodes" type="data" format="tsv,tabular,txt" label="List of valid cell barcodes" help="Can be STAR solo barcodes output" />
                 <param name="gtffile" type="data" format="gtf" label="GTF file" />
@@ -192,7 +206,10 @@ tools dropest-bc-correct
       <test expect_num_outputs="1">
           <conditional name="main">
               <param name="do" value="run10x"/>
-              <param name="sample" value="sample"/>
+              <conditional name="sample_definition">
+                  <param name="sample_definition_select" value="manual"/>
+                  <param name="sample" value="sample"/>
+              </conditional>
               <param name="BAM" value="STARsolo_allSAMat.bam"/>
               <param name="barcodes" value="barcodes.tsv"/>
               <param name="gtffile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf"/>
@@ -209,8 +226,11 @@ tools dropest-bc-correct
               <metadata name="col_attrs_count" value="1" />
               <metadata name="col_attrs_names" value="CellID" />
           </output>
+          <assert_command>
+              <has_text text="sample"/>
+          </assert_command>
           <assert_stdout>
-            <has_text text="Counting for batch 1, containing 6 cells and 10 reads"/>
+              <has_text text="Counting for batch 1, containing 6 cells and 10 reads"/>
           </assert_stdout>
       </test>
       <!-- Test 2 run single bam as single cell -->
@@ -262,7 +282,38 @@ tools dropest-bc-correct
           <assert_stdout>
             <has_text text="Counting for batch 2, containing 1 cells and 716 reads"/>
           </assert_stdout>
-      </test>    
+      </test>
+      <!-- Test 4 10x indentifyer -->
+      <test expect_num_outputs="1">
+          <conditional name="main">
+              <param name="do" value="run10x"/>
+              <conditional name="sample_definition">
+                  <param name="sample_definition_select" value="identifier"/>
+              </conditional>
+              <param name="BAM" value="STARsolo_allSAMat.bam"/>
+              <param name="barcodes" value="barcodes.tsv"/>
+              <param name="gtffile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf"/>
+              <param name="M" value="false"/>
+              <param name="t" value="uint16"/>
+          </conditional>
+          <output name="samples">
+              <assert_contents>
+                  <has_size value="25996" delta="3000"/>
+              </assert_contents>
+              <metadata name="row_attrs_count" value="6" />
+              <metadata name="layers_count" value="3" />
+              <metadata name="layers_names" value="ambiguous,spliced,unspliced" />
+              <metadata name="col_attrs_count" value="1" />
+              <metadata name="col_attrs_names" value="CellID" />
+          </output>
+          <assert_command>
+              <has_text text="STARsolo_allSAMat"/>
+              <not_has_text text="sample"/>
+          </assert_command>
+          <assert_stdout>
+              <has_text text="Counting for batch 1, containing 6 cells and 10 reads"/>
+          </assert_stdout>
+      </test>
     </tests>
     <help><![CDATA[
 Requirements on the input files
