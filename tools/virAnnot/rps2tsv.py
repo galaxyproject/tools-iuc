@@ -7,10 +7,10 @@
 
 
 import argparse
-import logging as log
 import json
+import logging as log
 from urllib import request
-from urllib.error import URLError, HTTPError
+from urllib.error import HTTPError, URLError
 
 from Bio.Blast import NCBIXML
 from ete3 import NCBITaxa
