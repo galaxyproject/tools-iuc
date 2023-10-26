@@ -8,6 +8,8 @@
 
 import argparse
 import logging as log
+import csv
+import os
 
 from Bio import Entrez
 from Bio import SeqIO
@@ -21,7 +23,7 @@ def main():
     options = _set_options()
     _set_log_level(options.verbosity)
     hits = _read_xml(options)
-    _write_csv(options, hits)
+    _write_tsv(options, hits)
 
 
 def _guess_database(accession):
@@ -153,7 +155,7 @@ def _get_overlap_value(algo, hsp, type, qlength):
     return [round(query_overlap, 0), round(hit_overlap, 0)]
 
 
-def _write_csv(options, hits):
+def _write_tsv(options, hits):
     """
     Write output
     """
@@ -164,8 +166,11 @@ def _write_csv(options, hits):
             rn_list = {row[0]: row[1:] for row in rows}
     fasta = SeqIO.to_dict(SeqIO.parse(open(options.fasta_file), 'fasta'))
     headers = "#algo\tquery_id\tnb_reads\tquery_length\taccession\tdescription\torganism\tpercentIdentity\tnb_hsps\tqueryOverlap\thitOverlap\tevalue\tscore\ttax_id\ttaxonomy\tsequence\n"
-    log.info("Write output file.")
-    f = open(options.output, "w+")
+    if not os.path.exists(options.output):
+        os.mkdir(options.output)
+    tsv_file = options.output + "/blast2tsv_output.tab"
+    log.info("Write output file: " + tsv_file)
+    f = open(tsv_file, "w+")
     f.write(headers)
     for h in hits:
         if options.rn_file is not None:
@@ -179,12 +184,75 @@ def _write_csv(options, hits):
             f.write(str(hits[h]["num_hsps"]) + "\t" + str(hits[h]["queryOverlap"]) + "\t")
             f.write(str(hits[h]["hitOverlap"]) + "\t" + str(hits[h]["evalue"]) + "\t")
             f.write(str(hits[h]["score"]) + "\t" + str(hits[h]["tax_id"]) + "\t")
-            f.write(hits[h]["taxonomy"] + "\t" + str(fasta[h].seq))
+            if h in fasta:
+                f.write(hits[h]["taxonomy"] + "\t" + str(fasta[h].seq))
+            else:
+                f.write(hits[h]["taxonomy"] + "\t\"\"")
             f.write("\n")
         else:
             f.write(options.algo + "\t" + h + "\t" + read_nb + "\t" + str(hits[h])[1:-1] + "\t")
             f.write("\n")
     f.close()
+    _create_abundance(options, tsv_file)
+
+
+def _create_abundance(options, tsv_file):
+    """
+    extract values from tsv files
+    and create abundance files
+    """
+    log.info("Calculating abundance.")
+    file_path = tsv_file
+    abundance = dict()
+    with open(tsv_file, 'r') as current_file:
+        log.debug("Reading " + file_path)
+        csv_reader = csv.reader(current_file, delimiter='\t')
+        line_count = 0
+        for row in csv_reader:
+            if line_count == 0:
+                # headers
+                line_count += 1
+            else:
+                # no annotation
+                if len(row) == 16:
+                    if row[14] != "":
+                        nb_reads = row[2]
+                        if nb_reads == "":
+                            current_reads_nb = 0
+                            log.debug("No reads number for " + row[1])
+                        else:
+                            current_reads_nb = int(nb_reads)
+                        contig_id = row[14]
+                        if contig_id in abundance:
+                            # add reads
+                            abundance[contig_id]["reads_nb"] = abundance[row[14]]["reads_nb"] + current_reads_nb
+                            abundance[contig_id]["contigs_nb"] = abundance[row[14]]["contigs_nb"] + 1
+                        else:
+                            # init reads for this taxo
+                            abundance[contig_id] = {}
+                            abundance[contig_id]["reads_nb"] = current_reads_nb
+                            abundance[contig_id]["contigs_nb"] = 1
+                    else:
+                        log.debug("No annotations for contig " + row[1])
+                else:
+                    log.debug("No annotations for contig " + row[1])
+    log.debug(abundance)
+    reads_file = open(options.output + "/blast2tsv_reads.txt", "w+")
+    for taxo in abundance:
+        reads_file.write(str(abundance[taxo]["reads_nb"]))
+        reads_file.write("\t")
+        reads_file.write("\t".join(taxo.split(";")))
+        reads_file.write("\n")
+    reads_file.close()
+    log.info("Abundance file created " + options.output + "/blast2tsv_reads.txt")
+    contigs_file = open(options.output + "/blast2tsv_contigs.txt", "w+")
+    for taxo in abundance:
+        contigs_file.write(str(abundance[taxo]["contigs_nb"]))
+        contigs_file.write("\t")
+        contigs_file.write("\t".join(taxo.split(";")))
+        contigs_file.write("\n")
+    contigs_file.close()
+    log.info("Abundance file created " + options.output + "/blast2tsv_contigs.txt")
 
 
 def _set_options():
@@ -197,7 +265,7 @@ def _set_options():
     parser.add_argument('-mhov', '--min_hit_overlap', help='Minimum hit overlap', action='store', type=int, default=5, dest='min_hov')
     parser.add_argument('-s', '--min_score', help='Minimum score', action='store', type=int, default=30, dest='min_score')
     parser.add_argument('-a', '--algo', help='Blast type detection (BLASTN|BLASTP|BLASTX|TBLASTX|TBLASTN|DIAMONDX).', action='store', type=str, default='BLASTX', dest='algo')
-    parser.add_argument('-o', '--out', help='The output file (.csv).', action='store', type=str, default='./', dest='output')
+    parser.add_argument('-o', '--out', help='The output file (.csv).', action='store', type=str, default='./blast2tsv', dest='output')
     parser.add_argument('-v', '--verbosity', help='Verbose level', action='store', type=int, choices=[1, 2, 3, 4], default=1)
     args = parser.parse_args()
     return args
