@@ -1,8 +1,23 @@
 name: Galaxy Tool Linting and Tests for push and PR
-on: [push, pull_request]
+on:
+  pull_request:
+    paths-ignore:
+      - '.github/**'
+      - 'deprecated/**'
+      - 'docs/**'
+      - '*'
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - '.github/**'
+      - 'deprecated/**'
+      - 'docs/**'
+      - '*'
 env:
   GALAXY_FORK: galaxyproject
-  GALAXY_BRANCH: release_22.05
+  GALAXY_BRANCH: release_23.1
   MAX_CHUNKS: 4
   MAX_FILE_SIZE: 1M
 concurrency:
@@ -110,11 +125,21 @@ jobs:
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
+
+    - name: Set fail level for pull request
+      if: ${{ github.event_name == 'pull_request' }}
+      run:
+        echo "FAIL_LEVEL=warn" >> "$GITHUB_ENV"
+    - name: Set fail level for merge
+      if: ${{ github.event_name != 'pull_request' }}
+      run:
+        echo "FAIL_LEVEL=error" >> "$GITHUB_ENV"
     - name: Planemo lint
       uses: galaxyproject/planemo-ci-action@v1
       id: lint
       with:
         mode: lint
+        fail-level: ${{ env.FAIL_LEVEL }}
         repository-list: ${{ needs.setup.outputs.repository-list }}
         tool-list: ${{ needs.setup.outputs.tool-list }}
     - uses: actions/upload-artifact@v3
@@ -127,7 +152,7 @@ jobs:
   flake8:
     name: Lint Python scripts
     needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' }}
+    if: ${{ github.event_name == 'pull_request' && needs.setup.outputs.repository-list != '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -159,7 +184,7 @@ jobs:
   lintr:
     name: Lint R scripts
     needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' }}
+    if: ${{ github.event_name == 'pull_request' && needs.setup.outputs.repository-list != '' }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -189,7 +214,7 @@ jobs:
     - name: lintr
       run: |
         library(lintr)
-        linters <- linters_with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL)
+        linters <- linters_with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL, object_name_linter = NULL)
         con <- file("repository_list.txt", "r")
         status <- 0
         while (TRUE) {
@@ -285,6 +310,8 @@ jobs:
     - name: Get number of CPU cores
       uses: SimenB/github-actions-cpu-cores@v1
       id: cpu-cores
+    - name: Clean dotnet folder for space
+      run: rm -Rf /usr/share/dotnet
     - name: Planemo test
       uses: galaxyproject/planemo-ci-action@v1
       id: test
@@ -297,7 +324,7 @@ jobs:
         chunk-count: ${{ needs.setup.outputs.chunk-count }}
         galaxy-slots: ${{ steps.cpu-cores.outputs.count }}
         # Limit each test to 15 minutes
-        test_timeout: 900
+        test_timeout: 1800
     - uses: actions/upload-artifact@v3
       with:
         name: 'Tool test output ${{ matrix.chunk }}'
@@ -311,7 +338,7 @@ jobs:
   combine_outputs:
     name: Combine chunked test results
     needs: [setup, test]
-    if: ${{ needs.setup.outputs.repository-list != '' }}
+    if: ${{ always() && needs.setup.outputs.repository-list != '' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -344,11 +371,17 @@ jobs:
       id: check
       with:
         mode: check
+    - name: Check if all test chunks succeeded
+      run: |
+        NFILES=$(ls artifacts/ | grep "Tool test output" | wc -l)
+        if [[ "${{ needs.setup.outputs.chunk-count }}" != "$NFILES" ]]; then
+          exit 1
+        fi
 
   # deploy the tools to the toolsheds (first TTS for testing)
   deploy:
     name: Deploy
-    needs: [setup, lint, flake8, lintr, combine_outputs]
+    needs: [setup, lint, combine_outputs]
     if: ${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' ) && github.repository_owner == 'galaxyproject' }}
     runs-on: ubuntu-latest
     strategy:
@@ -382,6 +415,28 @@ jobs:
         repository-list: ${{ needs.setup.outputs.repository-list }}
         shed-target: toolshed
         shed-key: ${{ secrets.TS_API_KEY }}
+
+  deploy-report:
+    name: Report deploy status
+    needs: [deploy]
+    if: ${{ always() && needs.deploy.result != 'success' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' ) && github.repository_owner == 'galaxyproject' }}
+    runs-on: ubuntu-latest
+    steps:
+    # report to the PR if deployment failed
+    - name: Get PR object
+      uses: 8BitJonny/gh-get-current-pr@2.2.0
+      id: getpr
+      with:
+        sha: ${{ github.event.after }}
+    - name: Create comment
+      uses: peter-evans/create-or-update-comment@v2
+      with:
+        token: ${{ secrets.PAT }}
+        issue-number: ${{ steps.getpr.outputs.number }}
+        body: |
+          Attention: deployment ${{ needs.deploy.result }}!
+
+          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   determine-success:
     name: Check workflow success

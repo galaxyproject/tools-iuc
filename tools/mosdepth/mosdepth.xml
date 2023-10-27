@@ -1,0 +1,293 @@
+<tool id="mosdepth" name="mosdepth" version="@TOOL_VERSION@+galaxy0"  profile="21.05">
+    <description>- fast and flexible depth coverage calculation</description>
+    <macros>
+        <xml name="bam_identifier">
+            <!-- this is based on section 1.2.1 of the SAM/BAM specification https://samtools.github.io/hts-specs/SAMv1.pdf -->
+            <sanitizer invalid_char="'">
+                <valid initial="string.ascii_letters,string.digits,string.punctuation">
+                    <remove value="{" />
+                    <remove value="}" />
+                    <remove value="=" />
+                    <remove value="*" />
+                    <remove value="`" />
+                    <remove value=")" />
+                    <remove value="&lt;" />
+                    <remove value="'" />
+                    <remove value='"' />
+                    <remove value="(" />
+                    <remove value="\" />
+                    <remove value="[" />
+                    <remove value="&gt;" />
+                    <remove value="]" />
+                    <remove value="," />
+                    <yield />
+                </valid>
+            </sanitizer>
+            <validator type="regex">([0-9A-Za-z!#$%&amp;+./:;?@^_|~-][0-9A-Za-z!#$%&amp;*+./:;=?@^_|~-]*)?</validator>
+        </xml>
+        <token name="@TOOL_VERSION@">0.3.4</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">mosdepth</requirement>
+        <requirement type="package" version="1.12">gzip</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $advanced.options == "yes" and len($advanced.quantize)
+            #set $quantize_depths = []
+            #for $i, $quant_group in enumerate($advanced.quantize)
+                #set $quantize_depths = $quantize_depths + [str ($quant_group.quant_group_mindepth)]
+                #set $quant_group_name = str($quant_group.quant_group_name)
+                export MOSDEPTH_Q${i}=$quant_group.quant_group_name &&
+            #end for
+            #set $quant_groups_depths_str = ":".join($quantize_depths) + ':'
+        #end if
+        ln -s '$input_alignment' input_alignment &&
+        #if $input_alignment.is_of_type('bam'):
+            ln -s '${input_alignment.metadata.bam_index}' input_alignment.bai &&
+        #elif $input_alignment.is_of_type('cram'):
+            ln -s '${input_alignment.metadata.cram_index}' input_alignment.crai &&
+        #end if
+        mosdepth -t \${GALAXY_SLOTS:-1} 
+            #if $window.window_mode == 'window'
+                --by $window.window_size
+            #elif $window.window_mode == 'bed'
+                --by '$window.region_file'
+            #end if
+            $per_base_coverage 
+            #if $advanced.options == "yes"
+                #if str($advanced.chrom)
+                --chrom '$advanced.chrom'
+                #end if
+                #if $advanced.exclude_flag
+                    --flag $advanced.exclude_flag
+                #end if
+                #if $advanced.include_flag
+                    --include-flag $advanced.include_flag
+                #end if
+                --mapq $advanced.mapq
+                $advanced.no_fast
+                #if str($advanced.thresholds)
+                    --thresholds '$advanced.thresholds'
+                #end if
+                $advanced.use_median
+                #if str($advanced.read_groups)
+                    --read-groups '$read_groups'
+                #end if
+                #if len($advanced.quantize)
+                --quantize '$quant_groups_depths_str'
+                #end if
+            #end if 
+            output input_alignment
+            #if $per_base_coverage
+                && gunzip output.per-base.bed.gz
+            #end if
+            #if $window.window_mode == "bed" or $window.window_mode == "window"
+                && gunzip output.regions.bed.gz
+            #end if
+            #if $advanced.options == "yes"
+                #if str($advanced.thresholds)
+                    && gunzip output.thresholds.bed.gz
+                #end if
+                #if len($advanced.quantize)
+                    && gunzip output.quantized.bed.gz
+                #end if
+            #end if
+    ]]></command>
+    <inputs>
+        <param name="input_alignment" type="data" format="bam,cram" label="Input BAM (or CRAM)" help="BAM or CRAM format mapped reads" />
+        <param argument="--no-per-base" name="per_base_coverage" type="boolean" truevalue="" falsevalue="--no-per-base" checked="false" label="Output per base depth" help="Skipping depth output for individual bases substantially decreases runtime" />
+        <conditional name="window">
+            <param name="window_mode" type="select" label="Compute depth by region" help="A BED file or window size can be provided to compute average depth by region">
+                <option value="no">Don't compute depth by region</option>
+                <option value="window">Compute average depth using a fixed size window</option>
+                <option value="bed">Compute depth in regions specified by a BED file</option>
+            </param>
+            <when value="no">                
+            </when>
+            <when value="window">
+                <param name="window_size" type="integer" min="2" value="400" label="Window size for region calculation" help="Average depth will be computed for non-overlapping regions of this size" />
+            </when>
+            <when value="bed">
+                <param name="region_file" type="data" format="bed" label="BED file specifying regions" help="Average depth will be computed for regions specified in the BED file. If the BED file has a 4th column, it is used for the region name" />
+            </when>
+        </conditional>
+        <conditional name="advanced">
+            <param name="options" type="select" label="Advanced Options">
+                <option value="no" selected="true">Hide Advanced Options</option>
+                <option value="yes">Show Advanced Options</option>
+            </param>
+            <when value="no">
+            </when>
+            <when value="yes">
+                <param argument="--chrom" type="text" label="Restrict depth calculations to chromosome" optional="true" help="Enter a chromosome name to only count depth for reads mapping to this chromosome">
+                    <expand macro="bam_identifier" />
+                </param>
+                <param argument="--flag" name="exclude_flag" type="integer" min="0" value="0" label="Exclude reads with these bits set in FLAG" help="Exclude reads where any of these bits are set in the value of the read flags column" />
+                <param argument="--include-flag" type="integer" min="1" optional="true" label="Only include reads with these bits set in FLAG" help="Only include reads where any of these bits are set in the value of the read flags column" />
+                <param argument="--fast-mode" name="no_fast" type="boolean" truevalue="" falsevalue="-x" label="Disable fast mode" help="Fast mode doesn't look up internal cigar operations or correct mate overlaps. Disabling it is not recommended" />
+                <param argument="--mapq" type="integer" min="0" value="0" label="Minimum mapping quality" help="Reads with a mapping quality lower than this value are ignored" />
+                <param argument="--thresholds" type="text" value="" label="Specify thresholds for output when using region output" help="The number of bases covered by these thresholds will be reported. Multiple thresholds can be separated by commas">
+                    <sanitizer invalid_char="">
+                            <valid initial="string.digits">
+                            <add value="," />
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9,]*</validator>
+                </param>
+                <param argument="--use-median" type="boolean" truevalue="--use-median" falsevalue="" checked="false" label="Use median depth of region" help="When computing depth of region, use median of depth rather than mean" />
+                <param argument="--read-groups" type="text" value="" label="" help="only calculate depth for these comma-separated read groups IDs">
+                    <!-- while read group IDs are not well specified in the BAM specification, they appear to be like IDs but with spaces allowed -->
+                    <expand macro="bam_identifier">
+                        <add value=" " />
+                    </expand>
+                </param>
+                <repeat name="quantize" title="Read depth thresholds for depth-defined regions">
+                    <param name="quant_group_mindepth" type="integer" min="0" value="0" label="Minimum depth for depth-defined region" help="Regions with this depth or lower will be included in this depth-defined region" />
+                    <param name="quant_group_name" type="text" label="Depth-defined region name" help="Name include in BED output for regions in this depth-defined region">
+                        <sanitizer invalid_char="">
+                            <valid initial="string.letters,string.digits">
+                                <add value="_" />
+                            </valid>
+                        </sanitizer>
+                        <validator type="regex">[0-9a-zA-Z_]*</validator>
+                    </param>
+                </repeat>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output_global_dist" format="tabular" from_work_dir="output.mosdepth.global.dist.txt" label="mosdepth depth distribution on ${on_string}" />
+        <data name="output_summary" format="tabular" from_work_dir="output.mosdepth.summary.txt" label="mosdepth summary on ${on_string}">
+            <actions>
+                <action type="metadata" name="column_names" default="chrom,length,bases,mean,min,max" />
+            </actions>
+        </data>
+        <data name="output_region_dist" format="tabular" from_work_dir="output.mosdepth.region.dist.txt" label="mosdepth region depth distribution on ${on_string}">
+            <filter>window['window_mode'] == "bed" or window['window_mode'] == "window"</filter>
+        </data>
+        <data name="output_per_base_depth" format="bedgraph" from_work_dir="output.per-base.bed" label="mosdepth per base depth on ${on_string}">
+            <filter>per_base_coverage</filter>
+        </data>
+        <data name="output_regions_bed" format="bed" from_work_dir="output.regions.bed" label="mosdepth regions BED on ${on_string}">
+            <filter>window['window_mode'] == "bed" or window['window_mode'] == "window"</filter>
+        </data>
+        <data name="output_quantized_bed" format="bed" from_work_dir="output.quantized.bed" label="mosdepth quantized BED on ${on_string}">
+            <filter>advanced['options'] == "yes" and len(advanced['quantize'])</filter>
+        </data>
+        <data name="output_thresholds_bed" format="bed" from_work_dir="output.thresholds.bed" label="mosdepth thresholds BED on ${on_string}">
+            <filter>advanced['options'] == "yes" and advanced['thresholds']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test 1 -->
+        <test expect_num_outputs="2">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <output name="output_summary" file="output_summary.tabular" ftype="tabular" />
+            <output name="output_global_dist" file="output_distribution.tabular" ftype="tabular" />
+        </test>
+        <!-- test 2 -->
+        <test expect_num_outputs="3">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <param name="per_base_coverage" value="True" />
+            <output name="output_per_base_depth" file="output_per_base_depth.bed" ftype="bedgraph" />
+        </test>
+        <!-- test 3 -->
+        <test expect_num_outputs="4">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <conditional name="window">
+                <param name="window_mode" value="bed" />
+                <param name="region_file" value="input_regions.bed" ftype="bed" />
+            </conditional>
+            <output name="output_region_dist" file="output_region_distribution_bed.tabular" ftype="tabular" />
+            <output name="output_summary" file="output_region_summary.tabular" ftype="tabular" />
+            <output name="output_regions_bed" file="output_region_depths.bed" ftype="bed" />
+        </test>
+        <!-- test 4 -->
+        <test expect_num_outputs="4     ">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <conditional name="window">
+                <param name="window_mode" value="window" />
+                <param name="window_size" value="200" />
+            </conditional>
+            <output name="output_region_dist" file="output_region_distribution.tabular" ftype="tabular" />
+            <output name="output_summary" file="output_region_summary_windowed.tabular" ftype="tabular" />
+            <output name="output_regions_bed" file="output_window_depths.bed" ftype="bed" />
+        </test>
+        <!-- test 5 -->
+        <test expect_num_outputs="4">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <conditional name="window">
+                <param name="window_mode" value="window" />
+                <param name="window_size" value="200" />
+            </conditional>
+            <conditional name="advanced">
+                <param name="options" value="yes" />
+                <param name="use_median" value="yes" />
+            </conditional>
+            <output name="output_region_dist" file="output_region_distribution_median.tabular" ftype="tabular" />
+            <output name="output_summary" file="output_region_summary_windowed_median.tabular" ftype="tabular" />
+            <output name="output_regions_bed" file="output_window_depths_median.bed" ftype="bed" />
+        </test>
+        <!-- test 6 -->
+        <test expect_num_outputs="3">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <conditional name="advanced">
+                <param name="options" value="yes" />
+                <repeat name="quantize">
+                    <param name="quant_group_mindepth" value="0" />
+                    <param name="quant_group_name" value="NO_COVERAGE" />
+                </repeat>
+                <repeat name="quantize">
+                    <param name="quant_group_mindepth" value="1" />
+                    <param name="quant_group_name" value="LOW_COVERAGE" />
+                </repeat>
+                <repeat name="quantize">
+                    <param name="quant_group_mindepth" value="20" />
+                    <param name="quant_group_name" value="SUFFICIENT_COVERAGE" />
+                </repeat>
+            </conditional>
+            <output name="output_quantized_bed" file="output_quantized.bed" ftype="bed" />
+        </test>
+        <!-- test 7 -->
+        <test expect_num_outputs="5">
+            <param name="input_alignment" value="input.bam" ftype="bam" />
+            <conditional name="window">
+                <param name="window_mode" value="bed" />
+                <param name="region_file" value="input_regions.bed" ftype="bed" />
+            </conditional>
+            <conditional name="advanced">
+                <param name="options" value="yes" />
+                <param name="thresholds" value="20,40" />
+            </conditional>
+            <output name="output_thresholds_bed" file="output_thresholds.bed" ftype="bed" />
+        </test>
+        <!-- test 7 -->
+        <test expect_num_outputs="2">
+            <param name="input_alignment" value="input.cram" ftype="cram" />
+            <output name="output_summary" file="output_summary.tabular" ftype="tabular" />
+            <output name="output_global_dist" file="output_distribution.tabular" ftype="tabular" />
+        </test>
+    </tests>
+    <help><![CDATA[
+mosdepth_ is a tool for fast and flexible calculation of read depths from BAM or CRAM files.
+
+It can compute:
+
+* mean (or median) depth in fixed sized windows
+* mean (or median) depth in regions specified by a BED file
+* per base depths
+* a histogram of read depths
+* the mean or median coverage histogram for windows / regions
+* a distribution of proportion of based covered over a particular threshold
+* a BED format report on regions that are defined by coverage thresholds
+
+By default only a summary and depth histogram is computed, but the other options mentioned above can
+be enabled using different options in the "Compute depth by region" selector and some of the Advanced
+options.
+
+.. _mosdepth: https://github.com/brentp/mosdepth
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btx699</citation>
+    </citations>
+</tool>

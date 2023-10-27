@@ -1,0 +1,217 @@
+<macros>
+    <token name="@TOOL_VERSION@">3.0.8</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">22.01</token>
+    <xml name="edam_ontology">
+        <edam_topics>
+            <edam_topic>topic_0622</edam_topic> <!-- Genomics -->
+            <edam_topic>topic_0091</edam_topic> <!-- Bioinformatics -->
+        </edam_topics>
+        <edam_operations>
+            <edam_operation>operation_2422</edam_operation> <!-- Data retrieval -->
+            <edam_operation>operation_0335</edam_operation> <!-- Formatting -->
+        </edam_operations>
+    </xml>
+    <macro name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">sra-tools</requirement>
+            <requirement type="package" version="2.8">pigz</requirement>
+            <requirement type="package" version="1.18">samtools</requirement>
+            <yield/>
+        </requirements>
+    </macro>
+    <token name="@ACCESSIONS_FROM_FILE@">
+        grep '^[[:space:]]*[E|S|D]RR[0-9]\{1,\}[[:space:]]*$'
+    </token>
+    <token name="@COMPRESS@"><![CDATA[pigz -cqp \${GALAXY_SLOTS:-1}]]></token>
+    <token name="@CONFIGURE_RETRY@"><![CDATA[
+        export SRA_PREFETCH_RETRIES=3 &&
+        export SRA_PREFETCH_ATTEMPT=1 &&
+    ]]></token>
+    <xml name="bio_tools">
+        <xrefs>
+            <xref type="bio.tools">sra-tools</xref>
+        </xrefs>
+    </xml>
+    <token name="@COPY_CONFIGFILE@"><![CDATA[
+        mkdir -p ~/.ncbi &&
+        cp '$user_settings_mkfg' ~/.ncbi/user-settings.mkfg &&
+        vdb-config -s "/repository/user/main/public/root=\$PWD" &&
+        vdb-config -s "/repository/user/ad/public/root=\$PWD" &&
+        vdb-config -s "/repository/user/default-path=\$PWD" &&
+        vdb-config -s "/repository/user/main/public/root=\$PWD" &&
+        vdb-config -s /http/timeout/read=10000 &&
+    ]]></token>
+    <token name="@SET_ACCESSIONS@"><![CDATA[
+        #if $input.input_select == "sra_file":
+            acc='${input.sra_file.name}' &&
+            ln -s '${input.sra_file}' "\$acc" &&
+        #else    
+            #if $input.input_select == "file_list":
+                #if $input.file_list.is_of_type('sra_manifest.tabular'):
+                    #set $column = $input.file_list.unsanitized.metadata.column_names.index('Run') + 1
+                    cut -f $column '$input.file_list'| tail -n +2 > accessions &&
+                #else
+                    @ACCESSIONS_FROM_FILE@ '$input.file_list' > accessions &&
+                #end if
+            #elif $input.input_select == "accession_number":
+                echo '${input.accession}' | sed -r 's/(\,|\;|__cn__)/\n/g' > accessions &&
+            #end if
+            for acc in \$(cat ./accessions);
+            do (
+                echo "Downloading accession: \$acc..." &&
+        #end if  
+    ]]></token>
+    <macro name="configfile_hack">
+        <configfiles>
+            <configfile name="user_settings_mkfg"><![CDATA[
+/LIBS/GUID = "3cdc38d0-711a-49ce-9536-f544eaf69eec"
+/config/default = "false"
+/libs/temp_cache = "."
+/tools/prefetch/download_to_cache = "false"
+            ]]></configfile>
+        </configfiles>
+    </macro>
+    <macro name="sanitize_query">
+        <sanitizer>
+            <valid initial="string.printable">
+                <remove value=" "/>
+                <remove value="&apos;" />
+            </valid>
+            <mapping initial="none">
+                <add source=" " target=""/>
+                <add source="&apos;" target="&apos;&quot;&apos;&quot;&apos;"/>
+            </mapping>
+        </sanitizer>
+    </macro>
+    <macro name="input_conditional">
+        <conditional name="input">
+            <param name="input_select" type="select" label="select input type">
+                <option value="accession_number">SRR accession</option>
+                <option value="file_list">List of SRA accession, one per line</option>
+                <option value="sra_file">SRA archive in current history</option>
+            </param>
+            <when value="accession_number">
+                <param name="accession" type="text" label="Accession" multiple="true" help="Must start with SRR, DRR or ERR, e.g. SRR925743, ERR343809">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="An accession is required"/>
+                </param>
+            </when>
+            <when value="sra_file">
+                <param format="sra" name="sra_file" type="data" label="sra archive"/>
+            </when>
+            <when value="file_list">
+                <param format="txt" name="file_list" type="data" label="sra accession list"/>
+            </when>
+        </conditional>
+    </macro>
+    <macro name="alignments">
+        <param name="alignments" type="select" value="both" label="Output aligned or unaligned reads" help="Output reads according to their alignment status." argument="--aligned and --unaligned">
+            <option value="both">both</option>
+            <option value="aligned">aligned only</option>
+            <option value="unaligned">unaligned only</option>
+        </param>
+    </macro>
+    <macro name="minMapq">
+        <param name="minMapq" type="integer" min="0" max="42" label="Minimum mapping quality" optional="true" help="Minimum mapping quality an alignment has to have, to be dumped." argument="--min-mapq"/>
+    </macro>
+    <macro name="region">
+        <param name="region" type="text" label="aligned region" optional="true"
+               help="Filter by position on genome. Can be either accession.version (ex: NC_000001.10), chromosome name (ex:chr1 or 1) or 1-based coordinates (ex: chr1:1-101)." argument="--aligned-region"/>
+    </macro>
+    <macro name="matepairDist">
+        <param name="matepairDist" type="text" label="mate-pair distance (from-to|unknown)" optional="true"
+               help="Filter by distance between matepairs. Use unknown to find matepairs split between the references. Use from-to (inclusive) to limit matepair distance on the same reference" argument="--matepair-distance"/>
+    </macro>
+    <macro name="defline" tokens="defline_param,defline_default">
+        <param argument="@DEFLINE_PARAM@" value="@DEFLINE_DEFAULT@" type="text" label="Defline format specification for sequence">
+            <help>A string of characters and/or variables. The variables can be one of:
+                $ac: accession, $si: spot id, $sn: spot name, $sg: spot group (barcode), $sl: spot length in bases, $ri: read number, $rn: read name, $rl: read length in bases.
+                '[]' could be used for an optional output: if all vars in [] yield empty values whole group is not printed. Empty value is empty string or for numeric variables.
+                Ex: @$sn[_$rn]/$ri '_$rn' is omitted if name is empty"</help>
+            <!-- allow many chars, but quotes and backslash -->
+            <sanitizer>
+                <valid initial="string.ascii_letters,string.digits">
+                    <add value="@" />
+                    <add value="$" />
+                    <add value="[" />
+                    <add value="]" />
+                    <add value="_" />
+                    <add value="-" />
+                    <add value="+" />
+                    <add value="." />
+                    <add value=";" />
+                    <add value=":" />
+                    <add value="/" />
+                    <add value="?" />
+                    <add value=" " />
+                    <add value="=" />
+                </valid>
+            </sanitizer>
+            <validator type="regex" message="Must start with @">^.*</validator>
+
+        </param> 
+    </macro>
+    <macro name="citation">
+        <citations>
+            <citation type="doi">10.1093/nar/gkq1019</citation>
+            <citation type="bibtex">
+@misc{github_sratools,
+  author = {NCBI},
+  title = {sra-tools},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  url = {https://github.com/ncbi/sra-tools},
+}</citation>
+        </citations>
+    </macro>
+    <token name="@HOW_TO_USE_IT@">
+    **How to use it?**
+
+There are three ways in which you can download data:
+
+ 1. Plain text input of accession number(s)
+ 2. Providing a list of accessions from file
+ 3. Extracting data from an already uploaded SRA dataset
+
+Below we discuss each in detail.
+
+------
+
+**Plain text input of accession number(s)**
+
+When you type an accession number (e.g., `SRR1582967`) into **Accession** box and click **Execute** the tool will fetch the data for you. You can also provide a list of multiple accession numbers (e.g. `SRR3141592, SRR271828, SRR112358`).
+
+-----
+
+**Providing a list of accessions from file**
+
+A more realistic scenario is when you want to upload a number of datasets at once. To do this you need a list of accession, where there is only one accession per line (see below for information on how to generate such a file). Once you have this file:
+
+ 1. Upload it into your history using Galaxy's upload tool
+ 2. Once the list of accessions is uploaded choose *List of SRA accessions, one per line* from **select input type** dropdown
+ 3. Choose uploaded file within the **sra accession list** field
+ 4. Click **Execute**
+
+-----
+
+**Extract data from an already uploaded SRA dataset**
+
+If an SRA dataset is already present in the history, the sequencing data can be extracted in a human-readable data format (fastq, sam, bam) by setting **select input type** drop-down to *SRA archive in current history*.
+    </token>
+    <token name="@ACCESSION_LIST_HOWTO@">
+-----
+
+**How to generate accession lists**
+
+ 1. Go to **SRA Run Selector** by clicking this link_
+ 2. Find the study you are interested in by typing a search term within the **Search** box. This can be a word (e.g., *mitochondria*) or an accession you have gotten from a paper (e.g., *SRR1582967*).
+ 3. Once you click on the study of interest you will see the number of datasets in this study within the **Related SRA data** box
+ 4. Click on the Runs number
+ 5. On the page that would open you will see **Accession List** button
+ 6. Clicking of this button will produce a file that you will need to upload into Galaxy and use as the input to this tool.
+    </token>
+    <token name="@SRATOOLS_ATTRRIBUTION@">
+For credits, information, support and bug reports, please refer ato https://github.com/galaxyproject/tools-iuc.
+    </token>
+</macros>

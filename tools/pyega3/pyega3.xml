@@ -1,7 +1,7 @@
 <tool id="pyega3" name="EGA Download Client" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.01" >
     <macros>
-        <token name="@TOOL_VERSION@">4.0.5</token>
-        <token name="@VERSION_SUFFIX@">1</token>
+        <token name="@TOOL_VERSION@">5.0.2</token>
+        <token name="@VERSION_SUFFIX@">0</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">pyega3</requirement>
@@ -49,15 +49,14 @@
 #elif $action.action_type == "download_files"
     #import re
     #set file_ids=[x.split('\t')[int(str($action.id_column))-1] for x in open(str($id_table)).readlines()]
-    #set outfiles=[x.split('\t')[int(str($action.file_column))-1].replace('\n', '') for x in open(str($id_table)).readlines()]
     mkdir downloads
-    #for f, o in zip($file_ids, $outfiles)
+    #for f in $file_ids
       #if not f.startswith("EGAF")
         && >&2 echo "Ignoring \"$f\": no EGA file ID"
         #continue
       #end if
       && 
-      echo 'Downloading $f: $o'
+      echo 'Downloading $f'
       &&
       pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf '$credentials'
         fetch '$f'
@@ -72,17 +71,8 @@
           #end if
         #end if
         --output-dir downloads
-      #if re.match(".*vcf(_genomic_range_.*|).gz$", o)
-        #if $action.range.reference_name or ($action.range.start or $action.range.end)
-          && mv 'downloads/$f/'$o[:-3]'_genomic_range_'\$([ -z "$action.range.reference_name" ] && printf "None" || printf "$action.range.reference_name")'_'\$([ -z "$action.range.start" ] && printf "None" || printf "$action.range.reference_name")'_'\$([ -z "$action.range.reference_name" ] && printf "None" || printf "$action.range.end")'.gz' 'downloads/$f/'$o'.vcf_bgzip'
-        #else
-          && mv 'downloads/$f/$o' 'downloads/$f/'$o'.vcf_bgzip'
-        #end if
-      #end if
-      #if re.match(".*ped$", o)
-        && mv 'downloads/$f/$o' 'downloads/$f/'$o'.tabular'
-      #end if
     #end for
+    && for vcf in \$(ls downloads/**/*vcf.gz); do mv "\${vcf}" "\${vcf:0:-6}vcf_bgzip"; done  ## renaming vcf.gz files to vcf_bgzip to recognize format
     && rm -f downloads/**/*.md5  ## checksum validation already performed by pyEGA, clean up downloads folder
 
 #end if
@@ -128,7 +118,6 @@
             <when value="download_files">
                 <param name="id_table" type="data" format="tabular" label="Table with IDs to download" help="A tabular file where one column contains the set of file IDs. This will output a collection. Please select files that are all the same format (e.g. all BAM or all VCF)."/>
                 <param name="id_column" type="data_column" data_ref="id_table" label="Column containing the file IDs" help="File Identifiers starting with 'EGAF'. For example: EGAF00001753735" />
-                <param name="file_column" type="data_column" data_ref="id_table" label="Column containing the file names" />
                 <section name="range" title="Request a specific Genomic range? (will be applied to ALL requested files)" expanded="false">
                     <param argument="--reference-name" type="text" optional="true" label="Reference Sequence Name" help="For example 'chr1', '1', or 'chrX'. If unspecified, all data is returned." />
                     <param argument="--start" type="integer" optional="true" min="0" label="Start Position" help="0-based, inclusive. Only used if a reference sequence name was specified"/>
@@ -153,7 +142,7 @@
         </data>
         <collection name="downloaded_file_collection" type="list" label="${tool.name} on ${on_string}: Downloaded datasets">
             <filter> action['action_type'] == 'download_files' </filter>
-            <discover_datasets pattern="__designation_and_ext__" recurse="true" directory="downloads" />
+            <discover_datasets pattern="__name_and_ext__" recurse="true" directory="downloads" />
         </collection>
     </outputs>
     <tests>
@@ -187,21 +176,26 @@
             <param name="file_id" value="EGAF00001775036"/>
             <output name="downloaded_file" md5="3b89b96387db5199fef6ba613f70e27c"/>
         </test>
-        <!-- download a single file, with genomic range specified -->
+        <!-- download a single vcf.gz -->
+        <test expect_num_outputs="1"> 
+            <param name="action_type" value="download_file"/>
+            <param name="file_id" value="EGAF00007243775"/>
+            <output name="downloaded_file" md5="51cfb69bf3b9416ff425381a58c18a2b" ftype="vcf_bgzip" />
+        </test>
+        <!-- download a single bam, with genomic range specified -->
         <test expect_num_outputs="1">
             <param name="action_type" value="download_file"/>
             <param name="file_id" value="EGAF00001753756"/>
             <param name="reference_name" value="1"/>
             <param name="start" value="0"/>
             <param name="end" value="10000"/>
-            <output name="downloaded_file" ftype="bam" md5="e576a38748feec45aa45191f6e902ce2"/>
+            <output name="downloaded_file" md5="4b5344ad094c2bed7787430259205098"/>
         </test>
         <!-- download multiple files -->
         <test expect_num_outputs="1">
             <param name="action_type" value="download_files"/>
             <param name="id_table" value="filelist.tabular"/>
             <param name="id_column" value="1"/>
-            <param name="file_column" value="5"/>
             <output_collection name="downloaded_file_collection" type="list" count="2">
                 <element name="ENCFF000VWO.bam" md5="b8ae14d5d1f717ab17d45e8fc36946a0" />
                 <element name="ENCFF284YOU.bam" md5="3b89b96387db5199fef6ba613f70e27c" />
@@ -215,13 +209,12 @@
             <param name="action_type" value="download_files"/>
             <param name="id_table" value="filelist2.tabular"/>
             <param name="id_column" value="1"/>
-            <param name="file_column" value="5"/>
             <param name="reference_name" value="1"/>
             <param name="start" value="0"/>
             <param name="end" value="10000"/>
             <output_collection name="downloaded_file_collection" count="2">
-                <element name="NA19239_genomic_range_1_0_10000" md5="bcdcf18846233cbe5cc8afd95168552c" />
-                <element name="NA19240_genomic_range_1_0_10000" md5="e576a38748feec45aa45191f6e902ce2" />
+                <element name="NA19239_genomic_range_1_0_10000" md5="497f443830a6a3ec2e5bb5a19c4db638" />
+                <element name="NA19240_genomic_range_1_0_10000" md5="4b5344ad094c2bed7787430259205098" />
             </output_collection>
             <assert_stderr>
                 <has_text text="Ignoring &quot;File ID&quot;: no EGA file ID"/>
@@ -232,15 +225,20 @@
             <param name="action_type" value="download_files"/>
             <param name="id_table" value="filelist3.tabular"/>
             <param name="id_column" value="1"/>
-            <param name="file_column" value="5"/>
             <output_collection name="downloaded_file_collection" type="list" count="2">
-                <element name="HG00408.novoBreak__256r__4.100100-10100100__7.200100-9000100.vcf.gz" md5="51cfb69bf3b9416ff425381a58c18a2b" />
-                <element name="HG01890.HGSVC__145r__1.900100-10001000__18.2001000-90001000.vcf.gz" md5="ebad4425191a89d3e970c02190a87175" />
+                <element name="HG00408.novoBreak__256r__4.100100-10100100__7.200100-9000100" md5="51cfb69bf3b9416ff425381a58c18a2b" ftype="vcf_bgzip" />
+                <element name="HG01890.HGSVC__145r__1.900100-10001000__18.2001000-90001000" md5="ebad4425191a89d3e970c02190a87175" ftype="vcf_bgzip" />
             </output_collection>
         </test>
     </tests>
     <help><![CDATA[
 The pyEGA3 download client is a python-based tool for viewing and downloading files from authorized EGA datasets.
+
+.. class:: Warning mark
+
+	Data is stored unencrypted on the user's Galaxy account. Confidential data from the EGA could be left unprotected when uploaded to a public Galaxy server.
+	Make sure to read the EGA Data Access Agreement (DAA_) before uploading any data to Galaxy from the EGA.
+	If this applies to you, we recommend you follow the GalaxySensitiveData-ELIXIR-IS_ page for updates on encrypted data at rest.
 
 If you have an EGA account, you can set your EGA credentials in the user preferences menu of Galaxy. Otherwise, default EGA credentials with access to an example dataset will be used.
 
@@ -252,6 +250,8 @@ pyEGA3 uses the EGA Data API and has several key features:
 - After download completes, file integrity is verified using checksums.
 - pyEGA3 implements the GA4GH-compliant htsget protocol for download of genomic ranges for data files with accompanying index files.
 
+.. _DAA: https://ega-archive.org/files/Example_DAA.doc
+.. _GalaxySensitiveData-ELIXIR-IS: https://github.com/elixir-europe/GalaxySensitiveData-ELIXIR_IS
     ]]></help>
     <citations>
         <citation type="doi">10.1038/ng.3312</citation>
