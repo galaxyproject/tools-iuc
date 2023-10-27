@@ -85,6 +85,12 @@ unmake_names <- function(string) {
   return(string)
 }
 
+# Sanitise file base names coming from factors or contrasts
+sanitise_basename_contrasts_factors <- function(string) {
+  string <- gsub("[+-*/()^]", "_", string)
+  return(string)
+}
+
 # Generate output folder and paths
 make_out <- function(filename) {
   return(paste0(out_path, "/", filename))
@@ -331,16 +337,16 @@ ql_png <- make_out("qlplot.png")
 mds_pdf <- character() # Initialise character vector
 mds_png <- character()
 for (i in seq_len(ncol(factors))) {
-  mds_pdf[i] <- make_out(paste0("mdsplot_", names(factors)[i], ".pdf"))
-  mds_png[i] <- make_out(paste0("mdsplot_", names(factors)[i], ".png"))
+  mds_pdf[i] <- make_out(paste0("mdsplot_", sanitise_basename_contrasts_factors(names(factors)[i]), ".pdf"))
+  mds_png[i] <- make_out(paste0("mdsplot_", sanitise_basename_contrasts_factors(names(factors)[i]), ".png"))
 }
 md_pdf <- character()
 md_png <- character()
 top_out <- character()
 for (i in seq_along(contrast_data)) {
-  md_pdf[i] <- make_out(paste0("mdplot_", contrast_data[i], ".pdf"))
-  md_png[i] <- make_out(paste0("mdplot_", contrast_data[i], ".png"))
-  top_out[i] <- make_out(paste0("edgeR_", contrast_data[i], ".tsv"))
+  md_pdf[i] <- make_out(paste0("mdplot_", sanitise_basename_contrasts_factors(contrast_data[i]), ".pdf"))
+  md_png[i] <- make_out(paste0("mdplot_", sanitise_basename_contrasts_factors(contrast_data[i]), ".png"))
+  top_out[i] <- make_out(paste0("edgeR_", sanitise_basename_contrasts_factors(contrast_data[i]), ".tsv"))
 } # Save output paths for each contrast as vectors
 norm_out <- make_out("edgeR_normcounts.tsv")
 rda_out <- make_out("edgeR_analysis.RData")
@@ -446,15 +452,15 @@ labels <- names(counts)
 # MDS plot
 png(mds_png, width = 600, height = 600)
 plotMDS(data, labels = labels, col = as.numeric(factors[, 1]), cex = 0.8, main = paste("MDS Plot:", names(factors)[1]))
-img_name <- paste0("MDS Plot_", names(factors)[1], ".png")
-img_addr <- paste0("mdsplot_", names(factors)[1], ".png")
+img_name <- paste0("MDS Plot_", sanitise_basename_contrasts_factors(names(factors)[1]), ".png")
+img_addr <- paste0("mdsplot_", sanitise_basename_contrasts_factors(names(factors)[1]), ".png")
 image_data[1, ] <- c(img_name, img_addr)
 invisible(dev.off())
 
 pdf(mds_pdf)
 plotMDS(data, labels = labels, col = as.numeric(factors[, 1]), cex = 0.8, main = paste("MDS Plot:", names(factors)[1]))
-link_name <- paste0("MDS Plot_", names(factors)[1], ".pdf")
-link_addr <- paste0("mdsplot_", names(factors)[1], ".pdf")
+link_name <- paste0("MDS Plot_", sanitise_basename_contrasts_factors(names(factors)[1]), ".pdf")
+link_addr <- paste0("mdsplot_", sanitise_basename_contrasts_factors(names(factors)[1]), ".pdf")
 link_data[1, ] <- c(link_name, link_addr)
 invisible(dev.off())
 
@@ -463,15 +469,15 @@ if (ncol(factors) > 1) {
   for (i in 2:ncol(factors)) {
     png(mds_png[i], width = 600, height = 600)
     plotMDS(data, labels = labels, col = as.numeric(factors[, i]), cex = 0.8, main = paste("MDS Plot:", names(factors)[i]))
-    img_name <- paste0("MDS Plot_", names(factors)[i], ".png")
-    img_addr <- paste0("mdsplot_", names(factors)[i], ".png")
+    img_name <- paste0("MDS Plot_", sanitise_basename_contrasts_factors(names(factors)[i]), ".png")
+    img_addr <- paste0("mdsplot_", sanitise_basename_contrasts_factors(names(factors)[i]), ".png")
     image_data <- rbind(image_data, c(img_name, img_addr))
     invisible(dev.off())
 
     pdf(mds_pdf[i])
     plotMDS(data, labels = labels, col = as.numeric(factors[, i]), cex = 0.8, main = paste("MDS Plot:", names(factors)[i]))
-    link_name <- paste0("MDS Plot_", names(factors)[i], ".pdf")
-    link_addr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+    link_name <- paste0("MDS Plot_", sanitise_basename_contrasts_factors(names(factors)[i]), ".pdf")
+    link_addr <- paste0("mdsplot_", sanitise_basename_contrasts_factors(names(factors)[i]), ".pdf")
     link_data <- rbind(link_data, c(link_name, link_addr))
     invisible(dev.off())
   }
@@ -549,8 +555,8 @@ for (i in seq_along(contrast_data)) {
   top <- topTags(res, adjust.method = opt$pAdjOpt, n = Inf, sort.by = "PValue")
   write.table(top, file = top_out[i], row.names = FALSE, sep = "\t", quote = FALSE)
 
-  link_name <- paste0("edgeR_", contrast_data[i], ".tsv")
-  link_addr <- paste0("edgeR_", contrast_data[i], ".tsv")
+  link_name <- paste0("edgeR_", sanitise_basename_contrasts_factors(contrast_data[i]), ".tsv")
+  link_addr <- paste0("edgeR_", sanitise_basename_contrasts_factors(contrast_data[i]), ".tsv")
   link_data <- rbind(link_data, c(link_name, link_addr))
 
   # Plot MD (log ratios vs mean difference) using limma package
@@ -564,8 +570,8 @@ for (i in seq_along(contrast_data)) {
 
   abline(h = 0, col = "grey", lty = 2)
 
-  link_name <- paste0("MD Plot_", contrast_data[i], ".pdf")
-  link_addr <- paste0("mdplot_", contrast_data[i], ".pdf")
+  link_name <- paste0("MD Plot_", sanitise_basename_contrasts_factors(contrast_data[i]), ".pdf")
+  link_addr <- paste0("mdplot_", sanitise_basename_contrasts_factors(contrast_data[i]), ".pdf")
   link_data <- rbind(link_data, c(link_name, link_addr))
   invisible(dev.off())
 
@@ -579,8 +585,8 @@ for (i in seq_along(contrast_data)) {
 
   abline(h = 0, col = "grey", lty = 2)
 
-  img_name <- paste0("MD Plot_", contrast_data[i], ".png")
-  img_addr <- paste0("mdplot_", contrast_data[i], ".png")
+  img_name <- paste0("MD Plot_", sanitise_basename_contrasts_factors(contrast_data[i]), ".png")
+  img_addr <- paste0("mdplot_", sanitise_basename_contrasts_factors(contrast_data[i]), ".png")
   image_data <- rbind(image_data, c(img_name, img_addr))
   invisible(dev.off())
 }
