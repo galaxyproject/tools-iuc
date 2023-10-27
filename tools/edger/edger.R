@@ -87,7 +87,7 @@ unmake_names <- function(string) {
 
 # Sanitise file base names coming from factors or contrasts
 sanitise_basename_contrasts_factors <- function(string) {
-  string <- gsub("[+-*/()^]", "_", string)
+  string <- gsub("[/^]", "_", string)
   return(string)
 }
 
