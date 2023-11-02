@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 
+
 @dataclasses.dataclass
 class Opts:
     tag: str = ''
@@ -18,6 +19,7 @@ class Opts:
     locfile_path: str = ''
     output_directory: str = ''
     output_dict: dict = dataclasses.field(default_factory=lambda: dict())
+
 
 def get_options():
     opts = Opts()
@@ -100,6 +102,7 @@ def check_locfile(opts):
         'tool_cache_dir': opts.tool_cache_dir,
     })
 
+
 def main(debug=False):
     opts = get_options()
     check_locfile(opts)
@@ -117,7 +120,7 @@ def main(debug=False):
 
     try:
         subprocess.run(args, capture_output=True, check=True)
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         raise
 
     with open(opts.output_file, 'w') as f:
