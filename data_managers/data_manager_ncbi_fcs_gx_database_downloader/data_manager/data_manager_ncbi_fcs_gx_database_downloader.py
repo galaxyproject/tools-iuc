@@ -70,7 +70,7 @@ def check_locfile(opts):
                 if default == '1' and not have_default:
                     have_default = True
                 current[tag] = (description, default, phone_home, manifest, local_cache_dir, tool_cache_dir)
-    except:
+    except FileNotFoundError:
         pass
 
     if opts.tag in current:
