@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 
 import argparse
+import dataclasses
 import json
 import os
-import sys
 import subprocess
-import dataclasses
 
 @dataclasses.dataclass
 class Opts:
@@ -117,15 +116,8 @@ def main(debug=False):
     ]
 
     try:
-        p = subprocess.run(args, capture_output=True, check=True)
+        subprocess.run(args, capture_output=True, check=True)
     except subprocess.CalledProcessError as e:
-        print ('error')
-        print (f'path={os.environ["PATH"]}')
-        print (f'returncode={e.returncode}')
-        print (f'cmd={e.cmd}')
-        print (f'output={e.output}')
-        print (f'stdout={e.stdout}')
-        print (f'stderr={e.stderr}')
         raise
 
     with open(opts.output_file, 'w') as f:
@@ -134,4 +126,3 @@ def main(debug=False):
 
 if __name__ == '__main__':
     main(debug=True)
-
