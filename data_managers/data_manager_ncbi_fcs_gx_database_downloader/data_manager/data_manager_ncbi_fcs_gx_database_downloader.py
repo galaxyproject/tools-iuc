@@ -56,9 +56,48 @@ def get_options():
     return opts
 
 
+def create_divisions_file(opts):
+    top_level_description = {
+        'anml': 'Animals (Metazoa)',
+        'arch': 'Archaea',
+        'fung': 'Fungi',
+        'plnt': 'Plants (Viridiplantae)',
+        'prok': 'Bacteria',
+        'prst': 'Protists (other Eukaryota)',
+        'synt': 'Synthetic',
+        'virs': 'Virus',
+    }
+
+    gx_divisions = set()
+
+    taxa_file = os.path.join(opts.output_directory, f'{opts.tag}.taxa.tsv')
+    with open(taxa_file) as f:
+        for line in f:
+            if line.startswith('#'):
+                continue
+            line = line.rstrip('\n')
+            tax_id, species, common_name, blast_div, div = line.split('\t', 4)
+            gx_divisions.add(div)
+
+    elements = []
+    for division in gx_divisions:
+        top, rest = division.split(':', 1)
+        description = f'{top_level_description[top]} - {rest}'
+        elements.append((description, division))
+
+    divisions_file = os.path.join(opts.output_directory, 'ncbi_fcs_gx_divisions.tsv')
+    with open(divisions_file, 'w') as f:
+        print('## NCBI FCS GX Divisions', file=f)
+        print('#', file=f)
+        print('#value\tname', file=f)
+        for name, value in sorted(elements):
+            print(f'{value}\t{name}', file=f)
+
+
 def check_locfile(opts):
     current = {}
     have_default = False
+    default_tag = ''
 
     try:
         with open(opts.locfile_path) as f:
@@ -69,6 +108,7 @@ def check_locfile(opts):
                 tag, description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = line.split('\t', 6)
                 if default == '1' and not have_default:
                     have_default = True
+                    default_tag  = tag
                 current[tag] = (description, default, phone_home, manifest, local_cache_dir, tool_cache_dir)
     except FileNotFoundError:
         pass
@@ -89,8 +129,21 @@ def check_locfile(opts):
             'tool_cache_dir': tool_cache_dir,
         })
 
-    if not have_default and opts.default == '0':
-        opts.default = '1'
+    if opts.default == '0':
+        if have_default:
+            description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = current[default_tag]
+            for operation in ['remove', 'add']:
+                opts.output_dict['data_tables']['ncbi_fcs_gx_databases'][operation].append({
+                    'value': default_tag,
+                    'name': description,
+                    'default': default,
+                    'phone_home': phone_home,
+                    'manifest': manifest,
+                    'local_cache_dir': local_cache_dir,
+                    'tool_cache_dir': tool_cache_dir,
+                })
+        else:
+            opts.default = '1'
 
     opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['add'].append({
         'value': opts.tag,
@@ -103,7 +156,7 @@ def check_locfile(opts):
     })
 
 
-def main(debug=False):
+def main():
     opts = get_options()
     check_locfile(opts)
 
@@ -123,9 +176,11 @@ def main(debug=False):
     except subprocess.CalledProcessError:
         raise
 
+    create_divisions_file(opts)
+
     with open(opts.output_file, 'w') as f:
         print(json.dumps(opts.output_dict, sort_keys=True, indent=2), file=f)
 
 
 if __name__ == '__main__':
-    main(debug=True)
+    main()
