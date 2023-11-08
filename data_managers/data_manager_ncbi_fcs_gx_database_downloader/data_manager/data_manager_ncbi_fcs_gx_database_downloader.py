@@ -108,7 +108,7 @@ def check_locfile(opts):
                 tag, description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = line.split('\t', 6)
                 if default == '1' and not have_default:
                     have_default = True
-                    default_tag  = tag
+                    default_tag = tag
                 current[tag] = (description, default, phone_home, manifest, local_cache_dir, tool_cache_dir)
     except FileNotFoundError:
         pass
