@@ -118,8 +118,12 @@ def _retrieve_fasta_seq(fasta_file, query_id):
     From fasta file retrieve specific sequence with id
     """
     contigs_list = SeqIO.to_dict(SeqIO.parse(open(fasta_file), 'fasta'))
-    seq = contigs_list[query_id].seq
-    return seq
+    try:
+        seq = contigs_list[query_id].seq
+    except KeyError:
+        print("KeyError for " + query_id + " file " + fasta_file)
+    else:
+        return seq
 
 
 def _create_tree(tree, fasta, out, color):
