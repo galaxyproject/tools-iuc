@@ -38,7 +38,7 @@ if (length(args) == 0) {
     # write otu number and number of contigs in this otu
     cat(
         paste("OTU_", i, ",", length(clust), ",", sep = ""),
-        file = utput, append = TRUE)
+        file = output, append = TRUE)
     for (n in names(clust)){
       # write contigs name
       cat(paste(gsub(" ", "", n), ",", sep = ""), file = output, append = TRUE)
