@@ -87,9 +87,6 @@ def create_divisions_file(opts):
 
     divisions_file = os.path.join(opts.output_directory, 'ncbi_fcs_gx_divisions.tsv')
     with open(divisions_file, 'w') as f:
-        print('## NCBI FCS GX Divisions', file=f)
-        print('#', file=f)
-        print('#value\tname', file=f)
         for name, value in sorted(elements):
             print(f'{value}\t{name}', file=f)
 
