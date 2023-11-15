@@ -85,12 +85,5 @@ def __main__():
             with open('RAxML_resultPartitions.galaxy', 'w') as outfile:
                 outfile.write("No partition files were produced.\n")
 
-    # DEBUG options
-    with open('RAxML_info.galaxy', 'a') as infof:
-        infof.write('\nOM: CLI options DEBUG START:\n')
-        infof.write(options.__repr__())
-        infof.write('\nOM: CLI options DEBUG END\n')
-
-
 if __name__ == "__main__":
     __main__()
