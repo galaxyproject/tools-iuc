@@ -85,5 +85,6 @@ def __main__():
             with open('RAxML_resultPartitions.galaxy', 'w') as outfile:
                 outfile.write("No partition files were produced.\n")
 
+
 if __name__ == "__main__":
     __main__()
