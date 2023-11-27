@@ -2,12 +2,11 @@
 
 import argparse
 import json
-import operator
 import os
 import subprocess
-import sys
-import tarfile
+from pathlib import Path
 from datetime import datetime
+import sys
 
 import requests
 
@@ -17,25 +16,25 @@ OMAMER_DATASETS = [
     "Primates-v2.0.0.h5",
     "Saccharomyceta.h5",
     "Viridiplantae-v0.2.5.h50",
-    "Viridiplantae-v2.0.0.h5",
     "Metazoa-v0.2.5.h5",
-    "Metazoa-v2.0.0.h5",
-    "LUCA.h5",
-    "LUCA-v2.0.0.h5",
     "LUCA-v0.2.5.h5"
 ]
 
 def download_file(url, dest):
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        with open(dest, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+    try:
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            with open(dest, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        print(f"Downloaded: {url} to {dest}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error downloading {url}: {e}")
+        sys.exit(1)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--output-dir', dest='output_dir', required=True, help='Output directory for saving databases')
-    args = parser.parse_args()
+def main(args):
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
     for dataset in OMAMER_DATASETS:
         url = OMAMER_DATASETS_URL.format(dataset=dataset)
@@ -43,4 +42,21 @@ if __name__ == "__main__":
         destination_path = os.path.join(args.output_dir, base_name)
         download_file(url, destination_path)
 
+    data_manager_entry = {
+        "value": args.name.lower(),
+        "name": args.name,
+        "path": str(Path(args.output_dir)),
+    }
+    data_manager_json = {"data_tables": {"omamer_data": [data_manager_entry]}}
 
+    with open(args.json, "w") as fh:
+        json.dump(data_manager_json, fh, indent=2, sort_keys=True)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Download data for OMAmer')
+    parser.add_argument('--output-dir', dest='output_dir', required=True, help='Output directory for saving databases')
+    parser.add_argument('--name', default=str(datetime.date.today()), help='Data table entry unique ID')
+    parser.add_argument('--json', help='Path to JSON file')
+    args = parser.parse_args()
+
+    main(args)
