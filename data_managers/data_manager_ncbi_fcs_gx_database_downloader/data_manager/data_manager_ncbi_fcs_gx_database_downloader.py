@@ -10,12 +10,8 @@ import subprocess
 @dataclasses.dataclass
 class Opts:
     tag: str = ''
-    description: str = ''
-    default: str = ''
-    phone_home: str = ''
     manifest: str = ''
-    local_cache_dir: str = ''
-    tool_cache_dir: str = ''
+    path: str = ''
     locfile_path: str = ''
     output_directory: str = ''
     output_dict: dict = dataclasses.field(default_factory=lambda: dict())
@@ -33,12 +29,8 @@ def get_options():
         params = json.load(f)
 
     opts.tag = params['param_dict'].get('tag', '')
-    opts.description = params['param_dict'].get('description', '')
-    opts.default = '1' if params['param_dict'].get('default', 'false') == 'true' else '0'
-    opts.phone_home = '1' if params['param_dict'].get('phone_home', 'false') == 'true' else '0'
     opts.manifest = params['param_dict'].get('manifest', '')
-    opts.local_cache_dir = params['param_dict'].get('local_cache_dir', '')
-    opts.tool_cache_dir = params['param_dict'].get('tool_cache_dir', '')
+    opts.path = params['param_dict'].get('path', '')
     opts.locfile_path = os.path.join(params['param_dict'].get('__tool_directory__', ''), '..', 'test-data', 'ncbi_fcs_gx_databases.loc')
     opts.output_directory = os.path.join(params['output_data'][0]['extra_files_path'], opts.tag)
 
@@ -85,6 +77,9 @@ def create_divisions_file(opts):
         description = f'{top_level_description[top]} - {rest}'
         elements.append((description, division))
 
+    # add unknown value
+    elements.append(('Unknown / Unclassified', 'unkn:unknown'))
+
     divisions_file = os.path.join(opts.output_directory, 'ncbi_fcs_gx_divisions.tsv')
     with open(divisions_file, 'w') as f:
         for name, value in sorted(elements):
@@ -93,8 +88,6 @@ def create_divisions_file(opts):
 
 def check_locfile(opts):
     current = {}
-    have_default = False
-    default_tag = ''
 
     try:
         with open(opts.locfile_path) as f:
@@ -102,54 +95,23 @@ def check_locfile(opts):
                 if line.startswith('#'):
                     continue
                 line = line.rstrip('\n')
-                tag, description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = line.split('\t', 6)
-                if default == '1' and not have_default:
-                    have_default = True
-                    default_tag = tag
-                current[tag] = (description, default, phone_home, manifest, local_cache_dir, tool_cache_dir)
+                tag, manifest, path = line.split('\t', 2)
+                current[tag] = (manifest, path)
     except FileNotFoundError:
         pass
 
     if opts.tag in current:
-        description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = current[opts.tag]
-
-        if have_default and default == '1':
-            have_default = False
-
+        manifest, path = current[opts.tag]
         opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['remove'].append({
             'value': opts.tag,
-            'name': description,
-            'default': default,
-            'phone_home': phone_home,
             'manifest': manifest,
-            'local_cache_dir': local_cache_dir,
-            'tool_cache_dir': tool_cache_dir,
+            'name': path,
         })
-
-    if opts.default == '0':
-        if have_default:
-            description, default, phone_home, manifest, local_cache_dir, tool_cache_dir = current[default_tag]
-            for operation in ['remove', 'add']:
-                opts.output_dict['data_tables']['ncbi_fcs_gx_databases'][operation].append({
-                    'value': default_tag,
-                    'name': description,
-                    'default': default,
-                    'phone_home': phone_home,
-                    'manifest': manifest,
-                    'local_cache_dir': local_cache_dir,
-                    'tool_cache_dir': tool_cache_dir,
-                })
-        else:
-            opts.default = '1'
 
     opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['add'].append({
         'value': opts.tag,
-        'name': opts.description,
-        'default': opts.default,
-        'phone_home': opts.phone_home,
         'manifest': opts.manifest,
-        'local_cache_dir': opts.local_cache_dir,
-        'tool_cache_dir': opts.tool_cache_dir,
+        'name': opts.path,
     })
 
 
