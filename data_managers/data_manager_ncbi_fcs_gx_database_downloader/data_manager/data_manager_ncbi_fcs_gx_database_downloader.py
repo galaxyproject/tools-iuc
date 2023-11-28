@@ -5,6 +5,7 @@ import dataclasses
 import json
 import os
 import subprocess
+import sys
 
 
 @dataclasses.dataclass
@@ -101,18 +102,24 @@ def check_locfile(opts):
         pass
 
     if opts.tag in current:
-        manifest, path = current[opts.tag]
-        opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['remove'].append({
+        current_manifest, current_path = current[opts.tag]
+        if current_manifest != opts.manifest or current_path != opts.path:
+            opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['remove'].append({
+                'value': opts.tag,
+                'manifest': current_manifest,
+                'name': current_path,
+            })
+            opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['add'].append({
+                'value': opts.tag,
+                'manifest': opts.manifest,
+                'name': opts.path,
+            })
+    else:
+        opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['add'].append({
             'value': opts.tag,
-            'manifest': manifest,
-            'name': path,
+            'manifest': opts.manifest,
+            'name': opts.path,
         })
-
-    opts.output_dict['data_tables']['ncbi_fcs_gx_databases']['add'].append({
-        'value': opts.tag,
-        'manifest': opts.manifest,
-        'name': opts.path,
-    })
 
 
 def main():
@@ -139,6 +146,8 @@ def main():
 
     with open(opts.output_file, 'w') as f:
         print(json.dumps(opts.output_dict, sort_keys=True, indent=2), file=f)
+
+    sys.exit(0)
 
 
 if __name__ == '__main__':
