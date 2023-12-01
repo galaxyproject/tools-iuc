@@ -8,6 +8,7 @@
 #       matrixPath", "m", 2, "character"    -Path to count matrix
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
+#       formula", "F", 2, "character".      -String containing a formula to override default use of factInput
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
 #       contrastData", "C", 1, "character"  -String containing contrasts of interest
 #       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
@@ -40,9 +41,9 @@
 time_start <- as.character(Sys.time())
 
 # setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
+options(show.error.messages = FALSE, error = function() {
   cat(geterrmessage(), file = stderr())
-  q("no", 1, F)
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -84,6 +85,12 @@ unmake_names <- function(string) {
   return(string)
 }
 
+# Sanitise file base names coming from factors or contrasts
+sanitise_basename <- function(string) {
+  string <- gsub("[/^]", "_", string)
+  return(string)
+}
+
 # Generate output folder and paths
 make_out <- function(filename) {
   return(paste0(out_path, "/", filename))
@@ -105,8 +112,7 @@ cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL
     } else if (substring(file, 1L, 1L) == "|") {
       file <- pipe(substring(file, 2L), "w")
       on.exit(close(file))
-    }
-    else {
+    } else {
       file <- file(file, ifelse(append, "a", "w"))
       on.exit(close(file))
     }
@@ -160,6 +166,7 @@ spec <- matrix(c(
   "filesPath", "j", 2, "character",
   "matrixPath", "m", 2, "character",
   "factFile", "f", 2, "character",
+  "formula", "F", 2, "character",
   "factInput", "i", 2, "character",
   "annoPath", "a", 2, "character",
   "contrastData", "C", 1, "character",
@@ -181,7 +188,7 @@ byrow = TRUE, ncol = 4
 opt <- getopt(spec)
 
 
-if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
+if (is.null(opt$matrixPath) && is.null(opt$filesPath)) {
   cat("A counts matrix (or a set of counts files) is required.\n")
   q(status = 1)
 }
@@ -284,7 +291,7 @@ if (!is.null(opt$filesPath)) {
     }
     # order samples as in counts matrix
     factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
-    factors <- factordata[, -1, drop = FALSE]
+    factors <- data.frame(sapply(factordata[, -1, drop = FALSE], make.names))
   } else {
     factors <- unlist(strsplit(opt$factInput, "|", fixed = TRUE))
     factordata <- list()
@@ -313,8 +320,13 @@ if (have_anno) {
 out_path <- opt$outPath
 dir.create(out_path, showWarnings = FALSE)
 
-# Split up contrasts separated by comma into a vector then sanitise
-contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
+# Check if contrastData is a file or not
+if (file.exists(opt$contrastData)) {
+  contrast_data <- unlist(read.table(opt$contrastData, sep = "\t", header = TRUE)[[1]])
+} else {
+  # Split up contrasts separated by comma into a vector then sanitise
+  contrast_data <- unlist(strsplit(opt$contrastData, split = ","))
+}
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
 
@@ -325,16 +337,16 @@ ql_png <- make_out("qlplot.png")
 mds_pdf <- character() # Initialise character vector
 mds_png <- character()
 for (i in seq_len(ncol(factors))) {
-  mds_pdf[i] <- make_out(paste0("mdsplot_", names(factors)[i], ".pdf"))
-  mds_png[i] <- make_out(paste0("mdsplot_", names(factors)[i], ".png"))
+  mds_pdf[i] <- make_out(paste0("mdsplot_", sanitise_basename(names(factors)[i]), ".pdf"))
+  mds_png[i] <- make_out(paste0("mdsplot_", sanitise_basename(names(factors)[i]), ".png"))
 }
 md_pdf <- character()
 md_png <- character()
 top_out <- character()
 for (i in seq_along(contrast_data)) {
-  md_pdf[i] <- make_out(paste0("mdplot_", contrast_data[i], ".pdf"))
-  md_png[i] <- make_out(paste0("mdplot_", contrast_data[i], ".png"))
-  top_out[i] <- make_out(paste0("edgeR_", contrast_data[i], ".tsv"))
+  md_pdf[i] <- make_out(paste0("mdplot_", sanitise_basename(contrast_data[i]), ".pdf"))
+  md_png[i] <- make_out(paste0("mdplot_", sanitise_basename(contrast_data[i]), ".png"))
+  top_out[i] <- make_out(paste0("edgeR_", sanitise_basename(contrast_data[i]), ".tsv"))
 } # Save output paths for each contrast as vectors
 norm_out <- make_out("edgeR_normcounts.tsv")
 rda_out <- make_out("edgeR_analysis.RData")
@@ -387,7 +399,7 @@ filtered_count <- prefilter_count - postfilter_count
 
 # Name rows of factors according to their sample
 row.names(factors) <- names(data$counts)
-factor_list <- sapply(names(factors), paste_listname)
+factor_list <- names(factors)
 
 # Generating the DGEList object "data"
 samplenames <- colnames(data$counts)
@@ -398,14 +410,21 @@ data$samples <- factors
 data$genes <- genes
 
 
-
-formula <- "~0"
-for (i in seq_along(factor_list)) {
-  formula <- paste(formula, factor_list[i], sep = "+")
+if (!is.null(opt$formula)) {
+  formula <- opt$formula
+  # sanitisation can be getting rid of the "~"
+  if (!startsWith(formula, "~")) {
+    formula <- paste0("~", formula)
+  }
+} else {
+  formula <- "~0"
+  for (i in seq_along(factor_list)) {
+    formula <- paste(formula, factor_list[i], sep = "+")
+  }
 }
 
 formula <- formula(formula)
-design <- model.matrix(formula)
+design <- model.matrix(formula, factors)
 
 for (i in seq_along(factor_list)) {
   colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)
@@ -433,15 +452,15 @@ labels <- names(counts)
 # MDS plot
 png(mds_png, width = 600, height = 600)
 plotMDS(data, labels = labels, col = as.numeric(factors[, 1]), cex = 0.8, main = paste("MDS Plot:", names(factors)[1]))
-img_name <- paste0("MDS Plot_", names(factors)[1], ".png")
-img_addr <- paste0("mdsplot_", names(factors)[1], ".png")
+img_name <- paste0("MDS Plot_", sanitise_basename(names(factors)[1]), ".png")
+img_addr <- paste0("mdsplot_", sanitise_basename(names(factors)[1]), ".png")
 image_data[1, ] <- c(img_name, img_addr)
 invisible(dev.off())
 
 pdf(mds_pdf)
 plotMDS(data, labels = labels, col = as.numeric(factors[, 1]), cex = 0.8, main = paste("MDS Plot:", names(factors)[1]))
-link_name <- paste0("MDS Plot_", names(factors)[1], ".pdf")
-link_addr <- paste0("mdsplot_", names(factors)[1], ".pdf")
+link_name <- paste0("MDS Plot_", sanitise_basename(names(factors)[1]), ".pdf")
+link_addr <- paste0("mdsplot_", sanitise_basename(names(factors)[1]), ".pdf")
 link_data[1, ] <- c(link_name, link_addr)
 invisible(dev.off())
 
@@ -450,15 +469,15 @@ if (ncol(factors) > 1) {
   for (i in 2:ncol(factors)) {
     png(mds_png[i], width = 600, height = 600)
     plotMDS(data, labels = labels, col = as.numeric(factors[, i]), cex = 0.8, main = paste("MDS Plot:", names(factors)[i]))
-    img_name <- paste0("MDS Plot_", names(factors)[i], ".png")
-    img_addr <- paste0("mdsplot_", names(factors)[i], ".png")
+    img_name <- paste0("MDS Plot_", sanitise_basename(names(factors)[i]), ".png")
+    img_addr <- paste0("mdsplot_", sanitise_basename(names(factors)[i]), ".png")
     image_data <- rbind(image_data, c(img_name, img_addr))
     invisible(dev.off())
 
     pdf(mds_pdf[i])
     plotMDS(data, labels = labels, col = as.numeric(factors[, i]), cex = 0.8, main = paste("MDS Plot:", names(factors)[i]))
-    link_name <- paste0("MDS Plot_", names(factors)[i], ".pdf")
-    link_addr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+    link_name <- paste0("MDS Plot_", sanitise_basename(names(factors)[i]), ".pdf")
+    link_addr <- paste0("mdsplot_", sanitise_basename(names(factors)[i]), ".pdf")
     link_data <- rbind(link_data, c(link_name, link_addr))
     invisible(dev.off())
   }
@@ -536,8 +555,8 @@ for (i in seq_along(contrast_data)) {
   top <- topTags(res, adjust.method = opt$pAdjOpt, n = Inf, sort.by = "PValue")
   write.table(top, file = top_out[i], row.names = FALSE, sep = "\t", quote = FALSE)
 
-  link_name <- paste0("edgeR_", contrast_data[i], ".tsv")
-  link_addr <- paste0("edgeR_", contrast_data[i], ".tsv")
+  link_name <- paste0("edgeR_", sanitise_basename(contrast_data[i]), ".tsv")
+  link_addr <- paste0("edgeR_", sanitise_basename(contrast_data[i]), ".tsv")
   link_data <- rbind(link_data, c(link_name, link_addr))
 
   # Plot MD (log ratios vs mean difference) using limma package
@@ -551,8 +570,8 @@ for (i in seq_along(contrast_data)) {
 
   abline(h = 0, col = "grey", lty = 2)
 
-  link_name <- paste0("MD Plot_", contrast_data[i], ".pdf")
-  link_addr <- paste0("mdplot_", contrast_data[i], ".pdf")
+  link_name <- paste0("MD Plot_", sanitise_basename(contrast_data[i]), ".pdf")
+  link_addr <- paste0("mdplot_", sanitise_basename(contrast_data[i]), ".pdf")
   link_data <- rbind(link_data, c(link_name, link_addr))
   invisible(dev.off())
 
@@ -566,8 +585,8 @@ for (i in seq_along(contrast_data)) {
 
   abline(h = 0, col = "grey", lty = 2)
 
-  img_name <- paste0("MD Plot_", contrast_data[i], ".png")
-  img_addr <- paste0("mdplot_", contrast_data[i], ".png")
+  img_name <- paste0("MD Plot_", sanitise_basename(contrast_data[i]), ".png")
+  img_addr <- paste0("mdplot_", sanitise_basename(contrast_data[i]), ".png")
   image_data <- rbind(image_data, c(img_name, img_addr))
   invisible(dev.off())
 }

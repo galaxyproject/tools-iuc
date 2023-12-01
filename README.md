@@ -1,5 +1,5 @@
-[![Galaxy Tool Linting and Tests for push and PR](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml/badge.svg)
-[![Weekly global Tool Linting and Tests](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml/badge.svg)
+[![Galaxy Tool Linting and Tests for push and PR](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml?query=branch:main)
+[![Weekly global Tool Linting and Tests](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml?query=branch:main)
 [![Gitter](https://badges.gitter.im/galaxyproject/tools-iuc.svg)](https://gitter.im/galaxy-iuc/iuc?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) 
 
 Galaxy Tools maintained by IUC
