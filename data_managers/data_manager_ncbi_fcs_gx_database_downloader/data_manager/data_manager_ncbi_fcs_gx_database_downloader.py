@@ -147,8 +147,6 @@ def main():
     with open(opts.output_file, 'w') as f:
         print(json.dumps(opts.output_dict, sort_keys=True, indent=2), file=f)
 
-    sys.exit(0)
-
 
 if __name__ == '__main__':
     main()
