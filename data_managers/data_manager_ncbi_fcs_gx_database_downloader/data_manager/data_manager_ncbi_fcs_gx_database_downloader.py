@@ -23,15 +23,19 @@ def get_options():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_file', required=True)
+    parser.add_argument('--tag', required=True)
+    parser.add_argument('--manifest', required=True)
+    parser.add_argument('--path', required=True)
+
     command_line_args = parser.parse_args()
 
     opts.output_file = command_line_args.output_file
     with open(opts.output_file) as f:
         params = json.load(f)
 
-    opts.tag = params['param_dict'].get('tag', '')
-    opts.manifest = params['param_dict'].get('manifest', '')
-    opts.path = params['param_dict'].get('path', '')
+    opts.tag = command_line_args.tag
+    opts.manifest = command_line_args.manifest
+    opts.path = command_line_args.path
     opts.locfile_path = os.path.join(params['param_dict'].get('__tool_directory__', ''), '..', 'test-data', 'ncbi_fcs_gx_databases.loc')
     opts.output_directory = os.path.join(params['output_data'][0]['extra_files_path'], opts.tag)
 
