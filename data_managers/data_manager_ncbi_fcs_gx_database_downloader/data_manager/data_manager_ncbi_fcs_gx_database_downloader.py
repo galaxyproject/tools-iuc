@@ -8,56 +8,38 @@ import subprocess
 
 def main():
     opts = parse_args()
-    sync_files(opts)
-    create_divisions_file(opts)
 
     output_dict = {
-        'data_tables': {
-            'ncbi_fcs_gx_databases': {
-                'add': [
-                    {
-                        'value': opts.tag,
-                        'source_manifest': opts.source_manifest,
-                        'name': opts.output_dir
-                    }
-                ]
-            },
-            'ncbi_fcs_gx_divisions': {
-                'add': [
-                    {
-                        'value': opts.tag,
-                        'name': opts.output_dir
-                    }
-                ]
-            }
+        "data_tables": {
+            "ncbi_fcs_gx_databases": sync_files(opts),
+            "ncbi_fcs_gx_divisions": get_divisions(opts),
         }
     }
 
-    with open(opts.output_file, 'w') as f:
+    with open(opts.output_file, "w") as f:
         print(json.dumps(output_dict, sort_keys=True, indent=2), file=f)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--tag', required=True)
-    parser.add_argument('--source_manifest', required=True)
-    parser.add_argument('--output_file', required=True)
-    parser.add_argument('--output_dir', required=True)
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--source_manifest", required=True)
+    parser.add_argument("--output_file", required=True)
+    parser.add_argument("--output_dir", required=True)
 
     return parser.parse_args()
 
 
 def sync_files(opts):
-    db_dir = os.path.join(opts.output_dir, 'db')
-    os.makedirs(db_dir, exist_ok=True)
+    os.makedirs(opts.output_dir, exist_ok=True)
 
     args = [
-        'sync_files.py',
-        '--mft',
+        "sync_files.py",
+        "--mft",
         opts.source_manifest,
-        '--dir',
-        db_dir,
-        'get'
+        "--dir",
+        opts.output_dir,
+        "get",
     ]
 
     try:
@@ -65,48 +47,65 @@ def sync_files(opts):
     except subprocess.CalledProcessError:
         raise
 
-
-def create_divisions_file(opts):
-    top_level_description = {
-        'anml': 'Animals (Metazoa)',
-        'arch': 'Archaea',
-        'fung': 'Fungi',
-        'plnt': 'Plants (Viridiplantae)',
-        'prok': 'Bacteria',
-        'prst': 'Protists (other Eukaryota)',
-        'synt': 'Synthetic',
-        'virs': 'Virus',
+    entries_dict = {
+        "add": [
+            {
+                "value": opts.tag,
+                "source_manifest": opts.source_manifest,
+                "name": opts.output_dir,
+            }
+        ]
     }
 
+    return entries_dict
+
+
+def get_divisions(opts):
+    # descriptions for the top-level gx divisions
+    top_level_description = {
+        "anml": "Animals (Metazoa)",
+        "arch": "Archaea",
+        "fung": "Fungi",
+        "plnt": "Plants (Viridiplantae)",
+        "prok": "Bacteria",
+        "prst": "Protists (other Eukaryota)",
+        "synt": "Synthetic",
+        "virs": "Virus",
+    }
+
+    # get the pathname for the taxa file
     manifest_filename = os.path.basename(opts.source_manifest)
-    assert manifest_filename.lower().endswith('.manifest'), 'source_manifest does not end with ".manifest"'
+    assert manifest_filename.lower().endswith(
+        ".manifest"
+    ), 'source_manifest does not end with ".manifest"'
     manifest_tag = manifest_filename[:-9]
+    taxa_pathname = os.path.join(opts.output_dir, f"{manifest_tag}.taxa.tsv")
 
     gx_divisions = set()
-
-    taxa_pathname = os.path.join(opts.output_dir, 'db', f'{manifest_tag}.taxa.tsv')
     with open(taxa_pathname) as f:
         for line in f:
-            if line.startswith('#'):
+            if line.startswith("#"):
                 continue
-            line = line.rstrip('\n')
-            tax_id, species, common_name, blast_div, div = line.split('\t', 4)
+            line = line.rstrip("\n")
+            tax_id, species, common_name, blast_div, div = line.split("\t", 4)
             gx_divisions.add(div)
 
     elements = []
     for division in gx_divisions:
-        top, rest = division.split(':', 1)
-        description = f'{top_level_description[top]} - {rest}'
+        top, bottom = division.split(":", 1)
+        description = f"{top_level_description[top]} - {bottom}"
         elements.append((description, division))
 
-    # add element to support unknown/unclassified samples
-    elements.append(('Unknown / Unclassified', 'unkn:unknown'))
+    # add an element to support unknown/unclassified samples
+    elements.append(("Unknown / Unclassified", "unkn:unknown"))
 
-    divisions_file = os.path.join(opts.output_dir, 'ncbi_fcs_gx_divisions.tsv')
-    with open(divisions_file, 'w') as f:
-        for name, value in sorted(elements):
-            print(f'{value}\t{name}', file=f)
+    entries_dict = {"add": []}
+
+    for name, gx_div in sorted(elements):
+        entries_dict["add"].append({"value": gx_div, "tag": opts.tag, "name": name})
+
+    return entries_dict
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
