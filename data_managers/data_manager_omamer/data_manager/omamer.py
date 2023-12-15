@@ -11,6 +11,7 @@ import requests
 # URL for downloading OMAmer datasets
 OMAMER_DATASETS_URL = "https://omabrowser.org/All/{dataset}"
 
+
 # List of OMAmer data sets
 OMAMER_DATASETS = [
     "Primates-v2.0.0.h5",
@@ -18,6 +19,7 @@ OMAMER_DATASETS = [
     "Metazoa-v2.0.0.h5",
     "LUCA-v0.2.5.h5"
 ]
+
 
 def download_file(url, dest):
     try:
@@ -39,12 +41,14 @@ def main(args):
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
+
     # Download each specified OMAmer data set
     for dataset in OMAMER_DATASETS:
         url = OMAMER_DATASETS_URL.format(dataset=dataset)
         base_name = os.path.splitext(dataset)[0]
         destination_path = os.path.join(args.output_dir, base_name)
         download_file(url, destination_path)
+
 
     # Utiliser le nom du fichier sans extension comme identifiant unique
     data_manager_entry = {
@@ -55,6 +59,7 @@ def main(args):
 
     # Creates a JSON dictionary representing the Data Manager configuration
     data_manager_json = {"data_tables": {"omamer_data": [data_manager_entry]}}
+
 
     # Writes this JSON dictionary to the specified output file
     with open(args.json, "w") as fh:
@@ -68,6 +73,7 @@ if __name__ == "__main__":
     parser.add_argument('--name', default='default_name', help='Data table entry unique ID')
     parser.add_argument('--json', help='Path to JSON file')
     args = parser.parse_args()
+
 
     # Call the main function with the analyzed arguments
     main(args)
