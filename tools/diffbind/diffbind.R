@@ -7,9 +7,9 @@ options(show.error.messages = F, error = function() {
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 suppressPackageStartupMessages({
-    library("getopt")
-    library("DiffBind")
-    library("rjson")
+  library("getopt")
+  library("DiffBind")
+  library("rjson")
 })
 
 options(stringAsfactors = FALSE, useFancyQuotes = FALSE)
@@ -76,9 +76,9 @@ if (length(ctrls) != 0) {
 sample <- dba(sampleSheet = sample_table, peakFormat = "bed", scoreCol = opt$scorecol, bLowerScoreBetter = opt$lowerbetter)
 
 if (!is.null(opt$summits)) {
-    sample_count <- dba.count(sample, summits = opt$summits)
+  sample_count <- dba.count(sample, summits = opt$summits)
 } else {
-    sample_count <- dba.count(sample)
+  sample_count <- dba.count(sample)
 }
 
 sample_contrast <- dba.contrast(sample_count, categories = DBA_CONDITION, minMembers = 2)
@@ -87,13 +87,13 @@ diff_bind <- dba.report(sample_analyze, th = opt$th)
 
 # Generate plots
 if (!is.null(opt$plots)) {
-    pdf(opt$plots)
-    orvals <- dba.plotHeatmap(sample_analyze, contrast = 1, correlations = FALSE, cexCol = 0.8, th = opt$th)
-    dba.plotPCA(sample_analyze, contrast = 1, th = opt$th, label = DBA_TISSUE, labelSize = 0.3)
-    dba.plotMA(sample_analyze, th = opt$th)
-    dba.plotVolcano(sample_analyze, th = opt$th)
-    dba.plotBox(sample_analyze, th = opt$th)
-    dev.off()
+  pdf(opt$plots)
+  orvals <- dba.plotHeatmap(sample_analyze, contrast = 1, correlations = FALSE, cexCol = 0.8, th = opt$th)
+  dba.plotPCA(sample_analyze, contrast = 1, th = opt$th, label = DBA_TISSUE, labelSize = 0.3)
+  dba.plotMA(sample_analyze, th = opt$th)
+  dba.plotVolcano(sample_analyze, th = opt$th)
+  dba.plotBox(sample_analyze, th = opt$th)
+  dev.off()
 }
 
 # Output differential binding sites
@@ -153,16 +153,16 @@ if (!is.null(opt$bmatrix)) {
 
 # Output RData file
 if (!is.null(opt$rdaOpt)) {
-    save.image(file = "DiffBind_analysis.RData")
+  save.image(file = "DiffBind_analysis.RData")
 }
 
 # Output analysis info
 if (!is.null(opt$infoOpt)) {
-    info <- "DiffBind_analysis_info.txt"
-    cat("dba.count Info\n\n", file = info, append = TRUE)
-    capture.output(sample, file = info, append = TRUE)
-    cat("\ndba.analyze Info\n\n", file = info, append = TRUE)
-    capture.output(sample_analyze, file = info, append = TRUE)
-    cat("\nSessionInfo\n\n", file = info, append = TRUE)
-    capture.output(sessionInfo(), file = info, append = TRUE)
+  info <- "DiffBind_analysis_info.txt"
+  cat("dba.count Info\n\n", file = info, append = TRUE)
+  capture.output(sample, file = info, append = TRUE)
+  cat("\ndba.analyze Info\n\n", file = info, append = TRUE)
+  capture.output(sample_analyze, file = info, append = TRUE)
+  cat("\nSessionInfo\n\n", file = info, append = TRUE)
+  capture.output(sessionInfo(), file = info, append = TRUE)
 }

@@ -1,12 +1,9 @@
 <tool id="gffread" name="gffread" version="@GALAXY_TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.05">
     <description>Filters and/or converts GFF3/GTF2 records</description>
-    <xrefs>
-        <xref type="bio.tools">gffread</xref>
-    </xrefs>
     <macros>
         <!-- the version of this tool must not be lowered since in the past 2.x was used
             lets use small increments and hope that gffread catches up one day -->
-        <token name="@GALAXY_TOOL_VERSION@">2.2.1.3</token>
+        <token name="@GALAXY_TOOL_VERSION@">2.2.1.4</token>
         <token name="@TOOL_VERSION@">0.12.7</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <xml name="fasta_output_select">
@@ -55,6 +52,9 @@
             </param>
         </xml>
     </macros>
+    <xrefs>
+        <xref type="bio.tools">gffread</xref>
+    </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">gffread</requirement>
     </requirements>
@@ -116,13 +116,13 @@
             #echo ' ' + ' '.join(str($reference_genome.fa_outputs).split(','))
         #end if
     #end if
+
     #if $gffs.gff_fmt != 'none':
         #if $gffs.gff_fmt != 'bed' and $gffs.tname:
             -t '$gffs.tname'
         #end if
         #if $gffs.gff_fmt == 'gff':
-            ## TODO bug 'gft' -> 'gtf'
-            #if $input.datatype.file_ext == 'gft':
+            #if $input.datatype.file_ext == 'gtf':
                 $gffs.ensembl
             #end if
         #end if
@@ -132,6 +132,8 @@
             --bed
         #end if
         -o output.$gffs.gff_fmt
+    #else if 'fa_outputs' not in $reference_genome or '.fa' not in str($reference_genome['fa_outputs'])
+        -o output.gff
     #end if
 
 ## Missing options
@@ -253,11 +255,10 @@
         <conditional name="reference_genome">
             <param name="source" type="select" label="Reference Genome" help="NOTE: Required for fasta outputs">
                 <option value="none">none</option>
-                <option value="cached"></option>
+                <option value="cached">Cached reference data</option>
                 <option value="history">From your history</option>
             </param>
-            <when value="none">
-            </when>
+            <when value="none"/>
             <when value="cached">
                 <param argument="-g" name="fasta_indexes" type="select" label="Source FASTA Sequence">
                     <options from_data_table="all_fasta"/>
@@ -280,8 +281,7 @@
                 <option value="gtf">GTF</option>
                 <option value="bed">BED</option>
             </param>
-            <when value="none">
-            </when>
+            <when value="none"/>
             <when value="gff">
                 <param argument="-L" name="ensembl" type="boolean" truevalue="-L" falsevalue="" checked="false" label="Ensembl GTF to GFF3 conversion" help=""/>
                 <expand macro="trackname" />
@@ -289,8 +289,7 @@
             <when value="gtf">
                 <expand macro="trackname" />
             </when>
-            <when value="bed">
-            </when>
+            <when value="bed"/>
         </conditional>
 
         <param argument="-F" name="full_gff_attribute_preservation" type="boolean" truevalue="-F" falsevalue="" checked="false"
@@ -303,7 +302,8 @@
     </inputs>
     <outputs>
         <data name="output_gff" format="gff3" metadata_source="input" label="${tool.name} on ${on_string}: gff3" from_work_dir="output.gff">
-            <filter>gffs['gff_fmt'] == 'gff'</filter>
+            <!-- output gff also if the user deselected all outputs: none is selected and all .fa outputs are disabled  -->
+            <filter>gffs['gff_fmt'] == 'gff' or (gffs['gff_fmt'] == 'none' and ('fa_outputs' not in reference_genome or '.fa' not in str(reference_genome['fa_outputs'])))</filter>
         </data>
         <data name="output_gtf" format="gtf" metadata_source="input" label="${tool.name} on ${on_string}: gtf" from_work_dir="output.gtf">
             <filter>gffs['gff_fmt'] == 'gtf'</filter>
@@ -329,17 +329,67 @@
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="gff_fmt" value="gff"/>
             <output name="output_gff" file="Homo_sapiens.GRCh37_19.71.gff3" ftype="gff3" lines_diff="4" />
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
+        </test>
+        <!-- mapping -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="gff_fmt" value="gff"/>
+            <param name="chr_replace" ftype="tabular" value="chr_replace"/>
+            <output name="output_gff" ftype="gff3">
+                <assert_contents>
+                    <has_n_lines n="314"/>
+                    <has_line_matching expression="^chr.*"/>
+                    <has_line_matching expression="^1.*" negate="true"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
+        </test>
+        <!-- none output and all .fa outputs deselected .. gff is produced anyway, since we need one output -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <output name="output_gff" file="Homo_sapiens.GRCh37_19.71.gff3" ftype="gff3" lines_diff="4" />
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
+        </test>
+        <!-- test ensemble gtf to gff conversion -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <conditional name="gffs">
+                <param name="gff_fmt" value="gff"/>
+                <param name="ensembl" value="true"/>
+                <param name="tname" value="track name"/>
+            </conditional>
+            <output name="output_gff" file="Homo_sapiens.GRCh37_19.71_ensemble.gff3" ftype="gff3" lines_diff="4" />
+            <assert_command>
+                <has_text text="-L"/>
+                <has_text text="-t &#39;track name&#39;"/>
+            </assert_command>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="gff_fmt" value="gff"/>
             <output name="output_gff" file="Homo_sapiens.GRCh37_19.71.gff3" ftype="gff3" lines_diff="4" />
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="ecoli-k12.gff3"/>
             <param name="gff_fmt" value="gff"/>
             <param name="full_gff_attribute_preservation" value="-F"/>
             <output name="output_gff" file="ecoli-k12.processed.gff3" ftype="gff3" lines_diff="4" />
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <!-- bed output -->
         <test expect_num_outputs="1">
@@ -351,6 +401,9 @@
                     <has_n_columns n="13"/>
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <!-- bed input and test tname -->
         <test expect_num_outputs="1">
@@ -365,6 +418,9 @@
                     <has_text text="track name"/>
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
@@ -377,6 +433,9 @@
                     <has_text text="ENST00000382683" />
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
@@ -390,6 +449,9 @@
                     <has_text text="ENST00000382683" />
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
@@ -403,6 +465,9 @@
                     <has_text text="ENST00000382683" />
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="4">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
@@ -436,6 +501,9 @@
                     <has_text text="MDFGLALLLAGLLGLLLGQSLQVKPLQVEPPEPVVAVALGASRQLTCRLACADRGASVQWRGLDTSLGAV" />
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="stop_codons.gtf"/>
@@ -448,6 +516,9 @@
                     <has_text text="PLRGLHPRV*LQTPLERCPCWPPAGGTGGCPHCLLHLRLLQSPTPTALSEGGGAGTEAQPVTDVDPGRG*" />
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_n_lines n="0"/>
+            </assert_stdout>
         </test>
     </tests>
     <help>
