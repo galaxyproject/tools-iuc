@@ -33,6 +33,7 @@ def download_file(url, dest):
         print(f"Error downloading {url}: {e}")
         sys.exit(1)
 
+
 def main(args):
     # Create output directory if none exists
     if not os.path.exists(args.output_dir):
@@ -58,6 +59,7 @@ def main(args):
     # Writes this JSON dictionary to the specified output file
     with open(args.json, "w") as fh:
         json.dump(data_manager_json, fh, indent=2, sort_keys=True)
+
 
 if __name__ == "__main__":
     # Set up argparse to specify expected command line arguments
