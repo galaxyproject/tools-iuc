@@ -1,7 +1,8 @@
 # Code based on (and inspired by) the Galaxy limma-voom/edgeR/DESeq2 wrappers
 
 options(show.error.messages = F, error = function() {
-    cat(geterrmessage(), file = stderr()); q("no", 1, F)
+    cat(geterrmessage(), file = stderr())
+    q("no", 1, F)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -53,14 +54,14 @@ option_list <- list(
     make_option("--msigdb", type = "character", help = "MSigDB Gene Set Collections"),
     make_option("--keggdb", type = "character", help = "KEGG Pathways"),
     make_option("--keggupdated", type = "logical", help = "Use updated KEGG"),
-    make_option("--gsdb", type = "character", help  =  "GeneSetDB Gene Sets"),
-    make_option("--display_top", type = "integer", help  =  "Number of top Gene Sets to display"),
-    make_option("--min_size", type = "integer", help  =  "Minimum Size of Gene Set"),
-    make_option("--fdr_cutoff", type = "double", help  =  "FDR cutoff"),
+    make_option("--gsdb", type = "character", help = "GeneSetDB Gene Sets"),
+    make_option("--display_top", type = "integer", help = "Number of top Gene Sets to display"),
+    make_option("--min_size", type = "integer", help = "Minimum Size of Gene Set"),
+    make_option("--fdr_cutoff", type = "double", help = "FDR cutoff"),
     make_option("--combine_method", type = "character", help = "Method to use to combine the p-values"),
     make_option("--sort_method", type = "character", help = "Method to sort the results"),
     make_option("--rdaOpt", type = "character", help = "Output RData file")
-    )
+)
 
 parser <- OptionParser(usage = "%prog [options] file", option_list = option_list)
 args <- parse_args(parser)
@@ -76,10 +77,12 @@ if (!is.null(args$filesPath)) {
     factor_list <- parser$getObject()
     factors <- sapply(factor_list, function(x) x[[1]])
     filenames_in <- unname(unlist(factor_list[[1]][[2]]))
-    sampletable <- data.frame(sample = basename(filenames_in),
-                            filename = filenames_in,
-                            row.names = filenames_in,
-                            stringsAsFactors = FALSE)
+    sampletable <- data.frame(
+        sample = basename(filenames_in),
+        filename = filenames_in,
+        row.names = filenames_in,
+        stringsAsFactors = FALSE
+    )
     for (factor in factor_list) {
         factorname <- factor[[1]]
         sampletable[[factorname]] <- character(nrow(sampletable))
@@ -94,14 +97,13 @@ if (!is.null(args$filesPath)) {
     rem <- c("sample", "filename")
     factors <- sampletable[, !(names(sampletable) %in% rem), drop = FALSE]
 
-    #read in count files and create single table
+    # read in count files and create single table
     countfiles <- lapply(sampletable$filename, function(x) {
         read.delim(x, row.names = 1)
-        })
+    })
     counts <- do.call("cbind", countfiles)
-
 } else {
- # Process the single count matrix
+    # Process the single count matrix
     counts <- read.table(args$matrixPath, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[, -1]
@@ -109,29 +111,30 @@ if (!is.null(args$filesPath)) {
 
     # Process factors
     if (is.null(args$factInput)) {
-            factordata <- read.table(args$factFile, header = TRUE, sep = "\t", strip.white = TRUE, stringsAsFactors = TRUE)
-            # check samples names match
-            if (!any(factordata[, 1] %in% colnames(counts)))
-                stop("Sample IDs in factors file and count matrix don't match")
-            # order samples as in counts matrix
-            factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
-            factors <- factordata[, -1, drop = FALSE]
-    }  else {
-            factors <- unlist(strsplit(args$factInput, "|", fixed = TRUE))
-            factordata <- list()
-            for (fact in factors) {
-                newfact <- unlist(strsplit(fact, split = "::"))
-                factordata <- rbind(factordata, newfact)
-            } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
+        factordata <- read.table(args$factFile, header = TRUE, sep = "\t", strip.white = TRUE, stringsAsFactors = TRUE)
+        # check samples names match
+        if (!any(factordata[, 1] %in% colnames(counts))) {
+            stop("Sample IDs in factors file and count matrix don't match")
+        }
+        # order samples as in counts matrix
+        factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
+        factors <- factordata[, -1, drop = FALSE]
+    } else {
+        factors <- unlist(strsplit(args$factInput, "|", fixed = TRUE))
+        factordata <- list()
+        for (fact in factors) {
+            newfact <- unlist(strsplit(fact, split = "::"))
+            factordata <- rbind(factordata, newfact)
+        } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
 
-            # Set the row names to be the name of the factor and delete first row
-            row.names(factordata) <- factordata[, 1]
-            factordata <- factordata[, -1]
-            factordata <- sapply(factordata, sanitise_groups)
-            factordata <- sapply(factordata, strsplit, split = ",")
-            factordata <- sapply(factordata, make.names)
-            # Transform factor data into data frame of R factor objects
-            factors <- data.frame(factordata, stringsAsFactors = TRUE)
+        # Set the row names to be the name of the factor and delete first row
+        row.names(factordata) <- factordata[, 1]
+        factordata <- factordata[, -1]
+        factordata <- sapply(factordata, sanitise_groups)
+        factordata <- sapply(factordata, strsplit, split = ",")
+        factordata <- sapply(factordata, make.names)
+        # Transform factor data into data frame of R factor objects
+        factors <- data.frame(factordata, stringsAsFactors = TRUE)
     }
 }
 
@@ -211,5 +214,5 @@ gsa <- egsea.cnt(counts = counts, group = group, design = design, contrasts = co
 ## Output RData file
 
 if (!is.null(args$rdaOpt)) {
-  save.image(file = "EGSEA_analysis.RData")
+    save.image(file = "EGSEA_analysis.RData")
 }

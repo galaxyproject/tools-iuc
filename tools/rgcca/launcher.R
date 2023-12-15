@@ -251,12 +251,13 @@ get_args <- function() {
 check_arg <- function(opt) {
     # Check the validity of the arguments opt : an optionParser object
 
-    if (is.null(opt$datasets))
+    if (is.null(opt$datasets)) {
         stop_rgcca(paste0("datasets is required."), exit_code = 121)
+    }
 
-    if (is.null(opt$scheme))
+    if (is.null(opt$scheme)) {
         opt$scheme <- "factorial"
-    else if (!opt$scheme %in% seq(4)) {
+    } else if (!opt$scheme %in% seq(4)) {
         stop_rgcca(
             paste0(
                 "scheme should be comprise between 1 and 4 [by default: 2], not be equal to ",
@@ -267,10 +268,11 @@ check_arg <- function(opt) {
         )
     } else {
         schemes <- c("horst", "factorial", "centroid")
-        if (opt$scheme == 4)
-            opt$scheme <- function(x) x ^ 4
-        else
+        if (opt$scheme == 4) {
+            opt$scheme <- function(x) x^4
+        } else {
             opt$scheme <- schemes[opt$scheme]
+        }
     }
 
     if (!opt$separator %in% seq(3)) {
@@ -290,29 +292,33 @@ check_arg <- function(opt) {
     nmark <- NULL
     RGCCA:::check_integer("nmark", opt$nmark, min = 2)
 
-    for (x in c("ncomp", "penalty"))
+    for (x in c("ncomp", "penalty")) {
         opt[[x]] <- char_to_list(opt[[x]])
+    }
 
     return(opt)
 }
 
 post_check_arg <- function(opt, rgcca) {
-# Check the validity of the arguments after loading the blocks opt : an
-# optionParser object blocks : a list of matrix
+    # Check the validity of the arguments after loading the blocks opt : an
+    # optionParser object blocks : a list of matrix
     blocks <- NULL
     for (x in c("block", "block_y")) {
         if (!is.null(opt[[x]])) {
-            if (opt[[x]] == 0)
+            if (opt[[x]] == 0) {
                 opt[[x]] <- length(rgcca$call$blocks)
+            }
             opt[[x]] <- RGCCA:::check_blockx(x, opt[[x]], rgcca$call$blocks)
         }
     }
 
-    if (any(opt$ncomp == 1))
+    if (any(opt$ncomp == 1)) {
         opt$compy <- 1
+    }
 
-    for (x in c("compx", "compy"))
+    for (x in c("compx", "compy")) {
         opt[[x]] <- check_compx(x, opt[[x]], rgcca$call$ncomp, opt$block)
+    }
 
     return(opt)
 }
@@ -342,13 +348,15 @@ opt <- list(
     datasets = paste0("inst/extdata/",
         c("agriculture", "industry", "politic"),
         ".tsv",
-        collapse = ",")
+        collapse = ","
+    )
 )
 
 # Load functions
 all_funcs <- unclass(lsf.str(envir = asNamespace("RGCCA"), all = TRUE))
-for (i in all_funcs)
+for (i in all_funcs) {
     eval(parse(text = paste0(i, "<-RGCCA:::", i)))
+}
 
 load_libraries(c("ggplot2", "optparse", "scales", "igraph", "MASS", "Deriv"))
 try(load_libraries("ggrepel"), silent = TRUE)
@@ -356,10 +364,12 @@ try(load_libraries("ggrepel"), silent = TRUE)
 tryCatch(
     opt <- check_arg(optparse::parse_args(get_args())),
     error = function(e) {
-        if (length(grep("nextArg", e[[1]])) != 1)
+        if (length(grep("nextArg", e[[1]])) != 1) {
             stop_rgcca(e[[1]], exit_code = 140)
-    }, warning = function(w)
+        }
+    }, warning = function(w) {
         stop_rgcca(w[[1]], exit_code = 141)
+    }
 )
 
 # Set missing parameters by default
@@ -375,77 +385,77 @@ cex_axis <- 10
 cex <- 1.25
 
 status <- 0
-tryCatch({
+tryCatch(
+    {
+        blocks <- load_blocks(opt$datasets, opt$names, opt$separator)
+        group <- load_response(blocks, opt$group, opt$separator, opt$header)
+        connection <- load_connection(file = opt$connection, separator = opt$separator)
 
-    blocks <- load_blocks(opt$datasets, opt$names, opt$separator)
-    group <- load_response(blocks, opt$group, opt$separator, opt$header)
-    connection <- load_connection(file = opt$connection, separator = opt$separator)
-
-    func <- quote(
-        rgcca(
-            blocks = blocks,
-            connection = connection,
-            response = opt$response,
-            superblock = opt$superblock,
-            ncomp = opt$ncomp,
-            scheme = opt$scheme,
-            scale = opt$scale,
-            method = opt$type
-        )
-    )
-    if (tolower(opt$type) %in% c("sgcca", "spca", "spls")) {
-        func[["sparsity"]] <- opt$penalty
-    }else {
-        func[["tau"]] <- opt$penalty
-    }
-
-    rgcca_out <- eval(as.call(func))
-
-    opt <- post_check_arg(opt, rgcca_out)
-
-    ########## Plot ##########
-
-    if (rgcca_out$call$ncomp[opt$block] == 1 && is.null(opt$block_y)) {
-        warning("With a number of component of 1, a second block should be chosen to perform an individual plot")
-    } else {
-        (
-            individual_plot <- plot_ind(
-                rgcca_out,
-                group,
-                opt$compx,
-                opt$compy,
-                opt$block,
-                opt$text,
-                opt$block_y,
-                "Response",
-                cex_lab = cex_lab,
-                cex_point = cex_point,
-                cex_main = cex_main,
-                cex = cex
+        func <- quote(
+            rgcca(
+                blocks = blocks,
+                connection = connection,
+                response = opt$response,
+                superblock = opt$superblock,
+                ncomp = opt$ncomp,
+                scheme = opt$scheme,
+                scale = opt$scale,
+                method = opt$type
             )
         )
-        save_plot(opt$o1, individual_plot)
-    }
+        if (tolower(opt$type) %in% c("sgcca", "spca", "spls")) {
+            func[["sparsity"]] <- opt$penalty
+        } else {
+            func[["tau"]] <- opt$penalty
+        }
 
-    if (rgcca_out$call$ncomp[opt$block] > 1) {
-        (
-            corcircle <- plot_var_2D(
-                rgcca_out,
-                opt$compx,
-                opt$compy,
-                opt$block,
-                opt$text,
-                n_mark = opt$nmark,
-                cex_lab = cex_lab,
-                cex_point = cex_point,
-                cex_main = cex_main,
-                cex = cex
+        rgcca_out <- eval(as.call(func))
+
+        opt <- post_check_arg(opt, rgcca_out)
+
+        ########## Plot ##########
+
+        if (rgcca_out$call$ncomp[opt$block] == 1 && is.null(opt$block_y)) {
+            warning("With a number of component of 1, a second block should be chosen to perform an individual plot")
+        } else {
+            (
+                individual_plot <- plot_ind(
+                    rgcca_out,
+                    group,
+                    opt$compx,
+                    opt$compy,
+                    opt$block,
+                    opt$text,
+                    opt$block_y,
+                    "Response",
+                    cex_lab = cex_lab,
+                    cex_point = cex_point,
+                    cex_main = cex_main,
+                    cex = cex
+                )
             )
-        )
-        save_plot(opt$o2, corcircle)
-    }
+            save_plot(opt$o1, individual_plot)
+        }
 
-    top_variables <- plot_var_1D(
+        if (rgcca_out$call$ncomp[opt$block] > 1) {
+            (
+                corcircle <- plot_var_2D(
+                    rgcca_out,
+                    opt$compx,
+                    opt$compy,
+                    opt$block,
+                    opt$text,
+                    n_mark = opt$nmark,
+                    cex_lab = cex_lab,
+                    cex_point = cex_point,
+                    cex_main = cex_main,
+                    cex = cex
+                )
+            )
+            save_plot(opt$o2, corcircle)
+        }
+
+        top_variables <- plot_var_1D(
             rgcca_out,
             opt$compx,
             opt$nmark,
@@ -457,38 +467,44 @@ tryCatch({
             cex_axis = cex_axis,
             cex = cex
         )
-    save_plot(opt$o3, top_variables)
+        save_plot(opt$o3, top_variables)
 
-    # Average Variance Explained
-    (ave <- plot_ave(
-        rgcca_out,
-        cex_main = cex_main,
-        cex_sub = cex_sub,
-        cex_axis = cex_axis,
-        cex = cex))
-    save_plot(opt$o4, ave)
+        # Average Variance Explained
+        (ave <- plot_ave(
+            rgcca_out,
+            cex_main = cex_main,
+            cex_sub = cex_sub,
+            cex_axis = cex_axis,
+            cex = cex
+        ))
+        save_plot(opt$o4, ave)
 
-    # Creates design scheme
-    design <- function() plot_network(
-        rgcca_out,
-        cex_main = cex_main,
-        cex_point = cex_point,
-        cex = cex)
-    save_plot(opt$o5, design)
+        # Creates design scheme
+        design <- function() {
+            plot_network(
+                rgcca_out,
+                cex_main = cex_main,
+                cex_point = cex_point,
+                cex = cex
+            )
+        }
+        save_plot(opt$o5, design)
 
-    save_ind(rgcca_out, opt$o6)
-    save_var(rgcca_out, opt$o7)
-    save(rgcca_out, file = opt$o8)
-
-    }, error = function(e) {
-        if (class(e)[1] %in% c("simpleError", "error", "condition"))
+        save_ind(rgcca_out, opt$o6)
+        save_var(rgcca_out, opt$o7)
+        save(rgcca_out, file = opt$o8)
+    },
+    error = function(e) {
+        if (class(e)[1] %in% c("simpleError", "error", "condition")) {
             status <<- 1
-        else
+        } else {
             status <<- class(e)[1]
+        }
         msg <- "The design matrix C"
         if (grepl(msg, e$message)) {
             e$message <- gsub(msg, "The connection file", e$message)
         }
         message(e$message)
-})
+    }
+)
 quit(status = status)

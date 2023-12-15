@@ -1,5 +1,5 @@
 err_foo <- function() {
-    cat(geterrmessage(), file = stderr());
+    cat(geterrmessage(), file = stderr())
     q("no", 1, F)
 }
 options(show.error.messages = F, error = err_foo)
@@ -61,24 +61,27 @@ fa_fn <- args$fasta
 anno_fn <- args$exons
 fq_r1 <- args$read1
 fq_r2 <- args$read2
-read_structure <- list(bs1 = args$bs1,  # barcode start position in fq_r1, -1 indicates no barcode
-                       bl1 = args$bl1,  # barcode length in fq_r1, 0 since no barcode present
-                       bs2 = args$bs2,  # barcode start position in fq_r2
-                       bl2 = args$bl2,  # barcode length in fq_r2
-                       us = args$us,    # UMI start position in fq_r2
-                       ul = args$ul     # UMI length
-                      )
+read_structure <- list(
+    bs1 = args$bs1, # barcode start position in fq_r1, -1 indicates no barcode
+    bl1 = args$bl1, # barcode length in fq_r1, 0 since no barcode present
+    bs2 = args$bs2, # barcode start position in fq_r2
+    bl2 = args$bl2, # barcode length in fq_r2
+    us = args$us, # UMI start position in fq_r2
+    ul = args$ul # UMI length
+)
 
 if (args$us == -1) {
-  has_umi <- FALSE
+    has_umi <- FALSE
 } else {
-  has_umi <- TRUE
+    has_umi <- TRUE
 }
 
-filter_settings <- list(rmlow = args$rmlow,
-                        rmN = args$rmN,
-                        minq = args$minq,
-                        numbq = args$numbq)
+filter_settings <- list(
+    rmlow = args$rmlow,
+    rmN = args$rmN,
+    minq = args$minq,
+    numbq = args$numbq
+)
 
 # Outputs
 out_dir <- "."
@@ -86,43 +89,47 @@ mapped_bam <- file.path(out_dir, "aligned.mapped.bam")
 
 # if input is fastqs
 if (!is.null(fa_fn)) {
-  fasta_index <- file.path(out_dir, paste0(fa_fn, ".fasta_index"))
-  combined_fastq <- file.path(out_dir, "combined.fastq")
-  aligned_bam <- file.path(out_dir, "aligned.bam")
+    fasta_index <- file.path(out_dir, paste0(fa_fn, ".fasta_index"))
+    combined_fastq <- file.path(out_dir, "combined.fastq")
+    aligned_bam <- file.path(out_dir, "aligned.bam")
 
-  print("Trimming barcodes")
-  sc_trim_barcode(combined_fastq,
-                  fq_r1,
-                  fq_r2,
-                  read_structure = read_structure,
-                  filter_settings = filter_settings)
-
-  print("Building genome index")
-  Rsubread::buildindex(basename = fasta_index, reference = fa_fn)
-
-  print("Aligning reads to genome")
-  Rsubread::align(index = fasta_index,
-                  readfile1 = combined_fastq,
-                  output_file = aligned_bam,
-                  nthreads = args$nthreads)
-
-  if (!is.null(args$barcodes)) {
-    barcode_anno <- args$barcodes
-  } else {
-    print("Detecting barcodes")
-    # detect 10X barcodes and generate sample_index.csv file
-    barcode_anno <- "sample_index.csv"
-    sc_detect_bc(infq = combined_fastq,
-                 outcsv = barcode_anno,
-                 bc_len = read_structure$bl2,
-                 max_reads = args$max_reads,
-                 min_count = args$min_count,
-                 max_mismatch = args$max_mis
+    print("Trimming barcodes")
+    sc_trim_barcode(combined_fastq,
+        fq_r1,
+        fq_r2,
+        read_structure = read_structure,
+        filter_settings = filter_settings
     )
-  }
+
+    print("Building genome index")
+    Rsubread::buildindex(basename = fasta_index, reference = fa_fn)
+
+    print("Aligning reads to genome")
+    Rsubread::align(
+        index = fasta_index,
+        readfile1 = combined_fastq,
+        output_file = aligned_bam,
+        nthreads = args$nthreads
+    )
+
+    if (!is.null(args$barcodes)) {
+        barcode_anno <- args$barcodes
+    } else {
+        print("Detecting barcodes")
+        # detect 10X barcodes and generate sample_index.csv file
+        barcode_anno <- "sample_index.csv"
+        sc_detect_bc(
+            infq = combined_fastq,
+            outcsv = barcode_anno,
+            bc_len = read_structure$bl2,
+            max_reads = args$max_reads,
+            min_count = args$min_count,
+            max_mismatch = args$max_mis
+        )
+    }
 } else {
-   aligned_bam <- file.path(out_dir, bam)
-   barcode_anno <- args$barcodes
+    aligned_bam <- file.path(out_dir, bam)
+    barcode_anno <- args$barcodes
 }
 
 print("Assigning reads to exons")
@@ -139,8 +146,8 @@ sce <- create_sce_by_dir(out_dir)
 pdf("plots.pdf")
 plot_demultiplex(sce)
 if (has_umi) {
-  p <- plot_UMI_dup(sce)
-  print(p)
+    p <- plot_UMI_dup(sce)
+    print(p)
 }
 sce <- calculate_QC_metrics(sce)
 sce <- detect_outlier(sce)
@@ -152,41 +159,43 @@ dev.off()
 
 print("Removing outliers")
 if (is.null(args$keep_outliers)) {
-  sce <- remove_outliers(sce)
-  gene_counts <- counts(sce)
-  write.table(data.frame("gene_id" = rownames(gene_counts), gene_counts), file = "gene_count.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
+    sce <- remove_outliers(sce)
+    gene_counts <- counts(sce)
+    write.table(data.frame("gene_id" = rownames(gene_counts), gene_counts), file = "gene_count.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
 }
 
 if (!is.null(args$metrics_matrix)) {
-  metrics <- colData(sce, internal = TRUE)
-  write.table(data.frame("cell_id" = rownames(metrics), metrics), file = "metrics_matrix.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
+    metrics <- colData(sce, internal = TRUE)
+    write.table(data.frame("cell_id" = rownames(metrics), metrics), file = "metrics_matrix.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
 }
 
 if (!is.null(args$report) & (!is.null(fa_fn))) {
-  print("Creating report")
-  create_report(sample_name = args$samplename,
-                outdir = out_dir,
-                r1 = fq_r1,
-                r2 = fq_r2,
-                outfq = combined_fastq,
-                read_structure = read_structure,
-                filter_settings = filter_settings,
-                align_bam = aligned_bam,
-                genome_index = fasta_index,
-                map_bam = mapped_bam,
-                exon_anno = anno_fn,
-                stnd = args$stnd,
-                fix_chr = FALSE,
-                barcode_anno = barcode_anno,
-                max_mis = args$max_mis,
-                UMI_cor = args$UMI_cor,
-                gene_fl = args$gene_fl,
-                organism = args$organism,
-                gene_id_type = "ensembl_gene_id")
+    print("Creating report")
+    create_report(
+        sample_name = args$samplename,
+        outdir = out_dir,
+        r1 = fq_r1,
+        r2 = fq_r2,
+        outfq = combined_fastq,
+        read_structure = read_structure,
+        filter_settings = filter_settings,
+        align_bam = aligned_bam,
+        genome_index = fasta_index,
+        map_bam = mapped_bam,
+        exon_anno = anno_fn,
+        stnd = args$stnd,
+        fix_chr = FALSE,
+        barcode_anno = barcode_anno,
+        max_mis = args$max_mis,
+        UMI_cor = args$UMI_cor,
+        gene_fl = args$gene_fl,
+        organism = args$organism,
+        gene_id_type = "ensembl_gene_id"
+    )
 }
 
 if (!is.null(args$rdata)) {
-  save(sce, file = file.path(out_dir, "scPipe_analysis.RData"))
+    save(sce, file = file.path(out_dir, "scPipe_analysis.RData"))
 }
 
 sessionInfo()

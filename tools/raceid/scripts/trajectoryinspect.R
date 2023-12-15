@@ -4,8 +4,8 @@ VERSION <- "0.2" # nolint
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) != 1) {
-     message(paste("VERSION:", VERSION))
-     stop("Please provide the config file")
+    message(paste("VERSION:", VERSION))
+    stop("Please provide the config file")
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
@@ -34,7 +34,8 @@ do.trajectoryinspection.stemid <- function(ltr) { # nolint
     )
     write.table(
         head(bra$diffgenes$z, trjsid.numdiffgenes),
-        file = out.diffgenes)
+        file = out.diffgenes
+    )
 
     par(mfrow = c(3, 2), cex = 0.5)
     print(do.call(plotmap, c(bra$scl, final = FALSE, fr = FALSE)))
@@ -63,7 +64,7 @@ do.trajectoryinspection.fateid <- function(ltr) { # nolint
     trjfid_procsom$s1d <- s1d
     ps <- do.call(procsom, c(trjfid_procsom))
 
-    y    <- ltr@sc@cpart[n$f]
+    y <- ltr@sc@cpart[n$f]
     fcol <- ltr@sc@fcol
 
     trjfid_plotheat$xpart <- y
@@ -72,26 +73,32 @@ do.trajectoryinspection.fateid <- function(ltr) { # nolint
     test$side <- 3
     test$line <- 3
 
-    ##Plot average z-score for all modules derived from the SOM:
+    ## Plot average z-score for all modules derived from the SOM:
     trjfid_plotheat$x <- ps$nodes.z
     trjfid_plotheat$ypart <- unique(ps$nodes)
     print(do.call(plotheatmap, c(trjfid_plotheat)))
-    print(do.call(mtext, c("Average z-score for all modules derived from SOM",
-                           test)))
-    ##Plot z-score profile of each gene ordered by SOM modules:
+    print(do.call(mtext, c(
+        "Average z-score for all modules derived from SOM",
+        test
+    )))
+    ## Plot z-score profile of each gene ordered by SOM modules:
     trjfid_plotheat$x <- ps$all.z
     trjfid_plotheat$ypart <- ps$nodes
     print(do.call(plotheatmap, c(trjfid_plotheat)))
-    print(do.call(mtext, c(paste0("z-score profile of each gene",
-                                  "ordered by SOM modules"), test)))
-    ##Plot normalized expression profile of each gene ordered by SOM modules:
+    print(do.call(mtext, c(paste0(
+        "z-score profile of each gene",
+        "ordered by SOM modules"
+    ), test)))
+    ## Plot normalized expression profile of each gene ordered by SOM modules:
     trjfid_plotheat$x <- ps$all.e
     trjfid_plotheat$ypart <- ps$nodes
     print(do.call(plotheatmap, c(trjfid_plotheat)))
-    print(do.call(mtext, c(paste0("Normalized expression profile of each",
-                                  "gene ordered by SOM modules"), test)))
-    ##Plot binarized expression profile of each gene
-    ##(z-score < -1, -1 < z-score < 1, z-score > 1)
+    print(do.call(mtext, c(paste0(
+        "Normalized expression profile of each",
+        "gene ordered by SOM modules"
+    ), test)))
+    ## Plot binarized expression profile of each gene
+    ## (z-score < -1, -1 < z-score < 1, z-score > 1)
     trjfid_plotheat$x <- ps$all.b
     trjfid_plotheat$ypart <- ps$nodes
     print(do.call(plotheatmap, c(trjfid_plotheat)))

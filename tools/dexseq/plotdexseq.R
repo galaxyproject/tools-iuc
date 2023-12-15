@@ -14,8 +14,8 @@ suppressPackageStartupMessages({
 options(stringAsfactors = FALSE, useFancyQuotes = FALSE)
 args <- commandArgs(trailingOnly = TRUE)
 
-#get options, using the spec as defined by the enclosed list.
-#we read the options from the default: commandArgs(TRUE).
+# get options, using the spec as defined by the enclosed list.
+# we read the options from the default: commandArgs(TRUE).
 spec <- matrix(c(
     "rdata", "r", 1, "character",
     "primaryfactor", "p", 1, "character",
@@ -40,10 +40,12 @@ if (!is.null(opt$genefile)) {
 
 pdf("plot.pdf")
 for (i in genes) {
-    plotDEXSeq(res, i, FDR = opt$fdr, fitExpToVar = opt$primaryfactor,
+    plotDEXSeq(res, i,
+        FDR = opt$fdr, fitExpToVar = opt$primaryfactor,
         norCounts = opt$normcounts, expression = TRUE, splicing = opt$splicing,
         displayTranscripts = opt$transcripts, names = opt$names, legend = TRUE,
-        color = NULL, color.samples = NULL, transcriptDb = NULL)
+        color = NULL, color.samples = NULL, transcriptDb = NULL
+    )
 }
 dev.off()
 

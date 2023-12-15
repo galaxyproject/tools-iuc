@@ -31,10 +31,11 @@
 # nolint start
 #+ echo=F, warning = F, message=F
 options(show.error.messages = F, error = function() {
-    cat(geterrmessage(), file = stderr()); q("no", 1, F)
+    cat(geterrmessage(), file = stderr())
+    q("no", 1, F)
 })
 showcode <- as.logical(params$showcode)
-warn <-  as.logical(params$warn)
+warn <- as.logical(params$warn)
 varstate <- as.logical(params$varstate)
 vlnfeat <- as.logical(params$vlnfeat)
 featplot <- as.logical(params$featplot)
@@ -68,9 +69,9 @@ if (end_step >= 3) {
 }
 if (end_step >= 4) {
     if (params$perplexity == "") {
-       perplexity <- -1
-       print(paste0("Perplexity: ", perplexity))
-    } else { 
+        perplexity <- -1
+        print(paste0("Perplexity: ", perplexity))
+    } else {
         perplexity <- as.integer(params$perplexity)
         print(paste0("Perplexity: ", perplexity))
     }
@@ -94,7 +95,7 @@ seuset <- Seurat::CreateSeuratObject(counts = counts, min.cells = min_cells, min
 
 if (showcode == TRUE && vlnfeat == TRUE) print("Raw data vizualization")
 #+ echo = `showcode`, warning = `warn`, include=`vlnfeat`
-if (vlnfeat == TRUE){
+if (vlnfeat == TRUE) {
     print(Seurat::VlnPlot(object = seuset, features = c("nFeature_RNA", "nCount_RNA")))
     print(Seurat::FeatureScatter(object = seuset, feature1 = "nCount_RNA", feature2 = "nFeature_RNA"))
 }
@@ -104,7 +105,7 @@ if (showcode == TRUE) print("Filter and normalize for UMI counts")
 seuset <- subset(seuset, subset = `nCount_RNA` > low_thresholds & `nCount_RNA` < high_thresholds)
 seuset <- Seurat::NormalizeData(seuset, normalization.method = "LogNormalize", scale.factor = 10000)
 if (norm_out == TRUE) {
-        saveRDS(seuset, "norm_out.rds")
+    saveRDS(seuset, "norm_out.rds")
 }
 
 if (end_step >= 2) {
@@ -147,21 +148,21 @@ if (end_step >= 4) {
     seuset <- Seurat::FindNeighbors(object = seuset)
     seuset <- Seurat::FindClusters(object = seuset)
     if (perplexity == -1) {
-        seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution);
+        seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution)
     } else {
-        seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, perplexity = perplexity);
+        seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, perplexity = perplexity)
     }
     if (nmds == TRUE) {
         print(Seurat::DimPlot(seuset, reduction = "tsne"))
     }
     seuset <- Seurat::RunUMAP(seuset, dims = 1:num_pcs)
     if (nmds == TRUE) {
-            print(Seurat::DimPlot(seuset, reduction = "umap"))
+        print(Seurat::DimPlot(seuset, reduction = "umap"))
     }
     if (clusters_out == TRUE) {
-        tsnedata <- Seurat::Embeddings(seuset, reduction="tsne")
+        tsnedata <- Seurat::Embeddings(seuset, reduction = "tsne")
         saveRDS(seuset, "tsne_out.rds")
-        umapdata <- Seurat::Embeddings(seuset, reduction="umap")
+        umapdata <- Seurat::Embeddings(seuset, reduction = "umap")
         saveRDS(seuset, "umap_out.rds")
     }
 }
@@ -180,7 +181,7 @@ if (end_step == 5) {
     }
     if (markers_out == TRUE) {
         saveRDS(seuset, "markers_out.rds")
-        data.table::fwrite(x = markers, row.names=TRUE, sep="\t", file = "markers_out.tsv")
+        data.table::fwrite(x = markers, row.names = TRUE, sep = "\t", file = "markers_out.tsv")
     }
 }
 # nolint end

@@ -107,18 +107,18 @@ paste_listname <- function(string) {
 # true by default (Ripped straight from the cat function with altered argument
 # defaults)
 cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL,
-               append = TRUE) {
-    if (is.character(file))
-        if (file == "")
+                 append = TRUE) {
+    if (is.character(file)) {
+        if (file == "") {
             file <- stdout()
-        else if (substring(file, 1L, 1L) == "|") {
+        } else if (substring(file, 1L, 1L) == "|") {
             file <- pipe(substring(file, 2L), "w")
             on.exit(close(file))
+        } else {
+            file <- file(file, ifelse(append, "a", "w"))
+            on.exit(close(file))
         }
-        else {
-        file <- file(file, ifelse(append, "a", "w"))
-      on.exit(close(file))
-        }
+    }
     .Internal(cat(list(...), file, sep, fill, labels, append))
 }
 
@@ -162,35 +162,38 @@ args <- commandArgs(trailingOnly = TRUE)
 
 # Get options, using the spec as defined by the enclosed list.
 # Read the options from the default: commandArgs(TRUE).
-spec <- matrix(c(
-    "htmlPath", "R", 1, "character",
-    "outPath", "o", 1, "character",
-    "filesPath", "j", 2, "character",
-    "matrixPath", "m", 2, "character",
-    "factFile", "f", 2, "character",
-    "factInput", "i", 2, "character",
-    "annoPath", "a", 2, "character",
-    "contrastFile", "C", 1, "character",
-    "contrastInput", "D", 1, "character",
-    "cpmReq", "c", 1, "double",
-    "totReq", "y", 0, "logical",
-    "cntReq", "z", 1, "integer",
-    "sampleReq", "s", 1, "integer",
-    "filtCounts", "F", 0, "logical",
-    "normCounts", "x", 0, "logical",
-    "rdaOpt", "r", 0, "logical",
-    "lfcReq", "l", 1, "double",
-    "pValReq", "p", 1, "double",
-    "pAdjOpt", "d", 1, "character",
-    "normOpt", "n", 1, "character",
-    "robOpt", "b", 0, "logical",
-    "trend", "t", 1, "double",
-    "weightOpt", "w", 0, "logical",
-    "topgenes", "G", 1, "integer",
-    "treatOpt", "T", 0, "logical",
-    "plots", "P", 1, "character",
-    "libinfoOpt", "L", 0, "logical"),
-    byrow = TRUE, ncol = 4)
+spec <- matrix(
+    c(
+        "htmlPath", "R", 1, "character",
+        "outPath", "o", 1, "character",
+        "filesPath", "j", 2, "character",
+        "matrixPath", "m", 2, "character",
+        "factFile", "f", 2, "character",
+        "factInput", "i", 2, "character",
+        "annoPath", "a", 2, "character",
+        "contrastFile", "C", 1, "character",
+        "contrastInput", "D", 1, "character",
+        "cpmReq", "c", 1, "double",
+        "totReq", "y", 0, "logical",
+        "cntReq", "z", 1, "integer",
+        "sampleReq", "s", 1, "integer",
+        "filtCounts", "F", 0, "logical",
+        "normCounts", "x", 0, "logical",
+        "rdaOpt", "r", 0, "logical",
+        "lfcReq", "l", 1, "double",
+        "pValReq", "p", 1, "double",
+        "pAdjOpt", "d", 1, "character",
+        "normOpt", "n", 1, "character",
+        "robOpt", "b", 0, "logical",
+        "trend", "t", 1, "double",
+        "weightOpt", "w", 0, "logical",
+        "topgenes", "G", 1, "integer",
+        "treatOpt", "T", 0, "logical",
+        "plots", "P", 1, "character",
+        "libinfoOpt", "L", 0, "logical"
+    ),
+    byrow = TRUE, ncol = 4
+)
 opt <- getopt(spec)
 
 
@@ -283,10 +286,12 @@ if (!is.null(opt$filesPath)) {
     factor_list <- parser$getObject()
     factors <- sapply(factor_list, function(x) x[[1]])
     filenames_in <- unname(unlist(factor_list[[1]][[2]]))
-    sampletable <- data.frame(sample = basename(filenames_in),
-                            filename = filenames_in,
-                            row.names = filenames_in,
-                            stringsAsFactors = FALSE)
+    sampletable <- data.frame(
+        sample = basename(filenames_in),
+        filename = filenames_in,
+        row.names = filenames_in,
+        stringsAsFactors = FALSE
+    )
     for (factor in factor_list) {
         factorname <- factor[[1]]
         sampletable[[factorname]] <- character(nrow(sampletable))
@@ -301,12 +306,11 @@ if (!is.null(opt$filesPath)) {
     rem <- c("sample", "filename")
     factors <- sampletable[, !(names(sampletable) %in% rem), drop = FALSE]
 
-    #read in count files and create single table
+    # read in count files and create single table
     countfiles <- lapply(sampletable$filename, function(x) {
         read.delim(x, row.names = 1)
-        })
+    })
     counts <- do.call("cbind", countfiles)
-
 } else {
     # Process the single count matrix
     counts <- read.table(opt$matrixPath, header = TRUE, sep = "\t", strip.white = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
@@ -317,12 +321,13 @@ if (!is.null(opt$filesPath)) {
     # Process factors
     if (is.null(opt$factInput)) {
         factordata <- read.table(opt$factFile, header = TRUE, sep = "\t", strip.white = TRUE, stringsAsFactors = TRUE)
-        if (!setequal(factordata[, 1], colnames(counts)))
+        if (!setequal(factordata[, 1], colnames(counts))) {
             stop("Sample IDs in counts and factors files don't match")
+        }
         # order samples as in counts matrix
         factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
         factors <- factordata[, -1, drop = FALSE]
-    }  else {
+    } else {
         factors <- unlist(strsplit(opt$factInput, "|", fixed = TRUE))
         factordata <- list()
         for (fact in factors) {
@@ -347,19 +352,19 @@ if (nrow(factors) != ncol(counts)) {
 factors <- sapply(factors, make.names)
 factors <- data.frame(factors, stringsAsFactors = TRUE)
 
- # if annotation file provided
+# if annotation file provided
 if (have_anno) {
     geneanno <- read.table(opt$annoPath, header = TRUE, sep = "\t", quote = "", strip.white = TRUE, stringsAsFactors = FALSE)
 }
 
-#Create output directory
+# Create output directory
 dir.create(opt$outPath, showWarnings = FALSE)
 
 # Process contrasts
 if (is.null(opt$contrastInput)) {
     contrast_data <- read.table(opt$contrastFile, header = TRUE, sep = "\t", quote = "", strip.white = TRUE, stringsAsFactors = FALSE)
     contrast_data <- contrast_data[, 1, drop = TRUE]
-}  else {
+} else {
     # Split up contrasts seperated by comma into a vector then sanitise
     contrast_data <- unlist(strsplit(opt$contrastInput, split = ","))
 }
@@ -370,15 +375,14 @@ contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
 cons <- NULL
 cons_d <- NULL
 for (i in contrast_data) {
-
     # if the contrast is a difference of differences e.g. (A-B)-(X-Y)
     if (grepl("\\)-\\(", i)) {
         i <- unlist(strsplit(i, split = "\\)-\\("))
         i <- gsub("\\(|\\)", "", i)
         for (j in i) {
-           j <- sanitise_contrast(j)
-           j <- paste0("(", j, ")")
-           cons_d  <- append(cons_d, unlist(j))
+            j <- sanitise_contrast(j)
+            j <- paste0("(", j, ")")
+            cons_d <- append(cons_d, unlist(j))
         }
         cons_d <- paste(cons_d, collapse = "-")
         cons <- append(cons, unlist(cons_d))
@@ -428,10 +432,14 @@ session_out <- make_out("session_info.txt")
 
 # Initialise data for html links and images, data frame with columns Label and
 # Link
-link_data <- data.frame(Label = character(), Link = character(),
-                       stringsAsFactors = FALSE)
-image_data <- data.frame(Label = character(), Link = character(),
-                        stringsAsFactors = FALSE)
+link_data <- data.frame(
+    Label = character(), Link = character(),
+    stringsAsFactors = FALSE
+)
+image_data <- data.frame(
+    Label = character(), Link = character(),
+    stringsAsFactors = FALSE
+)
 
 # Initialise vectors for storage of up/down/neutral regulated counts
 up_count <- numeric()
@@ -447,11 +455,11 @@ print("Extracting counts")
 data <- list()
 data$counts <- counts
 if (have_anno) {
-  # order annotation by genes in counts (assumes gene ids are in 1st column of geneanno)
-  annoord <- geneanno[match(row.names(counts), geneanno[, 1]), ]
-  data$genes <- annoord
+    # order annotation by genes in counts (assumes gene ids are in 1st column of geneanno)
+    annoord <- geneanno[match(row.names(counts), geneanno[, 1]), ]
+    data$genes <- annoord
 } else {
-  data$genes <- data.frame(GeneID = row.names(counts))
+    data$genes <- data.frame(GeneID = row.names(counts))
 }
 
 # Creating naming data
@@ -469,7 +477,6 @@ prefilter_count <- nrow(data$counts)
 nsamples <- ncol(data$counts)
 
 if (filt_cpm || filt_smpcount || filt_totcount) {
-
     if (filt_totcount) {
         keep <- rowSums(data$counts) >= opt$cntReq
     } else if (filt_smpcount) {
@@ -582,7 +589,7 @@ for (i in seq_along(factor_list)) {
 
 # Calculating normalising factors
 print("Calculating Normalisation Factors")
-logcounts <- y #store for plots
+logcounts <- y # store for plots
 y <- calcNormFactors(y, method = opt$normOpt)
 
 # Generate contrasts information
@@ -607,7 +614,7 @@ if (opt$normOpt != "none" & "b" %in% plots) {
     title(main = "Box Plot: Unnormalised counts", ylab = "Log-cpm")
 
     lcpm2 <- cpm(y, log = TRUE)
-    boxplot(lcpm2, las = 2, col = col.group, xaxt = "n",  xlab = "")
+    boxplot(lcpm2, las = 2, col = col.group, xaxt = "n", xlab = "")
     axis(1, at = seq_along(labels), labels = FALSE)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     abline(h = median(lcpm2), col = 4)
@@ -625,7 +632,7 @@ if (opt$normOpt != "none" & "b" %in% plots) {
     abline(h = median(lcpm1), col = 4)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     title(main = "Box Plot: Unnormalised counts", ylab = "Log-cpm")
-    boxplot(lcpm2, las = 2, col = col.group, xaxt = "n",  xlab = "")
+    boxplot(lcpm2, las = 2, col = col.group, xaxt = "n", xlab = "")
     axis(1, at = seq_along(labels), labels = FALSE)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     abline(h = median(lcpm2), col = 4)
@@ -644,7 +651,7 @@ labels <- names(counts)
 
 # get column of matrix
 get_cols <- function(x, inds) {
-  x[, inds, drop = FALSE]
+    x[, inds, drop = FALSE]
 }
 
 x <- cpm(y, log = TRUE)
@@ -656,19 +663,19 @@ cn <- colnames(x)
 bad <- rowSums(is.finite(x)) < nsamples
 
 if (any(bad)) {
-  warning("Rows containing infinite values have been removed")
-  x <- x[!bad, , drop = FALSE]
+    warning("Rows containing infinite values have been removed")
+    x <- x[!bad, , drop = FALSE]
 }
 
 dd <- matrix(0, nrow = nsamples, ncol = nsamples, dimnames = list(cn, cn))
 topindex <- nprobes - top + 1L
 for (i in 2L:(nsamples)) {
-  for (j in 1L:(i - 1L)) {
-    dists <- (get_cols(x, i) - get_cols(x, j))^2
-    dists <- sort.int(dists, partial = topindex)
-    topdist <- dists[topindex:nprobes]
-    dd[i, j] <- sqrt(mean(topdist))
-  }
+    for (j in 1L:(i - 1L)) {
+        dists <- (get_cols(x, i) - get_cols(x, j))^2
+        dists <- sort.int(dists, partial = topindex)
+        topdist <- dists[topindex:nprobes]
+        dd[i, j] <- sqrt(mean(topdist))
+    }
 }
 
 a1 <- suppressWarnings(cmdscale(as.dist(dd), k = min(ndim, 8), eig = TRUE))
@@ -676,7 +683,7 @@ eigen <- data.frame(name = 1:min(ndim, 8), eigen = round(a1$eig[1:min(ndim, 8)] 
 png(mdsscree_png, width = 1000, height = 500)
 par(mfrow = c(1, 2))
 plotMDS(y, labels = samplenames, col = as.numeric(factors[, 1]), main = "MDS Plot: Dims 1 and 2")
-barplot(eigen$eigen, names.arg = eigen$name,  main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las = 1)
+barplot(eigen$eigen, names.arg = eigen$name, main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las = 1)
 img_name <- paste0("MDSPlot_", names(factors)[1], ".png")
 img_addr <- "mdsscree.png"
 image_data <- rbind(image_data, data.frame(Label = img_name, Link = img_addr, stringsAsFactors = FALSE))
@@ -685,7 +692,7 @@ invisible(dev.off())
 pdf(mdsscree_pdf, width = 14)
 par(mfrow = c(1, 2))
 plotMDS(y, labels = samplenames, col = as.numeric(factors[, 1]), main = "MDS Plot: Dims 1 and 2")
-barplot(eigen$eigen, names.arg = eigen$name,  main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las = 1)
+barplot(eigen$eigen, names.arg = eigen$name, main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las = 1)
 link_name <- paste0("MDSPlot_", names(factors)[1], ".pdf")
 link_addr <- "mdsscree.pdf"
 link_data <- rbind(link_data, data.frame(Label = link_name, Link = link_addr, stringsAsFactors = FALSE))
@@ -693,8 +700,10 @@ invisible(dev.off())
 
 # generate Glimma interactive MDS Plot
 if ("i" %in% plots) {
-    Glimma::glMDSPlot(y, labels = samplenames, groups = factors[, 1],
-        folder = "glimma_MDS", launch = FALSE)
+    Glimma::glMDSPlot(y,
+        labels = samplenames, groups = factors[, 1],
+        folder = "glimma_MDS", launch = FALSE
+    )
     link_name <- "Glimma_MDSPlot.html"
     link_addr <- "glimma_MDS/MDS-Plot.html"
     link_data <- rbind(link_data, c(link_name, link_addr))
@@ -789,7 +798,6 @@ if (want_trend) {
         # Generating fit data and top table with weights
         wts <- vdata$weights
         voomfit <- lmFit(vdata, design, weights = wts)
-
     } else {
         voom_pdf <- make_out("voomplot.pdf")
         voom_png <- make_out("voomplot.png")
@@ -812,7 +820,7 @@ if (want_trend) {
         voomfit <- lmFit(vdata, design)
     }
 
-     # Save normalised counts (log2cpm)
+    # Save normalised counts (log2cpm)
     if (want_norm) {
         norm_counts <- data.frame(vdata$genes, vdata$E, check.names = FALSE)
         write.table(norm_counts, file = norm_out, row.names = FALSE, sep = "\t", quote = FALSE)
@@ -847,7 +855,7 @@ link_addr <- "saplot.pdf"
 link_data <- rbind(link_data, c(link_name, link_addr))
 invisible(dev.off())
 
- # Save library size info
+# Save library size info
 if (want_libinfo) {
     efflibsize <- round(y$samples$lib.size * y$samples$norm.factors)
     libsizeinfo <- cbind(y$samples, EffectiveLibrarySize = efflibsize)
@@ -869,8 +877,10 @@ if (want_treat) {
     }
 }
 
-status <- decideTests(fit, adjust.method = opt$pAdjOpt, p.value = opt$pValReq,
-                       lfc = opt$lfcReq)
+status <- decideTests(fit,
+    adjust.method = opt$pAdjOpt, p.value = opt$pValReq,
+    lfc = opt$lfcReq
+)
 sum_status <- summary(status)
 
 for (i in seq_along(cons)) {
@@ -885,7 +895,7 @@ for (i in seq_along(cons)) {
     # Write top expressions table
     if (want_treat) {
         top <- topTreat(fit, coef = i, adjust.method = opt$pAdjOpt, number = Inf, sort.by = "P")
-    } else{
+    } else {
         top <- topTable(fit, coef = i, adjust.method = opt$pAdjOpt, number = Inf, sort.by = "P")
     }
     write.table(top, file = top_out[i], row.names = FALSE, sep = "\t", quote = FALSE)
@@ -895,10 +905,12 @@ for (i in seq_along(cons)) {
 
     # Plot MD (log ratios vs mean average) using limma package on weighted
     pdf(md_pdf[i])
-    limma::plotMD(fit, status = status[, i], coef = i,
+    limma::plotMD(fit,
+        status = status[, i], coef = i,
         main = paste("MD Plot:", unmake_names(con)),
         hl.col = alpha(c("firebrick", "blue"), 0.4), values = c(1, -1),
-        xlab = "Average Expression", ylab = "logFC")
+        xlab = "Average Expression", ylab = "logFC"
+    )
     abline(h = 0, col = "grey", lty = 2)
     link_name <- paste0("MDPlot_", con, ".pdf")
     link_addr <- paste0("mdplot_", con, ".pdf")
@@ -914,25 +926,29 @@ for (i in seq_along(cons)) {
         # use the logcpms for the counts
         if (want_trend) {
             cnts <- logcpm
-        } else{
+        } else {
             cnts <- vdata$E
         }
 
         # MD plot
-        Glimma::glMDPlot(fit, coef = i, counts = cnts, anno = geneanno, groups = factors[, 1],
-             status = status[, i], sample.cols = col.group,
-             main = paste("MD Plot:", unmake_names(con)), side.main = colnames(y$genes)[2],
-             folder = paste0("glimma_", unmake_names(con)), launch = FALSE)
+        Glimma::glMDPlot(fit,
+            coef = i, counts = cnts, anno = geneanno, groups = factors[, 1],
+            status = status[, i], sample.cols = col.group,
+            main = paste("MD Plot:", unmake_names(con)), side.main = colnames(y$genes)[2],
+            folder = paste0("glimma_", unmake_names(con)), launch = FALSE
+        )
         link_name <- paste0("Glimma_MDPlot_", con, ".html")
         link_addr <- paste0("glimma_", con, "/MD-Plot.html")
         link_data <- rbind(link_data, c(link_name, link_addr))
 
         # Volcano plot
-        Glimma::glXYPlot(x = fit$coefficients[, i], y = -log10(fit$p.value[, i]), counts = cnts, anno = geneanno, groups = factors[, 1],
+        Glimma::glXYPlot(
+            x = fit$coefficients[, i], y = -log10(fit$p.value[, i]), counts = cnts, anno = geneanno, groups = factors[, 1],
             status = status[, i], sample.cols = col.group,
             main = paste("Volcano Plot:", unmake_names(con)), side.main = colnames(y$genes)[2],
             xlab = "logFC", ylab = "-log10(P-value)",
-            folder = paste0("glimma_volcano_", unmake_names(con)), launch = FALSE)
+            folder = paste0("glimma_volcano_", unmake_names(con)), launch = FALSE
+        )
         link_name <- paste0("Glimma_VolcanoPlot_", con, ".html")
         link_addr <- paste0("glimma_volcano_", con, "/XY-Plot.html")
         link_data <- rbind(link_data, c(link_name, link_addr))
@@ -946,10 +962,12 @@ for (i in seq_along(cons)) {
     } else {
         labels <- fit$genes$GeneID
     }
-    limma::volcanoplot(fit, coef = i,
+    limma::volcanoplot(fit,
+        coef = i,
         main = paste("Volcano Plot:", unmake_names(con)),
         highlight = opt$topgenes,
-        names = labels)
+        names = labels
+    )
     link_name <- paste0("VolcanoPlot_", con, ".pdf")
     link_addr <- paste0("volplot_", con, ".pdf")
     link_data <- rbind(link_data, c(link_name, link_addr))
@@ -960,21 +978,27 @@ for (i in seq_along(cons)) {
     par(mfrow = c(1, 2), mar = c(5, 4, 2, 2) + 0.1, oma = c(0, 0, 3, 0))
 
     # MD plot
-    limma::plotMD(fit, status = status[, i], coef = i, main = "MD Plot",
+    limma::plotMD(fit,
+        status = status[, i], coef = i, main = "MD Plot",
         hl.col = alpha(c("firebrick", "blue"), 0.4), values = c(1, -1),
-        xlab = "Average Expression", ylab = "logFC")
+        xlab = "Average Expression", ylab = "logFC"
+    )
     abline(h = 0, col = "grey", lty = 2)
 
     # Volcano
     if (have_anno) {
         # labels must be in second column currently
-        limma::volcanoplot(fit, coef = i, main = "Volcano Plot",
+        limma::volcanoplot(fit,
+            coef = i, main = "Volcano Plot",
             highlight = opt$topgenes,
-            names = fit$genes[, 2])
+            names = fit$genes[, 2]
+        )
     } else {
-        limma::volcanoplot(fit, coef = i, main = "Volcano Plot",
+        limma::volcanoplot(fit,
+            coef = i, main = "Volcano Plot",
             highlight = opt$topgenes,
-            names = fit$genes$GeneID)
+            names = fit$genes$GeneID
+        )
     }
 
     img_name <- paste0("MDVolPlot_", con)
@@ -999,10 +1023,12 @@ for (i in seq_along(cons)) {
         } else {
             labels <- rownames(topexp)
         }
-        heatmap.2(topexp, scale = "row", Colv = FALSE, Rowv = FALSE, dendrogram = "none",
+        heatmap.2(topexp,
+            scale = "row", Colv = FALSE, Rowv = FALSE, dendrogram = "none",
             main = paste("Contrast:", unmake_names(con), "\nTop", opt$topgenes, "genes by adj.P.Val"),
             trace = "none", density.info = "none", lhei = c(2, 10), margin = c(8, 6), labRow = labels, cexRow = 0.7, srtCol = 45,
-            col = mycol, ColSideColors = col.group)
+            col = mycol, ColSideColors = col.group
+        )
         link_name <- paste0("Heatmap_", con, ".pdf")
         link_addr <- paste0("heatmap_", con, ".pdf")
         link_data <- rbind(link_data, c(link_name, link_addr))
@@ -1019,11 +1045,15 @@ for (i in seq_along(cons)) {
             lfc <- round(top[topgenes[j], "logFC"], 2)
             pval <- round(top[topgenes[j], "adj.P.Val"], 5)
             if (want_trend) {
-                stripchart(plot_data[topgenes[j], ] ~ factors[, 1], vertical = TRUE, las = 2, pch = 16, cex = 0.8, cex.lab = 0.8, col = cols,
-                    method = "jitter", ylab = "Normalised log2 expression", main = paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+                stripchart(plot_data[topgenes[j], ] ~ factors[, 1],
+                    vertical = TRUE, las = 2, pch = 16, cex = 0.8, cex.lab = 0.8, col = cols,
+                    method = "jitter", ylab = "Normalised log2 expression", main = paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval)
+                )
             } else {
-                stripchart(plot_data$E[topgenes[j], ] ~ factors[, 1], vertical = TRUE, las = 2, pch = 16, cex = 0.8, cex.lab = 0.8, col = cols,
-                    method = "jitter", ylab = "Normalised log2 expression", main = paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+                stripchart(plot_data$E[topgenes[j], ] ~ factors[, 1],
+                    vertical = TRUE, las = 2, pch = 16, cex = 0.8, cex.lab = 0.8, col = cols,
+                    method = "jitter", ylab = "Normalised log2 expression", main = paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval)
+                )
             }
         }
         link_name <- paste0("Stripcharts_", con, ".pdf")
@@ -1039,11 +1069,13 @@ row.names(sig_diff) <- cons
 if (want_rda) {
     print("Saving RData")
     if (want_weight) {
-      save(counts, data, y, status, plot_data, labels, factors, wts, fit, top, contrast_data, contrasts, design,
-           file = rda_out, ascii = TRUE)
+        save(counts, data, y, status, plot_data, labels, factors, wts, fit, top, contrast_data, contrasts, design,
+            file = rda_out, ascii = TRUE
+        )
     } else {
-      save(counts, data, y, status, plot_data, labels, factors, fit, top, contrast_data, contrasts, design,
-           file = rda_out, ascii = TRUE)
+        save(counts, data, y, status, plot_data, labels, factors, fit, top, contrast_data, contrasts, design,
+            file = rda_out, ascii = TRUE
+        )
     }
     link_data <- rbind(link_data, c((paste0(de_method, "_analysis.RData")), (paste0(de_method, "_analysis.RData"))))
 }
@@ -1097,35 +1129,35 @@ for (i in seq_len(nrow(sig_diff))) {
 cata("</table>")
 
 cata("<h4>Plots:</h4>\n")
-#PDFs
+# PDFs
 for (i in seq_len(nrow(link_data))) {
     if (grepl(".pdf", link_data$Link[i]) & grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", link_data$Link[i])) {
         html_link(link_data$Link[i], link_data$Label[i])
-  }
+    }
 }
 
 for (i in seq_len(nrow(link_data))) {
     if (grepl("mdplot_", link_data$Link[i])) {
         html_link(link_data$Link[i], link_data$Label[i])
-  }
+    }
 }
 
 for (i in seq_len(nrow(link_data))) {
     if (grepl("volplot", link_data$Link[i])) {
         html_link(link_data$Link[i], link_data$Label[i])
-  }
+    }
 }
 
 for (i in seq_len(nrow(link_data))) {
     if (grepl("heatmap", link_data$Link[i])) {
         html_link(link_data$Link[i], link_data$Label[i])
-  }
+    }
 }
 
 for (i in seq_len(nrow(link_data))) {
     if (grepl("stripcharts", link_data$Link[i])) {
         html_link(link_data$Link[i], link_data$Label[i])
-  }
+    }
 }
 
 cata("<h4>Tables:</h4>\n")
@@ -1148,11 +1180,11 @@ if (want_rda) {
 
 if ("i" %in% plots) {
     cata("<h4>Glimma Interactive Results:</h4>\n")
-        for (i in seq_len(nrow(link_data))) {
-            if (grepl("glimma", link_data$Link[i])) {
-                html_link(link_data$Link[i], link_data$Label[i])
-            }
+    for (i in seq_len(nrow(link_data))) {
+        if (grepl("glimma", link_data$Link[i])) {
+            html_link(link_data$Link[i], link_data$Label[i])
         }
+    }
 }
 
 cata("<p>Alt-click links to download file.</p>\n")
@@ -1165,23 +1197,31 @@ cata("<ul>\n")
 
 if (filt_cpm || filt_smpcount || filt_totcount) {
     if (filt_cpm) {
-    temp_str <- paste("Genes without more than", opt$cpmReq,
-                                     "CPM in at least", opt$sampleReq, "samples are insignificant",
-                                     "and filtered out.")
+        temp_str <- paste(
+            "Genes without more than", opt$cpmReq,
+            "CPM in at least", opt$sampleReq, "samples are insignificant",
+            "and filtered out."
+        )
     } else if (filt_smpcount) {
-        temp_str <- paste("Genes without more than", opt$cntReq,
-                                     "counts in at least", opt$sampleReq, "samples are insignificant",
-                                     "and filtered out.")
+        temp_str <- paste(
+            "Genes without more than", opt$cntReq,
+            "counts in at least", opt$sampleReq, "samples are insignificant",
+            "and filtered out."
+        )
     } else if (filt_totcount) {
-            temp_str <- paste("Genes without more than", opt$cntReq,
-                                     "counts, after summing counts for all samples, are insignificant",
-                                     "and filtered out.")
+        temp_str <- paste(
+            "Genes without more than", opt$cntReq,
+            "counts, after summing counts for all samples, are insignificant",
+            "and filtered out."
+        )
     }
 
     list_item(temp_str)
     filter_prop <- round(filtered_count / prefilter_count * 100, digits = 2)
-    temp_str <- paste0(filtered_count, " of ", prefilter_count, " (", filter_prop,
-                                     "%) genes were filtered out for low expression.")
+    temp_str <- paste0(
+        filtered_count, " of ", prefilter_count, " (", filter_prop,
+        "%) genes were filtered out for low expression."
+    )
     list_item(temp_str)
 }
 list_item(opt$normOpt, " was the method used to normalise library sizes.")
@@ -1207,22 +1247,28 @@ if (want_robust) {
 }
 if (opt$pAdjOpt != "none") {
     if (opt$pAdjOpt == "BH" || opt$pAdjOpt == "BY") {
-        temp_str <- paste0("MD Plot highlighted genes are significant at FDR ",
-                        "of ", opt$pValReq, " and exhibit log2-fold-change of at ",
-                        "least ", opt$lfcReq, ".")
+        temp_str <- paste0(
+            "MD Plot highlighted genes are significant at FDR ",
+            "of ", opt$pValReq, " and exhibit log2-fold-change of at ",
+            "least ", opt$lfcReq, "."
+        )
         list_item(temp_str)
     } else if (opt$pAdjOpt == "holm") {
-        temp_str <- paste0("MD Plot highlighted genes are significant at adjusted ",
-                        "p-value of ", opt$pValReq, "  by the Holm(1979) ",
-                        "method, and exhibit log2-fold-change of at least ",
-                        opt$lfcReq, ".")
+        temp_str <- paste0(
+            "MD Plot highlighted genes are significant at adjusted ",
+            "p-value of ", opt$pValReq, "  by the Holm(1979) ",
+            "method, and exhibit log2-fold-change of at least ",
+            opt$lfcReq, "."
+        )
         list_item(temp_str)
     }
-  } else {
-        temp_str <- paste0("MD Plot highlighted genes are significant at p-value ",
-                      "of ", opt$pValReq, " and exhibit log2-fold-change of at ",
-                      "least ", opt$lfcReq, ".")
-        list_item(temp_str)
+} else {
+    temp_str <- paste0(
+        "MD Plot highlighted genes are significant at p-value ",
+        "of ", opt$pValReq, " and exhibit log2-fold-change of at ",
+        "least ", opt$lfcReq, "."
+    )
+    list_item(temp_str)
 }
 cata("</ul>\n")
 
@@ -1247,65 +1293,89 @@ for (i in seq_len(nrow(factors))) {
     table_head_item(row.names(factors)[i])
     for (j in seq_len(ncol(factors))) {
         table_item(as.character(unmake_names(factors[i, j])))
-  }
-  cata("</tr>\n")
+    }
+    cata("</tr>\n")
 }
 cata("</table>")
 
 cit <- character()
 link <- character()
-link[1] <- paste0("<a href=\"",
-                  "http://www.bioconductor.org/packages/release/bioc/",
-                  "vignettes/limma/inst/doc/usersguide.pdf",
-                  "\">", "limma User's Guide", "</a>.")
+link[1] <- paste0(
+    "<a href=\"",
+    "http://www.bioconductor.org/packages/release/bioc/",
+    "vignettes/limma/inst/doc/usersguide.pdf",
+    "\">", "limma User's Guide", "</a>."
+)
 
-link[2] <- paste0("<a href=\"",
-                  "http://www.bioconductor.org/packages/release/bioc/",
-                  "vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf",
-                  "\">", "edgeR User's Guide", "</a>")
+link[2] <- paste0(
+    "<a href=\"",
+    "http://www.bioconductor.org/packages/release/bioc/",
+    "vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf",
+    "\">", "edgeR User's Guide", "</a>"
+)
 
 cit[1] <- paste("Please cite the following paper for this tool:")
 
-cit[2] <- paste("Liu R, Holik AZ, Su S, Jansz N, Chen K, Leong HS, Blewitt ME,",
-                "Asselin-Labat ML, Smyth GK, Ritchie ME (2015). Why weight? ",
-                "Modelling sample and observational level variability improves power ",
-                "in RNA-seq analyses. Nucleic Acids Research, 43(15), e97.")
+cit[2] <- paste(
+    "Liu R, Holik AZ, Su S, Jansz N, Chen K, Leong HS, Blewitt ME,",
+    "Asselin-Labat ML, Smyth GK, Ritchie ME (2015). Why weight? ",
+    "Modelling sample and observational level variability improves power ",
+    "in RNA-seq analyses. Nucleic Acids Research, 43(15), e97."
+)
 
-cit[3] <- paste("Please cite the paper below for the limma software itself.",
-                "Please also try to cite the appropriate methodology articles",
-                "that describe the statistical methods implemented in limma,",
-                "depending on which limma functions you are using. The",
-                "methodology articles are listed in Section 2.1 of the",
-                link[1],
-                "Cite no. 3 only if sample weights were used.")
-cit[4] <- paste("Smyth GK (2005). Limma: linear models for microarray data.",
-                "In: 'Bioinformatics and Computational Biology Solutions using",
-                "R and Bioconductor'. R. Gentleman, V. Carey, S. doit,.",
-                "Irizarry, W. Huber (eds), Springer, New York, pages 397-420.")
-cit[5] <- paste("Please cite the first paper for the software itself and the",
-                "other papers for the various original statistical methods",
-                "implemented in edgeR.  See Section 1.2 in the", link[2],
-                "for more detail.")
-cit[6] <- paste("Robinson MD, McCarthy DJ and Smyth GK (2010). edgeR: a",
-                "Bioconductor package for differential expression analysis",
-                "of digital gene expression data. Bioinformatics 26, 139-140")
-cit[7] <- paste("Robinson MD and Smyth GK (2007). Moderated statistical tests",
-                "for assessing differences in tag abundance. Bioinformatics",
-                "23, 2881-2887")
-cit[8] <- paste("Robinson MD and Smyth GK (2008). Small-sample estimation of",
-                "negative binomial dispersion, with applications to SAGE data.",
-                "Biostatistics, 9, 321-332")
-cit[9] <- paste("McCarthy DJ, Chen Y and Smyth GK (2012). Differential",
-                "expression analysis of multifactor RNA-Seq experiments with",
-                "respect to biological variation. Nucleic Acids Research 40,",
-                "4288-4297")
-cit[10] <- paste("Law CW, Chen Y, Shi W, and Smyth GK (2014). Voom:",
-                "precision weights unlock linear model analysis tools for",
-                "RNA-seq read counts. Genome Biology 15, R29.")
-cit[11] <- paste("Ritchie ME, Diyagama D, Neilson J, van Laar R,",
-                "Dobrovic A, Holloway A and Smyth GK (2006).",
-                "Empirical array quality weights for microarray data.",
-                "BMC Bioinformatics 7, Article 261.")
+cit[3] <- paste(
+    "Please cite the paper below for the limma software itself.",
+    "Please also try to cite the appropriate methodology articles",
+    "that describe the statistical methods implemented in limma,",
+    "depending on which limma functions you are using. The",
+    "methodology articles are listed in Section 2.1 of the",
+    link[1],
+    "Cite no. 3 only if sample weights were used."
+)
+cit[4] <- paste(
+    "Smyth GK (2005). Limma: linear models for microarray data.",
+    "In: 'Bioinformatics and Computational Biology Solutions using",
+    "R and Bioconductor'. R. Gentleman, V. Carey, S. doit,.",
+    "Irizarry, W. Huber (eds), Springer, New York, pages 397-420."
+)
+cit[5] <- paste(
+    "Please cite the first paper for the software itself and the",
+    "other papers for the various original statistical methods",
+    "implemented in edgeR.  See Section 1.2 in the", link[2],
+    "for more detail."
+)
+cit[6] <- paste(
+    "Robinson MD, McCarthy DJ and Smyth GK (2010). edgeR: a",
+    "Bioconductor package for differential expression analysis",
+    "of digital gene expression data. Bioinformatics 26, 139-140"
+)
+cit[7] <- paste(
+    "Robinson MD and Smyth GK (2007). Moderated statistical tests",
+    "for assessing differences in tag abundance. Bioinformatics",
+    "23, 2881-2887"
+)
+cit[8] <- paste(
+    "Robinson MD and Smyth GK (2008). Small-sample estimation of",
+    "negative binomial dispersion, with applications to SAGE data.",
+    "Biostatistics, 9, 321-332"
+)
+cit[9] <- paste(
+    "McCarthy DJ, Chen Y and Smyth GK (2012). Differential",
+    "expression analysis of multifactor RNA-Seq experiments with",
+    "respect to biological variation. Nucleic Acids Research 40,",
+    "4288-4297"
+)
+cit[10] <- paste(
+    "Law CW, Chen Y, Shi W, and Smyth GK (2014). Voom:",
+    "precision weights unlock linear model analysis tools for",
+    "RNA-seq read counts. Genome Biology 15, R29."
+)
+cit[11] <- paste(
+    "Ritchie ME, Diyagama D, Neilson J, van Laar R,",
+    "Dobrovic A, Holloway A and Smyth GK (2006).",
+    "Empirical array quality weights for microarray data.",
+    "BMC Bioinformatics 7, Article 261."
+)
 cata("<h3>Citations</h3>\n")
 cata(cit[1], "\n")
 cata("<br>\n")
@@ -1338,13 +1408,16 @@ for (i in seq_len(nrow(link_data))) {
 
 cata("<table border=\"0\">\n")
 cata("<tr>\n")
-table_item("Task started at:"); table_item(time_start)
+table_item("Task started at:")
+table_item(time_start)
 cata("</tr>\n")
 cata("<tr>\n")
-table_item("Task ended at:"); table_item(time_end)
+table_item("Task ended at:")
+table_item(time_end)
 cata("</tr>\n")
 cata("<tr>\n")
-table_item("Task run time:"); table_item(time_taken)
+table_item("Task run time:")
+table_item(time_taken)
 cata("<tr>\n")
 cata("</table>\n")
 

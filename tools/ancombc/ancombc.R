@@ -53,19 +53,21 @@ global <- get_boolean_value(opt$global)
 phyloseq_obj <- readRDS(opt$phyloseq)
 
 # Construct an ANCOM-BC object.
-ancombc_obj <- ancombc(phyloseq = phyloseq_obj,
-                       formula = opt$formula,
-                       p_adj_method = opt$p_adj_method,
-                       zero_cut = opt$zero_cut,
-                       lib_cut = opt$lib_cut,
-                       group = opt$group,
-                       struc_zero = struc_zero,
-                       neg_lb = neg_lb,
-                       tol = opt$tol,
-                       max_iter = opt$max_iter,
-                       conserve = conserve,
-                       alpha = opt$alpha,
-                       global = global)
+ancombc_obj <- ancombc(
+    phyloseq = phyloseq_obj,
+    formula = opt$formula,
+    p_adj_method = opt$p_adj_method,
+    zero_cut = opt$zero_cut,
+    lib_cut = opt$lib_cut,
+    group = opt$group,
+    struc_zero = struc_zero,
+    neg_lb = neg_lb,
+    tol = opt$tol,
+    max_iter = opt$max_iter,
+    conserve = conserve,
+    alpha = opt$alpha,
+    global = global
+)
 
 res <- ancombc_obj$res
 
