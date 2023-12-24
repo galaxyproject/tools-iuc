@@ -354,8 +354,7 @@ class JbrowseConnector(object):
         self.gencode = gencode
         self.tracksToIndex = []
         self.config_json = {}
-        # read from the clone - has keys ['configuration', 'plugins', 'assemblies', 'tracks', 'connections', 'defaultSession', 'aggregateTextSearchAdapters']
-
+        self.config_json_file = os.path.join(outdir, 'config.json')
         if standalone == "complete":
             self.clone_jbrowse(self.jbrowse, self.outdir)
         elif standalone == "minimal":
@@ -363,13 +362,6 @@ class JbrowseConnector(object):
         else:
             os.makedirs(self.outdir)
         os.makedirs(os.path.join(self.outdir, 'data', 'raw'), exist_ok=True)
-
-        configsample = os.path.join(INSTALLED_TO, 'config.json.sample')
-        with open(configsample, 'r') as fd:
-            self.config_json = json.load(fd)
-        self.config_json_file = os.path.join(self.outdir,'config.json')
-        with open(self.config_json_file, 'w') as fd:
-            json.dump(self.config_json, fd)
 
     def update_gencode(self):
         table = CodonTable.unambiguous_dna_by_id[int(self.gencode)]
@@ -428,15 +420,51 @@ class JbrowseConnector(object):
 
             # Copy the file in workdir, prepare-refseqs.pl will copy it to jbrowse's data dir
             genome_name=genome_node['meta']['dataset_dname']
-            for key, value in mapped_chars.items():
-                genome_name = genome_name.replace(value, key)
-            fa = os.path.realpath('./%s.fa' % genome_name)
+            fa = os.path.join(self.outdir, 'data', 'raw', '%s.fa' % genome_name)
             shutil.copy(genome_node['path'], fa)
             faind = fa + '.fai'
             cmd = ['samtools', 'faidx', fa]
             self.subprocess_check_call(cmd)
             cmd = ["jbrowse", "add-assembly", fa, "-n", genome_name, "--load", "move", "--faiLocation", faind, "--target", self.outdir,]
             self.subprocess_check_call(cmd)
+        self.read_config()
+        """
+        json_sample_f = os.path.join(INSTALLED_TO,  'config.json.sample')
+        if os.path.exists(json_sample_f):
+            with open(json_sample_f) as fp:
+                self.config_json = json.load(fp)
+        else:
+            self.config_json = {}
+        if not self.config_json.get('assemblies', None):
+            self.config_json['assemblies'] = []
+        if not self.config_json.get('internetAccounts', None):
+            self.config_json['internetAccounts'] = []
+        if not self.config_json.get("aggregateTextSearchAdapters", None):
+            self.config_json["aggregateTextSearchAdapters"] = []
+        if not self.config_json.get('tracks', None):
+            self.config_json['tracks'] = {}
+        if not self.config_json.get('configuration', None):
+            self.config_json['configuration'] = {
+                    "rpc": {
+                        "defaultDriver": "WebWorkerRpcDriver",
+                        "drivers": {
+                            "MainThreadRpcDriver": {},
+                            "WebWorkerRpcDriver": {}
+                        }
+                    },
+                    "logoPath": {
+                            "locationType": "UriLocation",
+                            "uri": ""
+                    }
+                }
+        if not self.config_json.get('plugins', None):
+            self.config_json['plugins'] = []
+        if not self.config_json.get('connections', None):
+            self.config_json['connections'] = []
+        if not self.config_json.get('defaultSession', None):
+            self.config_json['defaultSession'] = []
+        self.write_config()
+      """
 
     def generate_names(self):
         # Generate names
@@ -456,8 +484,6 @@ class JbrowseConnector(object):
 
 
     def _add_track(self, track_data):
-        if len(json_data) == 0:
-            return
         cmd = ['jbrowse', 'add-track', '-t', track_data['type'], '-n', track_data['name'], '-l', "move" , '--trackId', track_data['label'] , "--target", self.outdir,]
         if track_data.get('indexfile'):
             cmd += ["--indexFile", track_data['indexfile']]
@@ -469,13 +495,17 @@ class JbrowseConnector(object):
     def _add_track_json(self, json_data):
         if len(json_data) == 0:
             return
-        if not self.config_json.get('tracks', None):
-            self.config_json['tracks'] =  []
-        self.config_json['tracks'].append(json_data)
+        self.read_config()
+        self.config_json['configuration'].update(json_data)
+        self.write_config()
 
     def write_config(self):
         with open(self.config_json_file, 'w') as fp:
             json.dump(self.config_json, fp)
+
+    def read_config(self):
+        with open(self.config_json_file, 'r') as fp:
+            self.config_json = json.load(fp)
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -503,82 +533,96 @@ class JbrowseConnector(object):
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
 
-        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
+        dest = os.path.realpath('./%s.gff' % trackData['label'])
 
         self._sort_gff(gff3, dest)
+        url = dest + '.gz'
+        tId =  trackData['label']
+        cmd = ['jbrowse', 'add-track', url,  '-n', trackData['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
+        self.subprocess_check_call(cmd)
+        #need to refine this depending on what's generated by jbrowse...
 
-        url = os.path.join('raw', trackData['label'] + '.gff.gz')
         trackData.update({
-            "urlTemplate": url,
-            "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
-        })
-
-        trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
-
-        trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
-        trackData['type'] = 'BlastView/View/Track/CanvasFeatures'
-
-        self._add_track(trackData)
-
-        os.unlink(gff3)
-
-        if blastOpts.get('index', 'false') == 'true':
-            self.tracksToIndex.append("%s" % trackData['label'])
-
-    def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
-        """   {
-      "type": "QuantitativeTrack",
-      "trackId": "oMVFQozR9NO",
-      "name": "Volvox microarray - negative",
-      "assemblyNames": ["volvox"],
-      "category": ["BigWig", "Density"],
-      "adapter": {
-        "type": "BigWigAdapter",
-        "bigWigLocation": {
-          "uri": "volvox_microarray_negative.bw",
-          "locationType": "UriLocation"
-        }
-      },
-      "displays": [
-        {
-          "type": "LinearWiggleDisplay",
-          "displayId": "oMVFQozR9NO_density",
-          "defaultRendering": "density"
-        }
-      ]
-    },"""
-
-        dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
-        self.symlink_or_copy(os.path.realpath(data), dest)
-        trackData.update({
-              "adapter": {
-                    "type": "BigWigAdapter",
-                    "bigWigLocation": {
-                        "uri":  dest,
-                        "locationType": "LocalPathLocation",
-                        },
+                "type": "FeatureTrack",
+                "trackId" : tId,
+                "adapter": {
+                "type": "GFF3TabixAdapter",
+                "GFF3Location": {
+                  "locationType": "LocalPathLocation",
+                  "localPath":  url
                 },
+              },
               "displays": [
                 {
-                  "type": "LinearWiggleDisplay",
-                  "displayId": "%s_density" % trackData['track'],
-                  "defaultRendering": "density",
+                  "type": "LinearBasicDisplay",
+                  "displayId": "%s-LinearBasicDisplay" % tId,
                 },
-              ]
-        })
+                {
+                  "type": "LinearArcDisplay",
+                  "displayId": "%s-LinearArcDisplay" % tId,
+                },
+              ]        })
 
-        self._add_track_json(trackData)
 
-        trackData['type'] = wiggleOpts['type']
-        trackData['variance_band'] = True if wiggleOpts['variance_band'] == 'true' else False
 
-        if 'min' in wiggleOpts and 'max' in wiggleOpts:
-            trackData['min_score'] = wiggleOpts['min']
-            trackData['max_score'] = wiggleOpts['max']
-        else:
-            trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
 
-        trackData['scale'] = wiggleOpts['scale']
+
+
+
+        # trackData.update({
+            # "urlTemplate": url,
+            # "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
+        # })
+
+        # trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+
+        # trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
+        # trackData['type'] = 'BlastView/View/Track/CanvasFeatures'
+
+        # self._add_track(trackData)
+
+        # os.unlink(gff3)
+
+        # if blastOpts.get('index', 'false') == 'true':
+            # self.tracksToIndex.append("%s" % trackData['label'])
+
+    def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
+        dest = os.path.realpath('./%s.bw' % trackData['label'] )
+        self.symlink_or_copy(os.path.realpath(data), dest)
+        cmd = ['jbrowse', 'add-track', dest, '-n', trackData['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
+        self.subprocess_check_call(cmd)
+        # refine this from jbrowse call config.json
+        # trackData.update({
+              # "type": "QuantitativeTrack",
+              # "trackId": trackData['label'],
+              # "adapter": {
+                    # "type": "BigWigAdapter",
+                    # "bigWigLocation": {
+                        # "uri":  dest,
+                        # "locationType": "LocalPathLocation",
+                        # },
+                # },
+              # "displays": [
+                # {
+                  # "type": "LinearWiggleDisplay",
+                  # "displayId": "%s_density" % trackData['track'],
+                  # "defaultRendering": "density",
+                # },
+              # ]
+        # })
+
+
+        # trackData['type'] = wiggleOpts['type']
+        # trackData['variance_band'] = True if wiggleOpts['variance_band'] == 'true' else False
+
+        # if 'min' in wiggleOpts and 'max' in wiggleOpts:
+            # trackData['min_score'] = wiggleOpts['min']
+            # trackData['max_score'] = wiggleOpts['max']
+        # else:
+            # trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
+
+        # trackData['scale'] = wiggleOpts['scale']
+        # self._add_track_json(trackData)
 
 
 
@@ -610,7 +654,7 @@ class JbrowseConnector(object):
 
         trackData['scale'] = wiggleOpts['scale']
 
-        self._add_track(trackData)
+        #self._add_track(trackData)
 
     def add_maf(self, data, trackData, mafOpts, **kwargs):
         script = os.path.realpath(os.path.join(self.jbrowse, 'plugins', 'MAFViewer', 'bin', 'maf2bed.pl'))
@@ -645,10 +689,10 @@ class JbrowseConnector(object):
             "samples": samples,
         })
 
-        self._add_track(trackData)
+        #self._add_track(trackData)
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
-        dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
+        dest = os.path.realpath('./%s.bam' % trackData['label'])
         self.symlink_or_copy(os.path.realpath(data), dest)
         if bam_index is not None and os.path.exists(os.path.realpath(bam_index)):
             # bai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
@@ -663,7 +707,8 @@ class JbrowseConnector(object):
             else:
                 log.warn('Could not find a bam index (.bai file) for %s', data)
 
-        url = os.path.join('raw', trackData['label'] + '.bam')
+        cmd = ['jbrowse', 'add-track', dest, '-n', trackData['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
+
         trackData.update({
             "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
@@ -676,7 +721,7 @@ class JbrowseConnector(object):
         if 'className' in trackData['style'] and trackData['style']['className'] == 'feature':
             del trackData['style']['className']
 
-        self._add_track(trackData)
+        #self._add_track(trackData)
 
         if bamOpts.get('auto_snp', 'false') == 'true':
             trackData2 = copy.copy(trackData)
@@ -686,7 +731,7 @@ class JbrowseConnector(object):
                 "label": trackData['label'] + "_autosnp",
                 "chunkSizeLimit": bamOpts.get('chunkSizeLimit', '5000000')
             })
-            self._add_track(trackData2)
+            #self._add_track(trackData2)
 
     def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
         """   {
@@ -720,7 +765,7 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
         url = os.path.join('raw', trackData['label'] + '.vcf.gz')
-        cmd = ['jbrowse', 'add-track', data, dest]
+        cmd = ['jbrowse', 'add-track', dest, '-n', trackData['name'], '-l', "move" , '--trackId', trackData['label'] , "--target", self.outdir, ]
         self.subprocess_check_call(cmd)
         trackData.update({
         "urlTemplate": url,
@@ -739,15 +784,13 @@ class JbrowseConnector(object):
           },
         },
         })
-        self._add_track(trackData)
+        #self._add_track(trackData)
 
     def _sort_gff(self, data, dest):
         # Only index if not already done
-        if not os.path.exists(dest):
-            cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
+        if not os.path.exists(dest+'.gz'):
+            cmd = "jbrowse sort-gff %s | bgzip -c > %s.gz" % (data, dest) #"gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'"
             self.subprocess_popen(cmd)
-
-            self.subprocess_check_call(['bgzip', '-f', dest])
             self.subprocess_check_call(['tabix', '-f', '-p', 'gff', dest + '.gz'])
 
     def _sort_bed(self, data, dest):
@@ -761,11 +804,12 @@ class JbrowseConnector(object):
             self.subprocess_check_call(['tabix', '-f', '-p', 'bed', dest + '.gz'])
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
-        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
+        dest = os.path.realpath('./%s.gff' % trackData['label'])
+        self._sort_gff(data,dest)
+        url = dest + '.gz'
+        cmd = ['jbrowse', 'add-track', url, "--indexFile", dest +'.gz.tbi', '-n', trackData['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
+        self.subprocess_check_call(cmd)
 
-        self._sort_gff(data, dest)
-
-        url = os.path.join('raw', trackData['label'] + '.gff.gz')
         trackData.update({
             "urlTemplate": url,
             "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
@@ -791,56 +835,16 @@ class JbrowseConnector(object):
             if 'topLevelFeatures' in gffOpts and gffOpts['topLevelFeatures']:
                 trackData['topLevelFeatures'] = gffOpts['topLevelFeatures']
 
-        self._add_track(trackData)
+        #self._add_track(trackData)
 
         if gffOpts.get('index', 'false') == 'true':
             self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_bed(self, data, format, trackData, gffOpts, **kwargs):
-        """
-            {
-      "type": "FeatureTrack",
-      "trackId": "gapsjbrowse.bed-1703124254178",
-      "name": "gapsjbrowse.bed",
-      "assemblyNames": [
-        "mouse"
-      ],
-      "adapter": {
-        "type": "BedAdapter",
-        "bedLocation": {
-          "locationType": "LocalPathLocation",
-          "localPath": "/home/ross/rossgit/treeval_gal/gap_finder/gapsjbrowse.bed"
-        }
-      },
-      "displays": [
-        {
-          "type": "LinearBasicDisplay",
-          "displayId": "gapsjbrowse.bed-1703124254178-LinearBasicDisplay"
-        },
-        {
-          "type": "LinearArcDisplay",
-          "displayId": "gapsjbrowse.bed-1703124254178-LinearArcDisplay"
-        }
-      ]
-    }
-
-    def _add_track(self, track_data):
-        if len(json_data) == 0:
-            return
-        cmd = ['jbrowse', 'add-track', '-t', track_data['type'], '-n', track_data['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
-        if track_data.get('indexfile'):
-            cmd += ["--indexFile", track_data['indexfile']]
-        if track_data.get('category'):
-            for c in track_data['category']:
-                cmd += ["--category", c]
-
-
-
-       """
-        dest =  os.path.realpath('./%s.bed' % trackData['label'])
-
+        dest =  os.path.realpath('./%s.bed' % trackData['label'] )# os.path.join(self.outdir, 'data', 'raw',
         self._sort_bed(data, dest)
-
+        cmd = ['jbrowse', 'add-track', dest+".gz", "--indexFile", dest +'.gz.tbi', '-n', trackData['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
+        self.subprocess_check_call(cmd)
         tId =  trackData['label']
         trackData.update({
                 "type": "FeatureTrack",
@@ -862,8 +866,6 @@ class JbrowseConnector(object):
                   "displayId": "%s-LinearArcDisplay" % tId,
                 },
               ]        })
-        cmd = ['jbrowse', 'add-track', dest + '.gz', '-n', trackData['name'], '-l', "copy" , '--trackId', trackData['label'] , "--target", self.outdir, ]
-        self.subprocess_check_call(cmd)
         # if 'match' in gffOpts:
         # trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
@@ -1104,9 +1106,7 @@ class JbrowseConnector(object):
             yield outputTrackConfig['label']
 
     def add_final_data(self, data):
-        if not self.config_json.get('plugins', None):
-            self.config_json['plugins'] =  []
-        #self.config_json['plugins'] .append(data['plugins'])
+        self.config_json = self.read_config()
         viz_data = {}
         if len(data['visibility']['default_on']) > 0:
             viz_data['defaultTracks'] = ','.join(data['visibility']['default_on'])
@@ -1219,12 +1219,7 @@ class JbrowseConnector(object):
 
     def clone_jbrowse(self, jbrowse_dir, destination, minimal=False):
         """Clone a JBrowse directory into a destination directory.
-        jbrowse2
-        (mulled-v1-1abc03cb144f6a60ef404b4e972361add03ceb12d79cfd378ba3d4c03280bb03) (venv) ross@pn50:~/rossgit/tools-iuc/tools/jbrowse2$
-        ls /home/ross/miniconda3/envs/mulled-v1-1abc03cb144f6a60ef404b4e972361add03ceb12d79cfd378ba3d4c03280bb03/opt/jbrowse2/
-asset-manifest.json  build_env_setup.sh  conda_build.sh  favicon.ico  index.html  manifest.json  metadata_conda_debug.yaml  robots.txt  static  test_data  umd_plugin.js  version.txt
-          test_data is the only avoidable content?
-        """
+       """
         interesting = [
                 'index.html', 'static', 'version.txt'
             ]
@@ -1240,33 +1235,6 @@ asset-manifest.json  build_env_setup.sh  conda_build.sh  favicon.ico  index.html
                 self.subprocess_check_call(cmd)
         cmd = ['mkdir', '-p', os.path.join(destination, 'data', 'raw')]
         self.subprocess_check_call(cmd)
-
-        # # http://unix.stackexchange.com/a/38691/22785
-        # # JBrowse releases come with some broken symlinks
-        # cmd = ['find', destination, '-type', 'l', '-xtype', 'l']
-        # symlinks = self.subprocess_check_output(cmd)
-
-        # for i in symlinks:
-            # try:
-                # os.unlink(i)
-            # except OSError:
-                # pass
-
-        self.config_json_file = os.path.join(destination, 'config.json')
-        if os.path.exists(self.config_json_file):
-            with open(self.config_json_file) as fp:
-                self.config_json = json.load(fp)
-        else:
-            self.config_json = {}
-        if not self.config_json.get('tracks', None):
-            self.config_json['tracks'] = {}
-        if not self.config_json.get('configuration', None):
-            self.config_json['configuration'] = []
-        if not self.config_json.get('plugins', None):
-            self.config_json['plugins'] = []
-        with open(self.config_json_file, 'w') as fp:
-                json.dump(self.config_json, fp)
-
 
 
 if __name__ == '__main__':
