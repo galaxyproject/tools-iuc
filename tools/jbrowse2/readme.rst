@@ -1,15 +1,13 @@
-JBrowse2 in Galaxy
+JBrowse in Galaxy
 =================
 
-    JBrowse2 is a fast, embeddable genome browser built completely with
+    JBrowse is a fast, embeddable genome browser built completely with
     JavaScript and HTML5
 
 Thus, it makes an ideal fit with Galaxy, especially for use as a
 workflow summary. E.g. annotate a genome, then visualise all of the
 associated datasets as an interactive HTML page. This tool MUST be whitelisted
 (or ``sanitize_all_html=False`` in galaxy.ini) to function correctly.
-gunicorn does not support byte range requests, so this tool must be served by nginx
-or other web server, correctly configured to support range requests.
 
 Installation
 ============
@@ -26,16 +24,6 @@ likely to change at any time! Beware. ;)
 
 History
 =======
-
-- 2.10.0+galaxy2
-
-    - UPDATED to JBrowse 2.10.0
-    - REMOVED most colour and track control from XML and script.
-    - seems to work well with defaults.
-    - need to document and implement track settings by running the browser locally.
-    - works well enough to be useful in workflows such as TreeValGal.
-    - JB2 seems to set defaults wisely.
-    - not yet ideal for users who need fine grained track control.
 
 - 1.16.11+galaxy0
 
