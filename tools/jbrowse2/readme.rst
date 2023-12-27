@@ -33,6 +33,9 @@ History
     - REMOVED most colour and track control from XML and script.
     - seems to work well with defaults.
     - need to document and implement track settings by running the browser locally.
+    - works well enough to be useful in workflows such as TreeValGal.
+    - JB2 seems to set defaults wisely.
+    - not yet ideal for users who need fine grained track control.
 
 - 1.16.11+galaxy0
 
