@@ -369,10 +369,9 @@ class JbrowseConnector(object):
         url = "%s.vcf" % trackData["label"]
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         # ln?
-        cmd = ["ln", "-s", data, dest]
+        cmd = ["cp", data, dest]
         self.subprocess_check_call(cmd)
-        cmd = ["bgzip", "-c", ">", dest]
-        self.subprocess_check_call(cmd)
+        self.subprocess_check_call(["bgzip", "-f", dest])
         cmd = ["tabix", "-p", "vcf", dest + ".gz"]
         self.subprocess_check_call(cmd)
         url = url + ".gz"
@@ -383,10 +382,13 @@ class JbrowseConnector(object):
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
             "adapter": {
-                "type": "VcfAdapter",
-                "vcfLocation": {"locationType": "UriLocation", "uri": url},
-            },
-            "displays": [
+                "type": "VcfTabixAdapter",
+                "vcfGzLocation": {"locationType": "UriLocation", "uri": url},
+                "index": {
+                      "location": { "locationType": "UriLocation", "uri": url + ".tbi"}
+                      }
+             },
+             "displays": [
                 {
                     "type": "LinearVariantDisplay",
                     "displayId": "%s-LinearVariantDisplay" % tId,
