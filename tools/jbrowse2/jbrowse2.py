@@ -179,7 +179,9 @@ class JbrowseConnector(object):
             # We only expect one input genome per run. This for loop is just
             # easier to write than the alternative / catches any possible
             # issues.
-            genome_name = genome_node["meta"].get("dataset_dname", 'genome_%d' % (i + 1))
+            genome_name = genome_node["meta"].get(
+                "dataset_dname", "genome_%d" % (i + 1)
+            )
             faname = genome_name + ".fa"
             fa = os.path.realpath(os.path.join(self.outdir, faname))
             shutil.copy(genome_node["path"], fa)
@@ -295,7 +297,7 @@ class JbrowseConnector(object):
         trackDict = {
             "type": "QuantitativeTrack",
             "trackId": tId,
-            "name": trackData['name'],
+            "name": trackData["name"],
             "assemblyNames": [
                 self.genome_name,
             ],
@@ -463,7 +465,7 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "BedAdapter",
-                "bedLocation": {"locationType": "UriLocation", "uri": url + '.gz'},
+                "bedLocation": {"locationType": "UriLocation", "uri": url + ".gz"},
             },
             "displays": [
                 {
@@ -535,7 +537,8 @@ class JbrowseConnector(object):
                 )
             elif dataset_ext == "bigwig":
                 self.add_bigwig(
-                    dataset_path, outputTrackConfig,
+                    dataset_path,
+                    outputTrackConfig,
                 )
             elif dataset_ext == "bam":
                 real_indexes = track["conf"]["options"]["pileup"]["bam_indices"][
