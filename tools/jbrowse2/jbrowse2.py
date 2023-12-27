@@ -382,12 +382,18 @@ class JbrowseConnector(object):
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
             "adapter": {
-                "type": "VcfTabixAdapter",
-                "vcfGzLocation": {"locationType": "UriLocation", "uri": url},
-                "index": {
-                      "location": { "locationType": "UriLocation", "uri": url + ".tbi"}
-                      }
-             },
+              "type": "VcfTabixAdapter",
+              "vcfGzLocation": {
+                "uri": url,
+                "locationType": "UriLocation"
+              },
+              "index": {
+                "location": {
+                  "uri": url + ".tbi",
+                  "locationType": "UriLocation"
+                }
+              }
+            },
              "displays": [
                 {
                     "type": "LinearVariantDisplay",
