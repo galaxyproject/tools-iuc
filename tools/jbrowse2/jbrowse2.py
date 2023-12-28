@@ -245,7 +245,7 @@ class JbrowseConnector(object):
             ]
             }
 
-    def add_maf(self, data, trackData, mafOpts, **kwargs):
+    def add_maf(self, data, trackData):
         mafPlugin = {
           "plugins": [
             {
@@ -254,32 +254,21 @@ class JbrowseConnector(object):
             }
           ]
         }
-
-        tmp1 = tempfile.NamedTemporaryFile(delete=False)
-        tmp1.close()
         tId = trackData["label"]
-        url = "%s.txt" % tId
+        url = "%s.maf" % tId
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         self.symlink_or_copy(data, dest)
         # Process MAF to bed-like. Need build to munge chromosomes
         gname = trackData['name']
-        cmd = [os.path.join(INSTALLED_TO,'convertMAF.sh', gname, data)
-        self.subprocess_check_call(cmd, output=tmp1.path)
+        cmd = ['bash', os.path.join(INSTALLED_TO,'convertMAF.sh'), dest, gname, INSTALLED_TO]
         self.subprocess_check_call(cmd)
-        # Sort / Index it
-        self._sort_bed(tmp1.path, dest)
-        # Cleanup
-        try:
-            os.remove(tmp1.path)
-        except OSError:
-            pass
         # Construct samples list
         # We could get this from galaxy metadata, not sure how easily.
         ps = subprocess.Popen(['grep', '^s [^ ]*', '-o', data], stdout=subprocess.PIPE)
         output = subprocess.check_output(('sort', '-u'), stdin=ps.stdout)
         ps.wait()
-        samples = [x[2:] for x in output]
-
+        soutp = str(output).split('\n')
+        samples = [x.split('.')[1:] for x in soutp]
         trackDict = {
               "type": "MafTrack",
               "trackId": tId,
@@ -288,21 +277,22 @@ class JbrowseConnector(object):
                 "type": "MafTabixAdapter",
                 "samples": samples,
                 "bedGzLocation": {
-                  "uri": url + '.gz'
+                  "uri": url + '.sorted.bed.gz'
                     },
                 "index": {
                     "location": {
-                        "uri": url + '.sorted.bed.gz'
+                        "uri": url + '.sorted.bed.gz.tbi'
                         },
                     }
                 },
-                "assemblyNames": [self.genomes],
+                "assemblyNames": [ self.genome_name],
         }
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
-        self.config_json.append(mafPlugin)
-
-
+        if self.config_json.get('plugins', None):
+            self.config_json['plugins'].append(mafPlugin[0])
+        else:
+            self.config_json.update(mafPlugin)
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -612,6 +602,11 @@ class JbrowseConnector(object):
                 self.add_bed(
                     dataset_path,
                     dataset_ext,
+                    outputTrackConfig,
+                )
+            elif dataset_ext in ("maf",):
+                self.add_maf(
+                    dataset_path,
                     outputTrackConfig,
                 )
             elif dataset_ext == "bigwig":
