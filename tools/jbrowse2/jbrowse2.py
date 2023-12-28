@@ -227,8 +227,6 @@ class JbrowseConnector(object):
         with open(self.config_json_file, "w") as fp:
             json.dump(self.config_json, fp)
 
-
-
     def add_maf(self, data, trackData):
         """
         from https://github.com/cmdcolin/maf2bed
@@ -236,61 +234,53 @@ class JbrowseConnector(object):
         e.g. hg38.chr1 in the sequence identifiers.
         need the reference id - eg hg18, for maf2bed.pl as the first parameter
         """
-        mafplugin = { "plugins":
-            [
+        mafPlugin = {
+            "plugins": [
                 {
-                  "name": "MafViewer",
-                  "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js"
+                    "name": "MafViewer",
+                    "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js",
                 }
             ]
-            }
-
-    def add_maf(self, data, trackData):
-        mafPlugin = {
-          "plugins": [
-            {
-              "name": "MafViewer",
-              "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js"
-            }
-          ]
         }
         tId = trackData["label"]
         url = "%s.maf" % tId
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         self.symlink_or_copy(data, dest)
         # Process MAF to bed-like. Need build to munge chromosomes
-        gname = trackData['name']
-        cmd = ['bash', os.path.join(INSTALLED_TO,'convertMAF.sh'), dest, gname, INSTALLED_TO]
+        gname = trackData["name"]
+        cmd = [
+            "bash",
+            os.path.join(INSTALLED_TO, "convertMAF.sh"),
+            dest,
+            gname,
+            INSTALLED_TO,
+        ]
         self.subprocess_check_call(cmd)
         # Construct samples list
         # We could get this from galaxy metadata, not sure how easily.
-        ps = subprocess.Popen(['grep', '^s [^ ]*', '-o', data], stdout=subprocess.PIPE)
-        output = subprocess.check_output(('sort', '-u'), stdin=ps.stdout)
+        ps = subprocess.Popen(["grep", "^s [^ ]*", "-o", data], stdout=subprocess.PIPE)
+        output = subprocess.check_output(("sort", "-u"), stdin=ps.stdout)
         ps.wait()
-        soutp = str(output).split('\n')
-        samples = [x.split('.')[1:] for x in soutp]
+        soutp = str(output).split("\n")
+        samples = [x.split(".")[1:] for x in soutp]
         trackDict = {
-              "type": "MafTrack",
-              "trackId": tId,
-              "name": gname,
-              "adapter": {
+            "type": "MafTrack",
+            "trackId": tId,
+            "name": gname,
+            "adapter": {
                 "type": "MafTabixAdapter",
                 "samples": samples,
-                "bedGzLocation": {
-                  "uri": url + '.sorted.bed.gz'
-                    },
+                "bedGzLocation": {"uri": url + ".sorted.bed.gz"},
                 "index": {
-                    "location": {
-                        "uri": url + '.sorted.bed.gz.tbi'
-                        },
-                    }
+                    "location": {"uri": url + ".sorted.bed.gz.tbi"},
                 },
-                "assemblyNames": [ self.genome_name],
+            },
+            "assemblyNames": [self.genome_name],
         }
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
-        if self.config_json.get('plugins', None):
-            self.config_json['plugins'].append(mafPlugin[0])
+        if self.config_json.get("plugins", None):
+            self.config_json["plugins"].append(mafPlugin[0])
         else:
             self.config_json.update(mafPlugin)
 
