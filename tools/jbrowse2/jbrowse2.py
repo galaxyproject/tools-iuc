@@ -227,6 +227,83 @@ class JbrowseConnector(object):
         with open(self.config_json_file, "w") as fp:
             json.dump(self.config_json, fp)
 
+
+
+    def add_maf(self, data, trackData):
+        """
+        from https://github.com/cmdcolin/maf2bed
+        Note: Both formats start with a MAF as input, and note that your MAF file should contain the species name and chromosome name
+        e.g. hg38.chr1 in the sequence identifiers.
+        need the reference id - eg hg18, for maf2bed.pl as the first parameter
+        """
+        mafplugin = { "plugins":
+            [
+                {
+                  "name": "MafViewer",
+                  "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js"
+                }
+            ]
+            }
+
+    def add_maf(self, data, trackData, mafOpts, **kwargs):
+        mafPlugin = {
+          "plugins": [
+            {
+              "name": "MafViewer",
+              "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js"
+            }
+          ]
+        }
+
+        tmp1 = tempfile.NamedTemporaryFile(delete=False)
+        tmp1.close()
+        tId = trackData["label"]
+        url = "%s.txt" % tId
+        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        self.symlink_or_copy(data, dest)
+        # Process MAF to bed-like. Need build to munge chromosomes
+        gname = trackData['name']
+        cmd = [os.path.join(INSTALLED_TO,'convertMAF.sh', gname, data)
+        self.subprocess_check_call(cmd, output=tmp1.path)
+        self.subprocess_check_call(cmd)
+        # Sort / Index it
+        self._sort_bed(tmp1.path, dest)
+        # Cleanup
+        try:
+            os.remove(tmp1.path)
+        except OSError:
+            pass
+        # Construct samples list
+        # We could get this from galaxy metadata, not sure how easily.
+        ps = subprocess.Popen(['grep', '^s [^ ]*', '-o', data], stdout=subprocess.PIPE)
+        output = subprocess.check_output(('sort', '-u'), stdin=ps.stdout)
+        ps.wait()
+        samples = [x[2:] for x in output]
+
+        trackDict = {
+              "type": "MafTrack",
+              "trackId": tId,
+              "name": gname,
+              "adapter": {
+                "type": "MafTabixAdapter",
+                "samples": samples,
+                "bedGzLocation": {
+                  "uri": url + '.gz'
+                    },
+                "index": {
+                    "location": {
+                        "uri": url + '.sorted.bed.gz'
+                        },
+                    }
+                },
+                "assemblyNames": [self.genomes],
+        }
+        self.tracksToAdd.append(trackDict)
+        self.trackIdlist.append(tId)
+        self.config_json.append(mafPlugin)
+
+
+
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = [
