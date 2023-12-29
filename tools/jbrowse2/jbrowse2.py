@@ -109,6 +109,7 @@ def metadata_from_node(node):
 
 class JbrowseConnector(object):
     def __init__(self, jbrowse, outdir, genomes, standalone=None):
+        self.debug = False
         self.jbrowse = jbrowse
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
@@ -133,14 +134,16 @@ class JbrowseConnector(object):
 
     def subprocess_check_call(self, command, output=None):
         if output:
-            log.debug("cd %s && %s >  %s", self.outdir, " ".join(command), output)
+            if self.debug:
+                log.debug("cd %s && %s >  %s", self.outdir, " ".join(command), output)
             subprocess.check_call(command, cwd=self.outdir, stdout=output)
         else:
             log.debug("cd %s && %s", self.outdir, " ".join(command))
             subprocess.check_call(command, cwd=self.outdir)
 
     def subprocess_popen(self, command):
-        log.debug("cd %s && %s", self.outdir, command)
+        if self.debug:
+            log.debug("cd %s && %s", self.outdir, command)
         p = subprocess.Popen(
             command,
             shell=True,
@@ -157,7 +160,8 @@ class JbrowseConnector(object):
             raise RuntimeError("Command failed with exit code %s" % (retcode))
 
     def subprocess_check_output(self, command):
-        log.debug("cd %s && %s", self.outdir, " ".join(command))
+        if self.debug:
+            log.debug("cd %s && %s", self.outdir, " ".join(command))
         return subprocess.check_output(command, cwd=self.outdir)
 
     def _jbrowse_bin(self, command):
@@ -247,7 +251,7 @@ class JbrowseConnector(object):
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         self.symlink_or_copy(data, dest)
         # Process MAF to bed-like. Need build to munge chromosomes
-        gname = trackData["name"]
+        gname = self.genome_name
         cmd = [
             "bash",
             os.path.join(INSTALLED_TO, "convertMAF.sh"),
@@ -256,13 +260,19 @@ class JbrowseConnector(object):
             INSTALLED_TO,
         ]
         self.subprocess_check_call(cmd)
+        if True or self.debug:
+            log.info('### convertMAF.sh called as %s' % ' '.join(cmd))
         # Construct samples list
         # We could get this from galaxy metadata, not sure how easily.
         ps = subprocess.Popen(["grep", "^s [^ ]*", "-o", data], stdout=subprocess.PIPE)
         output = subprocess.check_output(("sort", "-u"), stdin=ps.stdout)
         ps.wait()
-        soutp = str(output).split("\n")
-        samples = [x.split(".")[1:] for x in soutp]
+        outp = output.decode('ascii')
+        soutp = outp.split("\n")
+        samp = [x.split('s ')[1] for x in soutp if x.startswith('s ')]
+        samples = [x.split(".")[0] for x in samp]
+        if self.debug:
+            log.info('### got samples = %s ' % (samples))
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
@@ -296,7 +306,6 @@ class JbrowseConnector(object):
             str(min_gap),
             xml,
         ]
-        log.debug("cd %s && %s > %s", self.outdir, " ".join(cmd), gff3_unrebased.name)
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
         return gff3_unrebased.name
@@ -310,7 +319,6 @@ class JbrowseConnector(object):
             if blastOpts.get("protein", "false") == "true":
                 cmd.append("--protein2dna")
             cmd.extend([os.path.realpath(blastOpts["parent"]), gff3])
-            log.debug("cd %s && %s > %s", self.outdir, " ".join(cmd), gff3_rebased.name)
             subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
             gff3_rebased.close()
 
@@ -423,26 +431,30 @@ class JbrowseConnector(object):
         self.trackIdlist.append(tId)
 
     def add_vcf(self, data, trackData):
-        url = "%s.vcf" % trackData["label"]
+        tId = trackData["label"]
+        url = "%s.vcf" % tId
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         # ln?
         cmd = ["cp", data, dest]
         self.subprocess_check_call(cmd)
-        self.subprocess_check_call(["bgzip", "-f", dest])
+        cmd = ["bgzip",  dest]
+        self.subprocess_check_call(cmd)
         cmd = ["tabix", "-p", "vcf", dest + ".gz"]
         self.subprocess_check_call(cmd)
-        url = url + ".gz"
-        tId = trackData["label"]
         trackDict = {
             "type": "VariantTrack",
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
+            # "adapter": {
+                # "type": "VcfAdapter",
+                # "vcfLocation": {"uri": "%s.vcf" % tId, "locationType": "UriLocation"},
+              # }
             "adapter": {
                 "type": "VcfTabixAdapter",
-                "vcfGzLocation": {"uri": url, "locationType": "UriLocation"},
+                "vcfGzLocation": {"uri": url + '.gz', "locationType": "UriLocation"},
                 "index": {
-                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
+                    "location": {"uri": url + ".gz.tbi", "locationType": "UriLocation"}
                 },
             },
             "displays": [
@@ -539,12 +551,6 @@ class JbrowseConnector(object):
 
     def process_annotations(self, track):
         category = track["category"].replace("__pd__date__pd__", TODAY)
-        outputTrackConfig = {
-            "name": track["style"].get("className", "feature"),
-            "label": track["style"].get("label", "description"),
-            "category": category,
-        }
-
         for i, (
             dataset_path,
             dataset_ext,
@@ -554,9 +560,11 @@ class JbrowseConnector(object):
             # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
-
-            log.info("Processing %s / %s", category, track_human_label)
-            outputTrackConfig["key"] = track_human_label
+            outputTrackConfig = {
+                "category": category,
+            }
+            if self.debug:
+                log.info("Processing category = %s, track_human_label = %s", category, track_human_label)
             # We add extra data to hash for the case of REST + SPARQL.
             if (
                 "conf" in track
