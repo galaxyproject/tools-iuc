@@ -261,18 +261,18 @@ class JbrowseConnector(object):
         ]
         self.subprocess_check_call(cmd)
         if True or self.debug:
-            log.info('### convertMAF.sh called as %s' % ' '.join(cmd))
+            log.info("### convertMAF.sh called as %s" % " ".join(cmd))
         # Construct samples list
         # We could get this from galaxy metadata, not sure how easily.
         ps = subprocess.Popen(["grep", "^s [^ ]*", "-o", data], stdout=subprocess.PIPE)
         output = subprocess.check_output(("sort", "-u"), stdin=ps.stdout)
         ps.wait()
-        outp = output.decode('ascii')
+        outp = output.decode("ascii")
         soutp = outp.split("\n")
-        samp = [x.split('s ')[1] for x in soutp if x.startswith('s ')]
+        samp = [x.split("s ")[1] for x in soutp if x.startswith("s ")]
         samples = [x.split(".")[0] for x in samp]
         if self.debug:
-            log.info('### got samples = %s ' % (samples))
+            log.info("### got samples = %s " % (samples))
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
@@ -437,7 +437,7 @@ class JbrowseConnector(object):
         # ln?
         cmd = ["cp", data, dest]
         self.subprocess_check_call(cmd)
-        cmd = ["bgzip",  dest]
+        cmd = ["bgzip", dest]
         self.subprocess_check_call(cmd)
         cmd = ["tabix", "-p", "vcf", dest + ".gz"]
         self.subprocess_check_call(cmd)
@@ -447,12 +447,12 @@ class JbrowseConnector(object):
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
             # "adapter": {
-                # "type": "VcfAdapter",
-                # "vcfLocation": {"uri": "%s.vcf" % tId, "locationType": "UriLocation"},
-              # }
+            # "type": "VcfAdapter",
+            # "vcfLocation": {"uri": "%s.vcf" % tId, "locationType": "UriLocation"},
+            # }
             "adapter": {
                 "type": "VcfTabixAdapter",
-                "vcfGzLocation": {"uri": url + '.gz', "locationType": "UriLocation"},
+                "vcfGzLocation": {"uri": url + ".gz", "locationType": "UriLocation"},
                 "index": {
                     "location": {"uri": url + ".gz.tbi", "locationType": "UriLocation"}
                 },
@@ -564,7 +564,11 @@ class JbrowseConnector(object):
                 "category": category,
             }
             if self.debug:
-                log.info("Processing category = %s, track_human_label = %s", category, track_human_label)
+                log.info(
+                    "Processing category = %s, track_human_label = %s",
+                    category,
+                    track_human_label,
+                )
             # We add extra data to hash for the case of REST + SPARQL.
             if (
                 "conf" in track
