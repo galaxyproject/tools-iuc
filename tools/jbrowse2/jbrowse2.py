@@ -231,6 +231,30 @@ class JbrowseConnector(object):
         with open(self.config_json_file, "w") as fp:
             json.dump(self.config_json, fp)
 
+    def add_hic(self, data, trackData):
+        """
+        from https://github.com/cmdcolin/maf2bed
+        Note: Both formats start with a MAF as input, and note that your MAF file should contain the species name and chromosome name
+        e.g. hg38.chr1 in the sequence identifiers.
+        need the reference id - eg hg18, for maf2bed.pl as the first parameter
+        """
+        tId = trackData["label"]
+        url = "%s.hic" % tId
+        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        self.symlink_or_copy(data, dest)
+        trackDict = {
+            "type": "HicTrack",
+            "trackId": tId,
+            "name": trackData["name"],
+            "assemblyNames": [self.genome_name],
+            "adapter": {
+                "type": "HicAdapter",
+                "hicLocation": {"uri": url, "locationType": "UriLocation"},
+            },
+        }
+        self.tracksToAdd.append(trackDict)
+        self.trackIdlist.append(tId)
+
     def add_maf(self, data, trackData):
         """
         from https://github.com/cmdcolin/maf2bed
@@ -598,6 +622,11 @@ class JbrowseConnector(object):
                 self.add_gff(
                     dataset_path,
                     dataset_ext,
+                    outputTrackConfig,
+                )
+            elif dataset_ext in ("hic",):
+                self.add_hic(
+                    dataset_path,
                     outputTrackConfig,
                 )
             elif dataset_ext in ("bed",):
