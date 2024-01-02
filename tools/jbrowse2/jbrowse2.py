@@ -186,7 +186,7 @@ class JbrowseConnector(object):
             # easier to write than the alternative / catches any possible
             # issues.
             genome_name = genome_node["meta"]["dataset_dname"]
-            dsId = genome_name = genome_node["meta"]["dataset_id"]
+            dsId  = genome_node["meta"]["dataset_id"]
             faname = genome_name + ".fasta"
             faurl = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
             fapath = genome_node["path"]
@@ -197,7 +197,7 @@ class JbrowseConnector(object):
                 "name": genome_name,
                 "sequence": {
                     "type": "ReferenceSequenceTrack",
-                    "trackId": "%sReferenceSequenceTrack" % genome_name,
+                    "trackId": genome_name,
                     "adapter": {
                         "type": "IndexedFastaAdapter",
                         "fastaLocation": {"uri": faurl, "locationType": "UriLocation"},
@@ -211,7 +211,8 @@ class JbrowseConnector(object):
             assemblies.append(trackDict)
         self.config_json["assemblies"] = assemblies
         self.genome_name = genome_name
-        self.genome_path = faname
+        self.genome_path = faurl
+        self.genome_fai_path = faname + ".fai"
 
     def add_default_view(self):
         cmd = [
@@ -283,17 +284,18 @@ class JbrowseConnector(object):
             ]
         }
         tId = trackData["label"]
-        url = "%s.maf" % tId
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
-        self.symlink_or_copy(data, dest)
+        fname = "%s.bed" % tId
+        dest = os.path.realpath("%s/%s" % (self.outdir, fname))
+        #self.symlink_or_copy(data, dest)
         # Process MAF to bed-like. Need build to munge chromosomes
         gname = self.genome_name
         cmd = [
             "bash",
             os.path.join(INSTALLED_TO, "convertMAF.sh"),
-            dest,
+            data,
             gname,
             INSTALLED_TO,
+            dest,
         ]
         self.subprocess_check_call(cmd)
         if True or self.debug:
@@ -312,13 +314,13 @@ class JbrowseConnector(object):
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
-            "name": gname,
+            "name":  trackData["name"],
             "adapter": {
                 "type": "MafTabixAdapter",
                 "samples": samples,
-                "bedGzLocation": {"uri": url + ".sorted.bed.gz"},
+                "bedGzLocation": {"uri": fname + ".sorted.bed.gz"},
                 "index": {
-                    "location": {"uri": url + ".sorted.bed.gz.tbi"},
+                    "location": {"uri": fname + ".sorted.bed.gz.tbi"},
                 },
             },
             "assemblyNames": [self.genome_name],
@@ -391,9 +393,10 @@ class JbrowseConnector(object):
         os.unlink(gff3)
 
     def add_bigwig(self, data, trackData):
-        url = "%s.bw" % trackData["label"]
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
-        self.symlink_or_copy(data, dest)
+        url = "%s/api/datasets/%s/display" % (
+            self.giURL,
+            trackData["metadata"]["dataset_id"],
+            )
         tId = trackData["label"]
         trackDict = {
             "type": "QuantitativeTrack",
@@ -454,7 +457,7 @@ class JbrowseConnector(object):
                     },
                     "faiLocation": {
                         "locationType": "UriLocation",
-                        "uri": self.genome_path + ".fai",
+                        "uri": self.genome_fai_path,
                     },
                     "metadataLocation": {
                         "locationType": "UriLocation",
@@ -468,14 +471,16 @@ class JbrowseConnector(object):
 
     def add_vcf(self, data, trackData):
         tId = trackData["label"]
-        url = "%s.vcf" % tId
+        url = "%s/api/datasets/%s/display" % (
+            self.giURL,
+            trackData["metadata"]["dataset_id"],
+        )
+
+        url = "%s.vcf.gz" % tId
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
-        # ln?
-        cmd = ["cp", data, dest]
-        self.subprocess_check_call(cmd)
-        cmd = ["bgzip", dest]
-        self.subprocess_check_call(cmd)
-        cmd = ["tabix", "-p", "vcf", dest + ".gz"]
+        cmd = "bgzip -c %s  > %s" % (data, dest)
+        self.subprocess_popen(cmd)
+        cmd = ["tabix", "-p", "vcf", dest ]
         self.subprocess_check_call(cmd)
         trackDict = {
             "type": "VariantTrack",
@@ -484,9 +489,9 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "VcfTabixAdapter",
-                "vcfGzLocation": {"uri": url + ".gz", "locationType": "UriLocation"},
+                "vcfGzLocation": {"uri": url, "locationType": "UriLocation"},
                 "index": {
-                    "location": {"uri": url + ".gz.tbi", "locationType": "UriLocation"}
+                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
                 },
             },
             "displays": [
