@@ -110,6 +110,7 @@ def metadata_from_node(node):
 class JbrowseConnector(object):
     def __init__(self, jbrowse, outdir, genomes, standalone=None):
         self.debug = False
+        self.giURL = GALAXY_INFRASTRUCTURE_URL
         self.jbrowse = jbrowse
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
@@ -180,17 +181,17 @@ class JbrowseConnector(object):
     def process_genomes(self):
         assemblies = []
         for i, genome_node in enumerate(self.genome_paths):
+            log.info("genome_node=%s" % str(genome_node))
             # We only expect one input genome per run. This for loop is just
             # easier to write than the alternative / catches any possible
             # issues.
-            genome_name = genome_node["meta"].get(
-                "dataset_dname", "genome_%d" % (i + 1)
-            )
-            faname = genome_name + ".fa"
-            fa = os.path.realpath(os.path.join(self.outdir, faname))
-            shutil.copy(genome_node["path"], fa)
-            faind = fa + ".fai"
-            cmd = ["samtools", "faidx", fa, "--fai-idx", faind]
+            genome_name = genome_node["meta"]["dataset_dname"]
+            dsId = genome_name = genome_node["meta"]["dataset_id"]
+            faname = genome_name + ".fasta"
+            faurl = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
+            fapath = genome_node["path"]
+            faind = os.path.realpath(os.path.join(self.outdir, faname + ".fai"))
+            cmd = ["samtools", "faidx", fapath, "--fai-idx", faind]
             self.subprocess_check_call(cmd)
             trackDict = {
                 "name": genome_name,
@@ -199,7 +200,7 @@ class JbrowseConnector(object):
                     "trackId": "%sReferenceSequenceTrack" % genome_name,
                     "adapter": {
                         "type": "IndexedFastaAdapter",
-                        "fastaLocation": {"uri": faname, "locationType": "UriLocation"},
+                        "fastaLocation": {"uri": faurl, "locationType": "UriLocation"},
                         "faiLocation": {
                             "uri": faname + ".fai",
                             "locationType": "UriLocation",
@@ -210,7 +211,7 @@ class JbrowseConnector(object):
             assemblies.append(trackDict)
         self.config_json["assemblies"] = assemblies
         self.genome_name = genome_name
-        self.genome_path = fa
+        self.genome_path = faname
 
     def add_default_view(self):
         cmd = [
@@ -233,15 +234,26 @@ class JbrowseConnector(object):
 
     def add_hic(self, data, trackData):
         """
-        from https://github.com/cmdcolin/maf2bed
-        Note: Both formats start with a MAF as input, and note that your MAF file should contain the species name and chromosome name
-        e.g. hg38.chr1 in the sequence identifiers.
-        need the reference id - eg hg18, for maf2bed.pl as the first parameter
+        HiC adapter.
+        https://github.com/aidenlab/hic-format/blob/master/HiCFormatV9.md
+        for testing locally, these work:
+        HiC data is from https://s3.amazonaws.com/igv.broadinstitute.org/data/hic/intra_nofrag_30.hic
+        using hg19 reference track as a
+        'BgzipFastaAdapter'
+            fastaLocation:
+            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz',
+            faiLocation:
+            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.fai',
+            gziLocation:
+            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.gzi',
+        Cool will not be likely to be a good fit - see discussion at https://github.com/GMOD/jbrowse-components/issues/2438
         """
+        log.info("#### trackData=%s" % trackData)
         tId = trackData["label"]
-        url = "%s.hic" % tId
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
-        self.symlink_or_copy(data, dest)
+        url = "%s/api/datasets/%s/display?to_ext=hic " % (
+            self.giURL,
+            trackData["metadata"]["dataset_id"],
+        )
         trackDict = {
             "type": "HicTrack",
             "trackId": tId,
@@ -253,6 +265,46 @@ class JbrowseConnector(object):
             },
         }
         self.tracksToAdd.append(trackDict)
+        self.trackIdlist.append(tId)
+
+    def add_hic_jbrowse(self, data, trackData):
+        """
+        HiC adapter.
+        https://github.com/aidenlab/hic-format/blob/master/HiCFormatV9.md
+        for testing locally, these work:
+        HiC data is from https://s3.amazonaws.com/igv.broadinstitute.org/data/hic/intra_nofrag_30.hic
+        using hg19 reference track as a
+        'BgzipFastaAdapter'
+            fastaLocation:
+            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz',
+            faiLocation:
+            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.fai',
+            gziLocation:
+            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.gzi',
+        """
+        url = "%s/api/datasets/%s/display?to_ext=hic " % (
+            self.giURL,
+            trackData["dataset_id"],
+        )
+        tId = trackData["label"]
+        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        self.symlink_or_copy(data, dest)
+        cmd = [
+            "jbrowse",
+            "add-track",
+            url,
+            "-t",
+            "HicTrack",
+            "-n",
+            trackData["name"],
+            "-l",
+            "copy",
+            "-a",
+            self.genome_name,
+            "--target",
+            self.outdir,
+        ]
+        self.subprocess_check_call(cmd)
         self.trackIdlist.append(tId)
 
     def add_maf(self, data, trackData):
@@ -470,10 +522,6 @@ class JbrowseConnector(object):
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
-            # "adapter": {
-            # "type": "VcfAdapter",
-            # "vcfLocation": {"uri": "%s.vcf" % tId, "locationType": "UriLocation"},
-            # }
             "adapter": {
                 "type": "VcfTabixAdapter",
                 "vcfGzLocation": {"uri": url + ".gz", "locationType": "UriLocation"},
@@ -676,19 +724,17 @@ class JbrowseConnector(object):
 
     def clone_jbrowse(self, jbrowse_dir, destination, minimal=False):
         """Clone a JBrowse directory into a destination directory."""
-        interesting = ["index.html", "static", "version.txt"]
-        if minimal:
-            # Should be the absolute minimum required for JBrowse to function.
-            for i in interesting:
-                cmd = ["cp", "-r", os.path.join(jbrowse_dir, i), destination]
-                self.subprocess_check_call(cmd)
-        else:
-            interesting.append("test_data")
-        for i in interesting:
-            cmd = ["cp", "-r", os.path.join(jbrowse_dir, i), destination]
-            self.subprocess_check_call(cmd)
-        cmd = ["mkdir", "-p", os.path.join(destination, "data", "raw")]
+        cmd = ["jbrowse", "create", "-f", self.outdir]
         self.subprocess_check_call(cmd)
+        for fn in [
+            "asset-manifest.json",
+            "favicon.ico",
+            "robots.txt",
+            "umd_plugin.js",
+            "version.txt",
+        ]:
+            cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
+            self.subprocess_check_call(cmd)
 
 
 if __name__ == "__main__":
@@ -754,7 +800,7 @@ if __name__ == "__main__":
                 else:
                     if trackfiles:
                         metadata = metadata_from_node(x.find("metadata"))
-
+                        track_conf["dataset_id"] = metadata["dataset_id"]
                         track_conf["trackfiles"].append(
                             (
                                 os.path.realpath(x.attrib["path"]),
