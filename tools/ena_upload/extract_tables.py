@@ -40,21 +40,20 @@ timestamp = dt_oobj.strftime("%Y%m%d_%H:%M:%S")
 for study_index, study in enumerate(studies_dict):
     study_alias = 'study_' + str(study_index) + '_' + timestamp
     studies_table.write('\t'.join([study_alias, action, study['title'],
-                                   study['type'], study['abstract'], study['pubmed_id'],
-                                   ]))
-    if "geo_location" in study['samples'][0].keys():           # sample belongs to a viral sample
+                                   study['type'], study['abstract'], study['pubmed_id']]))
+    if "host_subject_id" in study['samples'][0].keys():           # sample belongs to a viral sample
         samples_table.write('\t'.join(['alias', 'status', 'title', 'scientific_name',
                                        'taxon_id', 'sample_description', 'collection date',
                                        'geographic location (country and/or sea)', 'host common name', 'host subject id',
                                        'host health state', 'host sex', 'host scientific name',
-                                       'collector name', 'collecting institution', 'isolate',
-                                       ]) + '\n')
+                                       'collector name', 'collecting institution', 'isolate']) + '\n')
     else:
         samples_table.write('\t'.join(['alias', 'status', 'title', 'scientific_name',
-                                       'taxon_id', 'sample_description']) + '\n')
+                                       'taxon_id', 'sample_description', 'collection date',
+                                       'geographic location (country and/or sea)']) + '\n')
     for sample_index, sample in enumerate(study['samples']):
         sample_alias = 'sample_' + str(sample_index) + '_' + timestamp
-        if "geo_location" in sample.keys():  # sample belongs to a viral sample
+        if "host_subject_id" in sample.keys():  # sample belongs to a viral sample
             if sample['collector_name'] == '':
                 sample['collector_name'] = 'unknown'
             samples_table.write('\t'.join([sample_alias, action, sample['title'],
@@ -64,12 +63,13 @@ for study_index, study in enumerate(studies_dict):
                                            sample['host_subject_id'], sample['host_health_state'],
                                            sample['host_sex'], sample['host_scientific_name'],
                                            sample['collector_name'],
-                                           sample['collecting_institution'], sample['isolate'],
+                                           sample['collecting_institution'], sample['isolate']
                                            ]) + '\n')
         else:
             samples_table.write('\t'.join([sample_alias, action, sample['title'],
                                            sample['tax_name'], sample['tax_id'],
-                                           sample['description']]) + '\n')
+                                           sample['description'], sample['collection_date'],
+                                           sample['geo_location']]) + '\n')
         for exp_index, exp in enumerate(sample['experiments']):
             exp_alias = 'experiment_' + str(exp_index) + '.' + str(sample_index) + '_' + timestamp
             lib_alias = 'library_' + str(exp_index) + '_' + str(sample_index)
@@ -79,8 +79,7 @@ for study_index, study in enumerate(studies_dict):
                                                exp['library_source'], exp['library_selection'],
                                                exp['library_layout'].lower(), exp['insert_size'],
                                                exp['library_construction_protocol'],
-                                               exp['platform'], exp['instrument_model'],
-                                               ]) + '\n')
+                                               exp['platform'], exp['instrument_model']]) + '\n')
             run_index = 0
             # exp['runs'] is a list of lists
             for (base_run, run_files) in exp['runs']:

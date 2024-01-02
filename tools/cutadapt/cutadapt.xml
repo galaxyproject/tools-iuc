@@ -39,15 +39,18 @@
     #set read1 = re.sub('[^\w\-\s]', '_', str($library.input_1.element_identifier))
 #end if
 
-#if $input_1.is_of_type("fastq.gz", "fastqsanger.gz"):
-    #set ext = ".fq.gz"
-#else if $input_1.is_of_type("fastq.bz2", "fastqsanger.bz2"):
-    #set ext = ".fq.bz2"
-#else if $input_1.is_of_type('fasta'):
-    #set ext = ".fa"
-#else:
+#if $input_1.is_of_type("fastq"):
     #set ext = ".fq"
+#else
+    #set ext = ".fa"
 #end if
+#if $input_1.ext.endswith(".gz"):
+    #set ext=ext+".gz"
+#elif $input_1.ext.endswith(".bz2")
+    #set ext=ext+".bz2"
+#end if
+
+
 #set read1 = $read1 + $ext
 #set out1 = "out1" + $ext
 #set rest_output = "rest_output" + $ext
@@ -86,7 +89,7 @@ cutadapt
 -j=\${GALAXY_SLOTS:-4}
 
 #if 'json_stats' in $output_selector:
-        --json stats.json
+    --json stats.json
 #end if
 
 #if str( $library.type ) == "single":
@@ -108,19 +111,20 @@ cutadapt
 --overlap=$adapter_options.overlap
 $adapter_options.no_indels
 $adapter_options.match_read_wildcards
+$adapter_options.no_match_adapter_wildcards
 --action=$adapter_options.action
 $adapter_options.revcomp
 
 $filter_options.discard_trimmed
 $filter_options.discard_untrimmed
 
-#if str($filter_options.minimum_length) and str($filter_options.length_R2_options.length_R2_status) == 'True':
-    --minimum-length=$filter_options.minimum_length:$filter_options.length_R2_options.R2_minimum
+#if str($filter_options.minimum_length) and str($library.type) != "single" and str($library.minimum_length2) != '':
+    --minimum-length=$filter_options.minimum_length:$library.minimum_length2
 #else if str($filter_options.minimum_length):
     --minimum-length=$filter_options.minimum_length
 #end if
-#if str($filter_options.maximum_length) and str($filter_options.length_R2_options.length_R2_status) == 'True':
-    --maximum-length=$filter_options.maximum_length:$filter_options.length_R2_options.R2_maximum
+#if str($filter_options.maximum_length) and str($library.type) != "single" and str($library.maximum_length2) != '':
+    --maximum-length=$filter_options.maximum_length:$library.maximum_length2
 #else if str($filter_options.maximum_length):
     --maximum-length=$filter_options.maximum_length
 #end if
@@ -137,6 +141,10 @@ $filter_options.discard_untrimmed
 #end if
 $filter_options.discard_cassava
 
+#if $input_1.ext.startswith("fastqillumina") or $input_1.ext.startswith("fastqsolexa")
+    --quality-base=64
+#end if
+
 #if str($read_mod_options.quality_cutoff) != '0':
    --quality-cutoff=$read_mod_options.quality_cutoff
 #end if
@@ -144,6 +152,7 @@ $filter_options.discard_cassava
     --nextseq-trim=$read_mod_options.nextseq_trim
 #end if
 $read_mod_options.trim_n
+$read_mod_options.poly_a
 #if $read_mod_options.strip_suffix != ''
     --strip-suffix $read_mod_options.strip_suffix
 #end if
@@ -206,72 +215,56 @@ $read_mod_options.zero_cap
         <!-- Adapter Options -->
         <section name="adapter_options" title="Adapter Options">
             <param name="action" type="select" label="What to do if a match is found">
-                <option value="trim" selected="True">Trim: trim adapter and upstream or downstream sequence</option>
+                <option value="trim" selected="true">Trim: trim adapter and upstream or downstream sequence</option>
                 <option value="retain">Retain: the read is trimmed, but the adapter sequence is not removed</option>
                 <option value="mask">Mask: mask adapters with 'N' characters instead of trimming them</option>
                 <option value="lowercase">Lowercase: convert to lowercase</option>
                 <option value="none">None: leave unchanged</option>
             </param>
-            <param name="internal" type="select" label="Disallow internal adaptor ocurrences" help="The non-internal 5’ and 3’ adapter types disallow internal occurrences of the adapter sequence. The adapter must always be at one of the ends of the read, but partial occurrences are also ok.">
-                <option value="X">Enabled</option>
-                <option value="" selected="True">Disabled</option>
-            </param>
             <param argument="--error-rate" type="float" min="0" max="1" value="0.1" label="Maximum error rate" help="Maximum allowed error rate (no. of errors divided by the length of the matching region)." />
-            <param argument="--no-indels" type="boolean" value="False" truevalue="--no-indels" falsevalue="" label="Do not allow indels (Use ONLY with anchored 5' (front) adapters)." help="Do not allow indels in the alignments. That is, allow only mismatches. This option is currently only supported for anchored 5' adapters ('^ADAPTER') (default: both mismatches and indels are allowed)." />
+            <param argument="--no-indels" type="boolean" checked="false" truevalue="--no-indels" falsevalue="" label="Do not allow indels (Use ONLY with anchored 5' (front) adapters)." help="Do not allow indels in the alignments. That is, allow only mismatches. This option is currently only supported for anchored 5' adapters ('^ADAPTER') (default: both mismatches and indels are allowed)." />
             <param argument="--times" type="integer" min="1" value="1" label="Match times" help="Try to remove adapters at most COUNT times. Useful when an adapter gets appended multiple times." />
             <param argument="--overlap" type="integer" min="1" value="3" label="Minimum overlap length" help="Minimum overlap length. If the overlap between the adapter and the sequence is shorter than LENGTH, the read is not modified. This reduces the number of bases trimmed purely due to short random adapter matches." />
-                <param name="match_read_wildcards" type="select"  label="Match wildcards" help="Allow 'N's as matches. Default: in the adapters but not in the reads">
-                <option value=" " selected="True">In the adapters but not in the reads</option>
-                <option value="--match-read-wildcards">In the adapters and in the reads</option>
-                <option value="--no-match-adapter-wildcards">Nowhere</option>
-            </param>
-            <param argument="--revcomp" type="boolean" value="False" truevalue="--revcomp" falsevalue="" label="Look for adapters in the reverse complement" help="Check both the read and its reverse complement for adapter matches. If match is on reverse-complemented version, output that one. Default: check only read." />
+            <param argument="--match-read-wildcards" type="boolean" checked="false" truevalue="--match-read-wildcards" falsevalue="" label="Match wilcards in reads" help="Interpret IUPAC wildcards in reads"/>
+            <param argument="--no-match-adapter-wildcards" type="boolean" checked="true" truevalue="" falsevalue="--no-match-adapter-wildcards" label="Match wilcards in adapters" help="Interpret IUPAC wildcards in adapters."/>
+            <param argument="--revcomp" type="boolean" checked="false" truevalue="--revcomp" falsevalue="" label="Look for adapters in the reverse complement" help="Check both the read and its reverse complement for adapter matches. If match is on reverse-complemented version, output that one. Default: check only read." />
         </section>
 
         <!-- Filter Options -->
         <section name="filter_options" title="Filter Options">
-            <param argument="--discard-trimmed" type="boolean" value="False" truevalue="--discard-trimmed" falsevalue="" label="Discard Trimmed Reads" help="Discard reads that contain the adapter instead of trimming them. Use the 'Minimum overlap length' option in order to avoid throwing away too many randomly matching reads!" />
-            <param argument="--discard_untrimmed" type="boolean" value="False" truevalue="--discard-untrimmed" falsevalue="" label="Discard Untrimmed Reads" help="Discard reads that do not contain the adapter." />
-            <param argument="--minimum-length" type="integer" min="0" optional="True" value="" label="Minimum length (R1)" help="Discard trimmed reads that are shorter than LENGTH.  Reads that are too short even before adapter removal are also discarded." />
-            <param argument="--maximum-length" type="integer" min="0" optional="True" value="" label="Maximum length (R1)" help="Discard trimmed reads that are longer than LENGTH.  Reads that are too long even before adapter removal are also discarded." />
-            <conditional name="length_R2_options">
-                <param name="length_R2_status" type="select" label="Specify a minimum/maximum length for reverse reads (R2)" help="When trimming paired-end reads, the minimum/maximum lengths for R1 and R2 can be specified separately. If not provided, the same minimum length applies to both reads.">
-                    <option value="True">Enabled</option>
-                    <option value="False" selected="True">Disabled</option>
-                </param>
-                <when value="True">
-                    <param name="R2_minimum" type="integer" min="0" value="" optional="True" label="Minimum length (R2)" />
-                    <param name="R2_maximum" type="integer" min="0" value="" optional="True" label="Maximum length (R2)" />
-                </when>
-                <when value="False">
-                </when>
-            </conditional>
-            <param argument="--max-n" type="float" min="0" optional="True" label="Max N" help="Discard reads with more than this number of 'N' bases. A number between 0 and 1 is interpreted as a fraction of the read length." />
-            <param argument="--pair-filter" type="select" optional="True" label="Pair filter" help="Which of the reads in a paired-end read have to match the filtering criterion in order for the pair to be filtered. Default: any">
-                <option value="any" selected="True">Any: a read pair is discarded (or redirected) if one of the reads (R1 or R2) fulfills the filtering criterion. </option>
+            <param argument="--discard-trimmed" type="boolean" checked="false" truevalue="--discard-trimmed" falsevalue="" label="Discard Trimmed Reads" help="Discard reads that contain the adapter instead of trimming them. Use the 'Minimum overlap length' option in order to avoid throwing away too many randomly matching reads!" />
+            <param argument="--discard_untrimmed" type="boolean" checked="false" truevalue="--discard-untrimmed" falsevalue="" label="Discard Untrimmed Reads" help="Discard reads that do not contain the adapter." />
+            <param argument="--minimum-length" type="integer" min="0" optional="true" value="" label="Minimum length (R1)" help="Discard trimmed reads that are shorter than LENGTH.  Reads that are too short even before adapter removal are also discarded." />
+            <param argument="--maximum-length" type="integer" min="0" optional="true" value="" label="Maximum length (R1)" help="Discard trimmed reads that are longer than LENGTH.  Reads that are too long even before adapter removal are also discarded." />
+            <param argument="--max-n" type="float" min="0" optional="true" label="Max N" help="Discard reads with more than this number of 'N' bases. A number between 0 and 1 is interpreted as a fraction of the read length." />
+            <param argument="--pair-filter" type="select" optional="true" label="Pair filter" help="Which of the reads in a paired-end read have to match the filtering criterion in order for the pair to be filtered. Default: any">
+                <option value="any" selected="true">Any: a read pair is discarded (or redirected) if one of the reads (R1 or R2) fulfills the filtering criterion. </option>
                 <option value="both">Both: filtering criteria must apply to both reads in order for a read pair to be discarded. </option>
                 <option value="first">First: will make a decision about the read pair by inspecting whether the filtering criterion applies to the first read, ignoring the second read.</option>
 
             </param>
-            <param argument="--max-expected-errors" type="integer" min="0" optional="True" value="" label="Max expected errors" help="Discard reads whose expected number of errors (computed from quality values) exceeds this value." />
-            <param argument="--discard-cassava" type="boolean" truevalue="--discard-cassava" falsevalue="" checked="False" label="Discard CASAVA filtering" help="Discard reads that did not pass CASAVA filtering (header has :Y:)." />
+            <param argument="--max-expected-errors" type="float" min="0" optional="true" value="" label="Max expected errors" help="Discard reads whose expected number of errors (computed from quality values) exceeds this value." />
+            <param argument="--max-average-error-rate" type="float" min="0" max="1" optional="true" value="" label="Max average expected errors" help="As --max-expected-errors (see above), but divided by length to account for reads of varying length" />
+            <param argument="--discard-cassava" type="boolean" truevalue="--discard-cassava" falsevalue="" checked="false" label="Discard CASAVA filtering" help="Discard reads that did not pass CASAVA filtering (header has :Y:)." />
         </section>
 
         <!-- Read Modification Options -->
         <section name="read_mod_options" title="Read Modification Options">
+            <param argument="--cut" type="integer" value="0" optional="true" label="Cut bases from reads before adapter trimming" help="Remove bases from each read (first read only if paired). If positive, remove bases from the beginning. If negative, remove bases from the end. This is applied *before* adapter trimming." />
             <param argument="--quality-cutoff" type="text" value="0" label="Quality cutoff" help=" Trim low-quality bases from 5' and/or 3' ends of each read before adapter removal. Applied to both reads for paired-end data, unless a separate value for the second read is specified. If one value is given, only the 3' end is trimmed. If two comma-separated cutoffs are given, the 5' end is trimmed with the first cutoff, the 3' end with the second.">
                 <sanitizer>
                     <valid initial="string.digits"><add value="," /></valid>
                 </sanitizer>
-                <validator type="regex">[0-9,]+</validator>
+                <validator type="regex">[0-9]+(,[0-9])?</validator>
             </param>
             <param argument="--nextseq-trim" type="integer" value="0" label="NextSeq trimming" help="Experimental option for quality trimming of NextSeq data. This is necessary because that machine cannot distinguish between G and reaching the end of the fragment (it encodes G as ‘black’). This option works like regular quality trimming (where one would use -q 20 instead), except that the qualities of G bases are ignored." />
-            <param argument="--trim-n" type="boolean" truevalue="--trim-n" falsevalue="" checked="False" label="Trim Ns" help="Trim N's on ends of reads." />
+            <param argument="--trim-n" type="boolean" truevalue="--trim-n" falsevalue="" checked="false" label="Trim Ns" help="Trim N's on ends of reads." />
+            <param argument="--poly-a" type="boolean" truevalue="--poly-a" falsevalue="" checked="false" label="Trim poly-A tails" help="Note, this trim poly-T 'heads' on R2"/>
             <param argument="--strip-suffix" label="Strip suffix" type="text" help="Remove this suffix from read names if present." />
             <conditional name="shorten_options">
                 <param name="shorten_values" type="select" label="Shortening reads to a fixed length" help="If you want to remove a fixed number of bases from each read, use the –cut option instead.">
                     <option value="True">Enabled</option>
-                    <option value="False" selected="True">Disabled</option>
+                    <option value="False" selected="true">Disabled</option>
                 </param>
                 <when value="True">
                     <param argument="--length" type="integer" value="0" label="Length" help="Shorten reads to this length. This modification is applied after adapter trimming." />
@@ -283,7 +276,7 @@ $read_mod_options.zero_cap
                 <when value="False">
                 </when>
             </conditional>
-            <param argument="--length-tag" label="Length tag" type="text" optional="True" help="Search for TAG followed by a decimal number in the name of the read (description/comment field of the FASTA or FASTQ file). Replace the decimal number with the correct length of the trimmed read. For example, use --length-tag 'length=' to search for fields like 'length=123'." >
+            <param argument="--length-tag" label="Length tag" type="text" optional="true" help="Search for TAG followed by a decimal number in the name of the read (description/comment field of the FASTA or FASTQ file). Replace the decimal number with the correct length of the trimmed read. For example, use --length-tag 'length=' to search for fields like 'length=123'." >
                 <sanitizer invalid_char="">
                     <valid initial="string.letters,string.digits">
                         <add value="/" />
@@ -296,7 +289,7 @@ $read_mod_options.zero_cap
                 </sanitizer>
                 <validator type="regex">[A-Za-z0-9 =-_/+]+</validator>
             </param>
-            <param argument="--rename" label="Rename reads" type="text" optional="True" help="This option can be used to rename both single-end and paired-end reads. ">
+            <param argument="--rename" label="Rename reads" type="text" optional="true" help="This option can be used to rename both single-end and paired-end reads. ">
                 <sanitizer invalid_char="">
                     <valid initial="string.letters,string.digits">
                         <add value="{" />
@@ -308,11 +301,11 @@ $read_mod_options.zero_cap
                 </sanitizer>
                 <validator type="regex">[A-Za-z0-9 {}=_]+</validator>
             </param>
-            <param argument="--zero-cap" type="boolean" truevalue="--zero-cap" falsevalue="" checked="False" label="Change negative quality values to zero" />
+            <param argument="--zero-cap" type="boolean" truevalue="--zero-cap" falsevalue="" checked="false" label="Change negative quality values to zero" />
         </section>
 
         <!-- Output Options -->
-        <param name="output_selector" type="select" multiple="True" display="checkboxes" label="Outputs selector">
+        <param name="output_selector" type="select" multiple="true" display="checkboxes" label="Outputs selector">
             <option value="report">Report: Cutadapt's per-adapter statistics. You can use this file with MultiQC.</option>
             <option value="info_file">Info file: write information about each read and its adapter matches.</option>
             <option value="rest_file">Rest of read: when the adapter matches in the middle of a read, write the rest (after the adapter).</option>
@@ -326,20 +319,20 @@ $read_mod_options.zero_cap
     </inputs>
 
     <outputs>
-        <data name="out1" format="fastqsanger" metadata_source="input_1" from_work_dir="out1*" label="${tool.name} on ${on_string}: Read 1 Output">
+        <data name="out1" format="fastqsanger" metadata_source="input_1" from_work_dir="out1.*" label="${tool.name} on ${on_string}: Read 1 Output">
             <filter>library['type'] != 'paired_collection' and 'multiple_output' not in output_selector</filter>
             <expand macro="inherit_format_1" />
         </data>
 
-        <data name="out2" format="fastqsanger" metadata_source="input_2" from_work_dir="out2*" label="${tool.name} on ${on_string}: Read 2 Output" >
+        <data name="out2" format="fastqsanger" metadata_source="input_2" from_work_dir="out2.*" label="${tool.name} on ${on_string}: Read 2 Output" >
             <filter>library['type'] == 'paired' and 'multiple_output' not in output_selector</filter>
             <expand macro="inherit_format_2" />
         </data>
 
         <collection name="out_pairs" type="paired" format_source="input_1" label="${tool.name} on ${on_string}: Reads">
             <filter>library['type'] == 'paired_collection' and 'multiple_output' not in output_selector</filter>
-            <data name="forward" from_work_dir="out1.fq*" />
-            <data name="reverse" from_work_dir="out2.fq*" />
+            <data name="forward" from_work_dir="out1.*" />
+            <data name="reverse" from_work_dir="out2.*" />
         </collection>
         
         <data name="report" format="txt" from_work_dir="report.txt" label="${tool.name} on ${on_string}: Report">
@@ -422,7 +415,7 @@ $read_mod_options.zero_cap
                     </conditional>
                 </repeat>
             </section>
-            <output name="out1" decompress="True" file="cutadapt_out1.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1.fq.gz" ftype="fastq.gz"/>
         </test>
         <!-- Ensure paired end fastq.gz works -->
         <test expect_num_outputs="2">
@@ -439,14 +432,14 @@ $read_mod_options.zero_cap
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
             </section>
-            <output name="out1" decompress="True" file="cutadapt_out1.fq.gz" ftype="fastq.gz"/>
-            <output name="out2" decompress="True" file="cutadapt_out2.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1.fq.gz" ftype="fastq.gz"/>
+            <output name="out2" decompress="true" file="cutadapt_out2.fq.gz" ftype="fastq.gz"/>
             <assert_command>
                 <not_has_text text="--discard-trimmed"/>
                 <not_has_text text="--discard-untrimmed"/>
@@ -475,23 +468,15 @@ $read_mod_options.zero_cap
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
             </section>
             <output_collection name="out_pairs" type="paired" count="2">
-                <element name="forward" decompress="true" file="cutadapt_out1.fq.gz" ftype="fastq.gz">
-                    <assert_contents>
-                        <has_size value="12000" delta="2000" />
-                    </assert_contents>
-                </element>
-                <element name="reverse" decompress="true" file="cutadapt_out2.fq.gz" ftype="fastq.gz">
-                    <assert_contents>
-                        <has_size value="12000" delta="2000" />
-                    </assert_contents>
-                </element>
+                <element name="forward" decompress="true" file="cutadapt_out1.fq.gz" ftype="fastq.gz"/>
+                <element name="reverse" decompress="true" file="cutadapt_out2.fq.gz" ftype="fastq.gz"/>
             </output_collection>
         </test>
         <!-- Ensure built-in adapters work -->
@@ -520,7 +505,7 @@ $read_mod_options.zero_cap
                 </repeat>
             </section>
             <section name="filter_options">
-                <param name="discard_trimmed" value="True"/>
+                <param name="discard_trimmed" value="true"/>
             </section>
             <output name="out1" file="cutadapt_discard.out" ftype="fastq"/>
             <assert_command>
@@ -540,8 +525,8 @@ $read_mod_options.zero_cap
             </section>
             <param name="output_selector" value="rest_file,json_stats"/>
             <output name="out1" file="cutadapt_rest.out" ftype="fasta"/>
-            <!--allow for differing cutadapt and python version as well as two lines containing the number of cores -->
-            <output name="json_stats" file="cutadapt_rest.json" ftype="json" lines_diff="8"/>
+            <!--allow for differing schema, cutadapt and python version as well as two lines containing the number of cores -->
+            <output name="json_stats" file="cutadapt_rest.json" ftype="json" lines_diff="10"/>
             <output name="rest_output" file="cutadapt_rest2.out" ftype="fasta"/>
         </test>
         <!-- Ensure nextseq-trim option works -->
@@ -557,7 +542,7 @@ $read_mod_options.zero_cap
                 </repeat>
             </section>
             <param name="nextseq_trim" value="20" />
-            <output name="out1" decompress="True" file="cutadapt_nextseq_out.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_nextseq_out.fq.gz" ftype="fastq.gz"/>
         </test>
         <!-- Ensure Report and Info file output work -->
         <test expect_num_outputs="3">
@@ -588,17 +573,17 @@ $read_mod_options.zero_cap
                 <param name="input_1" ftype="fastq" value="cutadapt_in_split.fastq" />
                 <section name="r1" >
                     <repeat name="front_adapters">
-                        <conditional name="front_adapter_source">
-                            <param name="front_adapter_source_list" value="user"/>
-                            <param name="front_adapter_name" value="A1" />
-                            <param name="front_adapter" value="^GTCGGTAA" />
+                        <conditional name="adapter_source">
+                            <param name="adapter_source_list" value="user"/>
+                            <param name="adapter_name" value="A1" />
+                            <param name="adapter" value="^GTCGGTAA" />
                         </conditional>
                     </repeat>
                     <repeat name="front_adapters">
-                        <conditional name="front_adapter_source">
-                            <param name="front_adapter_source_list" value="user"/>
-                            <param name="front_adapter_name" value="A2" />
-                            <param name="front_adapter" value="^AGGTCACT" />
+                        <conditional name="adapter_source">
+                            <param name="adapter_source_list" value="user"/>
+                            <param name="adapter_name" value="A2" />
+                            <param name="adapter" value="^AGGTCACT" />
                         </conditional>
                     </repeat>
                 </section>
@@ -620,21 +605,18 @@ $read_mod_options.zero_cap
                 <param name="input_1" ftype="fastq.gz" value="cutadapt_in_split.fastq.gz" />
                 <section name="r1" >
                     <repeat name="front_adapters">
-                        <conditional name="front_adapter_source">
-                            <param name="front_adapter_source_list" value="file"/>
-                            <param name="front_adapter_file" ftype="fasta"  value="barcodes.fasta" />
+                        <conditional name="adapter_source">
+                            <param name="adapter_source_list" value="file"/>
+                            <param name="adapter_file" ftype="fasta"  value="barcodes.fasta" />
                         </conditional>
                     </repeat>
                 </section>
             </conditional>
             <param name="output_selector" value="multiple_output" />
             <output_collection name="split_output" type="list" count="3">
-                   <element name="A1"  decompress="True" file="A1.fastq.gz" ftype="fastq.gz">
-                   </element>
-                   <element name="A2" decompress="True" file="A2.fastq.gz" ftype="fastq.gz">
-                   </element>
-                   <element name="unknown" decompress="True" file="unknown.fastq.gz" ftype="fastq.gz">
-                   </element>
+                   <element name="A1"  decompress="true" file="A1.fastq.gz" ftype="fastq.gz"/>
+                   <element name="A2" decompress="true" file="A2.fastq.gz" ftype="fastq.gz"/>
+                   <element name="unknown" decompress="true" file="unknown.fastq.gz" ftype="fastq.gz"/>
              </output_collection>
         </test>
 
@@ -667,7 +649,7 @@ $read_mod_options.zero_cap
                 </repeat>
             </section>
             <param name="output_selector" value="untrimmed_file" />
-            <output name="out1" decompress="True" file="cutadapt_trimmed.out.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_trimmed.out.gz" ftype="fastq.gz"/>
             <!--
                 Do not use the decompress option for this assertion, since it does NOT test that the file is compressed
                 See discussion at https://github.com/galaxyproject/galaxy/issues/7671
@@ -692,8 +674,8 @@ $read_mod_options.zero_cap
             <section name="r2">
                 <repeat name="adapters">
                     <conditional name="adapter_source">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
             </section>
@@ -722,8 +704,8 @@ $read_mod_options.zero_cap
                         <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
-                <param name="cut" value="5"/>
             </section>
+            <param name="cut" value="5"/>
             <output name="out1" file="cutadapt_small_cut.out" ftype="fastq"/>
         </test>
         <!-- Test rename options -->
@@ -737,8 +719,8 @@ $read_mod_options.zero_cap
                         <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
-                <param name="cut" value="5"/>
             </section>
+            <param name="cut" value="5"/>
             <section name="read_mod_options">
                 <param name="rename" value="{id} barcode={cut_prefix}"/>
             </section>
@@ -845,22 +827,19 @@ $read_mod_options.zero_cap
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="CTACAAG"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="CTACAAG"/>
                     </conditional>
                 </repeat>
+                <param name="minimum_length2" value="10"/>
             </section>
             <section name="filter_options">
                 <param name="minimum_length" value="30"/>
                 <param name="pair_filter" value="both"/>
-                <conditional name="length_R2_options">
-                    <param name="length_R2_status" value="True"/>
-                    <param name="R2_minimum" value="10"/>
-                </conditional>
             </section>
-            <output name="out1" decompress="True" file="cutadapt_out1_min_length.fq.gz" ftype="fastq.gz"/>
-            <output name="out2" decompress="True" file="cutadapt_out2_min_length.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1_min_length.fq.gz" ftype="fastq.gz"/>
+            <output name="out2" decompress="true" file="cutadapt_out2_min_length.fq.gz" ftype="fastq.gz"/>
             <assert_command>
                 <has_text text="--minimum-length=30:10"/>
                 <has_text text="--pair-filter=both"/>
@@ -881,22 +860,19 @@ $read_mod_options.zero_cap
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
+                <param name="maximum_length2" value="30"/>
             </section>
             <section name="filter_options">
                 <param name="pair_filter" value="both"/>
                 <param name="maximum_length" value="50"/>
-                <conditional name="length_R2_options">
-                    <param name="length_R2_status" value="True"/>
-                    <param name="R2_maximum" value="30"/>
-                </conditional>
             </section>
-            <output name="out1" decompress="True" file="cutadapt_out1_max_length.fq.gz" ftype="fastq.gz"/>
-            <output name="out2" decompress="True" file="cutadapt_out2_max_length.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1_max_length.fq.gz" ftype="fastq.gz"/>
+            <output name="out2" decompress="true" file="cutadapt_out2_max_length.fq.gz" ftype="fastq.gz"/>
             <assert_command>
                 <has_text text="--maximum-length=50:30"/>
                 <has_text text="--pair-filter=both"/>
@@ -922,20 +898,17 @@ $read_mod_options.zero_cap
                         <param name="adapter2" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
+                <param name="maximum_length2" value="30"/>
             </section>
             <section name="filter_options">
                 <param name="pair_filter" value="both"/>
                 <param name="minimum_length" value="10"/>
                 <param name="maximum_length" value="50"/>
-                <conditional name="length_R2_options">
-                    <param name="length_R2_status" value="True"/>
-                    <param name="R2_maximum" value="30"/>
-                </conditional>
             </section>
-            <output name="out1" decompress="True" file="cutadapt_out1_max_min_01.fq.gz" ftype="fastq.gz"/>
-            <output name="out2" decompress="True" file="cutadapt_out2_max_min_01.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1_max_min_01.fq.gz" ftype="fastq.gz"/>
+            <output name="out2" decompress="true" file="cutadapt_out2_max_min_01.fq.gz" ftype="fastq.gz"/>
             <assert_command>
-                <has_text text="--minimum-length=10:"/>
+                <has_text text="--minimum-length=10"/>
                 <has_text text="--maximum-length=50:30"/>
                 <has_text text="--pair-filter=both"/>
             </assert_command>
@@ -959,21 +932,18 @@ $read_mod_options.zero_cap
                         <param name="adapter2" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
+                <param name="minimum_length2" value="10"/>
             </section>
             <section name="filter_options">
                 <param name="pair_filter" value="both"/>
                 <param name="minimum_length" value="10"/>
                 <param name="maximum_length" value="50"/>
-                <conditional name="length_R2_options">
-                    <param name="length_R2_status" value="True"/>
-                    <param name="R2_minimum" value="10"/>
-                </conditional>
             </section>
-            <output name="out1" decompress="True" file="cutadapt_out1_max_min_02.fq.gz" ftype="fastq.gz"/>
-            <output name="out2" decompress="True" file="cutadapt_out2_max_min_02.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1_max_min_02.fq.gz" ftype="fastq.gz"/>
+            <output name="out2" decompress="true" file="cutadapt_out2_max_min_02.fq.gz" ftype="fastq.gz"/>
             <assert_command>
                 <has_text text="--minimum-length=10:10"/>
-                <has_text text="--maximum-length=50:"/>
+                <has_text text="--maximum-length=50"/>
                 <has_text text="--pair-filter=both"/>
             </assert_command>
         </test>
@@ -1035,6 +1005,7 @@ $read_mod_options.zero_cap
             </section>
             <output name="out1" file="cutadapt_shorten_expected_errors.out" ftype="fastq"/>
         </test>
+
         <!-- Test disallow internal adaptors option -->
         <test expect_num_outputs="1">
             <param name="type" value="single" />
@@ -1043,12 +1014,9 @@ $read_mod_options.zero_cap
                 <repeat name="adapters">
                     <conditional name="adapter_source">
                         <param name="adapter_source_list" value="user"/>
-                        <param name="adapter" value="GAANTAGCTACCAC"/>
+                        <param name="adapter" value="GAANTAGCTACCACX"/>
                     </conditional>
                 </repeat>
-            </section>
-            <section name="adapter_options">
-                <param name="internal" value="X"/>
             </section>
             <output name="out1" file="cutadapt_shorten_internal_adapters.out" ftype="fastq"/>
             <assert_command>
@@ -1063,25 +1031,22 @@ $read_mod_options.zero_cap
                 <repeat name="adapters">
                     <conditional name="adapter_source">
                         <param name="adapter_source_list" value="user"/>
-                        <param name="adapter" value="AGATCGGAAGAGC"/>
+                        <param name="adapter" value="AGATCGGAAGAGCX"/>
                     </conditional>
                 </repeat>
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGCX"/>
                     </conditional>
                 </repeat>
             </section>
-            <section name="adapter_options">
-                <param name="internal" value="X"/>
-            </section>
-            <output name="out1" decompress="True" file="cutadapt_out1_internal_adapter.fq.gz" ftype="fastq.gz"/>
-            <output name="out2" decompress="True" file="cutadapt_out2_internal_adapter.fq.gz" ftype="fastq.gz"/>
+            <output name="out1" decompress="true" file="cutadapt_out1_internal_adapter.fq.gz" ftype="fastq.gz"/>
+            <output name="out2" decompress="true" file="cutadapt_out2_internal_adapter.fq.gz" ftype="fastq.gz"/>
             <assert_command>
-                <has_text text="AGATCGGAAGAGCX"/>
+                <has_text text="'AGATCGGAAGAGCX'" n="2"/>
             </assert_command>
         </test>
         <test expect_num_outputs="1">
@@ -1095,12 +1060,9 @@ $read_mod_options.zero_cap
                     </conditional>
                 </repeat>
             </section>
-            <section name="adapter_options">
-                <param name="internal" value="X"/>
-            </section>
             <output name="out1" file="cutadapt_builtin_internal_adapter.out" ftype="fastq"/>
             <assert_command>
-                <has_text text="TGTAGGCCX"/>
+                <has_text text="'TGTAGGCC'"/>
             </assert_command>
         </test>
         <!-- Ensure individual per adapter noindels parameter works -->
@@ -1123,16 +1085,16 @@ $read_mod_options.zero_cap
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                     <param name="single_noindels" value=";noindels" />
                 </repeat>
             </section>
             <output_collection name="out_pairs" type="paired">
-                <element name="forward" decompress="True" file="cutadapt_out1.fq.gz" ftype="fastq.gz" />
-                <element name="reverse" decompress="True" file="cutadapt_out2.fq.gz" ftype="fastq.gz" />
+                <element name="forward" decompress="true" file="cutadapt_out1.fq.gz" ftype="fastq.gz" />
+                <element name="reverse" decompress="true" file="cutadapt_out2.fq.gz" ftype="fastq.gz" />
             </output_collection>
         </test>
         <!-- Ensure specifying quality cutoff (for both reads) works -->
@@ -1155,17 +1117,200 @@ $read_mod_options.zero_cap
             </section>
             <section name="r2">
                 <repeat name="adapters2">
-                    <conditional name="adapter_source2">
-                        <param name="adapter_source_list2" value="user"/>
-                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
                     </conditional>
                 </repeat>
                 <param name="quality_cutoff2" value="15,20"/>
             </section>
             <output_collection name="out_pairs" type="paired">
-                <element name="forward" decompress="True" file="cutadapt_out1.fq.gz" ftype="fastq.gz" />
-                <element name="reverse" decompress="True" file="cutadapt_out2_cutoff.fq.gz" ftype="fastq.gz" />
+                <element name="forward" decompress="true" file="cutadapt_out1.fq.gz" ftype="fastq.gz" />
+                <element name="reverse" decompress="true" file="cutadapt_out2_cutoff.fq.gz" ftype="fastq.gz" />
             </output_collection>
+            <assert_command>
+                <has_text text="--quality-cutoff=5"/>
+                <has_text text="-Q=15,20"/>
+            </assert_command>
+        </test>
+
+        <!-- ployA trimmining https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_paired.py#L768 -->
+        <test expect_num_outputs="3">
+            <param name="type" value="paired_collection" />
+            <param name="input_1">
+                <collection type="paired">
+                    <element name="forward" ftype="fasta" value="cutadapt/data/polya.1.fasta" />
+                    <element name="reverse" ftype="fasta" value="cutadapt/data/polya.2.fasta" />
+                </collection>
+            </param>
+            <param name="poly_a" value="true"/>
+            <output_collection name="out_pairs" type="paired">
+                <element name="forward" file="cutadapt/cut/polya.1.fasta" ftype="fasta" />
+                <element name="reverse" file="cutadapt/cut/polya.2.fasta" ftype="fasta" />
+            </output_collection>
+            <assert_command>
+                <has_text text="--poly-a"/>
+            </assert_command>
+        </test>
+
+        <!-- polyA legacy https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_commandline.py#L267 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fasta" value="cutadapt/data/polya.1.fasta" />
+            <section name="r1">
+                <repeat name="adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"/>
+                    </conditional>
+                </repeat>
+            </section>
+            <param name="overlap" value="10"/>
+            <output name="out1" file="cutadapt/cut/polya.legacy.1.fasta" ftype="fasta"/>
+            <assert_command>
+                <has_text text="-a 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'"/>
+                <has_text text="--overlap=10"/>
+            </assert_command>
+        </test>
+
+        <!-- polyA legacy brace notation https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_commandline.py#L276 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fasta" value="cutadapt/data/polya.1.fasta" />
+            <section name="r1">
+                <repeat name="adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="A{35}"/>
+                    </conditional>
+                </repeat>
+            </section>
+            <param name="overlap" value="10"/>
+            <output name="out1" file="cutadapt/cut/polya.legacy.1.fasta" ftype="fasta"/>
+            <assert_command>
+                <has_text text="-a 'A{35}'"/>
+                <has_text text="--overlap=10"/>
+            </assert_command>
+        </test>
+
+        <!-- polyA https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_commandline.py#L281 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fasta" value="cutadapt/data/polya.1.fasta" />
+            <param name="poly_a" value="true"/>
+            <output name="out1" file="cutadapt/cut/polya.1.fasta" ftype="fasta"/>
+            <assert_command>
+                <has_text text="--poly-a"/>
+            </assert_command>
+        </test>
+
+        <!-- fasta.gz input https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_commandline.py#L78 
+             in contrast to the original test the tool automatically compresses the output -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fasta.gz" value="cutadapt/data/simple.fasta.gz" />
+            <output name="out1" decompress="true" file="cutadapt/cut/simple.fasta.gz" ftype="fasta.gz"/>
+        </test>
+
+        <!-- fatstqillumina input https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_commandline.py#L252 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fastqillumina" value="cutadapt/data/illumina64.fastq" />
+            <section name="r1">
+                <repeat name="adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="XXXXXX"/>
+                    </conditional>
+                </repeat>
+            </section>
+            <param name="quality_cutoff" value="10"/>
+            <output name="out1" file="cutadapt/cut/illumina64.fastq" ftype="fastqillumina"/>
+            <assert_command>
+                <has_text text="-a 'XXXXXX'"/>
+                <has_text text="--quality-cutoff=10"/>
+                <has_text text="--quality-base=64"/>
+            </assert_command>
+        </test>
+        <!-- fatstqillumina input https://github.com/marcelm/cutadapt/blob/e04cc32e392e1cbe0c518b4e0637cdf03533d440/tests/test_commandline.py#L257 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fastqillumina" value="cutadapt/data/illumina64.fastq" />
+            <param name="quality_cutoff" value="10"/>
+            <output name="out1" file="cutadapt/cut/illumina64.fastq" ftype="fastqillumina"/>
+            <assert_command>
+                <has_text text="--quality-cutoff=10"/>
+                <has_text text="--quality-base=64"/>
+            </assert_command>
+        </test>
+
+        <!-- https://github.com/marcelm/cutadapt/blame/3407ac0004d04b11ae7157934a6665ecaf82c328/tests/test_commandline.py#L1028 --> 
+        <test expect_num_outputs="3">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fastqillumina" value="cutadapt/data/maxee.fastq" />
+            <param name="max_expected_errors" value="0.9"/>
+            <param name="output_selector" value="report,info_file"/>
+            <output name="out1" file="cutadapt/cut/maxee.fastq" ftype="fastqillumina"/>
+            <output name="report">
+                <assert_contents>
+                    <has_text text="Reads with too many exp. errors:             2"/>
+                </assert_contents>
+            </output>
+            <output name="info_file">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="ee_0.8&#09;-1&#09;ACGTTGCA&#09;++++++++"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--max-expected-errors=0.9"/>
+            </assert_command>
+        </test>
+
+        <!-- https://github.com/marcelm/cutadapt/blob/3407ac0004d04b11ae7157934a6665ecaf82c328/tests/test_commandline.py#L335 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fasta" value="cutadapt/data/wildcard.fa" />
+            <section name="r1">
+                <repeat name="anywhere_adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="ACGTACGT"/>
+                    </conditional>
+                </repeat>
+            </section>
+            <section name="adapter_options">
+                <param name="match_read_wildcards" value="true"/>
+            </section>
+            <output name="out1" file="cutadapt/cut/wildcard.fa" ftype="fasta" sort="true"/>
+            <assert_command>
+                <has_text text="--match-read-wildcards"/>
+                <has_text text="-b 'ACGTACGT'"/>
+            </assert_command>
+        </test>
+
+        <!-- https://github.com/marcelm/cutadapt/blob/3407ac0004d04b11ae7157934a6665ecaf82c328/tests/test_commandline.py#L368 -->
+        <test expect_num_outputs="1">
+            <param name="type" value="single" />
+            <param name="input_1" ftype="fasta" value="cutadapt/data/wildcardN.fa" />
+            <section name="r1">
+                <repeat name="adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="GGGGGGG"/>
+                    </conditional>
+                </repeat>
+            </section>
+            <section name="adapter_options">
+                <param name="match_read_wildcards" value="true"/>
+                <param name="error_rate" value="0"/>
+            </section>
+            <output name="out1" file="cutadapt/cut/wildcardN.fa" ftype="fasta" sort="true"/>
+            <assert_command>
+                <has_text text="--match-read-wildcards"/>
+                <has_text text="--error-rate=0.0"/>
+                <has_text text="-a 'GGGGGGG'"/>
+            </assert_command>
         </test>
     </tests>
 
