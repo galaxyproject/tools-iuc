@@ -267,46 +267,6 @@ class JbrowseConnector(object):
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
-    def add_hic_jbrowse(self, data, trackData):
-        """
-        HiC adapter.
-        https://github.com/aidenlab/hic-format/blob/master/HiCFormatV9.md
-        for testing locally, these work:
-        HiC data is from https://s3.amazonaws.com/igv.broadinstitute.org/data/hic/intra_nofrag_30.hic
-        using hg19 reference track as a
-        'BgzipFastaAdapter'
-            fastaLocation:
-            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz',
-            faiLocation:
-            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.fai',
-            gziLocation:
-            uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.gzi',
-        """
-        url = "%s/api/datasets/%s/display?to_ext=hic " % (
-            self.giURL,
-            trackData["dataset_id"],
-        )
-        tId = trackData["label"]
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
-        self.symlink_or_copy(data, dest)
-        cmd = [
-            "jbrowse",
-            "add-track",
-            url,
-            "-t",
-            "HicTrack",
-            "-n",
-            trackData["name"],
-            "-l",
-            "copy",
-            "-a",
-            self.genome_name,
-            "--target",
-            self.outdir,
-        ]
-        self.subprocess_check_call(cmd)
-        self.trackIdlist.append(tId)
-
     def add_maf(self, data, trackData):
         """
         from https://github.com/cmdcolin/maf2bed
