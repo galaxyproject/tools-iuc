@@ -186,7 +186,7 @@ class JbrowseConnector(object):
             # easier to write than the alternative / catches any possible
             # issues.
             genome_name = genome_node["meta"]["dataset_dname"]
-            dsId  = genome_node["meta"]["dataset_id"]
+            dsId = genome_node["meta"]["dataset_id"]
             faname = genome_name + ".fasta"
             faurl = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
             fapath = genome_node["path"]
@@ -286,7 +286,7 @@ class JbrowseConnector(object):
         tId = trackData["label"]
         fname = "%s.bed" % tId
         dest = os.path.realpath("%s/%s" % (self.outdir, fname))
-        #self.symlink_or_copy(data, dest)
+        # self.symlink_or_copy(data, dest)
         # Process MAF to bed-like. Need build to munge chromosomes
         gname = self.genome_name
         cmd = [
@@ -314,7 +314,7 @@ class JbrowseConnector(object):
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
-            "name":  trackData["name"],
+            "name": trackData["name"],
             "adapter": {
                 "type": "MafTabixAdapter",
                 "samples": samples,
@@ -396,7 +396,7 @@ class JbrowseConnector(object):
         url = "%s/api/datasets/%s/display" % (
             self.giURL,
             trackData["metadata"]["dataset_id"],
-            )
+        )
         tId = trackData["label"]
         trackDict = {
             "type": "QuantitativeTrack",
@@ -480,7 +480,7 @@ class JbrowseConnector(object):
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         cmd = "bgzip -c %s  > %s" % (data, dest)
         self.subprocess_popen(cmd)
-        cmd = ["tabix", "-p", "vcf", dest ]
+        cmd = ["tabix", "-p", "vcf", dest]
         self.subprocess_check_call(cmd)
         trackDict = {
             "type": "VariantTrack",
