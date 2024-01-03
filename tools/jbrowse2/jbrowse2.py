@@ -697,6 +697,7 @@ class JbrowseConnector(object):
             "robots.txt",
             "umd_plugin.js",
             "version.txt",
+            "test_data",
         ]:
             cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
             self.subprocess_check_call(cmd)
