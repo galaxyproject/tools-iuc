@@ -19,7 +19,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=F
     from Bio.Blast import NCBIXML
     from Bio.Seq import Seq
     from Bio.SeqRecord import SeqRecord
-    from Bio.SeqFeature import SeqFeature, FeatureLocation
+    from Bio.SeqFeature import SeqFeature, FeatureLocation, SimpleLocation
 
     blast_records = NCBIXML.parse(blastxml)
     for idx_record, record in enumerate(blast_records):
@@ -85,8 +85,8 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=F
 
                 # The ``match`` feature will hold one or more ``match_part``s
                 top_feature = SeqFeature(
-                    FeatureLocation(used_parent_match_start, parent_match_end),
-                    type=match_type, strand=0,
+                    SimpleLocation(used_parent_match_start, parent_match_end, strand=0),
+                    type=match_type,
                     qualifiers=qualifiers
                 )
 
@@ -114,8 +114,8 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=F
 
                     top_feature.sub_features.append(
                         SeqFeature(
-                            FeatureLocation(match_part_start, match_part_end),
-                            type="match_part", strand=0,
+                            SimpleLocation(match_part_start, match_part_end, strand=1),
+                            type="match_part",
                             qualifiers=copy.deepcopy(part_qualifiers))
                     )
 
