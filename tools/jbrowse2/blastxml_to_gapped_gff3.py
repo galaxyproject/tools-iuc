@@ -19,7 +19,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=F
     from Bio.Blast import NCBIXML
     from Bio.Seq import Seq
     from Bio.SeqRecord import SeqRecord
-    from Bio.SeqFeature import SeqFeature, FeatureLocation, SimpleLocation
+    from Bio.SeqFeature import SeqFeature, SimpleLocation
 
     blast_records = NCBIXML.parse(blastxml)
     for idx_record, record in enumerate(blast_records):
