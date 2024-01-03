@@ -1,0 +1,529 @@
+<tool id="trimmomatic" name="Trimmomatic" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+  <description>flexible read trimming tool for Illumina NGS data</description>
+  <macros>
+    <import>trimmomatic_macros.xml</import>
+  </macros>
+  <requirements>
+    <requirement type="package" version="@TOOL_VERSION@">trimmomatic</requirement>
+    <!--
+	Coreutils required for 'readlink -e' work across platforms
+	See similar fix for snpSift
+	https://github.com/galaxyproject/tools-iuc/commit/b5e2080a7afdea9fa476895693b6115824c6fbb9
+    -->
+    <requirement type="package" version="8.25">coreutils</requirement>
+  </requirements>
+  <command detect_errors="aggressive"><![CDATA[
+  @CONDA_TRIMMOMATIC_JAR_PATH@ &&
+  @CONDA_TRIMMOMATIC_ADAPTERS_PATH@ &&
+  #if $readtype.single_or_paired == "pair_of_files"
+    #set r1_ext = $readtype.fastq_r1_in.extension
+    #set r2_ext = $readtype.fastq_r2_in.extension
+    ln -s '$readtype.fastq_r1_in' fastq_r1.'$r1_ext' &&
+    ln -s '$readtype.fastq_r2_in' fastq_r2.'$r2_ext' &&
+  #elif $readtype.single_or_paired == "collection"
+    #set r1_ext = $readtype.fastq_pair.forward.extension
+    #set r2_ext = $readtype.fastq_pair.reverse.extension
+    ln -s '$readtype.fastq_pair.forward' fastq_r1.'$r1_ext' &&
+    ln -s '$readtype.fastq_pair.reverse' fastq_r2.'$r2_ext' &&
+  #else
+    ln -s '$fastq_in' fastq_in.'$fastq_in.extension' &&
+  #end if
+  java \${_JAVA_OPTIONS:--Xmx8G} -jar \$TRIMMOMATIC_JAR_PATH/trimmomatic.jar
+  #if $readtype.single_or_paired in ["pair_of_files","collection"]
+    PE -threads \${GALAXY_SLOTS:-6}
+      fastq_r1.'$r1_ext' fastq_r2.'$r2_ext'
+      fastq_out_r1_paired.'$r1_ext' fastq_out_r1_unpaired.'$r1_ext'
+      fastq_out_r2_paired.'$r2_ext' fastq_out_r2_unpaired.'$r2_ext'
+  #else
+    SE -threads \${GALAXY_SLOTS:-6} fastq_in.'$fastq_in.extension' fastq_out.'$fastq_in.extension'
+  #end if
+  ## ILLUMINACLIP option
+  #if $illuminaclip.do_illuminaclip
+    #if $illuminaclip.adapter_type.standard_or_custom == "custom"
+      #if $readtype.single_or_paired in ["pair_of_files","collection"]
+        ILLUMINACLIP:$adapter_file_from_text:$illuminaclip.seed_mismatches:$illuminaclip.palindrome_clip_threshold:$illuminaclip.simple_clip_threshold:$illuminaclip.min_adapter_len:$illuminaclip.keep_both_reads
+      #else
+        ILLUMINACLIP:$adapter_file_from_text:$illuminaclip.seed_mismatches:$illuminaclip.palindrome_clip_threshold:$illuminaclip.simple_clip_threshold
+      #end if
+    #else
+      #if $readtype.single_or_paired in ["pair_of_files","collection"]
+        ILLUMINACLIP:\$TRIMMOMATIC_ADAPTERS_PATH/$illuminaclip.adapter_type.adapter_fasta:$illuminaclip.seed_mismatches:$illuminaclip.palindrome_clip_threshold:$illuminaclip.simple_clip_threshold:$illuminaclip.min_adapter_len:$illuminaclip.keep_both_reads
+      #else
+        ILLUMINACLIP:\$TRIMMOMATIC_ADAPTERS_PATH/$illuminaclip.adapter_type.adapter_fasta:$illuminaclip.seed_mismatches:$illuminaclip.palindrome_clip_threshold:$illuminaclip.simple_clip_threshold
+      #end if
+    #end if
+  #end if
+  ## Other operations
+  #for $op in $operations
+    ## SLIDINGWINDOW
+    #if str( $op.operation.name ) == "SLIDINGWINDOW"
+      SLIDINGWINDOW:$op.operation.window_size:$op.operation.required_quality
+    #end if
+    ## MINLEN:36
+    #if str( $op.operation.name ) == "MINLEN"
+      MINLEN:$op.operation.minlen
+    #end if
+    #if str( $op.operation.name ) == "LEADING"
+      LEADING:$op.operation.leading
+    #end if
+    #if str( $op.operation.name ) == "TRAILING"
+      TRAILING:$op.operation.trailing
+    #end if
+    #if str( $op.operation.name ) == "CROP"
+      CROP:$op.operation.crop
+    #end if
+    #if str( $op.operation.name ) == "HEADCROP"
+      HEADCROP:$op.operation.headcrop
+    #end if
+    #if str( $op.operation.name ) == "AVGQUAL"
+      AVGQUAL:$op.operation.avgqual
+    #end if
+    #if str( $op.operation.name ) == "MAXINFO"
+      MAXINFO:$op.operation.target_length:$op.operation.strictness
+    #end if
+  #end for
+  #if $output_logs:
+    -trimlog trimlog
+  #end if
+  #if $quality_score
+    $quality_score
+  #end if
+  2>&1 | tee trimmomatic.log &&
+  if [ -z "\$(tail -1 trimmomatic.log | grep "Completed successfully")" ]; then echo "Trimmomatic did not finish successfully" >&2 ; exit 1 ; fi
+  &&
+  #if $readtype.single_or_paired  == "pair_of_files"
+    mv fastq_out_r1_paired.'$r1_ext' '${fastq_out_r1_paired}' &&
+    mv fastq_out_r1_unpaired.'$r1_ext' '${fastq_out_r1_unpaired}' &&
+    mv fastq_out_r2_paired.'$r2_ext' '${fastq_out_r2_paired}' &&
+    mv fastq_out_r2_unpaired.'$r2_ext' '${fastq_out_r2_unpaired}'
+  #elif $readtype.single_or_paired  == "collection"
+    mv fastq_out_r1_paired.'$r1_ext' '${fastq_out_paired.forward}' &&
+    mv fastq_out_r1_unpaired.'$r1_ext' '${fastq_out_unpaired.forward}' &&
+    mv fastq_out_r2_paired.'$r2_ext' '${fastq_out_paired.reverse}' &&
+    mv fastq_out_r2_unpaired.'$r2_ext' '${fastq_out_unpaired.reverse}'
+  #else
+    mv fastq_out.'$fastq_in.extension' '${fastq_out}'
+  #end if
+  ]]></command>
+  <configfiles>
+    <configfile name="adapter_file_from_text">#set from_text_area = ''
+#if str( $illuminaclip.do_illuminaclip ) == "yes" and str( $illuminaclip.adapter_type.standard_or_custom ) == "custom":
+#set from_text_area = $illuminaclip.adapter_type.adapter_text
+#end if
+${from_text_area}</configfile>
+  </configfiles>
+
+  <inputs>
+    <conditional name="readtype">
+      <param name="single_or_paired" type="select" label="Single-end or paired-end reads?">
+         <option value="se" selected="true">Single-end</option>
+         <option value="pair_of_files">Paired-end (two separate input files)</option>
+         <option value="collection">Paired-end (as collection)</option>
+      </param>
+    <when value="se">
+      <param name="fastq_in" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz,fastqsolexa,fastqsolexa.gz" label="Input FASTQ file" />
+    </when>
+    <when value="pair_of_files">
+      <param name="fastq_r1_in" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz,fastqsolexa,fastqsolexa.gz"
+         label="Input FASTQ file (R1/first of pair)" />
+      <param name="fastq_r2_in" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz,fastqsolexa,fastqsolexa.gz"
+         label="Input FASTQ file (R2/second of pair)" />
+    </when>
+      <when value="collection">
+        <param name="fastq_pair" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz,fastqsolexa,fastqsolexa.gz" type="data_collection" collection_type="paired" label="Select FASTQ dataset collection with R1/R2 pair" />
+      </when>
+    </conditional>
+    <conditional name="illuminaclip">
+      <param name="do_illuminaclip" type="boolean" label="Perform initial ILLUMINACLIP step?" help="Cut adapter and other illumina-specific sequences from the read" truevalue="yes" falsevalue="no" checked="False" />
+      <when value="yes">
+        <conditional name="adapter_type">
+          <param name="standard_or_custom" type="select" label="Select standard adapter sequences or provide custom?">
+            <option value="standard" selected="true">Standard</option>
+            <option value="custom">Custom</option>
+          </param>
+          <when value="standard">
+            <param name="adapter_fasta" type="select" label="Adapter sequences to use">
+              <option value="TruSeq2-SE.fa">TruSeq2 (single-ended, for Illumina GAII)</option>
+              <option value="TruSeq3-SE.fa">TruSeq3 (single-ended, for MiSeq and HiSeq)</option>
+              <option value="TruSeq2-PE.fa">TruSeq2 (paired-ended, for Illumina GAII)</option>
+              <option value="TruSeq3-PE.fa">TruSeq3 (paired-ended, for MiSeq and HiSeq)</option>
+              <option value="TruSeq3-PE-2.fa">TruSeq3 (additional seqs) (paired-ended, for MiSeq and HiSeq)</option>
+              <option value="NexteraPE-PE.fa">Nextera (paired-ended)</option>
+            </param>
+          </when>
+          <when value="custom">
+            <param name="adapter_text" type="text" area="True" size="10x30" value=""
+                   label="Custom adapter sequences in fasta format" help="Write sequences in the fasta format.">
+              <sanitizer>
+                  <valid initial="string.printable"></valid>
+                  <mapping initial="none"/>
+              </sanitizer>
+            </param>
+          </when>
+        </conditional>
+        <param name="seed_mismatches" type="integer" label="Maximum mismatch count which will still allow a full match to be performed" value="2" />
+        <param name="palindrome_clip_threshold" type="integer" label="How accurate the match between the two 'adapter ligated' reads must be for PE palindrome read alignment" value="30" />
+        <param name="simple_clip_threshold" type="integer" label="How accurate the match between any adapter etc. sequence must be against a read" value="10" />
+        <param name="min_adapter_len" type="integer" label="Minimum length of adapter that needs to be detected (PE specific/palindrome mode)" value="8" />
+        <param name="keep_both_reads" type="boolean" label="Always keep both reads (PE specific/palindrome mode)?" truevalue="true" falsevalue="false" checked="true"
+               help="See help below"/>
+      </when>
+      <when value="no" /> <!-- empty clause to satisfy planemo lint -->
+    </conditional>
+    <repeat name="operations" title="Trimmomatic Operation" min="1">
+      <conditional name="operation">
+        <param name="name" type="select" label="Select Trimmomatic operation to perform">
+          <option selected="true" value="SLIDINGWINDOW">Sliding window trimming (SLIDINGWINDOW)</option>
+          <option value="MINLEN">Drop reads below a specified length (MINLEN)</option>
+          <option value="LEADING">Cut bases off the start of a read, if below a threshold quality (LEADING)</option>
+          <option value="TRAILING">Cut bases off the end of a read, if below a threshold quality (TRAILING)</option>
+          <option value="CROP">Cut the read to a specified length (CROP)</option>
+          <option value="HEADCROP">Cut the specified number of bases from the start of the read (HEADCROP)</option>
+          <option value="AVGQUAL">Drop reads with average quality lower than a specified level (AVGQUAL)</option>
+          <option value="MAXINFO">Trim reads adaptively, balancing read length and error rate to maximise the value of each read (MAXINFO)</option>
+        </param>
+        <when value="SLIDINGWINDOW">
+          <param name="window_size" type="integer" label="Number of bases to average across" value="4" />
+          <param name="required_quality" type="integer" label="Average quality required" value="20" />
+        </when>
+        <when value="MINLEN">
+          <param name="minlen" type="integer" label="Minimum length of reads to be kept" value="20" />
+        </when>
+        <when value="LEADING">
+          <param name="leading" type="integer" label="Minimum quality required to keep a base" value="3" help="Bases at the start of the read with quality below the threshold will be removed" />
+        </when>
+        <when value="TRAILING">
+          <param name="trailing" type="integer" label="Minimum quality required to keep a base" value="3" help="Bases at the end of the read with quality below the threshold will be removed" />
+        </when>
+        <when value="CROP">
+          <param name="crop" type="integer" label="Number of bases to keep from the start of the read" value="" />
+        </when>
+        <when value="HEADCROP">
+          <param name="headcrop" type="integer" label="Number of bases to remove from the start of the read" value="" />
+        </when>
+        <when value="AVGQUAL">
+          <param name="avgqual" type="integer" label="Minimum average quality required to keep a read" value="" />
+        </when>
+        <when value="MAXINFO">
+          <param name="target_length" type="integer" label="Target read length" value="" help="The read length which is likely to allow the location of the read within the target sequence to be determined." />
+          <param name="strictness" type="float" label="Strictness" value="" help="Set between zero and one - specifies the balance between preserving read length versus removal of incorrect bases; low values (&lt;0.2) favours longer reads, high values (&gt;0.8) favours read correctness." />
+        </when>
+      </conditional>
+    </repeat>
+    <param name="quality_score" type="select" optional="true" label="Quality score encoding" help="The phred+64 encoding works the same as the phred+33 encoding, except you add 64 to the phred score to determine the ascii code of the quality character. You will only find phred+64 encoding on older 
+      data, which was sequenced several years ago. FASTQC can be used in order to identify the encoding type.">
+        <option value="-phred33">Phred33</option>
+        <option value="-phred64">Phred64</option>
+    </param>
+    <param name="output_logs" argument="-trimlog" type="boolean" label="Output trimlog file?" truevalue="yes" falsevalue="no" checked="False" />
+    <param name="output_err" type="boolean" label="Output trimmomatic log messages?" truevalue="yes" falsevalue="no" checked="False" help="these are the messages written to stderr (eg. for use in MultiQC)" />
+  </inputs>
+  <outputs>
+    <data name="fastq_out_r1_paired" label="${tool.name} on ${readtype.fastq_r1_in.name} (R1 paired)" format_source="fastq_r1_in">
+      <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+    </data>
+    <data name="fastq_out_r2_paired" label="${tool.name} on ${readtype.fastq_r2_in.name} (R2 paired)" format_source="fastq_r2_in">
+      <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+    </data>
+    <data name="fastq_out_r1_unpaired" label="${tool.name} on ${readtype.fastq_r1_in.name} (R1 unpaired)" format_source="fastq_r1_in">
+      <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+    </data>
+    <data name="fastq_out_r2_unpaired" label="${tool.name} on ${readtype.fastq_r2_in.name} (R2 unpaired)" format_source="fastq_r2_in">
+      <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+    </data>
+    <data name="fastq_out" label="${tool.name} on ${readtype.fastq_in.name}" format_source="fastq_in">
+      <filter>readtype['single_or_paired'] == 'se'</filter>
+    </data>
+    <collection name="fastq_out_paired" type="paired" label="${tool.name} on ${on_string}: paired">
+      <filter>readtype['single_or_paired'] == "collection"</filter>
+      <data name="forward" label="${tool.name} on ${readtype.fastq_pair.forward.name} (R1 paired)" format_source="fastq_pair['forward']"/>
+      <data name="reverse" label="${tool.name} on ${readtype.fastq_pair.reverse.name} (R2 paired)" format_source="fastq_pair['reverse']"/>
+    </collection>
+      <collection name="fastq_out_unpaired" type="paired" label="${tool.name} on ${on_string}: unpaired">
+        <filter>readtype['single_or_paired'] == "collection"</filter>
+        <data name="forward" label="${tool.name} on ${readtype.fastq_pair.forward.name} (R1 unpaired)" format_source="fastq_pair['forward']"/>
+        <data name="reverse" label="${tool.name} on ${readtype.fastq_pair.reverse.name} (R2 unpaired)" format_source="fastq_pair['reverse']"/>
+    </collection>
+    <data name="log_file" format="txt" label="${tool.name} on ${on_string} (trimlog file)" from_work_dir="trimlog">
+      <filter>output_logs</filter>
+    </data>
+    <data name="err_file" format="txt" label="${tool.name} on ${on_string} (log file)" from_work_dir="trimmomatic.log">
+      <filter>output_err</filter>
+    </data>
+  </outputs>
+  <tests>
+    <test>
+      <!-- Single-end example -->
+      <conditional name="readtype">
+        <param name="single_or_paired" value="se" />
+        <param name="fastq_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      </conditional>
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <param name="output_logs" value="yes" />
+      <param name="output_err" value="yes" />
+      <output name="fastq_out" file="trimmomatic_se_out1.fastq" />
+      <output name="log_file" file="trimmomatic_se_out1.log" />
+      <output name="err_file" file="trimmomatic_se_out1.err" />
+    </test>
+    <test>
+      <!-- Single-end example - gzipped -->
+      <param name="single_or_paired" value="se" />
+      <param name="fastq_in" value="Illumina_SG_R1.fastq.gz" ftype="fastqsanger.gz" />
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out" file="trimmomatic_se_out1.fastq.gz" />
+    </test>
+    <test>
+      <!-- Paired-end example - gzipped -->
+      <param name="single_or_paired" value="pair_of_files" />
+      <param name="fastq_r1_in" value="Illumina_SG_R1.fastq.gz" ftype="fastqsanger.gz" />
+      <param name="fastq_r2_in" value="Illumina_SG_R2.fastq.gz" ftype="fastqsanger.gz" />
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1.fastq.gz" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq.gz" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq.gz" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1.fastq.gz" />
+    </test>
+    <test>
+      <!-- Paired-end example -->
+      <param name="single_or_paired" value="pair_of_files" />
+      <param name="fastq_r1_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      <param name="fastq_r2_in" value="Illumina_SG_R2.fastq" ftype="fastqsanger" />
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1.fastq" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1.fastq" />
+    </test>
+    <test>
+      <!-- Paired-end Illumina 1.3-1.7 quality encoding -->
+      <param name="single_or_paired" value="pair_of_files" />
+      <param name="fastq_r1_in" value="Illumina_SG_R1.fastqillumina" ftype="fastqillumina" />
+      <param name="fastq_r2_in" value="Illumina_SG_R2.fastqillumina" ftype="fastqillumina" />
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1.fastqillumina" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastqillumina" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastqillumina" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1.fastqillumina" />
+    </test>
+    <test>
+      <!-- Paired-end Solexa quality encoding -->
+      <param name="single_or_paired" value="pair_of_files" />
+      <param name="fastq_r1_in" value="Illumina_SG_R1.fastqsolexa" ftype="fastqsolexa" />
+      <param name="fastq_r2_in" value="Illumina_SG_R2.fastqsolexa" ftype="fastqsolexa" />
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1.fastqsolexa" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastqsolexa" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastqsolexa" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1.fastqsolexa" />
+    </test>
+    <test>
+      <!-- Single-end example (cropping) -->
+      <param name="single_or_paired" value="se" />
+      <param name="fastq_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      <param name="operations_0|operation|name" value="CROP" />
+      <param name="operations_0|operation|crop" value="10" />
+      <output name="fastq_out" file="trimmomatic_se_out2.fastq" />
+    </test>
+    <test>
+      <!-- Paired-end with dataset collection -->
+      <param name="single_or_paired" value="collection" />
+      <param name="fastq_pair">
+        <collection type="paired">
+          <element name="forward" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+          <element name="reverse" value="Illumina_SG_R2.fastq" ftype="fastqsanger"/>
+        </collection>
+      </param>
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output_collection name="fastq_out_paired" type="paired">
+        <element name="forward" file="trimmomatic_pe_r1_paired_out1.fastq" />
+        <element name="reverse" file="trimmomatic_pe_r2_paired_out1.fastq" />
+      </output_collection>
+      <output_collection name="fastq_out_unpaired" type="paired">
+        <element name="forward" file="trimmomatic_pe_r1_unpaired_out1.fastq" />
+        <element name="reverse" file="trimmomatic_pe_r2_unpaired_out1.fastq" />
+      </output_collection>
+    </test>
+    <test>
+      <!-- Paired-end with dataset collection - gzipped -->
+      <param name="single_or_paired" value="collection" />
+      <param name="fastq_pair">
+        <collection type="paired">
+          <element name="forward" value="Illumina_SG_R1.fastq.gz" ftype="fastqsanger.gz" />
+          <element name="reverse" value="Illumina_SG_R2.fastq.gz" ftype="fastqsanger.gz"/>
+        </collection>
+      </param>
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output_collection name="fastq_out_paired" type="paired">
+        <element name="forward" file="trimmomatic_pe_r1_paired_out1.fastq.gz" />
+        <element name="reverse" file="trimmomatic_pe_r2_paired_out1.fastq.gz" />
+      </output_collection>
+      <output_collection name="fastq_out_unpaired" type="paired">
+        <element name="forward" file="trimmomatic_pe_r1_unpaired_out1.fastq.gz" />
+        <element name="reverse" file="trimmomatic_pe_r2_unpaired_out1.fastq.gz" />
+      </output_collection>
+    </test>
+    <test>
+      <!-- Single-end using AVGQUAL -->
+      <param name="single_or_paired" value="se" />
+      <param name="fastq_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      <param name="operations_0|operation|name" value="AVGQUAL" />
+      <param name="operations_0|operation|avgqual" value="30" />
+      <output name="fastq_out" file="trimmomatic_avgqual.fastq" />
+    </test>
+    <test>
+      <!-- Single-end using MAXINFO -->
+      <param name="single_or_paired" value="se" />
+      <param name="fastq_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      <param name="operations_0|operation|name" value="MAXINFO" />
+      <param name="operations_0|operation|target_length" value="75" />
+      <param name="operations_0|operation|strictness" value="0.8" />
+      <output name="fastq_out" file="trimmomatic_maxinfo.fastq" />
+    </test>
+    <test>
+      <!-- Paired-end ILLUMINACLIP - this does not check valid clipping -->
+      <param name="single_or_paired" value="pair_of_files" />
+      <param name="fastq_r1_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      <param name="fastq_r2_in" value="Illumina_SG_R2.fastq" ftype="fastqsanger" />
+      <param name="do_illuminaclip" value="true"/>
+      <param name="adapter_fasta" value="TruSeq2-PE.fa"/>
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1_clip.fastq" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1_clip.fastq" />
+    </test>
+    <test>
+      <!-- Paired-end ILLUMINACLIP providing 'custom' adapters - this does not check valid clipping -->
+      <param name="single_or_paired" value="pair_of_files" />
+      <param name="fastq_r1_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      <param name="fastq_r2_in" value="Illumina_SG_R2.fastq" ftype="fastqsanger" />
+      <param name="do_illuminaclip" value="true"/>
+      <param name="standard_or_custom" value="custom"/>
+      <param name="adapter_text"
+             value=">PrefixPE/1&#10;AATGATACGGCGACCACCGAGATCTACACTCTTTCCCTACACGACGCTCTTCCGATCT&#10;>PrefixPE/2&#10;CAAGCAGAAGACGGCATACGAGATCGGTCTCGGCATTCCTGCTGAACCGCTCTTCCGATCT&#10;>PCR_Primer1&#10;AATGATACGGCGACCACCGAGATCTACACTCTTTCCCTACACGACGCTCTTCCGATCT&#10;>PCR_Primer1_rc&#10;AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT&#10;>PCR_Primer2&#10;CAAGCAGAAGACGGCATACGAGATCGGTCTCGGCATTCCTGCTGAACCGCTCTTCCGATCT&#10;>PCR_Primer2_rc&#10;AGATCGGAAGAGCGGTTCAGCAGGAATGCCGAGACCGATCTCGTATGCCGTCTTCTGCTTG&#10;>FlowCell1&#10;TTTTTTTTTTAATGATACGGCGACCACCGAGATCTACAC&#10;>FlowCell2&#10;TTTTTTTTTTCAAGCAGAAGACGGCATACGA&#10;"/>
+      <param name="adapter_fasta" value="TruSeq2-PE.fa"/>
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1_clip.fastq" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1_clip.fastq" />
+    </test>
+    <test>
+      <!-- Quality score test -->
+      <conditional name="readtype">
+        <param name="single_or_paired" value="se" />
+        <param name="fastq_in" value="Illumina_SG_R1.fastq" ftype="fastqsanger" />
+      </conditional>
+      <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
+      <param name="output_logs" value="yes" />
+      <param name="output_err" value="yes" />
+      <param name="quality_score" value="-phred33"/>
+      <output name="fastq_out" file="trimmomatic_se_out1.fastq" />
+      <output name="log_file" file="trimmomatic_se_out1.log" />
+      <output name="err_file" file="trimmomatic_se_out2.err" />
+    </test>
+  </tests>
+  <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+Trimmomatic performs a variety of useful trimming tasks for illumina paired-end and
+single ended data.
+
+This tool allows the following trimming steps to be performed:
+
+ * **ILLUMINACLIP:** Cut adapter and other illumina-specific sequences from the read
+
+   * If **Always keep both reads (PE specific/palindrome mode)** is True, the reverse read will also be retained in palindrome mode.
+     After read-though has been detected by palindrome mode, and the adapter sequence removed,
+     the reverse read contains the same sequence information as the forward read, albeit in reverse complement.
+     For this reason, the default behaviour is to entirely drop the reverse read.
+     Retaining the reverse read may be useful e.g. if the downstream tools cannot handle a combination of paired and unpaired reads.
+ * **SLIDINGWINDOW:** Perform a sliding window trimming, cutting once the average
+   quality within the window falls below a threshold
+ * **MINLEN:** Drop the read if it is below a specified length
+ * **LEADING:** Cut bases off the start of a read, if below a threshold quality
+ * **TRAILING:** Cut bases off the end of a read, if below a threshold quality
+ * **CROP:** Cut the read to a specified length
+ * **HEADCROP:** Cut the specified number of bases from the start of the read
+ * **AVGQUAL:** Drop the read if the average quality is below a specified value
+ * **MAXINFO:** Trim reads adaptively, balancing read length and error rate to
+   maximise the value of each read
+
+If ILLUMINACLIP is requested then it is always performed first; subsequent options
+can be mixed and matched and will be performed in the order that they have been
+specified.
+
+.. class:: warningmark
+
+Note that trimming operation order is important.
+
+-------------
+
+.. class:: infomark
+
+**Inputs**
+
+For single-end data this Trimmomatic tool accepts a single FASTQ file; for
+paired-end data it will accept either two FASTQ files (R1 and R2), or a
+dataset collection containing the R1/R2 FASTQ pair.
+
+.. class:: infomark
+
+**Outputs**
+
+For paired-end data a particular strength of Trimmomatic is that it retains the
+pairing of reads (from R1 and R2) in the filtered output files:
+
+ * Two FASTQ files (R1-paired and R2-paired) contain one read from each pair where
+   both have survived filtering.
+ * Additionally two FASTQ files (R1-unpaired and R2-unpaired) contain reads where
+   one of the pair failed the filtering steps.
+
+.. class:: warningmark
+
+If the input consists of a dataset collection with the R1/R2 FASTQ pair then
+the outputs will also inclue two dataset collections: one for the 'paired'
+outputs and one for the 'unpaired' (as described above)
+
+Retaining the same order and number of reads in the filtered output fastq files is
+essential for many downstream analysis tools.
+
+For single-end data the output is a single FASTQ file containing just the filtered
+reads.
+
+-------------
+
+.. class:: infomark
+
+**Credits**
+
+This Galaxy tool has been developed within the Bioinformatics Core Facility at the
+University of Manchester, with contributions from Peter van Heusden, Marius
+van den Beek, Jelle Scholtalbers, Charles Girardot, Matthias Bernt and Cristóbal Gallardo.
+
+It runs the Trimmomatic program which has been developed
+within Bjorn Usadel's group at RWTH Aachen university.
+
+Trimmomatic website (including documentation):
+
+ * http://www.usadellab.org/cms/index.php?page=trimmomatic
+
+The reference for Trimmomatic is:
+
+ * Bolger, A.M., Lohse, M., &amp; Usadel, B. (2014). Trimmomatic: A flexible trimmer
+   for Illumina Sequence Data. Bioinformatics, btu170.
+
+Please kindly acknowledge both this Galaxy tool and the Trimmomatic program if you
+use it.
+  ]]></help>
+  <citations>
+    <!--
+    See https://wiki.galaxyproject.org/Admin/Tools/ToolConfigSyntax#A.3Ccitations.3E_tag_set
+    Can be either DOI or Bibtex
+    Use http://www.bioinformatics.org/texmed/ to convert PubMed to Bibtex
+    -->
+    <citation type="doi">10.1093/bioinformatics/btu170</citation>
+  </citations>
+</tool>
