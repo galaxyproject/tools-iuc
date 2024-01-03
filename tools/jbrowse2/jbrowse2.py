@@ -547,7 +547,7 @@ class JbrowseConnector(object):
                 "type": "Gff3TabixAdapter",
                 "gffGzLocation": {"locationType": "UriLocation", "uri": url},
                 "index": {
-                    "location": {"locationType": "UriLocation", "uri": url + ".tbi"}
+                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
                 },
             },
             "displays": [
@@ -566,14 +566,18 @@ class JbrowseConnector(object):
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         self._sort_bed(data, dest)
         tId = trackData["label"]
+        url = url + ".gz"
         trackDict = {
             "type": "FeatureTrack",
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
             "adapter": {
-                "type": "BedAdapter",
-                "bedLocation": {"locationType": "UriLocation", "uri": url + ".gz"},
+                "type": "BedTabixAdapter",
+                "bedGzLocation": {"locationType": "UriLocation", "uri": url},
+                "index": {
+                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
+                },
             },
             "displays": [
                 {
