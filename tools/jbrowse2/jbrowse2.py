@@ -187,10 +187,16 @@ class JbrowseConnector(object):
             # issues.
             genome_name = genome_node["meta"]["dataset_dname"]
             dsId = genome_node["meta"]["dataset_id"]
-            faname = genome_name + ".fasta"
-            faurl = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
             fapath = genome_node["path"]
+            faname = genome_name + ".fasta"
             faind = os.path.realpath(os.path.join(self.outdir, faname + ".fai"))
+            if self.standalone == "complete":
+                faurl = faname
+                fadest = os.path.realpath(os.path.join(self.outdir, faname))
+                cmd = ["cp", fapath, fadest]
+                self.subprocess_check_call(cmd)
+            else:
+                faurl = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
             cmd = ["samtools", "faidx", fapath, "--fai-idx", faind]
             self.subprocess_check_call(cmd)
             trackDict = {
@@ -251,14 +257,23 @@ class JbrowseConnector(object):
         """
         log.info("#### trackData=%s" % trackData)
         tId = trackData["label"]
+        dsId = trackData["metadata"]["dataset_id"]
         url = "%s/api/datasets/%s/display?to_ext=hic " % (
             self.giURL,
-            trackData["metadata"]["dataset_id"],
+            dsId,
         )
+        hname = trackData["name"]
+        if self.standalone == "complete":
+            dest = os.path.realpath(os.path.join(self.outdir, hname))
+            url = hname
+            cmd = ["cp", data, dest]
+            self.subprocess_check_call(cmd)
+        else:
+            url = "%s/api/datasets/%s/display?to_ext=hic" % (self.giURL, dsId)
         trackDict = {
             "type": "HicTrack",
             "trackId": tId,
-            "name": trackData["name"],
+            "name": hname,
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "HicAdapter",
@@ -393,15 +408,20 @@ class JbrowseConnector(object):
         os.unlink(gff3)
 
     def add_bigwig(self, data, trackData):
-        url = "%s/api/datasets/%s/display" % (
-            self.giURL,
-            trackData["metadata"]["dataset_id"],
-        )
+        fname = trackData["name"]
+        if self.standalone == "complete":
+            dest = os.path.realpath(os.path.join(self.outdir, fname))
+            url = fname
+            cmd = ["cp", data, dest]
+            self.subprocess_check_call(cmd)
+        else:
+            dsId = trackData["metadata"]["dataset_id"]
+            url = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
         tId = trackData["label"]
         trackDict = {
             "type": "QuantitativeTrack",
             "trackId": tId,
-            "name": trackData["name"],
+            "name": fname,
             "assemblyNames": [
                 self.genome_name,
             ],
@@ -421,9 +441,14 @@ class JbrowseConnector(object):
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         tId = trackData["label"]
-        url = "%s.bam" % trackData["label"]
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
-        self.symlink_or_copy(os.path.realpath(data), dest)
+        fname = "%s.bam" % trackData["label"]
+        dest = os.path.realpath("%s/%s" % (self.outdir, fname))
+        if self.standalone == "minimal":
+            dsId = trackData["metadata"]["dataset_id"]
+            url = "%s/api/datasets/%s/display?to_ext=bam" % (self.giURL, dsId)
+        else:
+            url = fname
+            self.symlink_or_copy(data, dest)
         if bam_index is not None and os.path.exists(os.path.realpath(bam_index)):
             # bai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
             self.subprocess_check_call(
@@ -447,7 +472,7 @@ class JbrowseConnector(object):
                 "type": "BamAdapter",
                 "bamLocation": {"locationType": "UriLocation", "uri": url},
                 "index": {
-                    "location": {"locationType": "UriLocation", "uri": url + ".bai"}
+                    "location": {"locationType": "UriLocation", "uri": fname + ".bai"}
                 },
                 "sequenceAdapter": {
                     "type": "IndexedFastaAdapter",
@@ -475,7 +500,6 @@ class JbrowseConnector(object):
             self.giURL,
             trackData["metadata"]["dataset_id"],
         )
-
         url = "%s.vcf.gz" % tId
         dest = os.path.realpath("%s/%s" % (self.outdir, url))
         cmd = "bgzip -c %s  > %s" % (data, dest)
@@ -525,12 +549,10 @@ class JbrowseConnector(object):
     def _sort_bed(self, data, dest):
         # Only index if not already done
         if not os.path.exists(dest):
-            cmd = ["sort", "-k1,1", "-k2,2n", data]
-            with open(dest, "w") as handle:
-                self.subprocess_check_call(cmd, output=handle)
-
-            self.subprocess_check_call(["bgzip", "-f", dest])
-            self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"])
+            cmd = "sort -k1,1 -k2,2n %s | bgzip -c > %s" % (data, dest)
+            self.subprocess_popen(cmd)
+            cmd = ["tabix", "-f", "-p", "bed", dest]
+            self.subprocess_check_call(cmd)
 
     def add_gff(self, data, ext, trackData):
         url = "%s.%s" % (trackData["label"], ext)
@@ -563,7 +585,7 @@ class JbrowseConnector(object):
 
     def add_bed(self, data, ext, trackData):
         url = "%s.%s" % (trackData["label"], ext)
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        dest = os.path.realpath("%s/%s.gz" % (self.outdir, url))
         self._sort_bed(data, dest)
         tId = trackData["label"]
         url = url + ".gz"
