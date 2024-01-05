@@ -172,15 +172,17 @@ class JbrowseConnector(object):
         for i, genome_node in enumerate(self.genome_paths):
             if self.debug:
                 log.info("genome_node=%s" % str(genome_node))
-            genome_name = genome_node["meta"]["dataset_dname"]
+            genome_name = genome_node["meta"]["dataset_dname"].strip().split()[0]
             fapath = genome_node["path"]
             faname = genome_name + ".fa.gz"
             fadest = os.path.realpath(os.path.join(self.outdir, faname))
             cmd = "bgzip -i -c %s > %s && samtools faidx %s" % (
                 fapath,
                 fadest,
-                fadest,
+                fadest
             )
+            if self.debug:
+                log.info("### cmd = %s" % cmd)
             self.subprocess_popen(cmd)
             adapter = {
                 "type": "BgzipFastaAdapter",
