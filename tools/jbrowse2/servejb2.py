@@ -13,7 +13,6 @@ import os
 import re
 import socketserver
 import webbrowser
-
 from http.server import SimpleHTTPRequestHandler
 
 
