@@ -8,7 +8,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -109,11 +108,10 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, jbrowse, outdir, genomes):
+    def __init__(self, outdir, genomes):
         self.debug = False
         self.usejson = True
         self.giURL = GALAXY_INFRASTRUCTURE_URL
-        self.jbrowse = jbrowse
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_paths = genomes
@@ -121,7 +119,7 @@ class JbrowseConnector(object):
         self.tracksToAdd = []
         self.config_json = {}
         self.config_json_file = os.path.join(outdir, "config.json")
-        self.clone_jbrowse(self.jbrowse, self.outdir)
+        self.clone_jbrowse(destination=self.outdir)
 
     def subprocess_check_call(self, command, output=None):
         if output:
@@ -156,9 +154,6 @@ class JbrowseConnector(object):
             log.debug(" ".join(command))
         return subprocess.check_output(command, cwd=self.outdir)
 
-    def _jbrowse_bin(self, command):
-        return os.path.join(self.jbrowse, "bin", command)
-
     def symlink_or_copy(self, src, dest):
         if "GALAXY_JBROWSE_SYMLINKS" in os.environ and bool(
             os.environ["GALAXY_JBROWSE_SYMLINKS"]
@@ -179,7 +174,12 @@ class JbrowseConnector(object):
             faname = genome_name + ".fa.gz"
             fadest = os.path.join(self.outdir, faname)
             # fadest = os.path.realpath(os.path.join(self.outdir, faname))
-            cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (fapath, fadest, fadest, fadest)
+            cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (
+                fapath,
+                fadest,
+                fadest,
+                fadest,
+            )
             if self.debug:
                 log.info("### cmd = %s" % cmd)
             self.subprocess_popen(cmd)
@@ -860,9 +860,9 @@ class JbrowseConnector(object):
             else:
                 log.warn("Do not know how to handle %s", dataset_ext)
 
-    def clone_jbrowse(self, jbrowse_dir, destination):
+    def clone_jbrowse(self, destination):
         """Clone a JBrowse directory into a destination directory."""
-        cmd = ["jbrowse", "create", "-f", os.path.realpath(self.outdir)]
+        cmd = ["jbrowse", "create", "-f", os.path.realpath(destination)]
         self.subprocess_check_call(cmd)
         for fn in [
             "asset-manifest.json",
@@ -881,20 +881,29 @@ class JbrowseConnector(object):
         """Clone a JBrowse directory into a destination directory."""
         cmd = ["cp", "-rv", jbrowse_dir + "/*", self.outdir]
         self.subprocess_check_call(cmd)
+        for fn in [
+            "asset-manifest.json",
+            "favicon.ico",
+            "robots.txt",
+            "umd_plugin.js",
+            "version.txt",
+            "test_data",
+        ]:
+            cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
+            self.subprocess_check_call(cmd)
         cmd = ["cp", os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
         self.subprocess_check_call(cmd)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument("xml", type=argparse.FileType("r"), help="Track Configuration")
-
-    parser.add_argument("--jbrowse", help="Folder containing a jbrowse release")
+    parser.add_argument("--xml", help="Track Configuration")
+    parser.add_argument("--jbrowse", help="Output from 'which jbrowse'")
     parser.add_argument("--outdir", help="Output directory", default="out")
-    parser.add_argument("--version", "-V", action="version", version="%(prog)s 0.8.0")
+    parser.add_argument("--version", "-V", action="version", version="%(prog)s 2.0.1")
     args = parser.parse_args()
 
-    tree = ET.parse(args.xml.name)
+    tree = ET.parse(args.xml)
     root = tree.getroot()
 
     # This should be done ASAP
@@ -904,23 +913,7 @@ if __name__ == "__main__":
         # so we'll prepend `http://` and hope for the best. Requests *should*
         # be GET and not POST so it should redirect OK
         GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
-    jb = args.jbrowse
-    jb1, one = os.path.split(jb)
-    jb1 += "/opt/jbrowse2"  # /../opt/jbrowse
-    jb2, two = os.path.split(jb1)
-    jb2 += "/opt/jbrowse2"  # /../../opt/jbrowse for container
-    if os.path.exists(jb1) and "manifest.json" in os.listdir(jb1):
-        jbdir = jb1
-    elif os.path.exists(jb2) and "manifest.json" in os.listdir(jb2):
-        jbdir = jb2
-    else:
-        log.error(
-            "unable to find the jbrowse2 directory for cloning jb1= %s, jb2 = %s - args.jbrowse = %s"
-            % (jb1, jb2, args.jbrowse)
-        )
-        sys.exit(10)
     jc = JbrowseConnector(
-        jbrowse=jbdir,
         outdir=args.outdir,
         genomes=[
             {
