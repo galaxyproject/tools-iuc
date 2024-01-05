@@ -12,8 +12,10 @@ import functools
 import os
 import re
 import socketserver
-from http.server import SimpleHTTPRequestHandler
 import webbrowser
+
+from http.server import SimpleHTTPRequestHandler
+
 
 DEFAULT_PORT = 8080
 
