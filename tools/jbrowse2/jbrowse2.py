@@ -108,30 +108,19 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, jbrowse, outdir, genomes, standalone=None):
+    def __init__(self, jbrowse, outdir, genomes):
         self.debug = False
+        self.usejson = True
         self.giURL = GALAXY_INFRASTRUCTURE_URL
         self.jbrowse = jbrowse
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_paths = genomes
-        self.standalone = standalone
         self.trackIdlist = []
         self.tracksToAdd = []
-        self.config_json = {
-            "configuration": {
-                "rpc": {
-                    "defaultDriver": "WebWorkerRpcDriver",
-                    "drivers": {"MainThreadRpcDriver": {}, "WebWorkerRpcDriver": {}},
-                },
-                "logoPath": {"locationType": "UriLocation", "uri": ""},
-            }
-        }
-        self.config_json_file = os.path.join(outdir, "config.json")
-        if standalone == "complete":
-            self.clone_jbrowse(self.jbrowse, self.outdir)
-        elif standalone == "minimal":
-            self.clone_jbrowse(self.jbrowse, self.outdir, minimal=True)
+        self.config_json = {}
+        self.config_json_file = os.path.realpath(os.path.join(outdir, "config.json"))
+        self.clone_jbrowse(self.jbrowse, self.outdir)
 
     def subprocess_check_call(self, command, output=None):
         if output:
@@ -181,44 +170,62 @@ class JbrowseConnector(object):
     def process_genomes(self):
         assemblies = []
         for i, genome_node in enumerate(self.genome_paths):
-            log.info("genome_node=%s" % str(genome_node))
-            # We only expect one input genome per run. This for loop is just
-            # easier to write than the alternative / catches any possible
-            # issues.
+            if self.debug:
+                log.info("genome_node=%s" % str(genome_node))
             genome_name = genome_node["meta"]["dataset_dname"]
-            dsId = genome_node["meta"]["dataset_id"]
             fapath = genome_node["path"]
-            faname = genome_name + ".fasta"
-            faind = os.path.realpath(os.path.join(self.outdir, faname + ".fai"))
-            if self.standalone == "complete":
-                faurl = faname
-                fadest = os.path.realpath(os.path.join(self.outdir, faname))
-                cmd = ["cp", fapath, fadest]
-                self.subprocess_check_call(cmd)
-            else:
-                faurl = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
-            cmd = ["samtools", "faidx", fapath, "--fai-idx", faind]
-            self.subprocess_check_call(cmd)
+            faname = genome_name + ".fa.gz"
+            fadest = os.path.realpath(os.path.join(self.outdir, faname))
+            cmd = "bgzip -i -c %s > %s && samtools faidx %s" % (
+                fapath,
+                fadest,
+                fadest,
+            )
+            self.subprocess_popen(cmd)
+            adapter = {
+                "type": "BgzipFastaAdapter",
+                "fastaLocation": {
+                    "uri": faname,
+                },
+                "faiLocation": {
+                    "uri": faname + ".fai",
+                },
+                "gziLocation": {
+                    "uri": faname + ".gzi",
+                },
+            }
             trackDict = {
                 "name": genome_name,
                 "sequence": {
                     "type": "ReferenceSequenceTrack",
                     "trackId": genome_name,
-                    "adapter": {
-                        "type": "IndexedFastaAdapter",
-                        "fastaLocation": {"uri": faurl, "locationType": "UriLocation"},
-                        "faiLocation": {
-                            "uri": faname + ".fai",
-                            "locationType": "UriLocation",
-                        },
-                    },
+                    "adapter": adapter,
                 },
+                "rendering": {"type": "DivSequenceRenderer"},
             }
             assemblies.append(trackDict)
-        self.config_json["assemblies"] = assemblies
         self.genome_name = genome_name
-        self.genome_path = faurl
-        self.genome_fai_path = faname + ".fai"
+        if self.usejson:
+            self.config_json["assemblies"] = assemblies
+        else:
+            cmd = [
+                "jbrowse",
+                "add-assembly",
+                faname,
+                "-t",
+                "bgzipFasta",
+                "-n",
+                genome_name,
+                "--load",
+                "inPlace",
+                "--faiLocation",
+                faname + ".fai",
+                "--gziLocation",
+                faname + ".gzi",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def add_default_view(self):
         cmd = [
@@ -229,10 +236,14 @@ class JbrowseConnector(object):
             "-t",
             ",".join(self.trackIdlist),
             "-n",
-            "Default",
+            "JBrowse2 in Galaxy",
             "--target",
-            self.outdir,
-        ]  #
+            self.config_json_file,
+            "-v",
+            " LinearGenomeView",
+        ]
+        if self.debug:
+            log.info("### calling set-default-session with cmd=%s" % "  ".join(cmd))
         self.subprocess_check_call(cmd)
 
     def write_config(self):
@@ -263,13 +274,13 @@ class JbrowseConnector(object):
             dsId,
         )
         hname = trackData["name"]
-        if self.standalone == "complete":
-            dest = os.path.realpath(os.path.join(self.outdir, hname))
-            url = hname
-            cmd = ["cp", data, dest]
-            self.subprocess_check_call(cmd)
-        else:
-            url = "%s/api/datasets/%s/display?to_ext=hic" % (self.giURL, dsId)
+        dest = os.path.realpath(os.path.join(self.outdir, hname))
+        url = hname
+        cmd = ["cp", data, dest]
+        self.subprocess_check_call(cmd)
+        floc = {
+            "uri": hname,
+        }
         trackDict = {
             "type": "HicTrack",
             "trackId": tId,
@@ -277,11 +288,29 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "HicAdapter",
-                "hicLocation": {"uri": url, "locationType": "UriLocation"},
+                "hicLocation": floc,
             },
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                url,
+                "-t",
+                "HicTrack",
+                "-a",
+                self.genome_name,
+                "-n",
+                hname,
+                "--load",
+                "inPlace",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def add_maf(self, data, trackData):
         """
@@ -333,9 +362,13 @@ class JbrowseConnector(object):
             "adapter": {
                 "type": "MafTabixAdapter",
                 "samples": samples,
-                "bedGzLocation": {"uri": fname + ".sorted.bed.gz"},
+                "bedGzLocation": {
+                    "uri": fname + ".sorted.bed.gz",
+                },
                 "index": {
-                    "location": {"uri": fname + ".sorted.bed.gz.tbi"},
+                    "location": {
+                        "uri": fname + ".sorted.bed.gz.tbi",
+                    },
                 },
             },
             "assemblyNames": [self.genome_name],
@@ -390,9 +423,13 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "Gff3TabixAdapter",
-                "gffGzLocation": {"locationType": "UriLocation", "uri": url},
+                "gffGzLocation": {
+                    "uri": url,
+                },
                 "index": {
-                    "location": {"locationType": "UriLocation", "uri": url + ".tbi"}
+                    "location": {
+                        "uri": url + ".tbi",
+                    }
                 },
             },
             "displays": [
@@ -403,31 +440,47 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                url,
+                "-t",
+                "FeatureTrack",
+                "-a",
+                self.genome_name,
+                "--indexFile",
+                url + ".tbi",
+                "-n",
+                trackData["name"],
+                "--load",
+                "inPlace",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
         os.unlink(gff3)
 
     def add_bigwig(self, data, trackData):
-        fname = trackData["name"]
-        if self.standalone == "complete":
-            dest = os.path.realpath(os.path.join(self.outdir, fname))
-            url = fname
-            cmd = ["cp", data, dest]
-            self.subprocess_check_call(cmd)
-        else:
-            dsId = trackData["metadata"]["dataset_id"]
-            url = "%s/api/datasets/%s/display?to_ext=fasta" % (self.giURL, dsId)
+        url = "%s.bw" % trackData["name"]
+        dest = os.path.realpath(os.path.join(self.outdir, url))
+        cmd = ["cp", data, dest]
+        self.subprocess_check_call(cmd)
+        bwloc = {"uri": url}
         tId = trackData["label"]
         trackDict = {
             "type": "QuantitativeTrack",
             "trackId": tId,
-            "name": fname,
+            "name": url,
             "assemblyNames": [
                 self.genome_name,
             ],
             "adapter": {
                 "type": "BigWigAdapter",
-                "bigWigLocation": {"locationType": "UriLocation", "uri": url},
+                "bigWigLocation": bwloc,
             },
             "displays": [
                 {
@@ -436,19 +489,35 @@ class JbrowseConnector(object):
                 }
             ],
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                url,
+                "-t",
+                "QuantitativeTrack",
+                "-a",
+                self.genome_name,
+                "-n",
+                trackData["name"],
+                "--load",
+                "inPlace",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         tId = trackData["label"]
         fname = "%s.bam" % trackData["label"]
         dest = os.path.realpath("%s/%s" % (self.outdir, fname))
-        if self.standalone == "minimal":
-            dsId = trackData["metadata"]["dataset_id"]
-            url = "%s/api/datasets/%s/display?to_ext=bam" % (self.giURL, dsId)
-        else:
-            url = fname
-            self.symlink_or_copy(data, dest)
+        url = fname
+        self.subprocess_check_call(["cp", data, dest])
+        log.info("### copied %s to %s" % (data, dest))
+        bloc = {"uri": url}
         if bam_index is not None and os.path.exists(os.path.realpath(bam_index)):
             # bai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
             self.subprocess_check_call(
@@ -470,29 +539,36 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "BamAdapter",
-                "bamLocation": {"locationType": "UriLocation", "uri": url},
+                "bamLocation": bloc,
                 "index": {
-                    "location": {"locationType": "UriLocation", "uri": fname + ".bai"}
-                },
-                "sequenceAdapter": {
-                    "type": "IndexedFastaAdapter",
-                    "fastaLocation": {
-                        "locationType": "UriLocation",
-                        "uri": self.genome_path,
-                    },
-                    "faiLocation": {
-                        "locationType": "UriLocation",
-                        "uri": self.genome_fai_path,
-                    },
-                    "metadataLocation": {
-                        "locationType": "UriLocation",
-                        "uri": "/path/to/fa.metadata.yaml",
-                    },
+                    "location": {
+                        "uri": fname + ".bai",
+                    }
                 },
             },
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                fname,
+                "-t",
+                "AlignmentsTrack",
+                "-l",
+                "inPlace",
+                "-a",
+                self.genome_name,
+                "--indexFile",
+                fname + ".bai",
+                "-n",
+                trackData["name"],
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def add_vcf(self, data, trackData):
         tId = trackData["label"]
@@ -513,9 +589,13 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "VcfTabixAdapter",
-                "vcfGzLocation": {"uri": url, "locationType": "UriLocation"},
+                "vcfGzLocation": {
+                    "uri": url,
+                },
                 "index": {
-                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
+                    "location": {
+                        "uri": url + ".tbi",
+                    }
                 },
             },
             "displays": [
@@ -533,8 +613,28 @@ class JbrowseConnector(object):
                 },
             ],
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                url,
+                "-t",
+                "VariantTrack",
+                "-a",
+                self.genome_name,
+                "--indexFile",
+                url + ".tbi",
+                "-n",
+                trackData["name"],
+                "--load",
+                "inPlace",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def _sort_gff(self, data, dest):
         # Only index if not already done
@@ -567,9 +667,13 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "Gff3TabixAdapter",
-                "gffGzLocation": {"locationType": "UriLocation", "uri": url},
+                "gffGzLocation": {
+                    "uri": url,
+                },
                 "index": {
-                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
+                    "location": {
+                        "uri": url + ".tbi",
+                    }
                 },
             },
             "displays": [
@@ -580,8 +684,26 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                url,
+                "-t",
+                "FeatureTrack",
+                "-a",
+                self.genome_name,
+                "-n",
+                trackData["name"],
+                "--load",
+                "inPlace",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def add_bed(self, data, ext, trackData):
         url = "%s.%s" % (trackData["label"], ext)
@@ -596,9 +718,13 @@ class JbrowseConnector(object):
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "BedTabixAdapter",
-                "bedGzLocation": {"locationType": "UriLocation", "uri": url},
+                "bedGzLocation": {
+                    "uri": url,
+                },
                 "index": {
-                    "location": {"uri": url + ".tbi", "locationType": "UriLocation"}
+                    "location": {
+                        "uri": url + ".tbi",
+                    }
                 },
             },
             "displays": [
@@ -609,8 +735,28 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
-        self.tracksToAdd.append(trackDict)
-        self.trackIdlist.append(tId)
+        if self.usejson:
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            cmd = [
+                "jbrowse",
+                "add-track",
+                url,
+                "-t",
+                "FeatureTrack",
+                "-a",
+                self.genome_name,
+                "--indexFile",
+                url + ".tbi",
+                "-n",
+                trackData["name"],
+                "--load",
+                "inPlace",
+                "--target",
+                self.outdir,
+            ]
+            self.subprocess_check_call(cmd)
 
     def process_annotations(self, track):
         category = track["category"].replace("__pd__date__pd__", TODAY)
@@ -713,7 +859,7 @@ class JbrowseConnector(object):
             else:
                 log.warn("Do not know how to handle %s", dataset_ext)
 
-    def clone_jbrowse(self, jbrowse_dir, destination, minimal=False):
+    def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory."""
         cmd = ["jbrowse", "create", "-f", self.outdir]
         self.subprocess_check_call(cmd)
@@ -727,6 +873,8 @@ class JbrowseConnector(object):
         ]:
             cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
             self.subprocess_check_call(cmd)
+        cmd = ['cp', os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
+        self.subprocess_check_call(cmd)
 
 
 if __name__ == "__main__":
@@ -735,11 +883,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--jbrowse", help="Folder containing a jbrowse release")
     parser.add_argument("--outdir", help="Output directory", default="out")
-    parser.add_argument(
-        "--standalone",
-        choices=["complete", "minimal", "data"],
-        help="Standalone mode includes a copy of JBrowse",
-    )
     parser.add_argument("--version", "-V", action="version", version="%(prog)s 0.8.0")
     args = parser.parse_args()
 
@@ -764,7 +907,6 @@ if __name__ == "__main__":
             }
             for x in root.findall("metadata/genomes/genome")
         ],
-        standalone=args.standalone,
     )
     jc.process_genomes()
 
@@ -842,5 +984,6 @@ if __name__ == "__main__":
         str(jc.config_json),
     )
     jc.config_json["tracks"] = jc.tracksToAdd
-    jc.write_config()
+    if jc.usejson:
+        jc.write_config()
     jc.add_default_view()
