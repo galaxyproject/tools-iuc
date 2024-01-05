@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -119,7 +120,7 @@ class JbrowseConnector(object):
         self.trackIdlist = []
         self.tracksToAdd = []
         self.config_json = {}
-        self.config_json_file = os.path.realpath(os.path.join(outdir, "config.json"))
+        self.config_json_file = os.path.join(outdir, "config.json")
         self.clone_jbrowse(self.jbrowse, self.outdir)
 
     def subprocess_check_call(self, command, output=None):
@@ -133,9 +134,10 @@ class JbrowseConnector(object):
 
     def subprocess_popen(self, command):
         if self.debug:
-            log.debug("cd %s && %s", self.outdir, command)
+            log.debug(command)
         p = subprocess.Popen(
             command,
+            cwd=self.outdir,
             shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -144,18 +146,18 @@ class JbrowseConnector(object):
         output, err = p.communicate()
         retcode = p.returncode
         if retcode != 0:
-            log.error("cd %s && %s", self.outdir, command)
+            log.error(command)
             log.error(output)
             log.error(err)
             raise RuntimeError("Command failed with exit code %s" % (retcode))
 
     def subprocess_check_output(self, command):
         if self.debug:
-            log.debug("cd %s && %s", self.outdir, " ".join(command))
+            log.debug(" ".join(command))
         return subprocess.check_output(command, cwd=self.outdir)
 
     def _jbrowse_bin(self, command):
-        return os.path.realpath(os.path.join(self.jbrowse, "bin", command))
+        return os.path.join(self.jbrowse, "bin", command)
 
     def symlink_or_copy(self, src, dest):
         if "GALAXY_JBROWSE_SYMLINKS" in os.environ and bool(
@@ -175,12 +177,9 @@ class JbrowseConnector(object):
             genome_name = genome_node["meta"]["dataset_dname"].strip().split()[0]
             fapath = genome_node["path"]
             faname = genome_name + ".fa.gz"
-            fadest = os.path.realpath(os.path.join(self.outdir, faname))
-            cmd = "bgzip -i -c %s > %s && samtools faidx %s" % (
-                fapath,
-                fadest,
-                fadest
-            )
+            fadest = os.path.join(self.outdir, faname)
+            # fadest = os.path.realpath(os.path.join(self.outdir, faname))
+            cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (fapath, fadest, fadest, fadest)
             if self.debug:
                 log.info("### cmd = %s" % cmd)
             self.subprocess_popen(cmd)
@@ -276,7 +275,7 @@ class JbrowseConnector(object):
             dsId,
         )
         hname = trackData["name"]
-        dest = os.path.realpath(os.path.join(self.outdir, hname))
+        dest = os.path.join(self.outdir, hname)
         url = hname
         cmd = ["cp", data, dest]
         self.subprocess_check_call(cmd)
@@ -331,7 +330,7 @@ class JbrowseConnector(object):
         }
         tId = trackData["label"]
         fname = "%s.bed" % tId
-        dest = os.path.realpath("%s/%s" % (self.outdir, fname))
+        dest = "%s/%s" % (self.outdir, fname)
         # self.symlink_or_copy(data, dest)
         # Process MAF to bed-like. Need build to munge chromosomes
         gname = self.genome_name
@@ -414,7 +413,7 @@ class JbrowseConnector(object):
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
         url = "%s.gff3" % trackData["label"]
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        dest = "%s/%s" % (self.outdir, url)
         self._sort_gff(gff3, dest)
         url = url + ".gz"
         tId = trackData["label"]
@@ -468,7 +467,7 @@ class JbrowseConnector(object):
 
     def add_bigwig(self, data, trackData):
         url = "%s.bw" % trackData["name"]
-        dest = os.path.realpath(os.path.join(self.outdir, url))
+        dest = os.path.join(self.outdir, url)
         cmd = ["cp", data, dest]
         self.subprocess_check_call(cmd)
         bwloc = {"uri": url}
@@ -515,7 +514,7 @@ class JbrowseConnector(object):
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         tId = trackData["label"]
         fname = "%s.bam" % trackData["label"]
-        dest = os.path.realpath("%s/%s" % (self.outdir, fname))
+        dest = "%s/%s" % (self.outdir, fname)
         url = fname
         self.subprocess_check_call(["cp", data, dest])
         log.info("### copied %s to %s" % (data, dest))
@@ -579,7 +578,7 @@ class JbrowseConnector(object):
             trackData["metadata"]["dataset_id"],
         )
         url = "%s.vcf.gz" % tId
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        dest = "%s/%s" % (self.outdir, url)
         cmd = "bgzip -c %s  > %s" % (data, dest)
         self.subprocess_popen(cmd)
         cmd = ["tabix", "-p", "vcf", dest]
@@ -658,7 +657,7 @@ class JbrowseConnector(object):
 
     def add_gff(self, data, ext, trackData):
         url = "%s.%s" % (trackData["label"], ext)
-        dest = os.path.realpath("%s/%s" % (self.outdir, url))
+        dest = "%s/%s" % (self.outdir, url)
         self._sort_gff(data, dest)
         url = url + ".gz"
         tId = trackData["label"]
@@ -709,7 +708,7 @@ class JbrowseConnector(object):
 
     def add_bed(self, data, ext, trackData):
         url = "%s.%s" % (trackData["label"], ext)
-        dest = os.path.realpath("%s/%s.gz" % (self.outdir, url))
+        dest = "%s/%s.gz" % (self.outdir, url)
         self._sort_bed(data, dest)
         tId = trackData["label"]
         url = url + ".gz"
@@ -863,7 +862,7 @@ class JbrowseConnector(object):
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory."""
-        cmd = ["jbrowse", "create", "-f", self.outdir]
+        cmd = ["jbrowse", "create", "-f", os.path.realpath(self.outdir)]
         self.subprocess_check_call(cmd)
         for fn in [
             "asset-manifest.json",
@@ -875,7 +874,14 @@ class JbrowseConnector(object):
         ]:
             cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
             self.subprocess_check_call(cmd)
-        cmd = ['cp', os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
+        cmd = ["cp", os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
+        self.subprocess_check_call(cmd)
+
+    def clone_jbrowse2(self, jbrowse_dir, destination):
+        """Clone a JBrowse directory into a destination directory."""
+        cmd = ["cp", "-rv", jbrowse_dir + "/*", self.outdir]
+        self.subprocess_check_call(cmd)
+        cmd = ["cp", os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
         self.subprocess_check_call(cmd)
 
 
@@ -898,9 +904,23 @@ if __name__ == "__main__":
         # so we'll prepend `http://` and hope for the best. Requests *should*
         # be GET and not POST so it should redirect OK
         GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
-
+    jb = args.jbrowse
+    jb1, one = os.path.split(jb)
+    jb1 += "/opt/jbrowse2"  # /../opt/jbrowse
+    jb2, two = os.path.split(jb1)
+    jb2 += "/opt/jbrowse2"  # /../../opt/jbrowse for container
+    if os.path.exists(jb1) and "manifest.json" in os.listdir(jb1):
+        jbdir = jb1
+    elif os.path.exists(jb2) and "manifest.json" in os.listdir(jb2):
+        jbdir = jb2
+    else:
+        log.error(
+            "unable to find the jbrowse2 directory for cloning jb1= %s, jb2 = %s - args.jbrowse = %s"
+            % (jb1, jb2, args.jbrowse)
+        )
+        sys.exit(10)
     jc = JbrowseConnector(
-        jbrowse=args.jbrowse,
+        jbrowse=jbdir,
         outdir=args.outdir,
         genomes=[
             {
