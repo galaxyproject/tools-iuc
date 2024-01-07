@@ -378,7 +378,7 @@ class JbrowseConnector(object):
         self.tracksToAdd = []
         self.config_json = {}
         self.config_json_file = os.path.join(outdir, "config.json")
-        self.clone_jbrowse(destination=self.outdir)
+        self.clone_jbrowse()
 
     def subprocess_check_call(self, command, output=None):
         if output:
@@ -1226,12 +1226,10 @@ class JbrowseConnector(object):
         with open(config_path, "w") as config_file:
             json.dump(config_json, config_file, indent=2)
 
-    def clone_jbrowse(self, destination):
+    def clone_jbrowse(self):
         """Clone a JBrowse directory into a destination directory."""
-        cmd = []
-        # if os.path.exists(os.path.realpath(destination)):
-        #    cmd = ["rm", "-rf", os.path.realpath(destination), '&&']
-        cmd += ["jbrowse", "create",  os.path.realpath(destination)]
+        dest = self.outdir
+        cmd = ["jbrowse", "create", "-f", dest]
         self.subprocess_check_call(cmd)
         for fn in [
             "asset-manifest.json",
@@ -1385,7 +1383,9 @@ if __name__ == "__main__":
                 default_session_data["visibility"][
                     track.attrib.get("visibility", "default_off")
                 ].append(key)
-                default_session_data["style"][key] = track_conf["style"]  # TODO do we need this anymore?
+                default_session_data["style"][key] = track_conf[
+                    "style"
+                ]  # TODO do we need this anymore?
                 default_session_data["style_labels"][key] = track_conf["style_labels"]
 
         default_session_data["defaultLocation"] = root.find(
