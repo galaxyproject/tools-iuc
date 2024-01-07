@@ -1201,8 +1201,10 @@ class JbrowseConnector(object):
         """
 
         config_path = self.config_json_file
-        with open(config_path, "r") as config_file:
-            config_json = json.load(config_file)
+        config_json = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r") as config_file:
+                config_json = json.load(config_file)
 
         config_data = {}
 
@@ -1226,7 +1228,10 @@ class JbrowseConnector(object):
 
     def clone_jbrowse(self, destination):
         """Clone a JBrowse directory into a destination directory."""
-        cmd = ["jbrowse", "create", "-f", os.path.realpath(destination)]
+        cmd = []
+        # if os.path.exists(os.path.realpath(destination)):
+        #    cmd = ["rm", "-rf", os.path.realpath(destination), '&&']
+        cmd += ["jbrowse", "create",  os.path.realpath(destination)]
         self.subprocess_check_call(cmd)
         for fn in [
             "asset-manifest.json",
@@ -1407,7 +1412,7 @@ if __name__ == "__main__":
             track_conf["style"] = {}
             pass
         track_conf["conf"] = etree_to_dict(track.find("options"))
-        # jc.process_annotations(track_conf)
+        jc.add_general_configuration(general_data)
         print("## processed", str(track_conf), "trackIdlist", jc.trackIdlist)
 
     print(
@@ -1421,5 +1426,5 @@ if __name__ == "__main__":
         jc.write_config()
     # jc.add_default_view()
     jc.add_default_session(default_session_data)
-    jc.add_general_configuration(general_data)
+
     # jc.text_index() not sure what broke here.
