@@ -374,6 +374,8 @@ class JbrowseConnector(object):
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_paths = genomes
+        self.genome_name = None
+        self.genome_names = []
         self.trackIdlist = []
         self.tracksToAdd = []
         self.config_json = {}
@@ -441,47 +443,55 @@ class JbrowseConnector(object):
             if self.debug:
                 log.info("genome_node=%s" % str(genome_node))
             genome_name = genome_node["meta"]["dataset_dname"].strip()
-            if (
-                len(genome_name.split()) > 1
-            ):  # spaces and cruft break scripts when substituted
+            if len(genome_name.split()) > 1:
                 genome_name = genome_name.split()[0]
+                # spaces and cruft break scripts when substituted
             fapath = genome_node["path"]
-            faname = genome_name + ".fa.gz"
-            fadest = os.path.join(self.outdir, faname)
-            # fadest = os.path.realpath(os.path.join(self.outdir, faname))
-            cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (
-                fapath,
-                fadest,
-                fadest,
-                fadest,
-            )
-            if self.debug:
-                log.info("### cmd = %s" % cmd)
-            self.subprocess_popen(cmd)
-            adapter = {
-                "type": "BgzipFastaAdapter",
-                "fastaLocation": {
-                    "uri": faname,
-                },
-                "faiLocation": {
-                    "uri": faname + ".fai",
-                },
-                "gziLocation": {
-                    "uri": faname + ".gzi",
-                },
-            }
-            trackDict = {
-                "name": genome_name,
-                "sequence": {
-                    "type": "ReferenceSequenceTrack",
-                    "trackId": genome_name,
-                    "adapter": adapter,
-                },
-                "rendering": {"type": "DivSequenceRenderer"},
-            }
-            assemblies.append(trackDict)
-        self.genome_name = genome_name
-        self.config_json["assemblies"] = assemblies
+            assem = self.make_assembly(fapath, genome_name)
+            assemblies.append(assem)
+            self.genome_names.append(genome_name)
+            if self.genome_name is None:
+                self.genome_name = (
+                    genome_name  # first one for all tracks - other than paf
+                )
+            if self.config_json.get("assemblies", None):
+                self.config_json["assemblies"] += assemblies
+            else:
+                self.config_json["assemblies"] = assemblies
+
+    def make_assembly(self, fapath, gname):
+        faname = gname + ".fa.gz"
+        fadest = os.path.join(self.outdir, faname)
+        # fadest = os.path.realpath(os.path.join(self.outdir, faname))
+        cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (
+            fapath,
+            fadest,
+            fadest,
+            fadest,
+        )
+        self.subprocess_popen(cmd)
+        adapter = {
+            "type": "BgzipFastaAdapter",
+            "fastaLocation": {
+                "uri": faname,
+            },
+            "faiLocation": {
+                "uri": faname + ".fai",
+            },
+            "gziLocation": {
+                "uri": faname + ".gzi",
+            },
+        }
+        trackDict = {
+            "name": gname,
+            "sequence": {
+                "type": "ReferenceSequenceTrack",
+                "trackId": gname,
+                "adapter": adapter,
+            },
+            "rendering": {"type": "DivSequenceRenderer"},
+        }
+        return trackDict
 
     def add_default_view(self):
         cmd = [
@@ -923,25 +933,51 @@ class JbrowseConnector(object):
         self.trackIdlist.append(tId)
 
     def add_paf(self, data, trackData, pafOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".paf")
-        dest = os.path.join(self.outdir, rel_dest)
-
-        self.symlink_or_copy(os.path.realpath(data), dest)
-
-        added_assembly = self.add_assembly(
-            pafOpts["genome"], pafOpts["genome_label"], default=False
-        )
+        tname = trackData["name"]
+        tId = trackData["label"]
+        pgname = pafOpts["genome_label"]
+        if len(pgname.split() > 1):
+            pgname = pgname.split()[
+                0
+            ]  # trouble from spacey names in command lines avoidance
+        asstrack, gname = self.make_assembly(pafOpts["genome"], pgname)
+        self.genome_names.append(pgname)
+        if self.config_json.get("assemblies", None):
+            self.config_json["assemblies"].append(asstrack)
+        else:
+            self.config_json["assemblies"] = [
+                asstrack,
+            ]
 
         style_json = self._prepare_track_style(trackData)
+        url = "%s.paf" % (trackData["label"])
+        dest = "%s/%s" % (self.outdir, url)
+        self.symlink_or_copy(os.path.realpath(data), dest)
 
-        self._add_track(
-            trackData["label"],
-            trackData["key"],
-            trackData["category"],
-            rel_dest,
-            assemblies=[self.genome_name, added_assembly],
-            config=style_json,
-        )
+        if self.usejson:
+            trackDict = {
+                "type": "SyntenyTrack",
+                "trackId": tId,
+                "assemblyNames": [self.genome_name, pgname],
+                "name": tname,
+                "adapter": {
+                    "type": "PAFAdapter",
+                    "pafLocation": {"uri": url},
+                    "assemblyNames": [self.genome_name, pgname],
+                },
+                "config": style_json,
+            }
+            self.tracksToAdd.append(trackDict)
+            self.trackIdlist.append(tId)
+        else:
+            self._add_track(
+                trackData["label"],
+                trackData["key"],
+                trackData["category"],
+                dest,
+                assemblies=[self.genome_name, pgname],
+                config=style_json,
+            )
 
     def add_hicab(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join("data", trackData["label"] + ".hic")
@@ -1127,19 +1163,12 @@ class JbrowseConnector(object):
         )
 
         for on_track in data["visibility"]["default_on"]:
-            # TODO several problems with this currently
-            # - we are forced to copy the same kind of style config as the per track config from _prepare_track_style (not exactly the same though)
-            # - we get an error when refreshing the page
-            # - this could be solved by session specs, see https://github.com/GMOD/jbrowse-components/issues/2708
             style_data = {"type": "LinearBasicDisplay", "height": 100}
-
             if on_track in data["style"]:
                 if "display" in data["style"][on_track]:
                     style_data["type"] = data["style"][on_track]["display"]
                     del data["style"][on_track]["display"]
-
                 style_data.update(data["style"][on_track])
-
             if on_track in data["style_labels"]:
                 # TODO fix this: it should probably go in a renderer block (SvgFeatureRenderer) but still does not work
                 # TODO move this to per track displays?
@@ -1166,7 +1195,7 @@ class JbrowseConnector(object):
         elif self.genome_name is not None:
             refName = self.genome_name
             start = 0
-            end = 1000000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+            end = 1000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
 
         if refName is not None:
             # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
