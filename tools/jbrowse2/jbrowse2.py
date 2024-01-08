@@ -1114,11 +1114,17 @@ class JbrowseConnector(object):
 
         # We need to know the track type from the config.json generated just before
         track_types = {}
+        logging.info("### add default session has data = %s\n" % str(data))
         with open(self.config_json_file, "r") as config_file:
             config_json = json.load(config_file)
+        logging.info("### config.json read \n%s\n" % (config_json))
 
-        for track_conf in config_json["tracks"]:
+        for track_conf in self.tracksToAdd:  # config_json["tracks"]:
             track_types[track_conf["trackId"]] = track_conf["type"]
+        logging.info(
+            "### self.tracksToAdd = %s; track_types = %s"
+            % (str(self.tracksToAdd), str(track_types))
+        )
 
         for on_track in data["visibility"]["default_on"]:
             # TODO several problems with this currently
@@ -1175,8 +1181,6 @@ class JbrowseConnector(object):
             ]
 
         session_name = data.get("session_name", "New session")
-        if not session_name:
-            session_name = "New session"
 
         # Merge with possibly existing defaultSession (if upgrading a jbrowse instance)
         session_json = {}
@@ -1243,16 +1247,6 @@ class JbrowseConnector(object):
             self.subprocess_check_call(cmd)
         cmd = ["cp", os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
         self.subprocess_check_call(cmd)
-
-
-def copytree(src, dst, symlinks=False, ignore=None):
-    for item in os.listdir(src):
-        s = os.path.join(src, item)
-        d = os.path.join(dst, item)
-        if os.path.isdir(s):
-            shutil.copytree(s, d, symlinks, ignore)
-        else:
-            shutil.copy2(s, d)
 
 
 def parse_style_conf(item):
@@ -1414,12 +1408,10 @@ if __name__ == "__main__":
         track_conf["conf"] = etree_to_dict(track.find("options"))
         jc.add_general_configuration(general_data)
         print("## processed", str(track_conf), "trackIdlist", jc.trackIdlist)
-
-    print(
-        "###done processing, trackIdlist=",
-        jc.trackIdlist,
-        "config=",
-        str(jc.config_json),
+    x = open(args.xml, "r").read()
+    log.info(
+        "###done processing xml=%s; trackIdlist=%s, config=%s"
+        % (x, jc.trackIdlist, str(jc.config_json))
     )
     jc.config_json["tracks"] = jc.tracksToAdd
     if jc.usejson:
