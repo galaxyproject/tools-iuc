@@ -580,6 +580,8 @@ class JbrowseConnector(object):
                 },
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -647,6 +649,8 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
         if self.config_json.get("plugins", None):
@@ -714,6 +718,8 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -744,6 +750,8 @@ class JbrowseConnector(object):
                 }
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -789,6 +797,8 @@ class JbrowseConnector(object):
                 },
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -835,6 +845,8 @@ class JbrowseConnector(object):
                 },
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -886,6 +898,8 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
