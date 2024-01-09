@@ -1163,7 +1163,7 @@ class JbrowseConnector(object):
         with open(self.config_json_file, "r") as config_file:
             config_json = json.load(config_file)
 
-        for track_conf in self.tracksToAdd:  # config_json["tracks"]:
+        for track_conf in self.tracksToAdd:
             track_types[track_conf["trackId"]] = track_conf["type"]
 
         for on_track in data["visibility"]["default_on"]:
@@ -1199,7 +1199,7 @@ class JbrowseConnector(object):
         elif self.genome_name is not None:
             refName = self.genome_name
             start = 0
-            end = 1000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+            end = 100000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
 
         if refName is not None:
             # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
