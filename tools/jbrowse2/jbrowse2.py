@@ -508,8 +508,6 @@ class JbrowseConnector(object):
             "-v",
             " LinearGenomeView",
         ]
-        if self.debug:
-            log.info("### calling set-default-session with cmd=%s" % "  ".join(cmd))
         self.subprocess_check_call(cmd)
 
     def write_config(self):
@@ -1274,7 +1272,7 @@ class JbrowseConnector(object):
         ]:
             cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
             self.subprocess_check_call(cmd)
-        cmd = ["cp", os.path.join(INSTALLED_TO, "servejb2.py"), self.outdir]
+        cmd = ["cp", os.path.join(INSTALLED_TO, "webserver.py"), self.outdir]
         self.subprocess_check_call(cmd)
 
 
