@@ -1,4 +1,6 @@
 #!/usr/bin/env perl
+# https://unpkg.com/browse/jbrowse-plugin-mafviewer@1.0.6/dist/
+# license is Apache2_license.txt included here
 use warnings;
 use strict;
 
