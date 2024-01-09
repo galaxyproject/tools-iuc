@@ -19,6 +19,9 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jbrowse")
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 GALAXY_INFRASTRUCTURE_URL = None
+JB2REL = "v2.10.0"
+# version pinned for cloning
+
 mapped_chars = {
     ">": "__gt__",
     "<": "__lt__",
@@ -440,8 +443,6 @@ class JbrowseConnector(object):
     def process_genomes(self):
         assemblies = []
         for i, genome_node in enumerate(self.genome_paths):
-            if self.debug:
-                log.info("genome_node=%s" % str(genome_node))
             genome_name = genome_node["meta"]["dataset_dname"].strip()
             if len(genome_name.split()) > 1:
                 genome_name = genome_name.split()[0]
@@ -547,7 +548,6 @@ class JbrowseConnector(object):
             uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.gzi',
         Cool will not be likely to be a good fit - see discussion at https://github.com/GMOD/jbrowse-components/issues/2438
         """
-        log.info("#### trackData=%s" % trackData)
         tId = trackData["label"]
         # can be served - if public.
         # dsId = trackData["metadata"]["dataset_id"]
@@ -611,8 +611,6 @@ class JbrowseConnector(object):
             dest,
         ]
         self.subprocess_check_call(cmd)
-        if True or self.debug:
-            log.info("### convertMAF.sh called as %s" % " ".join(cmd))
         # Construct samples list
         # We could get this from galaxy metadata, not sure how easily.
         ps = subprocess.Popen(["grep", "^s [^ ]*", "-o", data], stdout=subprocess.PIPE)
@@ -622,8 +620,6 @@ class JbrowseConnector(object):
         soutp = outp.split("\n")
         samp = [x.split("s ")[1] for x in soutp if x.startswith("s ")]
         samples = [x.split(".")[0] for x in samp]
-        if self.debug:
-            log.info("### got samples = %s " % (samples))
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
@@ -752,7 +748,6 @@ class JbrowseConnector(object):
         dest = "%s/%s" % (self.outdir, fname)
         url = fname
         self.subprocess_check_call(["cp", data, dest])
-        log.info("### copied %s to %s" % (data, dest))
         bloc = {"uri": url}
         if bam_index is not None and os.path.exists(os.path.realpath(bam_index)):
             # bai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
@@ -1148,17 +1143,11 @@ class JbrowseConnector(object):
 
         # We need to know the track type from the config.json generated just before
         track_types = {}
-        logging.info("### add default session has data = %s\n" % str(data))
         with open(self.config_json_file, "r") as config_file:
             config_json = json.load(config_file)
-        logging.info("### config.json read \n%s\n" % (config_json))
 
         for track_conf in self.tracksToAdd:  # config_json["tracks"]:
             track_types[track_conf["trackId"]] = track_conf["type"]
-        logging.info(
-            "### self.tracksToAdd = %s; track_types = %s"
-            % (str(self.tracksToAdd), str(track_types))
-        )
 
         for on_track in data["visibility"]["default_on"]:
             style_data = {"type": "LinearBasicDisplay", "height": 100}
@@ -1260,7 +1249,7 @@ class JbrowseConnector(object):
     def clone_jbrowse(self):
         """Clone a JBrowse directory into a destination directory."""
         dest = self.outdir
-        cmd = ["jbrowse", "create", "-f", dest]
+        cmd = ["jbrowse", "create", "-t", JB2REL, "-f", dest]
         self.subprocess_check_call(cmd)
         for fn in [
             "asset-manifest.json",
@@ -1434,12 +1423,7 @@ if __name__ == "__main__":
             pass
         track_conf["conf"] = etree_to_dict(track.find("options"))
         jc.add_general_configuration(general_data)
-        print("## processed", str(track_conf), "trackIdlist", jc.trackIdlist)
     x = open(args.xml, "r").read()
-    log.info(
-        "###done processing xml=%s; trackIdlist=%s, config=%s"
-        % (x, jc.trackIdlist, str(jc.config_json))
-    )
     jc.config_json["tracks"] = jc.tracksToAdd
     if jc.usejson:
         jc.write_config()
