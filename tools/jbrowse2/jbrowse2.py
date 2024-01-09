@@ -435,10 +435,14 @@ class JbrowseConnector(object):
             "displayId": "%s-LinearBasicDisplay" % trackDict["trackId"],
         }
 
-        if trackDict.get("displays", None):
-            style_data["type"] = trackDict["displays"]["type"]
-            style_data["displayId"] = trackDict["displays"]["displayId"]
-        return {"displays": [style_data]}
+        if trackDict.get("displays", None):  # use first if multiple like bed
+            style_data["type"] = trackDict["displays"][0]["type"]
+            style_data["displayId"] = trackDict["displays"][0]["displayId"]
+        return {
+            "displays": [
+                style_data,
+            ]
+        }
 
     def process_genomes(self):
         assemblies = []
@@ -576,8 +580,6 @@ class JbrowseConnector(object):
                 },
             ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -637,9 +639,14 @@ class JbrowseConnector(object):
                 },
             },
             "assemblyNames": [self.genome_name],
+            "displays": [
+                {
+                    "type": "LinearBasicDisplay",
+                    "displayId": "%s-LinearBasicDisplay" % tId,
+                },
+                {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
+            ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
         if self.config_json.get("plugins", None):
@@ -737,8 +744,6 @@ class JbrowseConnector(object):
                 }
             ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -784,8 +789,6 @@ class JbrowseConnector(object):
                 },
             ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -832,8 +835,6 @@ class JbrowseConnector(object):
                 },
             ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -885,8 +886,6 @@ class JbrowseConnector(object):
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -914,14 +913,18 @@ class JbrowseConnector(object):
             },
             "displays": [
                 {
+                    "type": "LinearPileupDisplay",
+                    "displayId": "%s-LinearPileupDisplay" % tId,
+                },
+                {
                     "type": "LinearBasicDisplay",
                     "displayId": "%s-LinearBasicDisplay" % tId,
                 },
                 {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
-        # style_json = self._prepare_track_style(trackDict)
-        # trackDict["style"] = style_json
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
