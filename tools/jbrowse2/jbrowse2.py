@@ -451,7 +451,9 @@ class JbrowseConnector(object):
             assemblies.append(assem)
             self.genome_names.append(genome_name)
             if self.genome_name is None:
-                self.genome_name = genome_name  # first one for all tracks - other than paf
+                self.genome_name = (
+                    genome_name  # first one for all tracks - other than paf
+                )
             if self.config_json.get("assemblies", None):
                 self.config_json["assemblies"] += assemblies
             else:
@@ -592,7 +594,7 @@ class JbrowseConnector(object):
             "plugins": [
                 {
                     "name": "MafViewer",
-                    "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js",
+                    "url": "https://unpkg.com/browse/jbrowse-plugin-mafviewer@1.0.6/dist/jbrowse-plugin-mafviewer.umd.production.min.js",
                 }
             ]
         }
@@ -935,13 +937,17 @@ class JbrowseConnector(object):
         tId = trackData["label"]
         pgname = pafOpts["genome_label"]
         if len(pgname.split() > 1):
-            pgname = pgname.split()[0]  # trouble from spacey names in command lines avoidance
+            pgname = pgname.split()[
+                0
+            ]  # trouble from spacey names in command lines avoidance
         asstrack, gname = self.make_assembly(pafOpts["genome"], pgname)
         self.genome_names.append(pgname)
         if self.config_json.get("assemblies", None):
             self.config_json["assemblies"].append(asstrack)
         else:
-            self.config_json["assemblies"] = [asstrack,]
+            self.config_json["assemblies"] = [
+                asstrack,
+            ]
 
         style_json = self._prepare_track_style(trackData)
         url = "%s.paf" % (trackData["label"])
