@@ -555,7 +555,7 @@ class JbrowseConnector(object):
         # can be served - if public.
         # dsId = trackData["metadata"]["dataset_id"]
         # url = "%s/api/datasets/%s/display?to_ext=hic " % (self.giURL, dsId)
-        hname = trackData["name"]
+        hname = trackData["label"]
         dest = os.path.join(self.outdir, hname)
         cmd = ["cp", data, dest]
         # these can be very big.
@@ -725,16 +725,19 @@ class JbrowseConnector(object):
         os.unlink(gff3)
 
     def add_bigwig(self, data, trackData):
-        url = "%s.bw" % trackData["name"]
+        url = "%s.bw" % trackData["label"]
+        # slashes in names cause path trouble
         dest = os.path.join(self.outdir, url)
         cmd = ["cp", data, dest]
         self.subprocess_check_call(cmd)
         bwloc = {"uri": url}
         tId = trackData["label"]
+        trackset = trackData.get('trackset', {})
+        logging.info('#### wig trackData=%s' % str(trackData))
         trackDict = {
             "type": "QuantitativeTrack",
             "trackId": tId,
-            "name": url,
+            "name": trackData["name"],
             "assemblyNames": [
                 self.genome_name,
             ],
@@ -749,6 +752,9 @@ class JbrowseConnector(object):
                 }
             ],
         }
+        if len(trackset) > 0:
+            trackDict['config'] = trackset
+            logging.info('### bigwig config = %s' % trackset)
         style_json = self._prepare_track_style(trackDict)
         trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
@@ -1061,7 +1067,7 @@ class JbrowseConnector(object):
 
             outputTrackConfig["key"] = track_human_label
             if self.debug:
-                log.info(
+                logging.info(
                     "Processing category = %s, track_human_label = %s",
                     category,
                     track_human_label,
@@ -1075,7 +1081,7 @@ class JbrowseConnector(object):
                 rest_url = track["conf"]["options"]["url"]
             else:
                 rest_url = ""
-
+            outputTrackConfig['trackset'] = track.get('trackset', {})
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
@@ -1385,13 +1391,14 @@ if __name__ == "__main__":
                     {},  # No metadata for multiple bigwig
                 )
             )
-
+        wopts = track.findall("options/wiggle")
+        wstyle = {}
+        if wopts:
+            for x in wopts[0]:
+                wstyle[x.tag] = x.text
+        track_conf['trackset'] = wstyle
         track_conf["category"] = track.attrib["cat"]
         track_conf["format"] = track.attrib["format"]
-        track_conf["style"] = {
-            item.tag: parse_style_conf(item) for item in track.find("options/style")
-        }
-
         track_conf["style"] = {
             item.tag: parse_style_conf(item) for item in track.find("options/style")
         }
