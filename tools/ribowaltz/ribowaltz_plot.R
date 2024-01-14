@@ -118,7 +118,7 @@ if (!is.null(opt$params_metaplots)) {
   print(metaprofile)
   sample_list <- list()
   for (sample_name in names(reads_psite_list)) {
-  sample_list[[sample_name]] <- c(sample_name)
+    sample_list[[sample_name]] <- c(sample_name)
   }
   metaheatmap <- metaheatmap_psite(
     reads_psite_list,
@@ -138,15 +138,15 @@ if (!is.null(opt$params_codon_usage_psite)) {
   pdf("codon_usage.pdf", height = 6, width = 16)
   json_codon_usage_psite <- fromJSON(opt$params_codon_usage_psite)
   for (sample_name in names(reads_psite_list)) {
-  cu_barplot <- codon_usage_psite(
-    reads_psite_list,
-    annotation_dt,
-    sample = sample_name,
-    fastapath = json_codon_usage_psite$fastapath,
-    fasta_genome = FALSE,
-    frequency_normalization = json_codon_usage_psite$frequency
-  )
-  print(cu_barplot[["plot"]])
+    cu_barplot <- codon_usage_psite(
+      reads_psite_list,
+      annotation_dt,
+      sample = sample_name,
+      fastapath = json_codon_usage_psite$fastapath,
+      fasta_genome = FALSE,
+      frequency_normalization = json_codon_usage_psite$frequency
+    )
+    print(cu_barplot[["plot"]])
   }
   dev.off()
 }
