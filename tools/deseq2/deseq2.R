@@ -67,6 +67,8 @@ spec <- matrix(c(
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
   "use_beta_priors", "d", 0, "logical",
+  "shrink_fcs", "g", 0, "logical",
+  "shrinkage_estimator", "k", 1, "character",
   "alpha_ma", "A", 1, "numeric",
   "prefilter", "P", 0, "logical",
   "prefilter_value", "V", 1, "numeric"
@@ -324,7 +326,7 @@ if (is.null(opt$auto_mean_filter_off)) {
   if (verbose) cat("automatic filtering on the mean off\n")
 }
 
-# shrinkage of LFCs
+# shrinkage of LFCs by DESeq function using betaPrior
 if (is.null(opt$use_beta_priors)) {
   beta_prior <- FALSE
   if (verbose)
@@ -333,7 +335,6 @@ if (is.null(opt$use_beta_priors)) {
   beta_prior <- opt$use_beta_priors
 }
 sprintf("use_beta_prior is set to %s", beta_prior)
-
 
 # dispersion fit type
 if (is.null(opt$fit_type)) {
@@ -385,6 +386,18 @@ if (is.null(opt$many_contrasts)) {
     cooksCutoff = cooks_cutoff,
     independentFiltering = independent_filtering
   )
+
+  if (!is.null(opt$shrink_fcs)) {
+    # shrinkage of LFCs
+    print(resultsNames(dds))
+    res <- lfcShrink(
+      dds,
+      coef = length(resultsNames(dds)), # not sure to what extent it holds but the contrast used in the results function is the last coefficient
+      res=res,
+      type = opt$shrinkage_estimator
+    )
+  }
+
   if (verbose) {
     cat("summary of results\n")
     cat(paste0(primary_factor, ": ", lvl, " vs ", ref, "\n"))
@@ -392,8 +405,14 @@ if (is.null(opt$many_contrasts)) {
   }
   res_sorted <- res[order(res$padj), ]
   out_df <- as.data.frame(res_sorted)
-  out_df$geneID <- rownames(out_df)  # nolint
-  out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
+    out_df$geneID <- rownames(out_df)  # nolint
+  
+  if (!is.null(opt$shrink_fcs)) {
+    header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
+  } else {
+    header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")
+  }
+  out_df <- out_df[, header_fields]
   filename <- opt$outfile
   write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
   if (independent_filtering) {
@@ -419,10 +438,25 @@ if (is.null(opt$many_contrasts)) {
         cooksCutoff = cooks_cutoff,
         independentFiltering = independent_filtering
       )
+      if (!is.null(opt$shrink_fcs)) {
+        # shrinkage of LFCs
+        print(resultsNames(dds))
+        res <- lfcShrink(
+          dds,
+          coef = length(resultsNames(dds)),
+          res=res,
+          type = opt$shrinkage_estimator
+        )
+      }
       res_sorted <- res[order(res$padj), ]
       out_df <- as.data.frame(res_sorted)
       out_df$geneID <- rownames(out_df)  # nolint
-      out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
+      if (!is.null(opt$shrink_fcs)) {
+          header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
+      } else {
+        header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")
+      }
+      out_df <- out_df[, header_fields]
       filename <- paste0(primary_factor, "_", lvl, "_vs_", ref)
       write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
       if (independent_filtering) {
