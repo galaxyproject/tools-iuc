@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 busco_lineages = [
@@ -29,9 +28,9 @@ def download_compleasm_database(lineage, output_dir):
         subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error downloading {lineage}: {e}")
-        sys.exit(1)
+        exit(1)
 
-    return os.path.join("mb_downloads", f"{lineage}.db")
+    return os.path.join(output_dir, "mb_downloads", f"{lineage}.db")  # Fix the path
 
 
 def main(args):
