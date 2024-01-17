@@ -95,9 +95,9 @@ if (is.null(opt$factors)) {
 verbose <- is.null(opt$quiet)
 
 source_local <- function(fname) {
-    argv <- commandArgs(trailingOnly = FALSE)
-    base_dir <- dirname(substring(argv[grep("--file=", argv)], 8))
-    source(paste(base_dir, fname, sep = "/"))
+  argv <- commandArgs(trailingOnly = FALSE)
+  base_dir <- dirname(substring(argv[grep("--file=", argv)], 8))
+  source(paste(base_dir, fname, sep = "/"))
 }
 
 source_local("get_deseq_dataset.R")
@@ -204,7 +204,7 @@ generate_specific_plots <- function(res, threshold, title_suffix) {
     text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0, 1)), adj = c(0.5, 1.7), xpd = NA)
     legend("topright", fill = rev(colori), legend = rev(names(colori)), bg = "white")
   }
-    plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
+  plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
 }
 
 if (verbose) {
@@ -219,45 +219,45 @@ dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = des
 
 # use/estimate size factors with the chosen method
 if (!is.null(opt$esf)) {
-    if (opt$esf %in% list("ratio", "poscounts", "iterate")) {
-        cat("Calculating size factors de novo\n")
-        dds <- estimateSizeFactors(dds, type = opt$esf)
-    } else {
-        sf_table <- read.table(opt$esf)
-        # Sort the provided size factors just in case the order differs from the input file order.
-        merged_table <- merge(sample_table, sf_table, by.x = 0, by.y = 1, sort = FALSE)
-        sf_values <- as.numeric(unlist(merged_table[5]))
-        "sizeFactors"(dds) <- sf_values
+  if (opt$esf %in% list("ratio", "poscounts", "iterate")) {
+    cat("Calculating size factors de novo\n")
+    dds <- estimateSizeFactors(dds, type = opt$esf)
+  } else {
+    sf_table <- read.table(opt$esf)
+    # Sort the provided size factors just in case the order differs from the input file order.
+    merged_table <- merge(sample_table, sf_table, by.x = 0, by.y = 1, sort = FALSE)
+    sf_values <- as.numeric(unlist(merged_table[5]))
+    "sizeFactors"(dds) <- sf_values
 
-        cat("Using user-provided size factors:\n")
-        print(sf_values)
-    }
+    cat("Using user-provided size factors:\n")
+    print(sf_values)
+  }
 } else {
-    cat("No size factor was used\n")
+  cat("No size factor was used\n")
 }
 
 
 # estimate size factors for each sample
 # - https://support.bioconductor.org/p/97676/
 if (!is.null(opt$sizefactorsfile)) {
-    nm <- assays(dds)[["avgTxLength"]]
-    if (!is.null(nm)) {
-        ## Recommended: takes into account tximport data
-        cat("\nsize factors for samples: taking tximport data into account\n")
-        size_factors <- estimateSizeFactorsForMatrix(counts(dds) / nm)
+  nm <- assays(dds)[["avgTxLength"]]
+  if (!is.null(nm)) {
+    ## Recommended: takes into account tximport data
+    cat("\nsize factors for samples: taking tximport data into account\n")
+    size_factors <- estimateSizeFactorsForMatrix(counts(dds) / nm)
+  } else {
+    norm_factors <- normalizationFactors(dds)
+    if (!is.null(norm_factors)) {
+      ## In practice, gives same results as above.
+      cat("\nsize factors for samples: no tximport data, using derived normalization factors\n")
+      size_factors <- estimateSizeFactorsForMatrix(norm_factors)
     } else {
-        norm_factors <- normalizationFactors(dds)
-        if (!is.null(norm_factors)) {
-            ## In practice, gives same results as above.
-            cat("\nsize factors for samples: no tximport data, using derived normalization factors\n")
-            size_factors <- estimateSizeFactorsForMatrix(norm_factors)
-        } else {
-            ## If we have no other information, estimate from raw.
-            cat("\nsize factors for samples: no tximport data, no normalization factors, estimating from raw data\n")
-            size_factors <- estimateSizeFactorsForMatrix(counts(dds))
-        }
+      ## If we have no other information, estimate from raw.
+      cat("\nsize factors for samples: no tximport data, no normalization factors, estimating from raw data\n")
+      size_factors <- estimateSizeFactorsForMatrix(counts(dds))
     }
-    write.table(size_factors, file = opt$sizefactorsfile, sep = "\t", col.names = FALSE, quote = FALSE)
+  }
+  write.table(size_factors, file = opt$sizefactorsfile, sep = "\t", col.names = FALSE, quote = FALSE)
 }
 
 apply_batch_factors <- function(dds, batch_factors) {
@@ -300,8 +300,8 @@ if (verbose) {
 
 # minimal pre-filtering
 if (!is.null(opt$prefilter)) {
-    keep <- rowSums(counts(dds)) >= opt$prefilter_value
-    dds <- dds[keep, ]
+  keep <- rowSums(counts(dds)) >= opt$prefilter_value
+  dds <- dds[keep, ]
 }
 
 # optional outlier behavior
@@ -359,20 +359,20 @@ n <- nlevels(colData(dds)[[primary_factor]])
 all_levels <- levels(colData(dds)[[primary_factor]])
 
 if (!is.null(opt$countsfile)) {
-    normalized_counts <- counts(dds, normalized = TRUE)
-    write.table(normalized_counts, file = opt$countsfile, sep = "\t", col.names = NA, quote = FALSE)
+  normalized_counts <- counts(dds, normalized = TRUE)
+  write.table(normalized_counts, file = opt$countsfile, sep = "\t", col.names = NA, quote = FALSE)
 }
 
 if (!is.null(opt$rlogfile)) {
-    rlog_normalized <- rlogTransformation(dds)
-    rlog_normalized_mat <- assay(rlog_normalized)
-    write.table(rlog_normalized_mat, file = opt$rlogfile, sep = "\t", col.names = NA, quote = FALSE)
+  rlog_normalized <- rlogTransformation(dds)
+  rlog_normalized_mat <- assay(rlog_normalized)
+  write.table(rlog_normalized_mat, file = opt$rlogfile, sep = "\t", col.names = NA, quote = FALSE)
 }
 
 if (!is.null(opt$vstfile)) {
-    vst_normalized <- varianceStabilizingTransformation(dds)
-    vst_normalized_mat <- assay(vst_normalized)
-    write.table(vst_normalized_mat, file = opt$vstfile, sep = "\t", col.names = NA, quote = FALSE)
+  vst_normalized <- varianceStabilizingTransformation(dds)
+  vst_normalized_mat <- assay(vst_normalized)
+  write.table(vst_normalized_mat, file = opt$vstfile, sep = "\t", col.names = NA, quote = FALSE)
 }
 
 
@@ -393,7 +393,7 @@ if (is.null(opt$many_contrasts)) {
     res <- lfcShrink(
       dds,
       coef = length(resultsNames(dds)), # not sure to what extent it holds but the contrast used in the results function is the last coefficient
-      res=res,
+      res = res,
       type = opt$shrinkage_estimator
     )
   }
@@ -405,7 +405,7 @@ if (is.null(opt$many_contrasts)) {
   }
   res_sorted <- res[order(res$padj), ]
   out_df <- as.data.frame(res_sorted)
-    out_df$geneID <- rownames(out_df)  # nolint
+  out_df$geneID <- rownames(out_df)  # nolint
   
   if (!is.null(opt$shrink_fcs)) {
     header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
@@ -444,7 +444,7 @@ if (is.null(opt$many_contrasts)) {
         res <- lfcShrink(
           dds,
           coef = length(resultsNames(dds)),
-          res=res,
+          res = res,
           type = opt$shrinkage_estimator
         )
       }
@@ -452,7 +452,7 @@ if (is.null(opt$many_contrasts)) {
       out_df <- as.data.frame(res_sorted)
       out_df$geneID <- rownames(out_df)  # nolint
       if (!is.null(opt$shrink_fcs)) {
-          header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
+        header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
       } else {
         header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")
       }
