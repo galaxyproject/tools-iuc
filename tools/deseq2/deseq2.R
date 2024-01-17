@@ -405,8 +405,8 @@ if (is.null(opt$many_contrasts)) {
   }
   res_sorted <- res[order(res$padj), ]
   out_df <- as.data.frame(res_sorted)
-  out_df$geneID <- rownames(out_df)  # nolint
-  
+  out_df$geneID <- rownames(out_df) # nolint
+
   if (!is.null(opt$shrink_fcs)) {
     header_fields <- c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
   } else {
