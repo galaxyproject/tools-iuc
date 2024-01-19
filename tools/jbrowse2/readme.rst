@@ -30,6 +30,8 @@ From the newly unzipped directory where that file can be found, and with Python3
 
 will open the preconfigured browser using the default web browser application.
 
+That webserver code is separately under the Apache 2 license copied in this repository. See below for this code's MIT license.
+
 History
 =======
 
