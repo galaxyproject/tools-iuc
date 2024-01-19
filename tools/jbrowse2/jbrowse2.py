@@ -23,8 +23,7 @@ JB2VER = "v2.10.0"
 
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 GALAXY_INFRASTRUCTURE_URL = None
-JB2REL = "v2.10.0"
-# version pinned for cloning
+
 
 mapped_chars = {
     ">": "__gt__",
