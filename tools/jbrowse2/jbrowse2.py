@@ -1198,7 +1198,7 @@ class JbrowseConnector(object):
 
         session_name = data.get("session_name", "New session")
         for key, value in mapped_chars.items():
-                session_name = session_name.replace(value, key)
+            session_name = session_name.replace(value, key)
         # Merge with possibly existing defaultSession (if upgrading a jbrowse instance)
         session_json = {}
         if "defaultSession" in config_json:
