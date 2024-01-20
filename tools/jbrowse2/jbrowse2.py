@@ -1174,7 +1174,7 @@ class JbrowseConnector(object):
 
         refName = None
         if data.get("defaultLocation", ""):
-            loc_match = re.search(r"^(\w+):(\d+)\.+(\d+)$", data["defaultLocation"])
+            loc_match = re.search(r"^(\w.+):(\d+)\.+(\d+)$", data["defaultLocation"])
             if loc_match:
                 refName = loc_match.group(1)
                 start = int(loc_match.group(2))
