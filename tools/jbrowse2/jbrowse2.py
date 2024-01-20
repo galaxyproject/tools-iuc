@@ -1174,15 +1174,24 @@ class JbrowseConnector(object):
 
         refName = None
         if data.get("defaultLocation", ""):
-            loc_match = re.search(r"^(\w.+):(\d+)\.+(\d+)$", data["defaultLocation"])
+            ddl = data["defaultLocation"]
+            loc_match = re.search(r"^(\w.+):(\d+)\.+(\d+)$", ddl)
             if loc_match:
                 refName = loc_match.group(1)
                 start = int(loc_match.group(2))
                 end = int(loc_match.group(3))
+            else:
+                logging.info(
+                    "@@@ regexp could not match contig:start..end in the supplied location %s - please fix"
+                    % ddl
+                )
         elif self.genome_name is not None:
             refName = self.genome_name
             start = 0
             end = 10000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+            logging.info(
+                "@@@ no defaultlocation found for default session - suggest adding one!"
+            )
 
         if refName is not None:
             # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
@@ -1196,6 +1205,14 @@ class JbrowseConnector(object):
                 }
             ]
 
+            logging.info(
+                "@@@ defaultlocation %s for default session"
+                % view_json["displayedRegions"]
+            )
+        else:
+            logging.info(
+                "@@@ no assembly name found default session - suggest adding one!"
+            )
         session_name = data.get("session_name", "New session")
         for key, value in mapped_chars.items():
             session_name = session_name.replace(value, key)
