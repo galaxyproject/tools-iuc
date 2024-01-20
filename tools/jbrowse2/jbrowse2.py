@@ -1147,6 +1147,8 @@ class JbrowseConnector(object):
         track_types = {}
         with open(self.config_json_file, "r") as config_file:
             config_json = json.load(config_file)
+        if self.config_json:
+            config_json.update(self.config_json)
 
         for track_conf in self.tracksToAdd:
             track_types[track_conf["trackId"]] = track_conf["type"]
@@ -1195,7 +1197,8 @@ class JbrowseConnector(object):
             ]
 
         session_name = data.get("session_name", "New session")
-
+        for key, value in mapped_chars.items():
+                session_name = session_name.replace(value, key)
         # Merge with possibly existing defaultSession (if upgrading a jbrowse instance)
         session_json = {}
         if "defaultSession" in config_json:
@@ -1209,9 +1212,10 @@ class JbrowseConnector(object):
         session_json["views"].append(view_json)
 
         config_json["defaultSession"] = session_json
+        self.config_json.update(config_json)
 
         with open(self.config_json_file, "w") as config_file:
-            json.dump(config_json, config_file, indent=2)
+            json.dump(self.config_json, config_file, indent=2)
 
     def add_general_configuration(self, data):
         """
@@ -1219,11 +1223,13 @@ class JbrowseConnector(object):
         """
 
         config_path = self.config_json_file
-        config_json = {}
         if os.path.exists(config_path):
             with open(config_path, "r") as config_file:
                 config_json = json.load(config_file)
-
+        else:
+            config_json = {}
+        if self.config_json:
+            config_json.update(self.config_json)
         config_data = {}
 
         config_data["disableAnalytics"] = data.get("analytics", "false") == "true"
@@ -1240,9 +1246,9 @@ class JbrowseConnector(object):
         if not config_json.get("configuration", None):
             config_json["configuration"] = {}
         config_json["configuration"].update(config_data)
-
+        self.config_json.update(config_json)
         with open(config_path, "w") as config_file:
-            json.dump(config_json, config_file, indent=2)
+            json.dump(self.config_json, config_file, indent=2)
 
     def clone_jbrowse(self):
         """Clone a JBrowse directory into a destination directory."""
@@ -1424,7 +1430,6 @@ if __name__ == "__main__":
             pass
         track_conf["conf"] = etree_to_dict(track.find("options"))
         jc.add_general_configuration(general_data)
-    x = open(args.xml, "r").read()
     jc.config_json["tracks"] = jc.tracksToAdd
     jc.write_config()
     jc.add_default_session(default_session_data)
