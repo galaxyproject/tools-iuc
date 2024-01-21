@@ -7,6 +7,7 @@ suppressPackageStartupMessages(library("tidyverse"))
 option_list <- list(
     make_option(c("--sequence_table"), action = "store", dest = "sequence_table", help = "Input sequence table"),
     make_option(c("--taxonomy_table"), action = "store", dest = "taxonomy_table", help = "Input taxonomy table"),
+    make_option(c("--sample_table"), action = "store", default=NULL, dest = "sample_table", help = "Input sample table"),
     make_option(c("--output"), action = "store", dest = "output", help = "RDS output")
 )
 
@@ -37,6 +38,14 @@ print(paste("OTU Table:", nsamples(otu_tab), "samples", ntaxa(otu_tab), "taxa"))
 
 # Construct a phyloseq object.
 phyloseq_obj <- phyloseq(otu_tab, tax_tab);
+
+if(!is.null(opt$sample_table)){
+    sample_tab <- sample_data(
+        read.table(opt$sample_table,  header=T, sep="\t", row.names=1, check.names=FALSE)
+    )
+    print(paste("Sample Table:", nsamples(sample_tab), "samples,", "sample variables", sample_variables(sample_tab)))
+    phyloseq_obj <- merge_phyloseq(phyloseq_obj, sample_tab)
+}
 
 # use short names for our ASVs and save the ASV sequences
 # refseq slot of the phyloseq object as described in
