@@ -1175,7 +1175,9 @@ class JbrowseConnector(object):
         refName = None
         if data.get("defaultLocation", ""):
             ddl = data["defaultLocation"]
-            loc_match = re.search(r"^([^:]+):(\d+)\.+(\d+)$" , ddl) # was re.search(r"^(\w.+):(\d+)\.+(\d+)$"
+            loc_match = re.search(
+                r"^([^:]+):(\d+)\.+(\d+)$", ddl
+            )  # was re.search(r"^(\w.+):(\d+)\.+(\d+)$"
             if loc_match:
                 refName = loc_match.group(1)
                 start = int(loc_match.group(2))
@@ -1186,7 +1188,6 @@ class JbrowseConnector(object):
                     % ddl
                 )
         elif self.genome_name is not None:
-            refName = self.genome_name
             start = 0
             end = 10000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
             logging.info(
