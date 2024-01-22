@@ -1175,7 +1175,7 @@ class JbrowseConnector(object):
         refName = None
         if data.get("defaultLocation", ""):
             ddl = data["defaultLocation"]
-            loc_match = re.search(r"^(\w.+):(\d+)\.+(\d+)$", ddl)
+            loc_match = re.search(r"^([^:]+):(\d+)\.+(\d+)$" , ddl) # was re.search(r"^(\w.+):(\d+)\.+(\d+)$"
             if loc_match:
                 refName = loc_match.group(1)
                 start = int(loc_match.group(2))
@@ -1190,7 +1190,7 @@ class JbrowseConnector(object):
             start = 0
             end = 10000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
             logging.info(
-                "@@@ no defaultlocation found for default session - suggest adding one!"
+                "@@@ no defaultlocation found for default session - please add one"
             )
 
         if refName is not None:
@@ -1211,7 +1211,7 @@ class JbrowseConnector(object):
             )
         else:
             logging.info(
-                "@@@ no assembly name found default session - suggest adding one!"
+                "@@@ no contig name found for default session - please add one!"
             )
         session_name = data.get("session_name", "New session")
         for key, value in mapped_chars.items():
