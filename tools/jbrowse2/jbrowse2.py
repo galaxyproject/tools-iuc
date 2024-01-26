@@ -1531,15 +1531,16 @@ if __name__ == "__main__":
                             )
                         track_conf["trackfiles"].append(tfa)
 
-        if is_multi_bigwig:
-            metadata = metadata_from_node(x.find("metadata"))
+            if is_multi_bigwig:
+                metadata = metadata_from_node(x.find("metadata"))
 
-            track_conf["trackfiles"].append(
-                (
-                    multi_bigwig_paths,  # Passing an array of paths to represent as one track
-                    "bigwig_multiple",
-                    "MultiBigWig",  # Giving an hardcoded name for now
-                    {},  # No metadata for multiple bigwig
+                track_conf["trackfiles"].append(
+                    (
+                        multi_bigwig_paths,  # Passing an array of paths to represent as one track
+                        "bigwig_multiple",
+                        "MultiBigWig",  # Giving an hardcoded name for now
+                        {},  # No metadata for multiple bigwig
+                    )
                 )
             )
         track_conf["category"] = track.attrib["cat"]
