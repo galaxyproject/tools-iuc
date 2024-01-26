@@ -1109,19 +1109,19 @@ class JbrowseConnector(object):
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory."""
 
-        copytree(jbrowse_dir, destination)
+        # copytree(jbrowse_dir, destination)
 
-        try:
-            shutil.rmtree(os.path.join(destination, "test_data"))
-        except OSError as e:
-            log.error("Error: %s - %s." % (e.filename, e.strerror))
-
-        if not os.path.exists(os.path.join(destination, "data")):
-            # It can already exist if upgrading an instance
-            os.makedirs(os.path.join(destination, "data"))
-            log.info("makedir %s" % (os.path.join(destination, "data")))
-
-        os.symlink("./data/config.json", os.path.join(destination, "config.json"))
+        # try:
+        #     shutil.rmtree(os.path.join(destination, "test_data"))
+        # except OSError as e:
+        #     log.error("Error: %s - %s." % (e.filename, e.strerror))
+        #
+        # if not os.path.exists(os.path.join(destination, "data")):
+        #     # It can already exist if upgrading an instance
+        #     os.makedirs(os.path.join(destination, "data"))
+        #     log.info("makedir %s" % (os.path.join(destination, "data")))
+        #
+        # os.symlink("./data/config.json", os.path.join(destination, "config.json"))
 
 
 def copytree(src, dst, symlinks=False, ignore=None):
@@ -1154,137 +1154,138 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     tree = ET.parse(args.xml.name)
-    root = tree.getroot()
+    real_root = tree.getroot()
 
-    # This should be done ASAP
-    GALAXY_INFRASTRUCTURE_URL = root.find("metadata/galaxyUrl").text
-    # Sometimes this comes as `localhost` without a protocol
-    if not GALAXY_INFRASTRUCTURE_URL.startswith("http"):
-        # so we'll prepend `http://` and hope for the best. Requests *should*
-        # be GET and not POST so it should redirect OK
-        GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
+    for root in real_root:
+        # This should be done ASAP
+        GALAXY_INFRASTRUCTURE_URL = root.find("metadata/galaxyUrl").text
+        # Sometimes this comes as `localhost` without a protocol
+        if not GALAXY_INFRASTRUCTURE_URL.startswith("http"):
+            # so we'll prepend `http://` and hope for the best. Requests *should*
+            # be GET and not POST so it should redirect OK
+            GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
 
-    jc = JbrowseConnector(
-        jbrowse=args.jbrowse,
-        outdir=args.outdir,
-        genomes=[
-            {
-                "path": os.path.realpath(x.attrib["path"]),
-                "meta": metadata_from_node(x.find("metadata")),
-                "label": x.attrib["label"],
-            }
-            for x in root.findall("metadata/genomes/genome")
-        ],
-    )
+        jc = JbrowseConnector(
+            jbrowse=args.jbrowse,
+            outdir=args.outdir,
+            genomes=[
+                {
+                    "path": os.path.realpath(x.attrib["path"]),
+                    "meta": metadata_from_node(x.find("metadata")),
+                    "label": x.attrib["label"],
+                }
+                for x in root.findall("metadata/genomes/genome")
+            ],
+        )
 
-    default_session_data = {
-        "visibility": {
-            "default_on": [],
-            "default_off": [],
-        },
-        "style": {},
-        "style_labels": {},
-    }
+        default_session_data = {
+            "visibility": {
+                "default_on": [],
+                "default_off": [],
+            },
+            "style": {},
+            "style_labels": {},
+        }
 
-    # TODO add metadata to tracks
-    for track in root.findall("tracks/track"):
-        track_conf = {}
-        track_conf["trackfiles"] = []
+        # TODO add metadata to tracks
+        for track in root.findall("tracks/track"):
+            track_conf = {}
+            track_conf["trackfiles"] = []
 
-        is_multi_bigwig = False
-        try:
-            if track.find("options/wiggle/multibigwig") and (
-                track.find("options/wiggle/multibigwig").text == "True"
-            ):
-                is_multi_bigwig = True
-                multi_bigwig_paths = []
-        except KeyError:
-            pass
+            is_multi_bigwig = False
+            try:
+                if track.find("options/wiggle/multibigwig") and (
+                    track.find("options/wiggle/multibigwig").text == "True"
+                ):
+                    is_multi_bigwig = True
+                    multi_bigwig_paths = []
+            except KeyError:
+                pass
 
-        trackfiles = track.findall("files/trackFile")
-        if trackfiles:
-            for x in track.findall("files/trackFile"):
-                if is_multi_bigwig:
-                    multi_bigwig_paths.append(
-                        (x.attrib["label"], os.path.realpath(x.attrib["path"]))
-                    )
-                else:
-                    if trackfiles:
-                        metadata = metadata_from_node(x.find("metadata"))
-                        track_conf["trackfiles"].append(
-                            (
-                                os.path.realpath(x.attrib["path"]),
-                                x.attrib["ext"],
-                                x.attrib["label"],
-                                metadata,
-                            )
+            trackfiles = track.findall("files/trackFile")
+            if trackfiles:
+                for x in track.findall("files/trackFile"):
+                    if is_multi_bigwig:
+                        multi_bigwig_paths.append(
+                            (x.attrib["label"], os.path.realpath(x.attrib["path"]))
                         )
-        else:
-            # For tracks without files (rest, sparql)
-            track_conf["trackfiles"].append(
-                (
-                    "",  # N/A, no path for rest or sparql
-                    track.attrib["format"],
-                    track.find("options/label").text,
-                    {},
+                    else:
+                        if trackfiles:
+                            metadata = metadata_from_node(x.find("metadata"))
+                            track_conf["trackfiles"].append(
+                                (
+                                    os.path.realpath(x.attrib["path"]),
+                                    x.attrib["ext"],
+                                    x.attrib["label"],
+                                    metadata,
+                                )
+                            )
+            else:
+                # For tracks without files (rest, sparql)
+                track_conf["trackfiles"].append(
+                    (
+                        "",  # N/A, no path for rest or sparql
+                        track.attrib["format"],
+                        track.find("options/label").text,
+                        {},
+                    )
                 )
-            )
 
-        if is_multi_bigwig:
-            metadata = metadata_from_node(x.find("metadata"))
+            if is_multi_bigwig:
+                metadata = metadata_from_node(x.find("metadata"))
 
-            track_conf["trackfiles"].append(
-                (
-                    multi_bigwig_paths,  # Passing an array of paths to represent as one track
-                    "bigwig_multiple",
-                    "MultiBigWig",  # Giving an hardcoded name for now
-                    {},  # No metadata for multiple bigwig
+                track_conf["trackfiles"].append(
+                    (
+                        multi_bigwig_paths,  # Passing an array of paths to represent as one track
+                        "bigwig_multiple",
+                        "MultiBigWig",  # Giving an hardcoded name for now
+                        {},  # No metadata for multiple bigwig
+                    )
                 )
-            )
-        track_conf["category"] = track.attrib["cat"]
-        track_conf["format"] = track.attrib["format"]
-        track_conf["style"] = {
-            item.tag: parse_style_conf(item) for item in track.find("options/style")
+            track_conf["category"] = track.attrib["cat"]
+            track_conf["format"] = track.attrib["format"]
+            track_conf["style"] = {
+                item.tag: parse_style_conf(item) for item in track.find("options/style")
+            }
+
+            track_conf["style"] = {
+                item.tag: parse_style_conf(item) for item in track.find("options/style")
+            }
+
+            track_conf["style_labels"] = {
+                item.tag: parse_style_conf(item)
+                for item in track.find("options/style_labels")
+            }
+
+            track_conf["conf"] = etree_to_dict(track.find("options"))
+            keys = jc.process_annotations(track_conf)
+
+            for key in keys:
+                default_session_data["visibility"][
+                    track.attrib.get("visibility", "default_off")
+                ].append(key)
+
+            default_session_data["style"][key] = track_conf[
+                "style"
+            ]  # TODO do we need this anymore?
+            default_session_data["style_labels"][key] = track_conf["style_labels"]
+
+        default_session_data["defaultLocation"] = root.find(
+            "metadata/general/defaultLocation"
+        ).text
+        default_session_data["session_name"] = root.find(
+            "metadata/general/session_name"
+        ).text
+
+        general_data = {
+            "analytics": root.find("metadata/general/analytics").text,
+            "primary_color": root.find("metadata/general/primary_color").text,
+            "secondary_color": root.find("metadata/general/secondary_color").text,
+            "tertiary_color": root.find("metadata/general/tertiary_color").text,
+            "quaternary_color": root.find("metadata/general/quaternary_color").text,
+            "font_size": root.find("metadata/general/font_size").text,
         }
 
-        track_conf["style"] = {
-            item.tag: parse_style_conf(item) for item in track.find("options/style")
-        }
-
-        track_conf["style_labels"] = {
-            item.tag: parse_style_conf(item)
-            for item in track.find("options/style_labels")
-        }
-
-        track_conf["conf"] = etree_to_dict(track.find("options"))
-        keys = jc.process_annotations(track_conf)
-
-        for key in keys:
-            default_session_data["visibility"][
-                track.attrib.get("visibility", "default_off")
-            ].append(key)
-
-        default_session_data["style"][key] = track_conf[
-            "style"
-        ]  # TODO do we need this anymore?
-        default_session_data["style_labels"][key] = track_conf["style_labels"]
-
-    default_session_data["defaultLocation"] = root.find(
-        "metadata/general/defaultLocation"
-    ).text
-    default_session_data["session_name"] = root.find(
-        "metadata/general/session_name"
-    ).text
-
-    general_data = {
-        "analytics": root.find("metadata/general/analytics").text,
-        "primary_color": root.find("metadata/general/primary_color").text,
-        "secondary_color": root.find("metadata/general/secondary_color").text,
-        "tertiary_color": root.find("metadata/general/tertiary_color").text,
-        "quaternary_color": root.find("metadata/general/quaternary_color").text,
-        "font_size": root.find("metadata/general/font_size").text,
-    }
-
-    jc.add_default_session(default_session_data)
-    jc.add_general_configuration(general_data)
-    jc.text_index()
+        jc.add_default_session(default_session_data)
+        jc.add_general_configuration(general_data)
+        jc.text_index()
