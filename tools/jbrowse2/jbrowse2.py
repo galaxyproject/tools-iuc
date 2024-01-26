@@ -602,7 +602,7 @@ class JbrowseConnector(object):
             "jbrowse",
             "text-index",
             "--target",
-            os.path.join(self.outdir, "data"),
+            self.outdir,
             "--assemblies",
             self.genome_name,
         ]
