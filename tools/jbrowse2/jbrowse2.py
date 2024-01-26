@@ -400,19 +400,26 @@ class JbrowseConnector(object):
         self.config_json_file = os.path.join(outdir, "config.json")
         self.clone_jbrowse()
 
-    def subprocess_check_call(self, command, output=None):
-        if output:
-            log.debug("cd %s && %s >  %s", self.outdir, " ".join(command), output)
-            subprocess.check_call(command, cwd=self.outdir, stdout=output)
+    def get_cwd(self, cwd):
+        if cwd:
+            return self.outdir
         else:
-            log.debug("cd %s && %s", self.outdir, " ".join(command))
-            subprocess.check_call(command, cwd=self.outdir)
+            return subprocess.check_output(['pwd']).decode('utf-8').strip()
+            # return None
+
+    def subprocess_check_call(self, command, output=None, cwd=False):
+        if output:
+            log.debug("cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output)
+            subprocess.check_call(command, cwd=self.get_cwd(cwd), stdout=output)
+        else:
+            log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
+            subprocess.check_call(command, cwd=self.get_cwd(cwd))
 
     def subprocess_popen(self, command):
         log.debug(command)
         p = subprocess.Popen(
             command,
-            cwd=self.outdir,
+            cwd=self.get_cwd(cwd),
             shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
