@@ -15,7 +15,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("jbrowse")
 
 JB2VER = "v2.10.3"
