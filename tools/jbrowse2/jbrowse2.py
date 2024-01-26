@@ -18,6 +18,19 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jbrowse")
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 GALAXY_INFRASTRUCTURE_URL = None
+mapped_chars = {
+    ">": "__gt__",
+    "<": "__lt__",
+    "'": "__sq__",
+    '"': "__dq__",
+    "[": "__ob__",
+    "]": "__cb__",
+    "{": "__oc__",
+    "}": "__cc__",
+    "@": "__at__",
+    "#": "__pd__",
+    "": "__cn__",
+}
 
 
 class ColorScaling(object):
@@ -189,6 +202,7 @@ class ColorScaling(object):
         # Wiggle tracks have a bicolor pallete
         trackConfig = {"style": {}}
         if trackFormat == "wiggle":
+
             trackConfig["style"]["pos_color"] = track["wiggle"]["color_pos"]
             trackConfig["style"]["neg_color"] = track["wiggle"]["color_neg"]
 
@@ -299,8 +313,6 @@ def etree_to_dict(t):
     return d
 
 
-# score comes from feature._parent.get('score') or feature.get('score')
-
 INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 
@@ -383,6 +395,7 @@ class JbrowseConnector(object):
         log.debug("cd %s && %s", self.outdir, command)
         p = subprocess.Popen(
             command,
+            cwd=self.outdir,
             shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -409,6 +422,21 @@ class JbrowseConnector(object):
             cmd = ["cp", src, dest]
 
         return self.subprocess_check_call(cmd)
+
+    def _prepare_track_style(self, xml_conf):
+        style_data = {
+            "type": "LinearBasicDisplay",
+        }
+
+        if "display" in xml_conf["style"]:
+            style_data["type"] = xml_conf["style"]["display"]
+            del xml_conf["style"]["display"]
+
+        style_data["displayId"] = "%s_%s" % (xml_conf["label"], style_data["type"])
+
+        style_data.update(xml_conf["style"])
+
+        return {"displays": [style_data]}
 
     def symlink_or_copy_load_action(self):
         if "GALAXY_JBROWSE_SYMLINKS" in os.environ and bool(
@@ -531,19 +559,6 @@ class JbrowseConnector(object):
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
         return gff3_unrebased.name
-
-    def _prepare_track_style(self, xml_conf):
-        style_data = {"type": "LinearBasicDisplay"}
-
-        if "display" in xml_conf["style"]:
-            style_data["type"] = xml_conf["style"]["display"]
-            del xml_conf["style"]["display"]
-
-        style_data["displayId"] = "%s_%s" % (xml_conf["label"], style_data["type"])
-
-        style_data.update(xml_conf["style"])
-
-        return {"displays": [style_data]}
 
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
         gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts["min_gap"])
@@ -776,7 +791,7 @@ class JbrowseConnector(object):
             "jbrowse",
             "add-track",
             "--load",
-            "inPlace",
+            self.symlink_or_copy_load_action(),
             "--name",
             label,
             "--category",
@@ -820,20 +835,6 @@ class JbrowseConnector(object):
         category = track["category"].replace("__pd__date__pd__", TODAY)
         outputTrackConfig = {
             "category": category,
-        }
-
-        mapped_chars = {
-            ">": "__gt__",
-            "<": "__lt__",
-            "'": "__sq__",
-            '"': "__dq__",
-            "[": "__ob__",
-            "]": "__cb__",
-            "{": "__oc__",
-            "}": "__cc__",
-            "@": "__at__",
-            "#": "__pd__",
-            "": "__cn__",
         }
 
         for i, (
@@ -1190,20 +1191,34 @@ if __name__ == "__main__":
         track_conf = {}
         track_conf["trackfiles"] = []
 
+        is_multi_bigwig = False
+        try:
+            if track.find("options/wiggle/multibigwig") and (
+                track.find("options/wiggle/multibigwig").text == "True"
+            ):
+                is_multi_bigwig = True
+                multi_bigwig_paths = []
+        except KeyError:
+            pass
+
         trackfiles = track.findall("files/trackFile")
         if trackfiles:
             for x in track.findall("files/trackFile"):
-                if trackfiles:
-                    metadata = metadata_from_node(x.find("metadata"))
-
-                    track_conf["trackfiles"].append(
-                        (
-                            os.path.realpath(x.attrib["path"]),
-                            x.attrib["ext"],
-                            x.attrib["label"],
-                            metadata,
-                        )
+                if is_multi_bigwig:
+                    multi_bigwig_paths.append(
+                        (x.attrib["label"], os.path.realpath(x.attrib["path"]))
                     )
+                else:
+                    if trackfiles:
+                        metadata = metadata_from_node(x.find("metadata"))
+                        track_conf["trackfiles"].append(
+                            (
+                                os.path.realpath(x.attrib["path"]),
+                                x.attrib["ext"],
+                                x.attrib["label"],
+                                metadata,
+                            )
+                        )
         else:
             # For tracks without files (rest, sparql)
             track_conf["trackfiles"].append(
@@ -1215,6 +1230,17 @@ if __name__ == "__main__":
                 )
             )
 
+        if is_multi_bigwig:
+            metadata = metadata_from_node(x.find("metadata"))
+
+            track_conf["trackfiles"].append(
+                (
+                    multi_bigwig_paths,  # Passing an array of paths to represent as one track
+                    "bigwig_multiple",
+                    "MultiBigWig",  # Giving an hardcoded name for now
+                    {},  # No metadata for multiple bigwig
+                )
+            )
         track_conf["category"] = track.attrib["cat"]
         track_conf["format"] = track.attrib["format"]
         track_conf["style"] = {
