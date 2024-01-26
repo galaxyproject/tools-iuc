@@ -541,7 +541,7 @@ class JbrowseConnector(object):
             "jbrowse",
             "text-index",
             "--target",
-            os.path.join(self.outdir, "data"),
+            self.outdir,
             "--assemblies",
             self.current_assembly_id,
         ]
@@ -589,7 +589,7 @@ class JbrowseConnector(object):
         rel_dest = os.path.join(trackData["label"] + ".gff")
         dest = os.path.join(self.outdir, rel_dest)
 
-        self._sort_gff(gff3, dest)
+        self._sort_gff(gff3, rel_dest)
         os.unlink(gff3)
 
         style_json = self._prepare_track_style(trackData)
@@ -661,15 +661,15 @@ class JbrowseConnector(object):
         if zipped:
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
             dest = os.path.join(self.outdir, rel_dest)
-            shutil.copy(os.path.realpath(data), dest)
+            shutil.copy(os.path.realpath(data), rel_dest)
         else:
             rel_dest = os.path.join(trackData["label"] + ".vcf")
             dest = os.path.join(self.outdir, rel_dest)
-            shutil.copy(os.path.realpath(data), dest)
+            shutil.copy(os.path.realpath(data), rel_dest)
 
-            cmd = ["bgzip", dest]
+            cmd = ["bgzip", rel_dest]
             self.subprocess_check_call(cmd)
-            cmd = ["tabix", dest + ".gz"]
+            cmd = ["tabix", rel_dest + ".gz"]
             self.subprocess_check_call(cmd)
 
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
@@ -688,7 +688,7 @@ class JbrowseConnector(object):
         rel_dest = os.path.join(trackData["label"] + ".gff")
         dest = os.path.join(self.outdir, rel_dest)
 
-        self._sort_gff(data, dest)
+        self._sort_gff(data, rel_dest)
 
         style_json = self._prepare_track_style(trackData)
 
@@ -704,7 +704,7 @@ class JbrowseConnector(object):
         rel_dest = os.path.join(trackData["label"] + ".bed")
         dest = os.path.join(self.outdir, rel_dest)
 
-        self._sort_bed(data, dest)
+        self._sort_bed(data, rel_dest)
 
         style_json = self._prepare_track_style(trackData)
 
@@ -720,7 +720,7 @@ class JbrowseConnector(object):
         rel_dest = os.path.join(trackData["label"] + ".paf")
         dest = os.path.join(self.outdir, rel_dest)
 
-        self.symlink_or_copy(os.path.realpath(data), dest)
+        self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
         added_assembly = self.add_assembly(
             pafOpts["genome"], pafOpts["genome_label"], default=False
@@ -741,7 +741,7 @@ class JbrowseConnector(object):
         rel_dest = os.path.join(trackData["label"] + ".hic")
         dest = os.path.join(self.outdir, rel_dest)
 
-        self.symlink_or_copy(os.path.realpath(data), dest)
+        self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
         style_json = self._prepare_track_style(trackData)
 
@@ -775,7 +775,7 @@ class JbrowseConnector(object):
                 "jbrowse",
                 "add-track-json",
                 "--target",
-                os.path.join(self.outdir, "data"),
+                self.outdir,
                 json_track_data,
             ]
         )
@@ -806,7 +806,7 @@ class JbrowseConnector(object):
             "--category",
             category,
             "--target",
-            os.path.join(self.outdir, "data"),
+            self.outdir,
             "--trackId",
             id,
             "--assemblyNames",
@@ -825,10 +825,10 @@ class JbrowseConnector(object):
         # Only index if not already done
         if not os.path.exists(dest):
             cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
-            self.subprocess_popen(cmd)
+            self.subprocess_popen(cmd, cwd=False)
 
-            self.subprocess_check_call(["bgzip", "-f", dest])
-            self.subprocess_check_call(["tabix", "-f", "-p", "gff", dest + ".gz"])
+            self.subprocess_check_call(["bgzip", "-f", dest], cwd=False)
+            self.subprocess_check_call(["tabix", "-f", "-p", "gff", dest + ".gz"], cwd=False)
 
     def _sort_bed(self, data, dest):
         # Only index if not already done
@@ -1256,16 +1256,16 @@ if __name__ == "__main__":
             track_conf["category"] = track.attrib["cat"]
             track_conf["format"] = track.attrib["format"]
             track_conf["style"] = {
-                item.tag: parse_style_conf(item) for item in track.find("options/style")
+                item.tag: parse_style_conf(item) for item in (track.find("options/style") or [])
             }
 
             track_conf["style"] = {
-                item.tag: parse_style_conf(item) for item in track.find("options/style")
+                item.tag: parse_style_conf(item) for item in (track.find("options/style") or [])
             }
 
             track_conf["style_labels"] = {
                 item.tag: parse_style_conf(item)
-                for item in track.find("options/style_labels")
+                for item in (track.find("options/style_labels") or [])
             }
 
             track_conf["conf"] = etree_to_dict(track.find("options"))
