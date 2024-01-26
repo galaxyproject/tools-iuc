@@ -14,7 +14,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("jbrowse")
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 GALAXY_INFRASTRUCTURE_URL = None
@@ -365,9 +365,9 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, jbrowse, outdir, genomes):
+    def __init__(self, outdir, genomes):
         self.cs = ColorScaling()
-        self.jbrowse = jbrowse
+        # self.jbrowse = jbrowse
         self.outdir = outdir
         self.genome_paths = genomes
         self.tracksToIndex = []
@@ -379,7 +379,7 @@ class JbrowseConnector(object):
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
 
-        self.clone_jbrowse(self.jbrowse, self.outdir)
+        # self.clone_jbrowse(self.jbrowse, self.outdir)
 
         self.process_genomes()
 
@@ -447,7 +447,7 @@ class JbrowseConnector(object):
             return "copy"
 
     def check_existing(self, destination):
-        existing = os.path.join(destination, "data", "config.json")
+        existing = os.path.join(destination, "config.json")
         if os.path.exists(existing):
             with open(existing, "r") as existing_conf:
                 conf = json.load(existing_conf)
@@ -466,7 +466,7 @@ class JbrowseConnector(object):
     def add_assembly(self, path, label, default=True):
         # Find a non-existing filename for the new genome
         # (to avoid colision when upgrading an existing instance)
-        rel_seq_path = os.path.join("data", "assembly")
+        rel_seq_path = os.path.join("assembly")
         seq_path = os.path.join(self.outdir, rel_seq_path)
         fn_try = 1
         while (
@@ -475,7 +475,7 @@ class JbrowseConnector(object):
             or os.path.exists(seq_path + ".fasta.gz.fai")
             or os.path.exists(seq_path + ".fasta.gz.gzi")
         ):
-            rel_seq_path = os.path.join("data", "assembly%s" % fn_try)
+            rel_seq_path = os.path.join("assembly%s" % fn_try)
             seq_path = os.path.join(self.outdir, rel_seq_path)
             fn_try += 1
 
@@ -512,13 +512,15 @@ class JbrowseConnector(object):
                 "jbrowse",
                 "add-assembly",
                 "--load",
-                "inPlace",
+                self.symlink_or_copy_load_action(),
                 "--name",
                 uniq_label,
                 "--type",
                 "bgzipFasta",
-                "--target",
-                os.path.join(self.outdir, "data"),
+                "--out",
+                self.outdir,
+                # "--target",
+                # os.path.join(self.outdir, 'config.json'),
                 "--skipCheck",
                 rel_seq_path + ".fasta.gz",
             ]
@@ -577,7 +579,7 @@ class JbrowseConnector(object):
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
 
-        rel_dest = os.path.join("data", trackData["label"] + ".gff")
+        rel_dest = os.path.join(trackData["label"] + ".gff")
         dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(gff3, dest)
@@ -594,7 +596,7 @@ class JbrowseConnector(object):
         )
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".bw")
+        rel_dest = os.path.join(trackData["label"] + ".bw")
         dest = os.path.join(self.outdir, rel_dest)
         self.symlink_or_copy(os.path.realpath(data), dest)
 
@@ -614,7 +616,7 @@ class JbrowseConnector(object):
         if ext == "cram":
             index_ext = "crai"
 
-        rel_dest = os.path.join("data", trackData["label"] + ".%s" % ext)
+        rel_dest = os.path.join(trackData["label"] + ".%s" % ext)
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -650,11 +652,11 @@ class JbrowseConnector(object):
 
     def add_vcf(self, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if zipped:
-            rel_dest = os.path.join("data", trackData["label"] + ".vcf.gz")
+            rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
             dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), dest)
         else:
-            rel_dest = os.path.join("data", trackData["label"] + ".vcf")
+            rel_dest = os.path.join(trackData["label"] + ".vcf")
             dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), dest)
 
@@ -663,7 +665,7 @@ class JbrowseConnector(object):
             cmd = ["tabix", dest + ".gz"]
             self.subprocess_check_call(cmd)
 
-            rel_dest = os.path.join("data", trackData["label"] + ".vcf.gz")
+            rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
 
         style_json = self._prepare_track_style(trackData)
 
@@ -676,7 +678,7 @@ class JbrowseConnector(object):
         )
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".gff")
+        rel_dest = os.path.join(trackData["label"] + ".gff")
         dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(data, dest)
@@ -692,7 +694,7 @@ class JbrowseConnector(object):
         )
 
     def add_bed(self, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".bed")
+        rel_dest = os.path.join(trackData["label"] + ".bed")
         dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_bed(data, dest)
@@ -708,7 +710,7 @@ class JbrowseConnector(object):
         )
 
     def add_paf(self, data, trackData, pafOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".paf")
+        rel_dest = os.path.join(trackData["label"] + ".paf")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -729,7 +731,7 @@ class JbrowseConnector(object):
         )
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".hic")
+        rel_dest = os.path.join(trackData["label"] + ".hic")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -995,7 +997,7 @@ class JbrowseConnector(object):
         # TODO using the default session for now, but check out session specs in the future https://github.com/GMOD/jbrowse-components/issues/2708
 
         # We need to know the track type from the config.json generated just before
-        config_path = os.path.join(self.outdir, "data", "config.json")
+        config_path = os.path.join(self.outdir, "config.json")
         track_types = {}
         with open(config_path, "r") as config_file:
             config_json = json.load(config_file)
@@ -1083,7 +1085,7 @@ class JbrowseConnector(object):
         Add some general configuration to the config.json file
         """
 
-        config_path = os.path.join(self.outdir, "data", "config.json")
+        config_path = os.path.join(self.outdir, "config.json")
         with open(config_path, "r") as config_file:
             config_json = json.load(config_file)
 
@@ -1106,8 +1108,12 @@ class JbrowseConnector(object):
         with open(config_path, "w") as config_file:
             json.dump(config_json, config_file, indent=2)
 
-    def clone_jbrowse(self, jbrowse_dir, destination):
+    def clone_jbrowse(self, jbrowse_dir, destination, version):
         """Clone a JBrowse directory into a destination directory."""
+        self.subprocess_check_call([
+            'jbrowse', 'create', destination, '--tag', f"v{version}"
+        ])
+
 
         # copytree(jbrowse_dir, destination)
 
@@ -1148,7 +1154,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument("xml", type=argparse.FileType("r"), help="Track Configuration")
 
-    parser.add_argument("--jbrowse", help="Folder containing a jbrowse release")
     parser.add_argument("--outdir", help="Output directory", default="out")
     parser.add_argument("--version", "-V", action="version", version="%(prog)s 0.8.0")
     args = parser.parse_args()
@@ -1166,7 +1171,6 @@ if __name__ == "__main__":
             GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
 
         jc = JbrowseConnector(
-            jbrowse=args.jbrowse,
             outdir=args.outdir,
             genomes=[
                 {
