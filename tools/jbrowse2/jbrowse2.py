@@ -23,6 +23,19 @@ JB2VER = "v2.10.3"
 
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 GALAXY_INFRASTRUCTURE_URL = None
+mapped_chars = {
+    ">": "__gt__",
+    "<": "__lt__",
+    "'": "__sq__",
+    '"': "__dq__",
+    "[": "__ob__",
+    "]": "__cb__",
+    "{": "__oc__",
+    "}": "__cc__",
+    "@": "__at__",
+    "#": "__pd__",
+    "": "__cn__",
+}
 
 mapped_chars = {
     ">": "__gt__",
@@ -40,6 +53,7 @@ mapped_chars = {
 
 
 class ColorScaling(object):
+
     COLOR_FUNCTION_TEMPLATE = """
     function(feature, variableName, glyphObject, track) {{
         var score = {score};
