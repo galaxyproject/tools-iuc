@@ -383,19 +383,26 @@ class JbrowseConnector(object):
 
         self.process_genomes()
 
-    def subprocess_check_call(self, command, output=None):
-        if output:
-            log.debug("cd %s && %s >  %s", self.outdir, " ".join(command), output)
-            subprocess.check_call(command, cwd=self.outdir, stdout=output)
+    def get_cwd(self, cwd):
+        if cwd:
+            return self.outdir
         else:
-            log.debug("cd %s && %s", self.outdir, " ".join(command))
-            subprocess.check_call(command, cwd=self.outdir)
+            return subprocess.check_output(['pwd']).decode('utf-8').strip()
+            # return None
 
-    def subprocess_popen(self, command):
-        log.debug("cd %s && %s", self.outdir, command)
+    def subprocess_check_call(self, command, output=None, cwd=False):
+        if output:
+            log.debug("cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output)
+            subprocess.check_call(command, cwd=self.get_cwd(cwd), stdout=output)
+        else:
+            log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
+            subprocess.check_call(command, cwd=self.get_cwd(cwd))
+
+    def subprocess_popen(self, command, cwd=False):
+        log.debug("cd %s && %s", self.get_cwd(cwd), command)
         p = subprocess.Popen(
             command,
-            cwd=self.outdir,
+            cwd=self.get_cwd(cwd),
             shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -404,14 +411,14 @@ class JbrowseConnector(object):
         output, err = p.communicate()
         retcode = p.returncode
         if retcode != 0:
-            log.error("cd %s && %s", self.outdir, command)
+            log.error("cd %s && %s", self.get_cwd(cwd), command)
             log.error(output)
             log.error(err)
             raise RuntimeError("Command failed with exit code %s" % (retcode))
 
-    def subprocess_check_output(self, command):
-        log.debug("cd %s && %s", self.outdir, " ".join(command))
-        return subprocess.check_output(command, cwd=self.outdir)
+    def subprocess_check_output(self, command, cwd=False):
+        log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
+        return subprocess.check_output(command, cwd=self.get_cwd(cwd))
 
     def symlink_or_copy(self, src, dest):
         if "GALAXY_JBROWSE_SYMLINKS" in os.environ and bool(
