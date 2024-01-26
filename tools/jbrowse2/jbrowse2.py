@@ -40,7 +40,6 @@ mapped_chars = {
 
 
 class ColorScaling(object):
-
     COLOR_FUNCTION_TEMPLATE = """
     function(feature, variableName, glyphObject, track) {{
         var score = {score};
