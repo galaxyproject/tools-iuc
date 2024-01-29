@@ -552,6 +552,9 @@ class JbrowseConnector(object):
 
             self.subprocess_check_call(args)
 
+    def cleanup(self):
+        shutil.rmtree(os.path.join(self.outdir, 'test_data'))
+
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = [
@@ -1323,3 +1326,4 @@ if __name__ == "__main__":
     jc.add_default_session(default_session_data)
     jc.add_general_configuration(general_data)
     jc.text_index()
+    jc.cleanup()
