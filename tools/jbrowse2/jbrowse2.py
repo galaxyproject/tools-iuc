@@ -22,6 +22,7 @@ JB2VER = "v2.10.3"
 # version pinned for cloning
 
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
+SELF_LOCATION = os.path.dirname(os.path.realpath(__file__))
 GALAXY_INFRASTRUCTURE_URL = None
 mapped_chars = {
     ">": "__gt__",
@@ -1174,7 +1175,8 @@ class JbrowseConnector(object):
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
-    def process_annotations(self, track):
+    def process_annotations(self, track, parent):
+        _parent_genome = parent.attrib['label']
         category = track["category"].replace("__pd__date__pd__", TODAY)
         for i, (
             dataset_path,
