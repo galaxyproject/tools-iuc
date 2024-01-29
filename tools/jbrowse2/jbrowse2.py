@@ -17,6 +17,7 @@ from collections import defaultdict
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("jbrowse")
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
+SELF_LOCATION = os.path.dirname(os.path.realpath(__file__))
 GALAXY_INFRASTRUCTURE_URL = None
 mapped_chars = {
     ">": "__gt__",
@@ -381,8 +382,6 @@ class JbrowseConnector(object):
 
         # self.clone_jbrowse(self.jbrowse, self.outdir)
 
-        self.process_genomes()
-
     def get_cwd(self, cwd):
         if cwd:
             return self.outdir
@@ -468,12 +467,13 @@ class JbrowseConnector(object):
             # We only expect one input genome per run. This for loop is just
             # easier to write than the alternative / catches any possible
             # issues.
+            log.debug("Processing genome", genome_node)
             self.add_assembly(genome_node["path"], genome_node["label"])
 
     def add_assembly(self, path, label, default=True):
         # Find a non-existing filename for the new genome
         # (to avoid colision when upgrading an existing instance)
-        rel_seq_path = os.path.join("assembly")
+        rel_seq_path = os.path.join(label)
         seq_path = os.path.join(self.outdir, rel_seq_path)
         fn_try = 1
         while (
@@ -482,7 +482,7 @@ class JbrowseConnector(object):
             or os.path.exists(seq_path + ".fasta.gz.fai")
             or os.path.exists(seq_path + ".fasta.gz.gzi")
         ):
-            rel_seq_path = os.path.join("assembly%s" % fn_try)
+            rel_seq_path = os.path.join(f"{label}{fn_try}")
             seq_path = os.path.join(self.outdir, rel_seq_path)
             fn_try += 1
 
@@ -503,7 +503,7 @@ class JbrowseConnector(object):
         if default:
             self.current_assembly_id = uniq_label
 
-        copied_genome = seq_path + ".fasta"
+        copied_genome = rel_seq_path + ".fasta"
         shutil.copy(path, copied_genome)
 
         # Compress with bgzip
@@ -716,25 +716,31 @@ class JbrowseConnector(object):
             config=style_json,
         )
 
-    def add_paf(self, data, trackData, pafOpts, **kwargs):
+    def add_paf(self, data, trackData, pafOpts, parentgenome, **kwargs):
+        # TODO: how to get both parent genomes.
+
+        # print(trackData)
         rel_dest = os.path.join(trackData["label"] + ".paf")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
-        added_assembly = self.add_assembly(
-            pafOpts["genome"], pafOpts["genome_label"], default=False
-        )
+        # TODO: this was disabled because it was adding spurious assemblies,
+        # when one of that name already exists.
+        # added_assembly = self.add_assembly(
+        #     pafOpts["genome"], pafOpts["genome_label"], default=False
+        # )
 
         style_json = self._prepare_track_style(trackData)
 
         self._add_track(
             trackData["label"],
-            trackData["key"],
+            f"{parentgenome} v {trackData['key']}",
             trackData["category"],
             rel_dest,
-            assemblies=[self.current_assembly_id, added_assembly],
+            assemblies=[trackData['key'], parentgenome],
             config=style_json,
+            trackType="SyntenyTrack",
         )
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
@@ -791,7 +797,7 @@ class JbrowseConnector(object):
         #     '--config', '{"queryTemplate": "%s"}' % query,
         #     url])
 
-    def _add_track(self, id, label, category, path, assemblies=[], config=None):
+    def _add_track(self, id, label, category, path, assemblies=[], config=None, trackType=None):
         assemblies_opt = self.current_assembly_id
         if assemblies:
             assemblies_opt = ",".join(assemblies)
@@ -817,6 +823,10 @@ class JbrowseConnector(object):
             cmd.append("--config")
             cmd.append(json.dumps(config))
 
+        if trackType:
+            cmd.append("--trackType")
+            cmd.append(trackType)
+
         cmd.append(path)
 
         self.subprocess_check_call(cmd)
@@ -824,6 +834,7 @@ class JbrowseConnector(object):
     def _sort_gff(self, data, dest):
         # Only index if not already done
         if not os.path.exists(dest):
+            # TODO: replace with jbrowse sort-gff
             cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
             self.subprocess_popen(cmd, cwd=False)
 
@@ -840,7 +851,8 @@ class JbrowseConnector(object):
             self.subprocess_check_call(["bgzip", "-f", dest])
             self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"])
 
-    def process_annotations(self, track):
+    def process_annotations(self, track, parent):
+        _parent_genome = parent.attrib['label']
         category = track["category"].replace("__pd__date__pd__", TODAY)
         outputTrackConfig = {
             "category": category,
@@ -855,7 +867,7 @@ class JbrowseConnector(object):
             # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
-
+        
             log.info(
                 "Processing track %s / %s (%s)",
                 category,
@@ -872,7 +884,7 @@ class JbrowseConnector(object):
                 rest_url = track["conf"]["options"]["url"]
             else:
                 rest_url = ""
-
+        
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
@@ -887,13 +899,14 @@ class JbrowseConnector(object):
             hashData = "|".join(hashData).encode("utf-8")
             outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_%s" % i
             outputTrackConfig["metadata"] = extra_metadata
-
+        
             outputTrackConfig["style"] = track["style"]
-
+        
             if "menus" in track["conf"]["options"]:
                 menus = self.cs.parse_menus(track["conf"]["options"])
                 outputTrackConfig.update(menus)
-
+        
+            print(f"Adding track {dataset_ext}")
             if dataset_ext in ("gff", "gff3"):
                 self.add_gff(
                     dataset_path,
@@ -925,7 +938,7 @@ class JbrowseConnector(object):
                     # string. If there are two or more indices, the container
                     # becomes a list. Fun!
                     real_indexes = [real_indexes]
-
+        
                 self.add_xam(
                     dataset_path,
                     outputTrackConfig,
@@ -946,7 +959,7 @@ class JbrowseConnector(object):
                     # string. If there are two or more indices, the container
                     # becomes a list. Fun!
                     real_indexes = [real_indexes]
-
+        
                 self.add_xam(
                     dataset_path,
                     outputTrackConfig,
@@ -966,9 +979,11 @@ class JbrowseConnector(object):
                 self.add_rest(
                     track["conf"]["options"]["rest"]["url"], outputTrackConfig
                 )
-            elif dataset_ext == "synteny":
+            elif dataset_ext == "paf":
+                log.debug("===== PAF =====")
                 self.add_paf(
-                    dataset_path, outputTrackConfig, track["conf"]["options"]["synteny"]
+                    dataset_path, outputTrackConfig, track["conf"]["options"]["synteny"],
+                    _parent_genome
                 )
             elif dataset_ext == "hic":
                 self.add_hic(
@@ -1005,6 +1020,7 @@ class JbrowseConnector(object):
 
         # We need to know the track type from the config.json generated just before
         config_path = os.path.join(self.outdir, "config.json")
+        print(config_path)
         track_types = {}
         with open(config_path, "r") as config_file:
             config_json = json.load(config_file)
@@ -1168,38 +1184,44 @@ if __name__ == "__main__":
     tree = ET.parse(args.xml.name)
     real_root = tree.getroot()
 
-    for root in real_root:
-        # This should be done ASAP
-        GALAXY_INFRASTRUCTURE_URL = root.find("metadata/galaxyUrl").text
-        # Sometimes this comes as `localhost` without a protocol
-        if not GALAXY_INFRASTRUCTURE_URL.startswith("http"):
-            # so we'll prepend `http://` and hope for the best. Requests *should*
-            # be GET and not POST so it should redirect OK
-            GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
+    # This should be done ASAP
+    # Sometimes this comes as `localhost` without a protocol
+    GALAXY_INFRASTRUCTURE_URL = real_root.find("metadata/galaxyUrl").text
+    if not GALAXY_INFRASTRUCTURE_URL.startswith("http"):
+        # so we'll prepend `http://` and hope for the best. Requests *should*
+        # be GET and not POST so it should redirect OK
+        GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
 
-        jc = JbrowseConnector(
-            outdir=args.outdir,
-            genomes=[
-                {
-                    "path": os.path.realpath(x.attrib["path"]),
-                    "meta": metadata_from_node(x.find("metadata")),
-                    "label": x.attrib["label"],
-                }
-                for x in root.findall("metadata/genomes/genome")
-            ],
-        )
+    jc = JbrowseConnector(
+        outdir=args.outdir,
+        genomes=[
+            {
+                "path": os.path.realpath(x.attrib["path"]),
+                "meta": metadata_from_node(x.find("metadata")),
+                "label": x.attrib["label"],
+            }
+            for x in real_root.findall("assembly/genomes/genome")
+        ],
+    )
 
-        default_session_data = {
-            "visibility": {
-                "default_on": [],
-                "default_off": [],
-            },
-            "style": {},
-            "style_labels": {},
-        }
+    # Process genomes
+    jc.process_genomes()
+
+    default_session_data = {
+        "visibility": {
+            "default_on": [],
+            "default_off": [],
+        },
+        "style": {},
+        "style_labels": {},
+    }
+
+    for assembly in real_root.findall("assembly"):
+        genome = assembly.find('genomes/genome')
+        print(genome)
 
         # TODO add metadata to tracks
-        for track in root.findall("tracks/track"):
+        for track in assembly.findall("tracks/track"):
             track_conf = {}
             track_conf["trackfiles"] = []
 
@@ -1213,7 +1235,7 @@ if __name__ == "__main__":
             except KeyError:
                 pass
 
-            trackfiles = track.findall("files/trackFile")
+            trackfiles = track.findall("files/trackFile") or []
             if trackfiles:
                 for x in track.findall("files/trackFile"):
                     if is_multi_bigwig:
@@ -1221,16 +1243,15 @@ if __name__ == "__main__":
                             (x.attrib["label"], os.path.realpath(x.attrib["path"]))
                         )
                     else:
-                        if trackfiles:
-                            metadata = metadata_from_node(x.find("metadata"))
-                            track_conf["trackfiles"].append(
-                                (
-                                    os.path.realpath(x.attrib["path"]),
-                                    x.attrib["ext"],
-                                    x.attrib["label"],
-                                    metadata,
-                                )
+                        metadata = metadata_from_node(x.find("metadata"))
+                        track_conf["trackfiles"].append(
+                            (
+                                os.path.realpath(x.attrib["path"]),
+                                x.attrib["ext"],
+                                x.attrib["label"],
+                                metadata,
                             )
+                        )
             else:
                 # For tracks without files (rest, sparql)
                 track_conf["trackfiles"].append(
@@ -1269,34 +1290,36 @@ if __name__ == "__main__":
             }
 
             track_conf["conf"] = etree_to_dict(track.find("options"))
-            keys = jc.process_annotations(track_conf)
 
-            for key in keys:
-                default_session_data["visibility"][
-                    track.attrib.get("visibility", "default_off")
-                ].append(key)
+            keys = jc.process_annotations(track_conf, genome)
+            keys = list(keys)
 
-            default_session_data["style"][key] = track_conf[
-                "style"
-            ]  # TODO do we need this anymore?
-            default_session_data["style_labels"][key] = track_conf["style_labels"]
+            # for key in keys:
+            #     default_session_data["visibility"][
+            #         track.attrib.get("visibility", "default_off")
+            #     ].append(key)
+            #
+            # default_session_data["style"][key] = track_conf[
+            #     "style"
+            # ]  # TODO do we need this anymore?
+            # default_session_data["style_labels"][key] = track_conf["style_labels"]
 
-        default_session_data["defaultLocation"] = root.find(
-            "metadata/general/defaultLocation"
-        ).text
-        default_session_data["session_name"] = root.find(
-            "metadata/general/session_name"
-        ).text
+    default_session_data["defaultLocation"] = real_root.find(
+        "metadata/general/defaultLocation"
+    ).text
+    default_session_data["session_name"] = real_root.find(
+        "metadata/general/session_name"
+    ).text
 
-        general_data = {
-            "analytics": root.find("metadata/general/analytics").text,
-            "primary_color": root.find("metadata/general/primary_color").text,
-            "secondary_color": root.find("metadata/general/secondary_color").text,
-            "tertiary_color": root.find("metadata/general/tertiary_color").text,
-            "quaternary_color": root.find("metadata/general/quaternary_color").text,
-            "font_size": root.find("metadata/general/font_size").text,
-        }
+    general_data = {
+        "analytics": real_root.find("metadata/general/analytics").text,
+        "primary_color": real_root.find("metadata/general/primary_color").text,
+        "secondary_color": real_root.find("metadata/general/secondary_color").text,
+        "tertiary_color": real_root.find("metadata/general/tertiary_color").text,
+        "quaternary_color": real_root.find("metadata/general/quaternary_color").text,
+        "font_size": real_root.find("metadata/general/font_size").text,
+    }
 
-        jc.add_default_session(default_session_data)
-        jc.add_general_configuration(general_data)
-        jc.text_index()
+    jc.add_default_session(default_session_data)
+    jc.add_general_configuration(general_data)
+    jc.text_index()
