@@ -9,7 +9,7 @@
         <xref type="bio.tools">htseq</xref>
     </xrefs>
     <requirements>
-        <requirement type="package" version="2.0.5">htseq</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">htseq</requirement>
         <requirement type="package" version="1.19.2">samtools</requirement>
         <requirement type="package" version="5.3.0">gawk</requirement>
         <requirement type="package" version="9.4">coreutils</requirement>
@@ -24,30 +24,36 @@
         <regex match="Error" source="stderr" level="fatal" description="Unknown error occured" />
     </stdio>
 
-    <version_command>htseq-count -h | grep version | sed 's/^\(.*\)*\(version .*\)\./\2/'</version_command>
+    <version_command>htseq-count --version</version_command>
 
     <command><![CDATA[
     ##set up input files
-    #set $reference_fasta_filename = "localref.fa"
-    #set $name_sorted_alignment_filename = "name_sorted_alignment.sam"
+    #set $name_sorted_alignment_filename = "name_sorted.bam"
+    #set $ref_index = "ref.fai"
     #if str( $advanced_options.advanced_options_selector ) == "advanced":
         #if str( $advanced_options.samout_conditional.samout ) == "Yes":
             #if str( $advanced_options.samout_conditional.reference_source.reference_source_selector ) == "history":
-                ln -s "${advanced_options.samout_conditional.reference_source.ref_file}" "${reference_fasta_filename}" &&
-                samtools faidx '${reference_fasta_filename}' 2>&1 || echo "Error running samtools faidx for htseq-count" >&2 &&
+                samtools faidx --fai-idx $ref_index '${advanced_options.samout_conditional.reference_source.ref_file}' 2>&1 || echo "Error running samtools faidx for htseq-count" >&2 &&
             #else:
-                #set $reference_fasta_filename = str( $advanced_options.samout_conditional.reference_source.ref_file.fields.path )
+                ln -s '${advanced_options.samout_conditional.reference_source.ref_file.fields.path}.fai' $ref_index
             #end if
         #end if
     #end if
 
     #if $samfile.extension == 'bam':
-        samtools sort -n -T "\${TMPDIR:-.}" --output-fmt=BAM -o '$name_sorted_alignment_filename' '$samfile' &&
-    #else
-        samtools view -Su -t '${reference_fasta_filename}.fai' '$samfile' | samtools sort -n -T "\${TMPDIR:-.}" --output-fmt=BAM -o '$name_sorted_alignment_filename' - &&
+        samtools sort -n -T "\${TMPDIR:-.}" -o $name_sorted_alignment_filename '$samfile' &&
+    #else:
+        samtools view -Su -t $ref_index '$samfile' | samtools sort -n -T "\${TMPDIR:-.}" -o $name_sorted_alignment_filename - &&
     #end if
 
-    ln -s '$gfffile' reference.gtf &&
+    #if $gfffile.is_of_type('gtf'):
+      ## htseq-count requires .gtf suffix to recognize GTF-formatted feature files
+      ## and to handle textual attributes should surrounded by doublequotes correctly
+      #set $genomic_features = 'features.gtf'
+      ln -s '$gfffile' $genomic_features &&
+    #else:
+      #set $genomic_features = $gfffile
+    #end if
 
     htseq-count
         --mode=$mode
@@ -66,24 +72,26 @@
     #end if
 
     --order=name
-    '$name_sorted_alignment_filename'
+    $name_sorted_alignment_filename
 
-    reference.gtf | csplit -q - /^__/ &&
-    mv xx00 '$counts' && mv xx01 '$allcounts' &&
-    
-    echo -e "__aligned\t\$(cut -f2 '$counts' | awk '{s+=$1}END{print s}' -)" >> '$allcounts'
+    '$genomic_features' | csplit -q - /^__/ &&
+
+    ## csplit above creates two files,
+    ## xx00 with the feature counts and xx01 with category counts.
+    ## Now we calculate the sum over all feature counts in xx00 and append that
+    ## sum as the __aligned count to xx01.
+    echo -e "__aligned\t\$(cut -f2 xx00 | awk '{s+=$1}END{print s}' -)" >> xx01
 
     #if str( $advanced_options.advanced_options_selector ) == "advanced":
         #if $advanced_options.samout_conditional.samout == "Yes":
             && samtools view -Su
-                -t '${reference_fasta_filename}.fai'
+                -t $ref_index
                 samout.sam
-            | samtools sort -T "\${TMPDIR:-.}" -o '$samoutfile' -
+            | samtools sort -T "\${TMPDIR:-.}" -o out.bam -
         #end if
     #end if
     ]]>
     </command>
-
     <inputs>
         <param format="sam,bam" name="samfile" type="data" label="Aligned SAM/BAM File"/>
         <param format="gff" name="gfffile" type="data" label="GFF/GTF File"/>
@@ -116,8 +124,7 @@
                 <option value="simple" selected="true">Default settings</option>
                 <option value="advanced">Set advanced options</option>
             </param>
-            <when value="simple">
-            </when>
+            <when value="simple" />
             <when value="advanced">
                 <param argument="--nonunique" type="select" label="How to count nonunique or ambiguous mapping reads">
                     <option value="none" selected="true">None - do not count nonuniquely or ambiguously mapped reads for any features</option>
@@ -150,32 +157,37 @@
                             </when>
                         </conditional>
                     </when>
-                    <when value="No">
-                        <!-- Do nothing -->
-                    </when>
+                    <when value="No" />
                 </conditional>
             </when>
         </conditional>
     </inputs>
 
     <outputs>
-        <data format="tabular" name="counts" metadata_source="samfile" label="${tool.name} on ${on_string}">
+        <data name="counts" format="tabular" metadata_source="samfile" from_work_dir="xx00" label="${tool.name} on ${on_string}">
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,${samfile.element_identifier}" />
             </actions>
         </data>
-        <data format="tabular" name="allcounts" metadata_source="samfile" label="${tool.name} on ${on_string}: summary">
+        <data name="allcounts" format="tabular" metadata_source="samfile" from_work_dir="xx01" label="${tool.name} on ${on_string}: summary">
             <actions>
                 <action name="column_names" type="metadata" default="Category,${samfile.element_identifier}" />
             </actions>
         </data>
-        <data format="bam" name="samoutfile" metadata_source="samfile" label="${tool.name} on ${on_string} (BAM)">
+        <data name="samoutfile" format="bam" metadata_source="samfile" from_work_dir="out.bam" label="${tool.name} on ${on_string} (BAM)">
             <filter>advanced_options['advanced_options_selector'] == 'advanced' and  advanced_options['samout_conditional']['samout'] == "Yes"</filter>
         </data>
     </outputs>
 
     <tests>
         <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test.sam" />
+            <param name="gfffile" value="htseq-test.gtf" />
+            <output name="counts" file="htseq-test_counts.tsv" />
+            <output name="allcounts" file="htseq-test_allcounts.tsv" />
+        </test>
+        <test expect_num_outputs="2">
+            <!-- same as before, but with gff3 input instead of gtf -->
             <param name="samfile" value="htseq-test.sam" />
             <param name="gfffile" value="htseq-test.gff" />
             <output name="counts" file="htseq-test_counts.tsv" />
