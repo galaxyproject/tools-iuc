@@ -22,18 +22,17 @@ busco_lineages = [
 ]
 
 
-def download_compleasm_database(names, output_dir):
-    db_path = os.path.join(output_dir, f"{names}.db")
+def download_compleasm_database(name, output_dir):
+    db_path = os.path.join(output_dir, f"{name}.db")
     if os.path.exists(db_path):
-        print(f"Database {names} already exists in {output_dir}, skipping download.")
+        print(f"Database {name} already exists in {output_dir}, skipping download.")
     else:
-        command = f"compleasm download {names}"
+        command = f"compleasm download {name}"
         try:
             subprocess.run(command, shell=True, check=True)
         except subprocess.CalledProcessError as e:
-            print(f"Error downloading {names}: {e}")
+            print(f"Error downloading {name}: {e}")
             exit(1)
-
     return db_path
 
 
@@ -41,25 +40,21 @@ def main(args):
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # Split the comma-separated names into a list, then join with spaces
-    names = " ".join(args.name.split(','))
+    data_manager_entries = []
 
-    # Check each name individually
     for name in args.name.split(','):
         if name not in busco_lineages:
             print(f"Error: Lineage '{name}' not found in available lineages.")
             exit(1)
+        db_path = download_compleasm_database(name, args.output_dir)
 
-    db_path = download_compleasm_database(names, args.output_dir)
-
-    data_manager_entries = []
-    base_name = os.path.splitext(os.path.basename(db_path))[0]
-    entry = {
-        "value": base_name,
-        "name": names,  # Pass the modified names here
-        "path": str(Path(args.output_dir)),
-    }
-    data_manager_entries.append(entry)
+        base_name = os.path.splitext(os.path.basename(db_path))[0]
+        entry = {
+            "value": base_name,
+            "name": name,  # Utilisez le nom du lineage actuel ici
+            "path": str(Path(args.output_dir)),
+        }
+        data_manager_entries.append(entry)
 
     data_manager_json = {"data_tables": {"compleasm_data": data_manager_entries}}
 
@@ -71,7 +66,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Download data for CompleASM')
     parser.add_argument('--output-dir', dest='output_dir', required=True, help='Output directory for saving databases')
     parser.add_argument('--name', required=True, help='Comma-separated list of lineage names to download')
-    parser.add_argument('--json', help='Path to JSON file')
+    parser.add_argument('--json', required=True, help='Path to JSON file')
     args = parser.parse_args()
-
     main(args)
