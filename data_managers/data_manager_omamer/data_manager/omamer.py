@@ -15,9 +15,9 @@ OMAMER_DATASETS_URL = "https://omabrowser.org/All/{dataset}"
 # List of OMAmer data sets
 OMAMER_DATASETS = [
     "Primates-v2.0.0.h5",
-    "Viridiplantae-v2.0.0.h50",
+    "Viridiplantae-v2.0.0.h5",
     "Metazoa-v2.0.0.h5",
-    "LUCA-v0.2.5.h5"
+    "LUCA-v0.2.5.h5",
 ]
 
 
@@ -48,7 +48,6 @@ def main(args):
         destination_path = os.path.join(args.output_dir, base_name)
         download_file(url, destination_path)
 
-    # Utiliser le nom du fichier sans extension comme identifiant unique
     data_manager_entry = {
         "value": os.path.splitext(os.path.basename(base_name))[0],
         "name": os.path.splitext(os.path.basename(base_name))[0],
