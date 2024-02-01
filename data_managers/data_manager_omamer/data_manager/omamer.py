@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
+
 import requests
 
 # URL for downloading OMAmer datasets
