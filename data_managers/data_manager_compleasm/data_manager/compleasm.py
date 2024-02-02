@@ -53,6 +53,7 @@ def main(args):
             "value": base_name,
             "name": name,  # Utilisez le nom du lineage actuel ici
             "path": str(Path(args.output_dir)),
+            "version": "0.2.5",
         }
         data_manager_entries.append(entry)
 
