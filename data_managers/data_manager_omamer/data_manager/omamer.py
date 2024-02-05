@@ -11,14 +11,13 @@ import requests
 # URL for downloading OMAmer datasets
 OMAMER_DATASETS_URL = "https://omabrowser.org/All/{dataset}"
 
-
 # List of OMAmer data sets
-OMAMER_DATASETS = [
-    "Primates-v2.0.0.h5",
-    "Viridiplantae-v2.0.0.h5",
-    "Metazoa-v2.0.0.h5",
-    "LUCA-v0.2.5.h5",
-]
+OMAMER_DATASETS = {
+    "Primates": "Primates-v2.0.0.h5",
+    "Viridiplantae": "Viridiplantae-v2.0.0.h5",
+    "Metazoa": "Metazoa-v2.0.0.h5",
+    "LUCA": "LUCA-v0.2.5.h5",
+}
 
 
 def download_file(url, dest):
@@ -41,12 +40,17 @@ def main(args):
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # Download each specified OMAmer data set
-    for dataset in OMAMER_DATASETS:
-        url = OMAMER_DATASETS_URL.format(dataset=dataset)
-        base_name = os.path.splitext(dataset)[0]
-        destination_path = os.path.join(args.output_dir, base_name)
-        download_file(url, destination_path)
+    # Check if the selected dataset exists
+    if args.name not in OMAMER_DATASETS:
+        print(f"Error: Selected dataset '{args.name}' not found.")
+        sys.exit(1)
+
+    # Download the selected OMAmer dataset
+    dataset = OMAMER_DATASETS[args.name]
+    url = OMAMER_DATASETS_URL.format(dataset=dataset)
+    base_name = os.path.splitext(dataset)[0]
+    destination_path = os.path.join(args.output_dir, base_name)
+    download_file(url, destination_path)
 
     data_manager_entry = {
         "value": os.path.splitext(os.path.basename(base_name))[0],
@@ -66,7 +70,7 @@ if __name__ == "__main__":
     # Set up argparse to specify expected command line arguments
     parser = argparse.ArgumentParser(description='Download data for OMAmer')
     parser.add_argument('--output-dir', dest='output_dir', required=True, help='Output directory for saving databases')
-    parser.add_argument('--name', default='default_name', help='Data table entry unique ID')
+    parser.add_argument('--name', default='Primates', choices=OMAMER_DATASETS.keys(), help='Select dataset to download')
     parser.add_argument('--json', help='Path to JSON file')
     args = parser.parse_args()
 
