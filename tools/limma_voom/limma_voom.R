@@ -46,7 +46,7 @@
 # Modified by: Maria Doyle - Jun 2017, Jan 2018, May 2018
 
 # Record starting time
-time_start <- as.character(Sys.time())
+time_start <- Sys.time()
 
 # Load all required libraries
 library(methods, quietly = TRUE, warn.conflicts = FALSE)
@@ -1085,8 +1085,8 @@ writeLines(capture.output(sessionInfo()), session_out)
 link_data <- rbind(link_data, c("Session Info", "session_info.txt"))
 
 # Record ending time and calculate total run time
-time_end <- as.character(Sys.time())
-time_taken <- capture.output(round(difftime(time_end, time_start), digits = 3))
+time_end <- Sys.time()
+time_taken <- capture.output(round(difftime(time_end, time_start), digits = 2))
 time_taken <- gsub("Time difference of ", "", time_taken, fixed = TRUE)
 ################################################################################
 ### HTML Generation
