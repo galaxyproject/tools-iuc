@@ -1088,6 +1088,8 @@ link_data <- rbind(link_data, c("Session Info", "session_info.txt"))
 time_end <- Sys.time()
 time_taken <- capture.output(round(difftime(time_end, time_start), digits = 2))
 time_taken <- gsub("Time difference of ", "", time_taken, fixed = TRUE)
+time_start <- format(time_start,"%A, %B %d, %Y %H:%M:%S")
+time_end <- format(time_end,"%A, %B %d, %Y %H:%M:%S")
 ################################################################################
 ### HTML Generation
 ################################################################################
@@ -1409,11 +1411,11 @@ for (i in seq_len(nrow(link_data))) {
 cata("<table border=\"0\">\n")
 cata("<tr>\n")
 table_item("Task started at:")
-table_item(format(time_start,"%A, %B %d, %Y %H:%M:%S")) # nolint
+table_item(time_start)
 cata("</tr>\n")
 cata("<tr>\n")
 table_item("Task ended at:")
-table_item(format(time_end,"%A, %B %d, %Y %H:%M:%S")) # nolint
+table_item(time_end)
 cata("</tr>\n")
 cata("<tr>\n")
 table_item("Task run time:")
