@@ -46,7 +46,21 @@
 # Modified by: Maria Doyle - Jun 2017, Jan 2018, May 2018
 
 # Record starting time
-time_start <- as.character(Sys.time())
+time_start <- Sys.time()
+
+# Setup R error handling to go to stderr
+options(
+    show.error.messages = FALSE,
+    error = function() {
+        cat(geterrmessage(), file = stderr())
+        q("no", 1, FALSE)
+    }
+)
+
+# Unify locale settings
+loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+
+warnings()
 
 # Load all required libraries
 library(methods, quietly = TRUE, warn.conflicts = FALSE)
@@ -106,8 +120,8 @@ paste_listname <- function(string) {
 # Create cata function: default path set, default seperator empty and appending
 # true by default (Ripped straight from the cat function with altered argument
 # defaults)
-cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL,
-                 append = TRUE) {
+cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE,
+                 labels = NULL, append = TRUE) {
     if (is.character(file)) {
         if (file == "") {
             file <- stdout()
@@ -197,7 +211,7 @@ spec <- matrix(
 opt <- getopt(spec)
 
 
-if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
+if (is.null(opt$matrixPath) && is.null(opt$filesPath)) {
     cat("A counts matrix (or a set of counts files) is required.\n")
     q(status = 1)
 }
@@ -469,7 +483,7 @@ row.names(factors) <- samplenames # for "Summary of experimental data" table
 
 # Creating colours for the groups
 cols <- as.numeric(factors[, 1])
-col.group <- palette()[cols]
+col_group <- palette()[cols]
 
 # If filter crieteria set, filter out genes that do not have a required cpm/counts in a required number of
 # samples. Default is no filtering
@@ -520,22 +534,22 @@ if (filt_cpm || filt_smpcount || filt_totcount) {
 
         # before filtering
         lcpm1 <- cpm(counts, log = TRUE)
-        plot(density(lcpm1[, 1]), col = col.group[1], lwd = 2, las = 2, main = "", xlab = "")
+        plot(density(lcpm1[, 1]), col = col_group[1], lwd = 2, las = 2, main = "", xlab = "")
         title(main = "Density Plot: Raw counts", xlab = "Log-cpm")
         for (i in 2:nsamples) {
             den <- density(lcpm1[, i])
-            lines(den$x, den$y, col = col.group[i], lwd = 2)
+            lines(den$x, den$y, col = col_group[i], lwd = 2)
         }
 
         # after filtering
         lcpm2 <- cpm(data$counts, log = TRUE)
-        plot(density(lcpm2[, 1]), col = col.group[1], lwd = 2, las = 2, main = "", xlab = "")
+        plot(density(lcpm2[, 1]), col = col_group[1], lwd = 2, las = 2, main = "", xlab = "")
         title(main = "Density Plot: Filtered counts", xlab = "Log-cpm")
         for (i in 2:nsamples) {
             den <- density(lcpm2[, i])
-            lines(den$x, den$y, col = col.group[i], lwd = 2)
+            lines(den$x, den$y, col = col_group[i], lwd = 2)
         }
-        legend("topright", samplenames, text.col = col.group, bty = "n")
+        legend("topright", samplenames, text.col = col_group, bty = "n")
         img_name <- "Densityplots.png"
         img_addr <- "densityplots.png"
         image_data <- rbind(image_data, data.frame(Label = img_name, Link = img_addr, stringsAsFactors = FALSE))
@@ -544,19 +558,19 @@ if (filt_cpm || filt_smpcount || filt_totcount) {
         # PDF
         pdf(den_pdf, width = 14)
         par(mfrow = c(1, 2), cex.axis = 0.8)
-        plot(density(lcpm1[, 1]), col = col.group[1], lwd = 2, las = 2, main = "", xlab = "")
+        plot(density(lcpm1[, 1]), col = col_group[1], lwd = 2, las = 2, main = "", xlab = "")
         title(main = "Density Plot: Raw counts", xlab = "Log-cpm")
         for (i in 2:nsamples) {
             den <- density(lcpm1[, i])
-            lines(den$x, den$y, col = col.group[i], lwd = 2)
+            lines(den$x, den$y, col = col_group[i], lwd = 2)
         }
-        plot(density(lcpm2[, 1]), col = col.group[1], lwd = 2, las = 2, main = "", xlab = "")
+        plot(density(lcpm2[, 1]), col = col_group[1], lwd = 2, las = 2, main = "", xlab = "")
         title(main = "Density Plot: Filtered counts", xlab = "Log-cpm")
         for (i in 2:nsamples) {
             den <- density(lcpm2[, i])
-            lines(den$x, den$y, col = col.group[i], lwd = 2)
+            lines(den$x, den$y, col = col_group[i], lwd = 2)
         }
-        legend("topright", samplenames, text.col = col.group, bty = "n")
+        legend("topright", samplenames, text.col = col_group, bty = "n")
         link_name <- "DensityPlots.pdf"
         link_addr <- "densityplots.pdf"
         link_data <- rbind(link_data, data.frame(Label = link_name, Link = link_addr, stringsAsFactors = FALSE))
@@ -601,20 +615,20 @@ contrasts <- makeContrasts(contrasts = cons, levels = design)
 ################################################################################
 
 # Plot Box plots (before and after normalisation)
-if (opt$normOpt != "none" & "b" %in% plots) {
+if (opt$normOpt != "none" && "b" %in% plots) {
     png(box_png, width = 1000, height = 500)
     par(mfrow = c(1, 2), mar = c(6, 4, 2, 2) + 0.1)
     labels <- colnames(counts)
 
     lcpm1 <- cpm(y$counts, log = TRUE)
-    boxplot(lcpm1, las = 2, col = col.group, xaxt = "n", xlab = "")
+    boxplot(lcpm1, las = 2, col = col_group, xaxt = "n", xlab = "")
     axis(1, at = seq_along(labels), labels = FALSE)
     abline(h = median(lcpm1), col = 4)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     title(main = "Box Plot: Unnormalised counts", ylab = "Log-cpm")
 
     lcpm2 <- cpm(y, log = TRUE)
-    boxplot(lcpm2, las = 2, col = col.group, xaxt = "n", xlab = "")
+    boxplot(lcpm2, las = 2, col = col_group, xaxt = "n", xlab = "")
     axis(1, at = seq_along(labels), labels = FALSE)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     abline(h = median(lcpm2), col = 4)
@@ -627,12 +641,12 @@ if (opt$normOpt != "none" & "b" %in% plots) {
 
     pdf(box_pdf, width = 14)
     par(mfrow = c(1, 2), mar = c(6, 4, 2, 2) + 0.1)
-    boxplot(lcpm1, las = 2, col = col.group, xaxt = "n", xlab = "")
+    boxplot(lcpm1, las = 2, col = col_group, xaxt = "n", xlab = "")
     axis(1, at = seq_along(labels), labels = FALSE)
     abline(h = median(lcpm1), col = 4)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     title(main = "Box Plot: Unnormalised counts", ylab = "Log-cpm")
-    boxplot(lcpm2, las = 2, col = col.group, xaxt = "n", xlab = "")
+    boxplot(lcpm2, las = 2, col = col_group, xaxt = "n", xlab = "")
     axis(1, at = seq_along(labels), labels = FALSE)
     text(x = seq_along(labels), y = par("usr")[3] - 1, srt = 45, adj = 1, labels = labels, xpd = TRUE)
     abline(h = median(lcpm2), col = 4)
@@ -918,7 +932,7 @@ for (i in seq_along(cons)) {
     invisible(dev.off())
 
     # Generate Glimma interactive Volcano, MD plot and tables, requires annotation file (assumes gene labels/symbols in 2nd column)
-    if ("i" %in% plots & have_anno) {
+    if ("i" %in% plots && have_anno) {
         # make gene labels unique to handle NAs
         geneanno <- y$genes
         geneanno[, 2] <- make.unique(geneanno[, 2])
@@ -933,7 +947,7 @@ for (i in seq_along(cons)) {
         # MD plot
         Glimma::glMDPlot(fit,
             coef = i, counts = cnts, anno = geneanno, groups = factors[, 1],
-            status = status[, i], sample.cols = col.group,
+            status = status[, i], sample.cols = col_group,
             main = paste("MD Plot:", unmake_names(con)), side.main = colnames(y$genes)[2],
             folder = paste0("glimma_", unmake_names(con)), launch = FALSE
         )
@@ -944,7 +958,7 @@ for (i in seq_along(cons)) {
         # Volcano plot
         Glimma::glXYPlot(
             x = fit$coefficients[, i], y = -log10(fit$p.value[, i]), counts = cnts, anno = geneanno, groups = factors[, 1],
-            status = status[, i], sample.cols = col.group,
+            status = status[, i], sample.cols = col_group,
             main = paste("Volcano Plot:", unmake_names(con)), side.main = colnames(y$genes)[2],
             xlab = "logFC", ylab = "-log10(P-value)",
             folder = paste0("glimma_volcano_", unmake_names(con)), launch = FALSE
@@ -1027,7 +1041,7 @@ for (i in seq_along(cons)) {
             scale = "row", Colv = FALSE, Rowv = FALSE, dendrogram = "none",
             main = paste("Contrast:", unmake_names(con), "\nTop", opt$topgenes, "genes by adj.P.Val"),
             trace = "none", density.info = "none", lhei = c(2, 10), margin = c(8, 6), labRow = labels, cexRow = 0.7, srtCol = 45,
-            col = mycol, ColSideColors = col.group
+            col = mycol, ColSideColors = col_group
         )
         link_name <- paste0("Heatmap_", con, ".pdf")
         link_addr <- paste0("heatmap_", con, ".pdf")
@@ -1039,7 +1053,7 @@ for (i in seq_along(cons)) {
         # Plot Stripcharts of top genes
         pdf(strip_pdf[i], title = paste("Contrast:", unmake_names(con)))
         par(mfrow = c(3, 2), cex.main = 0.8, cex.axis = 0.8)
-        cols <- unique(col.group)
+        cols <- unique(col_group)
 
         for (j in seq_along(topgenes)) {
             lfc <- round(top[topgenes[j], "logFC"], 2)
@@ -1085,9 +1099,11 @@ writeLines(capture.output(sessionInfo()), session_out)
 link_data <- rbind(link_data, c("Session Info", "session_info.txt"))
 
 # Record ending time and calculate total run time
-time_end <- as.character(Sys.time())
-time_taken <- capture.output(round(difftime(time_end, time_start), digits = 3))
+time_end <- Sys.time()
+time_taken <- capture.output(round(difftime(time_end, time_start), digits = 2))
 time_taken <- gsub("Time difference of ", "", time_taken, fixed = TRUE)
+time_start <- format(time_start, "%A, %B %d, %Y %H:%M:%S")
+time_end <- format(time_end, "%A, %B %d, %Y %H:%M:%S")
 ################################################################################
 ### HTML Generation
 ################################################################################
@@ -1131,7 +1147,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 # PDFs
 for (i in seq_len(nrow(link_data))) {
-    if (grepl(".pdf", link_data$Link[i]) & grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", link_data$Link[i])) {
+    if (grepl(".pdf", link_data$Link[i]) && grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", link_data$Link[i])) {
         html_link(link_data$Link[i], link_data$Label[i])
     }
 }
@@ -1322,7 +1338,6 @@ cit[2] <- paste(
     "Modelling sample and observational level variability improves power ",
     "in RNA-seq analyses. Nucleic Acids Research, 43(15), e97."
 )
-
 cit[3] <- paste(
     "Please cite the paper below for the limma software itself.",
     "Please also try to cite the appropriate methodology articles",
