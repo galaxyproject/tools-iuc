@@ -7,7 +7,7 @@ suppressPackageStartupMessages(library("tidyverse"))
 option_list <- list(
     make_option(c("--sequence_table"), action = "store", dest = "sequence_table", help = "Input sequence table"),
     make_option(c("--taxonomy_table"), action = "store", dest = "taxonomy_table", help = "Input taxonomy table"),
-    make_option(c("--sample_table"), action = "store", default=NULL, dest = "sample_table", help = "Input sample table"),
+    make_option(c("--sample_table"), action = "store", default = NULL, dest = "sample_table", help = "Input sample table"),
     make_option(c("--output"), action = "store", dest = "output", help = "RDS output")
 )
 
@@ -16,32 +16,29 @@ args <- parse_args(parser, positional_arguments = TRUE)
 opt <- args$options
 # The input sequence_table is an integer matrix
 # stored as tabular (rows = samples, columns = ASVs).
-seq_table_numeric_matrix <- data.matrix(read.table(opt$sequence_table, header =T , sep = "\t", row.names = 1, check.names = FALSE));
-
+seq_table_numeric_matrix <- data.matrix(read.table(opt$sequence_table, header = T, sep = "\t", row.names = 1, check.names = FALSE))
 # The input taxonomy_table is a table containing
 # the assigned taxonomies exceeding the minBoot
 # level of bootstrapping confidence. Rows correspond
 # to sequences, columns to taxonomic levels. NA
 # indicates that the sequence was not consistently
 # classified at that level at the minBoot threshold.
-tax_table_matrix <- as.matrix(read.table(opt$taxonomy_table,  header = T, sep = "\t", row.names = 1, check.names = FALSE));
-
+tax_table_matrix <- as.matrix(read.table(opt$taxonomy_table, header = T, sep = "\t", row.names = 1, check.names = FALSE))
 # Construct a tax_table object.  The rownames of
 # tax_tab must match the OTU names (taxa_names)
 # of the otu_table defined below.
-tax_tab <- tax_table(tax_table_matrix);
+tax_tab <- tax_table(tax_table_matrix)
 print(paste("Taxa Table:", ntaxa(tax_tab), "taxa"))
 
 # Construct an otu_table object.
-otu_tab <- otu_table(seq_table_numeric_matrix, taxa_are_rows = TRUE);
+otu_tab <- otu_table(seq_table_numeric_matrix, taxa_are_rows = TRUE)
 print(paste("OTU Table:", nsamples(otu_tab), "samples", ntaxa(otu_tab), "taxa"))
 
 # Construct a phyloseq object.
-phyloseq_obj <- phyloseq(otu_tab, tax_tab);
-
-if(!is.null(opt$sample_table)){
+phyloseq_obj <- phyloseq(otu_tab, tax_tab)
+if (!is.null(opt$sample_table)) {
     sample_tab <- sample_data(
-        read.table(opt$sample_table,  header=T, sep="\t", row.names=1, check.names=FALSE)
+        read.table(opt$sample_table, header = T, sep = "\t", row.names = 1, check.names = FALSE)
     )
     print(paste("Sample Table:", nsamples(sample_tab), "samples,", "sample variables", sample_variables(sample_tab)))
     phyloseq_obj <- merge_phyloseq(phyloseq_obj, sample_tab)
@@ -56,4 +53,4 @@ phyloseq_obj <- merge_phyloseq(phyloseq_obj, dna)
 taxa_names(phyloseq_obj) <- paste0("ASV", seq(ntaxa(phyloseq_obj)))
 
 # save R object to file
-saveRDS(phyloseq_obj, file = opt$output, compress = TRUE);
+saveRDS(phyloseq_obj, file = opt$output, compress = TRUE)
