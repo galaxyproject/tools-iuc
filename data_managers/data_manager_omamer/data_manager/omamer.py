@@ -25,6 +25,7 @@ OMAMER_VERSION = "2.0.2"
 # Default output directory
 DEFAULT_OUTPUT_DIR = "database_omamer"
 
+
 def download_file(url, dest):
     try:
         # Download file from URL to local location
