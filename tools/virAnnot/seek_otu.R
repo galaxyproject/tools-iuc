@@ -1,11 +1,10 @@
 #!/usr/bin/env Rscript
 
 ## Redirect R error handling to stderr.
-options(show.error.messages = FALSE,
-        error = function() {
-          cat(geterrmessage(), file = stderr())
-          q("no", 1, FALSE)
-        })
+options(show.error.messages = FALSE, error = function() {
+    cat(geterrmessage(), file = stderr())
+    q("no", 1, FALSE)
+})
 
 ## Avoid crashing Galaxy with a UTF8 error on German LC settings
 loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
