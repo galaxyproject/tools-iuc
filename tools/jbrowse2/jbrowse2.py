@@ -590,7 +590,7 @@ class JbrowseConnector(object):
             os.unlink(gff3_rebased.name)
 
         rel_dest = os.path.join(trackData["label"] + ".gff")
-        dest = os.path.join(self.outdir, rel_dest)
+        # dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(gff3, rel_dest)
         os.unlink(gff3)
@@ -667,7 +667,7 @@ class JbrowseConnector(object):
             shutil.copy(os.path.realpath(data), rel_dest)
         else:
             rel_dest = os.path.join(trackData["label"] + ".vcf")
-            dest = os.path.join(self.outdir, rel_dest)
+            # dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), rel_dest)
 
             cmd = ["bgzip", rel_dest]
@@ -689,7 +689,7 @@ class JbrowseConnector(object):
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".gff")
-        dest = os.path.join(self.outdir, rel_dest)
+        # dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(data, rel_dest)
 
@@ -705,7 +705,7 @@ class JbrowseConnector(object):
 
     def add_bed(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".bed")
-        dest = os.path.join(self.outdir, rel_dest)
+        # dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_bed(data, rel_dest)
 
@@ -724,7 +724,7 @@ class JbrowseConnector(object):
 
         # print(trackData)
         rel_dest = os.path.join(trackData["label"] + ".paf")
-        dest = os.path.join(self.outdir, rel_dest)
+        # dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
@@ -748,7 +748,7 @@ class JbrowseConnector(object):
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".hic")
-        dest = os.path.join(self.outdir, rel_dest)
+        # dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
@@ -870,7 +870,7 @@ class JbrowseConnector(object):
             # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
-        
+
             log.info(
                 "Processing track %s / %s (%s)",
                 category,
@@ -887,7 +887,7 @@ class JbrowseConnector(object):
                 rest_url = track["conf"]["options"]["url"]
             else:
                 rest_url = ""
-        
+
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
@@ -902,13 +902,13 @@ class JbrowseConnector(object):
             hashData = "|".join(hashData).encode("utf-8")
             outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_%s" % i
             outputTrackConfig["metadata"] = extra_metadata
-        
+
             outputTrackConfig["style"] = track["style"]
-        
+
             if "menus" in track["conf"]["options"]:
                 menus = self.cs.parse_menus(track["conf"]["options"])
                 outputTrackConfig.update(menus)
-        
+
             print(f"Adding track {dataset_ext}")
             if dataset_ext in ("gff", "gff3"):
                 self.add_gff(
@@ -941,7 +941,7 @@ class JbrowseConnector(object):
                     # string. If there are two or more indices, the container
                     # becomes a list. Fun!
                     real_indexes = [real_indexes]
-        
+
                 self.add_xam(
                     dataset_path,
                     outputTrackConfig,
@@ -962,7 +962,7 @@ class JbrowseConnector(object):
                     # string. If there are two or more indices, the container
                     # becomes a list. Fun!
                     real_indexes = [real_indexes]
-        
+
                 self.add_xam(
                     dataset_path,
                     outputTrackConfig,
@@ -1140,9 +1140,7 @@ class JbrowseConnector(object):
             'jbrowse', 'create', destination, '--tag', f"v{version}"
         ])
 
-
         # copytree(jbrowse_dir, destination)
-
         # try:
         #     shutil.rmtree(os.path.join(destination, "test_data"))
         # except OSError as e:
