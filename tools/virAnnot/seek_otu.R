@@ -9,7 +9,7 @@ options(show.error.messages = FALSE, error = function() {
 ## Avoid crashing Galaxy with a UTF8 error on German LC settings
 loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
-args <- commandArgs(TRUE)
+args <- commandArgs(trailingOnly = TRUE)
 if (length(args) == 0) {
   stop("Arguments missing for Rscrpit", call. = FALSE)
 } else {
