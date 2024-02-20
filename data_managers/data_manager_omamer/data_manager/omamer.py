@@ -19,16 +19,12 @@ OMAMER_DATASETS = {
     "LUCA": "LUCA-v0.2.5.h5",
 }
 
-# Version for all datasets
-OMAMER_VERSION = "2.0.2"
 
-# Default output directory
 DEFAULT_OUTPUT_DIR = "database_omamer"
 
 
 def download_file(url, dest):
     try:
-        # Download file from URL to local location
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
             with open(dest, 'wb') as f:
@@ -36,7 +32,6 @@ def download_file(url, dest):
                     f.write(chunk)
         print(f"Downloaded: {url} to {dest}")
     except requests.exceptions.RequestException as e:
-        # Handles download errors
         print(f"Error downloading {url}: {e}")
         sys.exit(1)
 
@@ -64,7 +59,7 @@ def main(args):
     data_manager_entry = {
         "value": os.path.splitext(os.path.basename(base_name))[0],
         "name": os.path.splitext(os.path.basename(base_name))[0],
-        "version": OMAMER_VERSION,  # Add version information
+        "version": "2.0.2",
         "path": str(Path(output_dir)),
     }
 
@@ -81,7 +76,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Download data for OMAmer')
     parser.add_argument('--name', default='Primates', choices=OMAMER_DATASETS.keys(), help='Select dataset to download')
     parser.add_argument('--json', help='Path to JSON file')
+
     args = parser.parse_args()
 
-    # Call the main function with the analyzed arguments
     main(args)
