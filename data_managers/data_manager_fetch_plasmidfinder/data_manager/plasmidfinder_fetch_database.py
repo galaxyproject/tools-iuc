@@ -15,7 +15,7 @@ class GetPlasmidfinderDataManager:
 
     def __init__(self,
                  plasmidfinder_database="plasmidfinder_database",
-                 db_name="plasmidfinder_database",
+                 db_name="plasmidfinder-db",
                  plasmidfinder_version="latest"):
         self.data_table_name = plasmidfinder_database
         self._db_name = db_name
@@ -69,7 +69,7 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
     def __init__(self,
                  output_dir=Path.cwd(),
                  plasmidfinder_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db/src/master",
-                 db_name="plasmidfinder_database",
+                 db_name="plasmidfinder-db",
                  db_tmp="tmp_database",
                  plasmidfinder_version="latest",
                  json_file_path=None,
@@ -87,8 +87,9 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
         self._commit_number = None
 
     def git_clone(self):
-        git.Repo.clone_from(url=self._plasmidfinder_url, to_path=self._output_dir)
-        self._plasmidfinder_repository = git.Repo(path=self._output_dir)
+        self.plasmidfinder_db_path = f'{self._output_dir}/{self._db_name}'
+        git.Repo.clone_from(url=self._plasmidfinder_url, to_path=self.plasmidfinder_db_path)
+        self._plasmidfinder_repository = git.Repo(path=self.plasmidfinder_db_path)
 
     def get_commit_number(self):
         sha = self._plasmidfinder_repository.head.commit.hexsha

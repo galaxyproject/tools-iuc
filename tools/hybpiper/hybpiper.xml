@@ -1,0 +1,388 @@
+<tool id="hybpiper" name="HybPiper" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Analyse targeted sequence capture data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+
+    ## sample name checking
+    #import re
+    #def check_sample_name($sample_name):
+        #if re.search(r'[^A-Za-z0-9_\-]', $sample_name):
+            printf '%s\n'
+            'ERROR: special characters detected in sample identifier.'
+            'Identifiers may only contain letters, numbers, underscores and hyphens.'
+            'Check the identifier for the following sample:' 
+            '${sample_name}'
+            1>&2
+            &&
+            exit 1
+            &&
+        #end if
+    #end def
+
+    ## set up files
+    ln -s '${targetfile_dna}' ./target_file.fasta
+    &&
+
+    ###############################
+    ## hybpiper check_targetfile ##
+    ###############################
+
+    #if str( $job_conditional.hybpiper_job ) == "check_and_fix_targetfile":
+        hybpiper check_targetfile 
+        --targetfile_dna target_file.fasta
+        &&
+
+        mv fix_targetfile*.ctl hybpiper.ctl
+        &&
+
+        hybpiper fix_targetfile
+        --targetfile_dna target_file.fasta
+        --allow_gene_removal
+        hybpiper.ctl
+        &&
+    
+    #######################
+    ## hybpiper assemble ##
+    #######################
+
+    #elif str( $job_conditional.hybpiper_job ) == "assemble":
+        #set sample_prefix = str($job_conditional.paired_input.element_identifier)
+
+        $check_sample_name($sample_prefix)
+
+        hybpiper assemble
+        --readfiles
+        '${job_conditional.paired_input.forward}'
+        '${job_conditional.paired_input.reverse}'
+        --targetfile_dna target_file.fasta
+        --diamond
+        --cpu \${GALAXY_SLOTS:-1}
+        --prefix '${sample_prefix}'
+        &&
+
+        tar -cvf '${hybpiper_archive}' --directory='${sample_prefix}' .
+        &&
+
+    #######################################
+    ## hybpiper stats/retrieve_sequences ##
+    #######################################
+
+    #elif str( $job_conditional.hybpiper_job ) == "stats":
+
+        ## check logic of requested items
+        #unless $job_conditional.stats_type_select or $job_conditional.sequence_type_select:
+            printf '%s\n'
+            'ERROR: No outputs selected.'
+            1>&2
+            &&
+            exit 1
+            &&
+        #end unless
+        #if $job_conditional.heatmap and not $job_conditional.stats_type_select:
+            printf '%s\n'
+            'ERROR: heatmap requested, but no stats selected.'
+            1>&2
+            &&
+            exit 1
+            &&
+        #end if
+
+        #for $sample in $job_conditional.hybpiper_results
+            #set sample_prefix = str($sample.element_identifier)
+
+            $check_sample_name($sample_prefix)
+
+            mkdir -p '${sample_prefix}'
+            &&
+
+            tar -xf '${sample}' -C '${sample_prefix}'
+            &&
+
+            echo '${sample_prefix}' >> namelist.txt
+            &&
+        #end for
+
+        ## Produce a stats file for each requested output type
+        #for $stats_output in $job_conditional.stats_type_select:
+            hybpiper stats
+            --targetfile_dna target_file.fasta
+            --stats_filename 'stats.${stats_output}'
+            --seq_lengths_filename 'seq_lengths.${stats_output}'
+            '${stats_output}'
+            namelist.txt
+            &&
+
+            ## Produce heatmaps if selected
+            #if $job_conditional.heatmap:
+                hybpiper recovery_heatmap
+                --heatmap_filename 'heatmap.${stats_output}'
+                --heatmap_filetype svg
+                'seq_lengths.${stats_output}.tsv'
+                &&
+            #end if
+        #end for
+
+        ## Produce sequences for each requested type
+        #for $sequence_output in $job_conditional.sequence_type_select:
+            mkdir 'fasta.${sequence_output}'
+            &&
+            hybpiper retrieve_sequences
+            --targetfile_dna target_file.fasta
+            --sample_names namelist.txt
+            --fasta_dir 'fasta.${sequence_output}'
+            '${sequence_output}'
+            &&
+        #end for
+    #end if
+    
+    wait
+
+]]></command>
+    
+    <inputs>
+        <param argument="--targetfile_dna" type="data" format="fasta" label="Target file" help="Target file in FASTA format" />
+    
+        <conditional name="job_conditional">
+            <param name="hybpiper_job" type="select" label="Type of hybpiper run">
+                <option value="check_and_fix_targetfile">Check and fix targetfile</option>
+                <option value="assemble" selected="true">Assemble target loci</option>
+                <option value="stats">Extract sequences and/or stats from Hybpiper runs</option>
+            </param>
+    
+            <when value="check_and_fix_targetfile"/>
+    
+            <when value="assemble">
+                <param name="paired_input" format="fastqsanger" type="data_collection" collection_type="paired" label="Input reads" help="Your reads must be in a paired collection. See below for more information." />
+            </when>
+    
+            <when value="stats">
+                <param name="hybpiper_results" type="data_collection" collection_type="list" format="tar" multiple="true" label="Results from Hybpiper assemble runs" />
+                <param name="stats_type_select" type="select" label="Choose statistics to report" display="checkboxes" multiple="true" optional="true">
+                    <option value="gene" selected="true">Gene</option>
+                    <option value="supercontig">Supercontig</option>
+                </param>
+                <param name="heatmap" type="boolean" checked="false" label="Produce a heatmap for each of the selected statistics" />
+                <param name="sequence_type_select" type="select" display="checkboxes" label="Choose sequences to extract" multiple="true" optional="true">
+                    <option value="dna" selected="true">DNA</option>
+                    <option value="aa">Amino acid</option>
+                    <option value="intron">Intron</option> 
+                    <option value="supercontig">Supercontig</option>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    
+    <outputs>
+        <!-- check_targetfile output -->
+        <data name="fixed_targetfile" label="${targetfile_dna.element_identifier} (fixed)" format="fasta" from_work_dir="target_file_fixed.fasta">
+            <filter>job_conditional['hybpiper_job'] == 'check_and_fix_targetfile'</filter>
+        </data>
+        <collection type="list" name="output_targetfile" label="Hybpiper logs for ${targetfile_dna.element_identifier}">
+            <data name="targetfile_ctl_file" label="Hybpiper .ctl file for ${on_string}" format="txt" from_work_dir="hybpiper.ctl" />
+            <data name="targetfile_report" label="Hybpiper targetfile report" format="tabular" from_work_dir="fix_targetfile_report.tsv" />
+            <filter>job_conditional['hybpiper_job'] == 'check_and_fix_targetfile'</filter>
+        </collection>
+
+        <!-- assemble output -->
+        <data name="hybpiper_archive" format="tar">
+            <filter>job_conditional['hybpiper_job'] == 'assemble'</filter>
+        </data>
+
+        <!-- stats / stats output -->
+        <collection name="hybpiper_stats" type="list" label="Hybpiper statistics">
+            <data name="stats_gene" label="Hybpiper statistics (gene)" format="tabular" from_work_dir="stats.gene.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="Name,NumReads,ReadsMapped,PctOnTarget,GenesMapped,GenesWithContigs,GenesWithSeqs,GenesAt25pct,GenesAt50pct,GenesAt75pct,GenesAt150pct,ParalogWarningsLong,ParalogWarningsDepth,GenesWithoutStitchedContigs,GenesWithStitchedContigs,GenesWithStitchedContigsSkipped,GenesWithChimeraWarning,TotalBasesRecovered" />
+                </actions>
+            </data>
+            <data name="stats_supercontig" label="Hybpiper statistics (supercontig)" format="tabular" from_work_dir="stats.supercontig.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="Name,NumReads,ReadsMapped,PctOnTarget,GenesMapped,GenesWithContigs,GenesWithSeqs,GenesAt25pct,GenesAt50pct,GenesAt75pct,GenesAt150pct,ParalogWarningsLong,ParalogWarningsDepth,GenesWithoutStitchedContigs,GenesWithStitchedContigs,GenesWithStitchedContigsSkipped,GenesWithChimeraWarning,TotalBasesRecovered" />
+                </actions>
+            </data>
+            <data name="seqlengths_gene" label="Assembled sequence lengths (gene)" format="tabular" from_work_dir="seq_lengths.gene.tsv"/>
+            <data name="seqlengths_supercontig" label="Assembled sequence lengths (supercontig)" format="tabular" from_work_dir="seq_lengths.supercontig.tsv">
+            </data>
+            <filter>job_conditional['hybpiper_job'] == 'stats' and ('gene' in job_conditional['stats_type_select'] or 'supercontig' in job_conditional['stats_type_select'])</filter>
+        </collection>
+
+        <!-- stats/heatmap output -->
+        <collection name="hybpiper_heatmaps" type="list" label="Hybpiper heatmaps">
+            <discover_datasets pattern="heatmap\.(?P&lt;designation&gt;.+)\.svg" format="svg" recurse="false" />
+            <filter>job_conditional['hybpiper_job'] == 'stats' and job_conditional['heatmap'] and job_conditional['heatmap'] is true</filter>            
+        </collection>
+
+        <!-- stats/sequences output -->         
+        <collection name="dna_sequences" type="list" label="DNA sequences">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.FNA" format="fasta" directory="fasta.dna" recurse="false" />
+            <filter>job_conditional['hybpiper_job'] == 'stats' and 'dna' in job_conditional['sequence_type_select']</filter>
+        </collection>
+        <collection name="aa_sequences" type="list" label="Amino acid sequences">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.FAA" format="fasta" directory="fasta.aa" recurse="false" />
+            <filter>job_conditional['hybpiper_job'] == 'stats' and 'aa' in job_conditional['sequence_type_select']</filter>
+        </collection>
+        <collection name="intron_sequences" type="list" label="Intron sequences">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fasta" format="fasta" directory="fasta.intron" recurse="false" />
+            <filter>job_conditional['hybpiper_job'] == 'stats' and 'intron' in job_conditional['sequence_type_select']</filter>
+        </collection>
+        <collection name="supercontig_sequences" type="list" label="Supercontig sequences">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fasta" format="fasta" directory="fasta.supercontig" recurse="false" />
+            <filter>job_conditional['hybpiper_job'] == 'stats' and 'supercontig' in job_conditional['sequence_type_select']</filter>
+        </collection>
+
+        <!-- dummy output, in case the user deselects everything -->
+        <data name="dummy_output" label="Stats or sequences from Hybpiper runs" from_work_dir="namelist.txt" format="txt">
+            <filter>job_conditional['hybpiper_job'] == 'stats' and not (job_conditional['stats_type_select'] or job_conditional['sequence_type_select']) </filter>
+        </data>
+
+    </outputs>
+    <tests>
+
+    <!-- test1: check and fix targetfile -->
+    <test expect_num_outputs="4">
+        <param name="targetfile_dna" value="test_targets.fasta.gz"/>
+        <conditional name="job_conditional">
+            <param name="hybpiper_job" value="check_and_fix_targetfile"/>
+        </conditional>
+        <output name="fixed_targetfile" file="test1_out.fasta"/>
+        <output_collection name="output_targetfile" type="list" count="2">
+            <element name="targetfile_ctl_file" file="test1_out.ctl"/>    
+            <element name="targetfile_report" file="test1_out.tsv"/>
+        </output_collection>
+    </test>
+
+    <!-- test2: assemble with paired collection -->
+    <!-- Not possible to test stats unless element_identifier can be set. -->
+    <test expect_failure="true">
+        <param name="targetfile_dna" value="test_targets.fasta.gz"/>
+        <conditional name="job_conditional">
+            <param name="hybpiper_job" value="assemble"/>
+            <param name="paired_input">
+                <collection type="paired">
+                    <element name="forward" ftype="fastqsanger.gz" value="NZ874_R1_test.fastq.gz" />
+                    <element name="reverse" ftype="fastqsanger.gz" value="NZ874_R2_test.fastq.gz" />
+                </collection>
+            </param>
+        </conditional>
+        <!-- <output name="hybpiper_archive">
+            <assert_contents>
+                <has_size value="2386944" delta="200000" />
+            </assert_contents>
+        </output> -->
+    </test>
+
+    <!-- test3: all stats output -->
+    <test expect_num_outputs="10">
+        <param name="targetfile_dna" value="test_targets.fasta.gz"/>
+        <conditional name="job_conditional">
+            <param name="hybpiper_job" value="stats"/>
+            <param name="hybpiper_results" >
+                <collection type="list">
+                    <element name="NZ874" value="NZ874.tar.gz" />
+                </collection>
+            </param>
+            <param name="stats_type_select" value="gene,supercontig"/>
+            <param name="heatmap" value="true"/>
+            <param name="sequence_type_select" value="dna,aa,intron,supercontig"/>
+        </conditional>
+        <output_collection name="hybpiper_stats" type="list" count="4" />
+        <output_collection name="hybpiper_heatmaps" type="list" count="2">
+        </output_collection>
+        <output_collection name="dna_sequences" type="list" count="13">
+        </output_collection>
+        <output_collection name="aa_sequences" type="list" count="13">
+        </output_collection>
+        <output_collection name="intron_sequences" type="list" count="13">
+        </output_collection>
+        <output_collection name="supercontig_sequences" type="list" count="13">
+        </output_collection>
+    </test>
+
+    <!-- test4: no output selected -->
+    <test expect_failure="true">
+        <param name="targetfile_dna" value="test_targets.fasta.gz"/>
+        <conditional name="job_conditional">
+            <param name="hybpiper_job" value="stats"/>
+            <param name="hybpiper_results" >
+                <collection type="list">
+                    <element name="NZ874" value="NZ874.tar.gz" />
+                </collection>
+            </param>
+            <param name="stats_type_select" value=""/>
+            <param name="heatmap" value="true"/>
+            <param name="sequence_type_select" value=""/>
+        </conditional>
+    </test>
+
+</tests>
+    <help><![CDATA[
+
+Using HybPiper on Galaxy
+------------------------
+
+Input
+~~~~~
+
+On Galaxy, **you have to use paired collections as input** for
+HybPiper assemblies. HybPiper relies on the directory hierarchy it creates for each
+sample during assembly. The hierarchy is based on the name of the
+sample, which you provide to Galaxy as the identifier in the collection.
+
+Using paired collections
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you have your sequencing reads in individual datasets, you can easily organise them into a paired
+collection. See the Galaxy training material on `using dataset
+collections <https://gxy.io/GTN:T00146>`__
+for a step-by-step guide.
+
+**Note**: because HybPiper uses sample
+identifiers to create directories, you **can't use special characters**
+in your sample identifiers. The only allowed characters are letters,
+numbers, underscores and hyphens.
+
+You can't use single-end and unpaired reads as input to Hybpiper on Galaxy.
+
+Running HybPiper
+~~~~~~~~~~~~~~~~
+
+The following HybPiper analyses are available on Galaxy:
+
+1. Check your target file and fix issues (optional)
+2. Assemble target loci per-sample
+3. Extract sequences and summary statistics
+
+Use the *Type of hybpiper run* drop-down to select an analysis.
+
+.. class:: infomark
+
+What it does
+------------
+
+HybPiper was designed for processing targeted sequence capture data. In
+targeted sequence capture, DNA sequencing libraries are enriched for
+gene regions of interest. This is used for sequencing many loci
+simultaneously based on bait sequences.
+
+HybPiper is a suite of scripts that wrap and connect other tools to
+extract target sequences from the sequencing reads. The HybPiper
+pipeline starts with high-throughput sequencing reads (for example from
+Illumina MiSeq), and assigns them to target genes using DIAMOND. The
+reads are distributed to separate directories, where they are assembled
+separately using SPAdes. The main output is a collection of FASTA files
+of the (in frame) CDS portion of the sample for each target region. You
+can also generate a separate collections of files with the translated
+protein sequences, the intronic regions flanking each exon, and putative
+paralog sequences.
+
+For more information, please see `the HybPiper
+wiki <https://github.com/mossmatters/HybPiper/wiki>`__.
+
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
