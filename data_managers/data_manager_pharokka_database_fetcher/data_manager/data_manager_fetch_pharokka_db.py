@@ -60,7 +60,7 @@ def main():
     # Update Data Manager JSON and write to file
     data_manager_entry = {
         "data_tables": {
-            "pharokka_db": {
+            "pharokka_db_versioned": {
                 "value": db_value,
                 "dbkey": db_value,
                 "version": args.version,
