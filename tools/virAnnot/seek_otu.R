@@ -31,16 +31,17 @@ if (length(args) == 0) {
     # Print results to output file
     output <- args[2]
     # unique is used to know the number of different otu
-    for (i in unique(otu)){
+    for (i in unique(otu)) {
         # retrieve contigs belonging to the same otu
         clust <- which(otu == i)
         # write otu number and number of contigs in this otu
         cat(
             paste("OTU_", i, ",", length(clust), ",", sep = ""),
-            file = output, append = TRUE)
-        for (n in names(clust)){
-        # write contigs name
-        cat(paste(gsub(" ", "", n), ",", sep = ""), file = output, append = TRUE)
+            file = output, append = TRUE
+        )
+        for (n in names(clust)) {
+            # write contigs name
+            cat(paste(gsub(" ", "", n), ",", sep = ""), file = output, append = TRUE)
         }
         cat("\n", sep = "", file = output, append = TRUE)
     }
