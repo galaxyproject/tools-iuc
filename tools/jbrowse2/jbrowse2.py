@@ -366,9 +366,9 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, outdir, genomes):
+    def __init__(self, jbrowse, outdir, genomes):
         self.cs = ColorScaling()
-        # self.jbrowse = jbrowse
+        self.jbrowse = jbrowse
         self.outdir = outdir
         self.genome_paths = genomes
         self.tracksToIndex = []
@@ -380,7 +380,7 @@ class JbrowseConnector(object):
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
 
-        # self.clone_jbrowse(self.jbrowse, self.outdir)
+        self.clone_jbrowse(self.jbrowse, self.outdir)
 
     def get_cwd(self, cwd):
         if cwd:
@@ -551,9 +551,6 @@ class JbrowseConnector(object):
             args += ["--tracks", tracks]
 
             self.subprocess_check_call(args)
-
-    def cleanup(self):
-        shutil.rmtree(os.path.join(self.outdir, 'test_data'))
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -1134,24 +1131,25 @@ class JbrowseConnector(object):
         with open(config_path, "w") as config_file:
             json.dump(config_json, config_file, indent=2)
 
-    def clone_jbrowse(self, jbrowse_dir, destination, version):
-        """Clone a JBrowse directory into a destination directory."""
-        self.subprocess_check_call([
-            'jbrowse', 'create', destination, '--tag', f"v{version}"
-        ])
+    def clone_jbrowse(self, jbrowse_dir, destination):
+        """
+            Clone a JBrowse directory into a destination directory.
 
-        # copytree(jbrowse_dir, destination)
-        # try:
-        #     shutil.rmtree(os.path.join(destination, "test_data"))
-        # except OSError as e:
-        #     log.error("Error: %s - %s." % (e.filename, e.strerror))
-        #
-        # if not os.path.exists(os.path.join(destination, "data")):
-        #     # It can already exist if upgrading an instance
-        #     os.makedirs(os.path.join(destination, "data"))
-        #     log.info("makedir %s" % (os.path.join(destination, "data")))
-        #
-        # os.symlink("./data/config.json", os.path.join(destination, "config.json"))
+            Not using `jbrowse create` command to allow running on internet-less compute + to make sure code is frozen
+        """
+
+        copytree(jbrowse_dir, destination)
+        try:
+            shutil.rmtree(os.path.join(destination, "test_data"))
+        except OSError as e:
+            log.error("Error: %s - %s." % (e.filename, e.strerror))
+
+        if not os.path.exists(os.path.join(destination, "data")):
+            # It can already exist if upgrading an instance
+            os.makedirs(os.path.join(destination, "data"))
+            log.info("makedir %s" % (os.path.join(destination, "data")))
+
+        os.symlink("./data/config.json", os.path.join(destination, "config.json"))
 
 
 def copytree(src, dst, symlinks=False, ignore=None):
@@ -1178,6 +1176,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument("xml", type=argparse.FileType("r"), help="Track Configuration")
 
+    parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument("--outdir", help="Output directory", default="out")
     parser.add_argument("--version", "-V", action="version", version="%(prog)s 0.8.0")
     args = parser.parse_args()
@@ -1194,6 +1193,7 @@ if __name__ == "__main__":
         GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
 
     jc = JbrowseConnector(
+        jbrowse=args.jbrowse,
         outdir=args.outdir,
         genomes=[
             {
@@ -1219,7 +1219,6 @@ if __name__ == "__main__":
 
     for assembly in real_root.findall("assembly"):
         genome = assembly.find('genomes/genome')
-        print(genome)
 
         # TODO add metadata to tracks
         for track in assembly.findall("tracks/track"):
@@ -1324,4 +1323,3 @@ if __name__ == "__main__":
     jc.add_default_session(default_session_data)
     jc.add_general_configuration(general_data)
     jc.text_index()
-    jc.cleanup()
