@@ -1467,6 +1467,7 @@ if __name__ == "__main__":
         # be GET and not POST so it should redirect OK
         GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
     jc = JbrowseConnector(
+        jbrowse=args.jbrowse,
         outdir=args.outdir,
         jbrowse2path=args.jbrowse2path,
         genomes=[
