@@ -69,14 +69,16 @@ include_sample_summary <- get_boolean_value(opt$include_sample_summary)
 iterate <- get_boolean_value(opt$iterate)
 
 if (opt$analysis_type == "aldex") {
-    aldex_obj <- aldex(reads = reads_df,
-                       conditions_vector,
-                       mc.samples = opt$num_mc_samples,
-                       test = opt$aldex_test,
-                       effect = effect,
-                       include.sample.summary = include_sample_summary,
-                       denom = opt$denom,
-                       iterate = iterate)
+    aldex_obj <- aldex(
+        reads = reads_df,
+        conditions_vector,
+        mc.samples = opt$num_mc_samples,
+        test = opt$aldex_test,
+        effect = effect,
+        include.sample.summary = include_sample_summary,
+        denom = opt$denom,
+        iterate = iterate
+    )
 } else {
     # Generate Monte Carlo samples of the Dirichlet distribution for each sample. Convert each
     # instance using a log-ratio transform. This is the input for all further analyses.
@@ -117,22 +119,26 @@ if (opt$analysis_type == "aldex") {
     } else if (opt$analysis_type == "aldex_kw") {
         aldex_obj <- aldex.kw(aldex_clr_obj)
     } else if (opt$analysis_type == "aldex_plot") {
-        aldex_obj <- aldex(reads = reads_df,
-                           conditions_vector,
-                           mc.samples = opt$num_mc_samples,
-                           test = opt$aldex_test,
-                           effect = effect,
-                           include.sample.summary = include_sample_summary,
-                           denom = opt$denom,
-                           iterate = iterate)
+        aldex_obj <- aldex(
+            reads = reads_df,
+            conditions_vector,
+            mc.samples = opt$num_mc_samples,
+            test = opt$aldex_test,
+            effect = effect,
+            include.sample.summary = include_sample_summary,
+            denom = opt$denom,
+            iterate = iterate
+        )
         png(filename = opt$output)
-        aldex.plot(x = aldex_obj,
-                   type = opt$plot_type,
-                   test = opt$plot_test,
-                   cutoff.pval = opt$cutoff_pval,
-                   cutoff.effect = opt$cutoff_effect,
-                   xlab = opt$xlab,
-                   ylab = opt$ylab)
+        aldex.plot(
+            x = aldex_obj,
+            type = opt$plot_type,
+            test = opt$plot_test,
+            cutoff.pval = opt$cutoff_pval,
+            cutoff.effect = opt$cutoff_effect,
+            xlab = opt$xlab,
+            ylab = opt$ylab
+        )
         dev.off()
     } else if (opt$analysis_type == "aldex_plot_feature") {
         png(filename = opt$output)

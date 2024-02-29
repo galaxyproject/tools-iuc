@@ -1,0 +1,126 @@
+<tool id="m6anet" name="m6anet" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>to detect m6A RNA modifications from nanopore data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.1.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">23.0</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">m6Anet</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">m6anet</requirement>
+    </requirements>
+    <version_command>m6anet --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[            
+        m6anet dataprep
+            --out_dir ./dataprep_out
+            --n_processes \${GALAXY_SLOTS:-2}
+            --eventalign '$eventalign'
+            --readcount_min $readcount_min
+            --readcount_max $readcount_max
+        &&
+        m6anet inference
+            --input_dir ./dataprep_out
+            --out_dir ./inference_out
+            --n_processes \${GALAXY_SLOTS:-2}
+            --num_iterations $num_iterations
+            --pretrained_model $pretrained_model
+            --read_proba_threshold $read_proba_threshold
+            --batch_size $batch_size
+        ]]></command>
+    <inputs>
+        <param argument="--eventalign" type="data" format="tabular" label="Nanopolish eventalign file as input"/>
+        <param argument="--pretrained_model" type="select" label="Name of the pre-trained model" help="Algorithm makes use of a pre-trained AI model, whose parameters are needed to process your data. Multiple sets of such parameters are available, and the default was obtained on HCT116 cell line.">
+            <option value="HCT116_RNA002" selected="true">HCT116 (default)</option>
+            <option value="arabidopsis_RNA002">Arabidopsis RNA002</option>
+            <option value="HEK293T_RNA004">HEK293T RNA004</option>
+        </param>
+        <param argument="--readcount_min" type="integer" value="1" min="1" label="Minimum read counts per gene" help="Used during pre-processing of nanopolish eventalign input."/>
+        <param argument="--readcount_max" type="integer" value="1000" min="1" label="Maximum read counts per gene" help="Used during pre-processing of nanopolish eventalign input."/>
+        <param argument="--num_iterations" type="integer" value="5" min="0" label="Number of sampling iterations to perform" help="m6Anet will sample 20 reads from each candidate site and average the probability of modification across several round of sampling according to this parameter."/>
+        <param argument="--batch_size" type="integer" value="64" min="1" label="Batch size" help="Number of sites to be loaded each time for inference"/>
+        <param argument="--read_proba_threshold" type="float" value="0.033379376" min="0" max="1" label="Probability threshold" help="Threshold for each individual read to be considered modified during stoichiometry calculation"/>
+    </inputs>
+    <outputs>
+        <data name="indiv_proba_csv" format="tabular" from_work_dir="./inference_out/data.indiv_proba.csv" label="${tool.name} on ${on_string}: read_probs">
+            <actions>
+                <action name="column_names" type="metadata"
+                    default="transcript_id,transcript_position,read_index,probability_modified"/>
+            </actions>
+        </data>
+        <data name="site_proba_csv" format="tabular" from_work_dir="./inference_out/data.site_proba.csv" label="${tool.name} on ${on_string}: site_probs">
+            <actions>
+                <action name="column_names" type="metadata"
+                    default="transcript_id,transcript_position,n_reads,probability_modified,kmer,mod_ratio"/>
+            </actions>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="eventalign" value="eventalign.txt"/>
+            <param name="readcount_min" value="20"/>
+            <param name="batch_size" value="256"/>
+            <output name="indiv_proba_csv">
+                <assert_contents>
+                    <has_n_columns n="4" sep=","/>
+                    <has_line line="transcript_id,transcript_position,read_index,probability_modified"/>
+                    <has_text_matching expression="ENST00000222329.8,2631,10.*,0.2.*"/>
+                    <has_text_matching expression="ENST00000523944.5,3348,10.*,0.2.*"/>
+                </assert_contents>
+            </output>
+            <output name="site_proba_csv" file="site_proba.csv" compare="sim_size">
+                <assert_contents>
+                    <has_n_columns n="6" sep=","/>
+                    <has_line line="transcript_id,transcript_position,n_reads,probability_modified,kmer,mod_ratio"/>
+                    <has_text_matching expression="ENST00000499810.6,1901,90,0.9.*,GGACT,0.9.*"/>
+                    <has_text_matching expression="ENST00000373365.4,723,130,0.9.*,GGACT,0.7.*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Same as above, but attempt to specify non-default model -->
+        <test expect_num_outputs="2">
+            <param name="eventalign" value="eventalign.txt"/>
+            <param name="pretrained_model" value="arabidopsis_RNA002"/>
+            <output name="indiv_proba_csv">
+                <assert_contents>
+                    <has_n_columns n="4" sep=","/>
+                    <has_line line="transcript_id,transcript_position,read_index,probability_modified"/>
+                    <has_text_matching expression="ENST00000523944.5,3348,.*,.*"/>
+                    <has_text_matching expression="ENST00000499810.6,1901,.*,.*"/>
+                </assert_contents>
+            </output>
+            <output name="site_proba_csv">
+                <assert_contents>
+                    <has_n_columns n="6" sep=","/>
+                    <has_line line="transcript_id,transcript_position,n_reads,probability_modified,kmer,mod_ratio"/>
+                    <has_text_matching expression="ENST00000499810.6,1901,90,0.9.*,GGACT,0.9.*"/>
+                    <has_text_matching expression="ENST00000311922.3,546,31,0.9.*,GGACT,0.9.*"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+m6anet leverages a Multiple Instance Learning framework to detect m6a modifications from Nanopore Direct RNA Sequencing data.
+
+To detect m6A modifications from your direct RNA sequencing sample, provide a tabular output of nanopolish-eventalign tool here. Behind the scenes, this m6anet tool first pre-processes the segmented raw signal file using ‘m6anet dataprep’ and then executes 'm6anet inference' function on its output to assign a probability that a modified read or site exists, which are returned as two separate tabulars from the tool to the history.
+
+m6Anet will sample 20 reads from each candidate site and average the probability of modification across several round of sampling according to the 'num_iterations parameter'. Note that this is a ML-based model that can be trained on different datasets, thereby optimising for different organisms or nanopores. The tool by default uses model parameters obtained by training on the human HCT116 cell line, multiple options are available, and the results should depend on which model parameters are used for the inference.
+
+
+.. class:: infomark
+
+**References**
+
+More information is available on the `project website <https://m6anet.readthedocs.io/en/latest//>`_ and on the `Github repository <https://github.com/GoekeLab/m6anet>`_.
+]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1038/s41592-022-01666-1</citation>
+    </citations>
+</tool>
+
