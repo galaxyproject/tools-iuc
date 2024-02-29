@@ -64,7 +64,7 @@ def main(args):
     }
 
     # Creates a JSON dictionary representing the Data Manager configuration
-    data_manager_json = {"data_tables": {"omamer_data": [data_manager_entry]}}
+    data_manager_json = {"data_tables": {"omamer": [data_manager_entry]}}
 
     # Writes this JSON dictionary to the specified output file
     with open(args.json, "w") as fh:
