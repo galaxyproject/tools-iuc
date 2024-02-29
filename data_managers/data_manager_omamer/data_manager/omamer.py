@@ -19,9 +19,7 @@ OMAMER_DATASETS = {
     "LUCA": "LUCA-v0.2.5.h5",
 }
 
-
 DEFAULT_OUTPUT_DIR = "database_omamer"
-
 
 def download_file(url, dest):
     try:
@@ -34,7 +32,6 @@ def download_file(url, dest):
     except requests.exceptions.RequestException as e:
         print(f"Error downloading {url}: {e}")
         sys.exit(1)
-
 
 def main(args):
     # Set output directory to default
@@ -69,7 +66,6 @@ def main(args):
     # Writes this JSON dictionary to the specified output file
     with open(args.json, "w") as fh:
         json.dump(data_manager_json, fh, indent=2, sort_keys=True)
-
 
 if __name__ == "__main__":
     # Set up argparse to specify expected command line arguments
