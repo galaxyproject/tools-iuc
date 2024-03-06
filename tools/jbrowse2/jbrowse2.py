@@ -414,7 +414,7 @@ class JbrowseConnector(object):
             return subprocess.check_output(['pwd']).decode('utf-8').strip()
             # return None
 
-    def subprocess_check_call(self, command, output=None, cwd=False):
+    def subprocess_check_call(self, command, output=None, cwd=True):
         if output:
             log.debug("cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output)
             subprocess.check_call(command, cwd=self.get_cwd(cwd), stdout=output)
@@ -422,7 +422,7 @@ class JbrowseConnector(object):
             log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
             subprocess.check_call(command, cwd=self.get_cwd(cwd))
 
-    def subprocess_popen(self, command, cwd=False):
+    def subprocess_popen(self, command, cwd=True):
         log.debug("cd %s && %s", self.get_cwd(cwd), command)
         p = subprocess.Popen(
             command,
@@ -440,7 +440,7 @@ class JbrowseConnector(object):
             log.error(err)
             raise RuntimeError("Command failed with exit code %s" % (retcode))
 
-    def subprocess_check_output(self, command, cwd=False):
+    def subprocess_check_output(self, command, cwd=True):
         log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
         return subprocess.check_output(command, cwd=self.get_cwd(cwd))
 
@@ -468,14 +468,6 @@ class JbrowseConnector(object):
         style_data.update(xml_conf["style"])
 
         return {"displays": [style_data]}
-
-    def symlink_or_copy_load_action(self):
-        if "GALAXY_JBROWSE_SYMLINKS" in os.environ and bool(
-            os.environ["GALAXY_JBROWSE_SYMLINKS"]
-        ):
-            return "symlink"
-        else:
-            return "copy"
 
     def check_existing(self, destination):
         existing = os.path.join(destination, "config.json")
@@ -528,7 +520,7 @@ class JbrowseConnector(object):
         if default:
             self.current_assembly_id = uniq_label
 
-        copied_genome = rel_seq_path + ".fasta"
+        copied_genome = seq_path + ".fasta"
         shutil.copy(path, copied_genome)
 
         # Compress with bgzip
@@ -544,7 +536,7 @@ class JbrowseConnector(object):
                 "jbrowse",
                 "add-assembly",
                 "--load",
-                self.symlink_or_copy_load_action(),
+                "inPlace",
                 "--name",
                 uniq_label,
                 "--type",
@@ -612,8 +604,9 @@ class JbrowseConnector(object):
             os.unlink(gff3_rebased.name)
 
         rel_dest = os.path.join(trackData["label"] + ".gff")
+        dest = os.path.join(self.outdir, rel_dest)
 
-        self._sort_gff(gff3, rel_dest)
+        self._sort_gff(gff3, dest)
         os.unlink(gff3)
 
         style_json = self._prepare_track_style(trackData)
@@ -684,14 +677,16 @@ class JbrowseConnector(object):
     def add_vcf(self, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if zipped:
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
-            shutil.copy(os.path.realpath(data), rel_dest)
+            dest = os.path.join(self.outdir, rel_dest)
+            shutil.copy(os.path.realpath(data), dest)
         else:
             rel_dest = os.path.join(trackData["label"] + ".vcf")
-            shutil.copy(os.path.realpath(data), rel_dest)
+            dest = os.path.join(self.outdir, rel_dest)
+            shutil.copy(os.path.realpath(data), dest)
 
-            cmd = ["bgzip", rel_dest]
+            cmd = ["bgzip", dest]
             self.subprocess_check_call(cmd)
-            cmd = ["tabix", rel_dest + ".gz"]
+            cmd = ["tabix", dest + ".gz"]
             self.subprocess_check_call(cmd)
 
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
@@ -708,8 +703,9 @@ class JbrowseConnector(object):
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".gff")
+        dest = os.path.join(self.outdir, rel_dest)
 
-        self._sort_gff(data, rel_dest)
+        self._sort_gff(data, dest)
 
         style_json = self._prepare_track_style(trackData)
 
@@ -723,8 +719,9 @@ class JbrowseConnector(object):
 
     def add_bed(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".bed")
+        dest = os.path.join(self.outdir, rel_dest)
 
-        self._sort_bed(data, rel_dest)
+        self._sort_bed(data, dest)
 
         style_json = self._prepare_track_style(trackData)
 
@@ -741,8 +738,9 @@ class JbrowseConnector(object):
 
         # print(trackData)
         rel_dest = os.path.join(trackData["label"] + ".paf")
+        dest = os.path.join(self.outdir, rel_dest)
 
-        self.symlink_or_copy(os.path.realpath(data), rel_dest)
+        self.symlink_or_copy(os.path.realpath(data), dest)
 
         # TODO: this was disabled because it was adding spurious assemblies,
         # when one of that name already exists.
@@ -764,8 +762,9 @@ class JbrowseConnector(object):
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".hic")
+        dest = os.path.join(self.outdir, rel_dest)
 
-        self.symlink_or_copy(os.path.realpath(data), rel_dest)
+        self.symlink_or_copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
 
@@ -804,7 +803,7 @@ class JbrowseConnector(object):
             ]
         )
 
-        # Doesn't work as of 1.6.4, might work in the future
+        # TODO Doesn't work as of 1.6.4, might work in the future
         # self.subprocess_check_call([
         #     'jbrowse', 'add-track',
         #     '--trackType', 'sparql',
@@ -815,7 +814,17 @@ class JbrowseConnector(object):
         #     '--config', '{"queryTemplate": "%s"}' % query,
         #     url])
 
-    def _add_track(self, id, label, category, path, assemblies=[], config=None, trackType=None):
+    def _add_track(self, id, label, category, path, assemblies=[], config=None, trackType=None, load_action="inPlace"):
+        """
+        Adds a track to config.json using Jbrowse add-track cli
+
+        By default, using `--load inPlace`: the file is supposed to be already placed at the `path` relative to
+        the outdir, `jbrowse add-track` will not touch it and trust us that the file is there and ready to use.
+
+        With `load_action` parameter, you can ask `jbrowse add-track` to copy/move/symlink the file for you.
+        Not done by default because we often need more control on file copying/symlink for specific cases (indexes, symlinks of symlinks, ...)
+        """
+
         assemblies_opt = self.current_assembly_id
         if assemblies:
             assemblies_opt = ",".join(assemblies)
@@ -824,7 +833,7 @@ class JbrowseConnector(object):
             "jbrowse",
             "add-track",
             "--load",
-            self.symlink_or_copy_load_action(),
+            load_action,
             "--name",
             label,
             "--category",
@@ -907,6 +916,7 @@ class JbrowseConnector(object):
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
             # much simpler.
+            # TODO hash colision when adding tracks with same bam file but different display => error on add-track
             hashData = [
                 str(dataset_path),
                 track_human_label,
