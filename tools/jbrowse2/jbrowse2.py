@@ -33,6 +33,31 @@ mapped_chars = {
     "": "__cn__",
 }
 
+INDEX_TEMPLATE = """<!doctype html>
+<html lang="en" style="height:100%">
+<head>
+<meta charset="utf-8"/>
+<link rel="shortcut icon" href="./favicon.ico"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="theme-color" content="#000000"/>
+<meta name="description" content="A fast and flexible genome browser"/>
+<link rel="manifest" href="./manifest.json"/>
+<title>JBrowse</title>
+</script>
+</head>
+<body style="overscroll-behavior:none; height:100%; margin: 0;">
+<iframe
+  id="jbframe"
+  title="JBrowse2"
+  frameborder="0"
+  width="100%"
+  height="100%"
+  src='index_noview.html?config=config.json__SESSION_SPEC__'>
+</iframe>
+</body>
+</html>
+"""
+
 
 class ColorScaling(object):
 
@@ -375,7 +400,7 @@ class JbrowseConnector(object):
 
         # This is the id of the current assembly
         self.assembly_ids = {}
-        self.current_assembly_id = []
+        self.current_assembly_id = None
 
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
@@ -468,6 +493,7 @@ class JbrowseConnector(object):
             # easier to write than the alternative / catches any possible
             # issues.
             log.debug("Processing genome", genome_node)
+            # TODO make sure we support multiple genomes + use wisely the default paramter
             self.add_assembly(genome_node["path"], genome_node["label"])
 
     def add_assembly(self, path, label, default=True):
@@ -495,7 +521,6 @@ class JbrowseConnector(object):
             lab_try += 1
 
         # Find a default scaffold to display
-        # TODO this may not be necessary in the future, see https://github.com/GMOD/jbrowse-components/issues/2708
         with open(path, "r") as fa_handle:
             fa_header = fa_handle.readline()[1:].strip().split(" ")[0]
 
@@ -587,7 +612,6 @@ class JbrowseConnector(object):
             os.unlink(gff3_rebased.name)
 
         rel_dest = os.path.join(trackData["label"] + ".gff")
-        # dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(gff3, rel_dest)
         os.unlink(gff3)
@@ -660,11 +684,9 @@ class JbrowseConnector(object):
     def add_vcf(self, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if zipped:
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
-            dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), rel_dest)
         else:
             rel_dest = os.path.join(trackData["label"] + ".vcf")
-            # dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), rel_dest)
 
             cmd = ["bgzip", rel_dest]
@@ -686,7 +708,6 @@ class JbrowseConnector(object):
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".gff")
-        # dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(data, rel_dest)
 
@@ -702,7 +723,6 @@ class JbrowseConnector(object):
 
     def add_bed(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".bed")
-        # dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_bed(data, rel_dest)
 
@@ -721,7 +741,6 @@ class JbrowseConnector(object):
 
         # print(trackData)
         rel_dest = os.path.join(trackData["label"] + ".paf")
-        # dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
@@ -745,7 +764,6 @@ class JbrowseConnector(object):
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".hic")
-        # dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), rel_dest)
 
@@ -1008,57 +1026,35 @@ class JbrowseConnector(object):
                 log.warn("Do not know how to handle %s", dataset_ext)
 
             # Return non-human label for use in other fields
-            yield outputTrackConfig["label"]
+            return outputTrackConfig["label"]
 
     def add_default_session(self, data):
         """
         Add some default session settings: set some assemblies/tracks on/off
+
+        This allows to select a default view:
+        - jb type (Linear, Circular, etc)
+        - default location on an assembly
+        - default tracks
+        - ...
+
+        Different methods to do that were tested/discussed:
+        - using a defaultSession item in config.json: this proved to be difficult:
+          forced to write a full session block, including hard-coded/hard-to-guess items,
+          no good way to let Jbrowse2 display a scaffold without knowing its size
+        - using JBrowse2 as an embedded React component in a tool-generated html file:
+          it works but it requires generating js code to actually do what we want = chosing default view, assembly, tracks, ...
+        - writing a session-spec inside the config.json file: this is not yet supported as of 2.10.2 (see PR 4148 below)
+          a session-spec is a kind of simplified defaultSession where you don't need to specify every aspect of the session
+        - passing a session-spec through URL params by embedding the JBrowse2 index.html inside an iframe
+          we selected this option
+
+        Xrefs to understand the choices:
+        https://github.com/GMOD/jbrowse-components/issues/2708
+        https://github.com/GMOD/jbrowse-components/discussions/3568
+        https://github.com/GMOD/jbrowse-components/pull/4148
         """
-        tracks_data = []
 
-        # TODO using the default session for now, but check out session specs in the future https://github.com/GMOD/jbrowse-components/issues/2708
-
-        # We need to know the track type from the config.json generated just before
-        config_path = os.path.join(self.outdir, "config.json")
-        print(config_path)
-        track_types = {}
-        with open(config_path, "r") as config_file:
-            config_json = json.load(config_file)
-
-        for track_conf in config_json["tracks"]:
-            track_types[track_conf["trackId"]] = track_conf["type"]
-
-        for on_track in data["visibility"]["default_on"]:
-            # TODO several problems with this currently
-            # - we are forced to copy the same kind of style config as the per track config from _prepare_track_style (not exactly the same though)
-            # - we get an error when refreshing the page
-            # - this could be solved by session specs, see https://github.com/GMOD/jbrowse-components/issues/2708
-            style_data = {"type": "LinearBasicDisplay", "height": 100}
-
-            if on_track in data["style"]:
-                if "display" in data["style"][on_track]:
-                    style_data["type"] = data["style"][on_track]["display"]
-                    del data["style"][on_track]["display"]
-
-                style_data.update(data["style"][on_track])
-
-            if on_track in data["style_labels"]:
-                # TODO fix this: it should probably go in a renderer block (SvgFeatureRenderer) but still does not work
-                # TODO move this to per track displays?
-                style_data["labels"] = data["style_labels"][on_track]
-
-            tracks_data.append(
-                {
-                    "type": track_types[on_track],
-                    "configuration": on_track,
-                    "displays": [style_data],
-                }
-            )
-
-        # The view for the assembly we're adding
-        view_json = {"type": "LinearGenomeView", "tracks": tracks_data}
-
-        refName = None
         if data.get("defaultLocation", ""):
             loc_match = re.search(r"^(\w+):(\d+)\.+(\d+)$", data["defaultLocation"])
             if loc_match:
@@ -1068,40 +1064,25 @@ class JbrowseConnector(object):
         elif self.assembly_ids[self.current_assembly_id] is not None:
             refName = self.assembly_ids[self.current_assembly_id]
             start = 0
-            end = 1000000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+            end = 1000000  # TODO find a better default maybe?
 
-        if refName is not None:
-            # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
-            view_json["displayedRegions"] = [
+        session_spec = {
+            "views": [
                 {
-                    "refName": refName,
-                    "start": start,
-                    "end": end,
-                    "reversed": False,
-                    "assemblyName": self.current_assembly_id,
+                    "assembly": self.current_assembly_id,
+                    "loc": "{}:{}-{}".format(refName, start, end),
+                    "type": "LinearGenomeView",
+                    "tracks": data["tracks_on"]
                 }
             ]
+        }
 
-        session_name = data.get("session_name", "New session")
-        if not session_name:
-            session_name = "New session"
+        new_index = INDEX_TEMPLATE.replace("__SESSION_SPEC__", '&session=spec-{}'.format(json.dumps(session_spec)))
 
-        # Merge with possibly existing defaultSession (if upgrading a jbrowse instance)
-        session_json = {}
-        if "defaultSession" in config_json:
-            session_json = config_json["defaultSession"]
+        os.rename(os.path.join(self.outdir, "index.html"), os.path.join(self.outdir, "index_noview.html"))
 
-        session_json["name"] = session_name
-
-        if "views" not in session_json:
-            session_json["views"] = []
-
-        session_json["views"].append(view_json)
-
-        config_json["defaultSession"] = session_json
-
-        with open(config_path, "w") as config_file:
-            json.dump(config_json, config_file, indent=2)
+        with open(os.path.join(self.outdir, "index.html"), 'w') as nind:
+            nind.write(new_index)
 
     def add_general_configuration(self, data):
         """
@@ -1209,10 +1190,7 @@ if __name__ == "__main__":
     jc.process_genomes()
 
     default_session_data = {
-        "visibility": {
-            "default_on": [],
-            "default_off": [],
-        },
+        "tracks_on": [],
         "style": {},
         "style_labels": {},
     }
@@ -1291,24 +1269,13 @@ if __name__ == "__main__":
 
             track_conf["conf"] = etree_to_dict(track.find("options"))
 
-            keys = jc.process_annotations(track_conf, genome)
-            keys = list(keys)
+            track_label = jc.process_annotations(track_conf, genome)
 
-            # for key in keys:
-            #     default_session_data["visibility"][
-            #         track.attrib.get("visibility", "default_off")
-            #     ].append(key)
-            #
-            # default_session_data["style"][key] = track_conf[
-            #     "style"
-            # ]  # TODO do we need this anymore?
-            # default_session_data["style_labels"][key] = track_conf["style_labels"]
+            if track.attrib["visibility"] == "default_on":
+                default_session_data["tracks_on"].append(track_label)
 
     default_session_data["defaultLocation"] = real_root.find(
         "metadata/general/defaultLocation"
-    ).text
-    default_session_data["session_name"] = real_root.find(
-        "metadata/general/session_name"
     ).text
 
     general_data = {
