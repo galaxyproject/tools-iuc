@@ -1285,7 +1285,7 @@ class JbrowseConnector(object):
             else:
                 logging.warn("Do not know how to handle %s", dataset_ext)
             # Return non-human label for use in other fields
-            yield outputTrackConfig["label"]
+            return outputTrackConfig["label"]
 
     def add_default_session(self, default_data):
         """
@@ -1355,6 +1355,7 @@ class JbrowseConnector(object):
             view_json["displayedRegions"] = [
                 drdict,
             ]
+        }
 
             logging.info("@@@ defaultlocation %s for default session" % drdict)
         else:
@@ -1483,10 +1484,7 @@ if __name__ == "__main__":
     jc.process_genomes()
 
     default_session_data = {
-        "visibility": {
-            "default_on": [],
-            "default_off": [],
-        },
+        "tracks_on": [],
         "style": {},
         "style_labels": {},
     }
