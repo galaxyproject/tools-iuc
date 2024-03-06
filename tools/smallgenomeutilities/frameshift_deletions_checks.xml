@@ -7,7 +7,7 @@
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">smallgenomeutilities</requirement>
     </requirements>
-    <!-- once we have version-from-git-tag in 0.4.0: <version_command>frameshift_deletion_checks &#x002D&#x002Dversion</version_command> -->
+    <version_command>frameshift_deletions_checks --version</version_command>
     <command detect_errors="exit_code">
     <![CDATA[
 #if $input.is_of_type("cram"):
@@ -30,6 +30,9 @@ frameshift_deletions_checks
     --input=input.${input.ext}
     --consensus=consensus.fasta
     --reference=reference.fa
+#if str($align_data.choice) == 'chain':
+    --chain='$align_data.chain'
+#end if
 #if str($ref_data.choice) == 'standard':
     --genes='$__tool_directory__'/annotations_NC_045512.2.gff3
     --orf1ab='cds-YP_009724389.1'
@@ -47,6 +50,17 @@ python '$__tool_directory__/frameshift_deletions_report_fixer.py' report.tsv '$r
     <inputs>
         <param argument="--consensus" type="data" format="fasta" label="Consensus" help="Fasta file containing the sample's consensus sequence (majority, with indels)" />
         <param argument="--input" type="data" format="bam,cram" label="Input BAM" help="Input BAM file with sample's sequencing reads, aligned against the reference" />
+        <!-- keep format="txt" in sync with what bcftools_consensus.xml uses. See: https://github.com/galaxyproject/tools-iuc/blob/main/tools/bcftools/bcftools_consensus.xml#L137 -->
+        <conditional name="align_data">
+            <param name="choice" type="select" label="Consensus-to-reference alignment" help="To find insertions and deletions, the tool needs information how the consensus aligns to the reference (lift-over). You can provide a .chain file describing how the consensus maps to the reference, otherwise mafft will be used to align the consensus to the reference.">
+                <option value="chain">Provide a .chain file</option>
+                <option value="mafft">Run MAFFT to obtain alignment</option>
+            </param>
+            <when value="chain">
+                <param argument="--chain" type="data" format="txt" optional="false" label="Chain file" help="Chain file describing how the consensus is aligned to the reference (e.g. ouput of `bcftools consensus --chain &#x2026;`)." />
+            </when>
+            <when value="mafft" />
+        </conditional>
         <conditional name="ref_data">
             <param name="choice" type="select" label="Reference data selection" help="Select built-in genome files to base reported positions and annotations on the SARS-CoV-2 reference sequence NC_045512.2. If you have mapped to a different reference, select custom genome files and provide the reference sequence and genomic feature annotations for it in fasta and gff format, repsectively.">
                 <option value="standard">Use built-in genome files</option>
@@ -71,6 +85,7 @@ python '$__tool_directory__/frameshift_deletions_report_fixer.py' report.tsv '$r
             <actions>
                 <conditional name="out_options.english">
                     <!-- The "english" flag removes certain numerical columns and collapses them into new text columns -->
+                    <!-- BUG the not-text columns *should* be identical (missing numerical columns will probably be fixed in a future release) -->
                     <when value="--english">
                         <action name="column_names" type="metadata" default="ref_id,start_position,length,VARIANT,gene_region,reads_all,reads_fwd,reads_rev,deletions,freq_del,freq_del_fwd,freq_del_rev,deletions_fwd,deletions_rev,insertions,freq_insert,freq_insert_fwd,freq_insert_rev,insertions_fwd,insertions_rev,stops,freq_stop,freq_stop_fwd,freq_stop_rev,stops_fwd,stops_rev,matches_ref,pos_critical_inserts,pos_critical_dels,homopolymeric,ref_base,cons_id,variant_position_english,variant_diagnosis" />
                     </when>
@@ -82,17 +97,77 @@ python '$__tool_directory__/frameshift_deletions_report_fixer.py' report.tsv '$r
         </data>
     </outputs>
     <tests>
+        <!-- Test data:
+             title:         hCoV-19/Switzerland/GE-ETHZ-100339/2020
+             internal id:   100339_62_H07/20201002_J9279
+             ENA:
+                sample:     SAMEA8673857    ERS6358378
+                experiment: ERX11049759
+                run:        ERR11647777
+        -->
+        <!-- redo alignment from scratch by running MAFFT -->
         <test>
             <param name="consensus" value="consensus.bcftools.fasta.gz" />
             <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="align_data">
+                <param name="choice" value="mafft" />
+            </conditional>
             <conditional name="ref_data">
                 <param name="choice" value="standard" />
             </conditional>
             <output name="report" value="frameshift_deletions_check.tsv" />
+            <assert_command>
+                <not_has_text text="--chain" />
+            </assert_command>
+            <assert_stderr>
+                <has_text text="mafft" />
+            </assert_stderr>
+        </test>
+        <!-- using information in .chain -->
+        <test>
+            <param name="consensus" value="consensus.bcftools_nogap.fasta.gz" />
+            <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="align_data">
+                <param name="choice" value="chain" />
+                <param name="chain" value="consensus.bcftools_nogap.chain" />
+            </conditional>
+            <conditional name="ref_data">
+                <param name="choice" value="standard" />
+            </conditional>
+            <output name="report" value="frameshift_deletions_check.tsv" />
+            <assert_command>
+                <has_text text="--chain" />
+            </assert_command>
+            <assert_stderr>
+                <not_has_text text="mafft" />
+            </assert_stderr>
+        </test>
+        <!-- using information in .chain and consensus marked with gaps (bcftools consensus mark-del '-') -->
+        <test>
+            <param name="consensus" value="consensus.bcftools.fasta.gz" />
+            <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="align_data">
+                <param name="choice" value="chain" />
+                <param name="chain" value="consensus.bcftools.chain" />
+            </conditional>
+            <conditional name="ref_data">
+                <param name="choice" value="standard" />
+            </conditional>
+            <output name="report" value="frameshift_deletions_check.tsv" />
+            <assert_command>
+                <has_text text="--chain" />
+            </assert_command>
+            <assert_stderr>
+                <not_has_text text="mafft" />
+            </assert_stderr>
         </test>
         <test>
             <param name="consensus" value="consensus.bcftools.fasta.gz" />
             <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="align_data">
+                <param name="choice" value="chain" />
+                <param name="chain" value="consensus.bcftools.chain" />
+            </conditional>
             <conditional name="ref_data">
                 <param name="choice" value="standard" />
             </conditional>
@@ -100,41 +175,59 @@ python '$__tool_directory__/frameshift_deletions_report_fixer.py' report.tsv '$r
                 <param name="english" value="false" />
             </section>
             <output name="report" value="frameshift_deletions_check_no_english.tsv" />
+            <assert_command>
+                <has_text text="--chain" />
+            </assert_command>
+            <assert_stderr>
+                <not_has_text text="mafft" />
+            </assert_stderr>
         </test>
         <test>
             <param name="consensus" value="consensus.bcftools.fasta.gz" />
             <param name="input" value="REF_aln_trim.cram" />
+            <conditional name="align_data">
+                <param name="choice" value="chain" />
+                <param name="chain" value="consensus.bcftools.chain" />
+            </conditional>
             <conditional name="ref_data">
                 <param name="choice" value="custom" />
                 <param name="reference" value="NC_045512.2.fasta" />
                 <param name="genes" value="Genes_NC_045512.2.GFF3" />
             </conditional>
             <output name="report" value="frameshift_deletions_check.tsv" />
+            <assert_command>
+                <has_text text="--chain" />
+            </assert_command>
+            <assert_stderr>
+                <not_has_text text="mafft" />
+            </assert_stderr>
         </test>
     </tests>
     <help>
     <![CDATA[
 Produces a report about frameshifting indels in a consensus sequences.
 
-Developed as part of the `V-pipe workflow for analysing NGS data of short viral genomes <https://github.com/cbg-ethz/V-pipe>`_.
+The smallgenomeutilities are part of the `V-pipe workflow for analysing NGS data of short viral genomes <https://github.com/cbg-ethz/V-pipe>`_.
 
 Columns signification:
 ----------------------
 
+* *ref_id* / *cons_id*: name of the sequence in the reference and consensus
+* *start_position* / *length*: location of the variant
+* *VARIANT*: one of: "insertion", "deletion", "stopgain" or "stoploss"
 * *gene_region*: Gene in which the deletion is found according to ``--genes`` argument;
 * *reads_all*: Total number of reads covering the indel;
 * *reads_fwd*: Total number of forward reads covering the indel;
 * *reads_rev*: Total number of reverse reads covering the indel;
-* *deletions/insertions*: Number of reads supporting the deletion/insertion;
-* *freq_del/freq_insert*: Fraction of reads supporting the deletion/insertion;
+* *deletions* / *insertions*: Number of reads supporting the deletion/insertion;
+* *freq_del* / *freq_insert*: Fraction of reads supporting the deletion/insertion;
 * *matches_ref*: number of reads that matche with the reference base;
 * *pos_critical_inserts*: Start positions of insertions in the same gene_region that occur in > 40% of reads;
 * *pos_critical_dels*: Start positions of deletions in the same gene_region that occur in > 40% of reads;
 * *homopolymeric*: True if either around the start or end position of the deletion three bases are the same, which may have caused the polymerase to skip during reverse transcription of viral RNA to cDNA, e.g. AATAG;
 * *ref_base*: base in the reference genome;
-* *indel_position_english*: english sentence describing the indel;
-* *indel_diagnosis*: english sentence with the indel diagnosis;
-* *orf1ab*: CDS ID for the full Orf1ab CDS, comprising the ribosomal shift. In the GFF this CDS should consist of 2 entries with the same CDS ID due to the parital overlap caused by the ribosomal shift at translation time
+* *variant_position_english*: english sentence describing the indel or stop;
+* *variant_diagnosis*: english sentence with the indel diagnosis
 ]]>
     </help>
     <expand macro="citations"/>
