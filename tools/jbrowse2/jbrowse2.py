@@ -408,7 +408,7 @@ class JbrowseConnector(object):
             return subprocess.check_output(['pwd']).decode('utf-8').strip()
             # return None
 
-    def subprocess_check_call(self, command, output=None, cwd=False):
+    def subprocess_check_call(self, command, output=None, cwd=True):
         if output:
             log.debug("cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output)
             subprocess.check_call(command, cwd=self.get_cwd(cwd), stdout=output)
