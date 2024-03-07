@@ -9,10 +9,10 @@ from pathlib import Path
 import requests
 
 # URL for downloading OMAmer datasets
-OMAMER_URL = "https://omabrowser.org/All/{dataset}"
+OMAMER_DATASETS_URL = "https://omabrowser.org/All/{dataset}"
 
 # List of OMAmer data sets with versions
-OMAMER = {
+OMAMER_DATASETS = {
     "Primates": "Primates-v2.0.0.h5",
     "Viridiplantae": "Viridiplantae-v2.0.0.h5",
     "Metazoa": "Metazoa-v2.0.0.h5",
@@ -44,13 +44,13 @@ def main(args):
         os.makedirs(output_dir)
 
     # Check if the selected dataset exists
-    if args.name not in OMAMER:
+    if args.name not in OMAMER_DATASETS:
         print(f"Error: Selected dataset '{args.name}' not found.")
         sys.exit(1)
 
     # Download the selected OMAmer dataset
-    dataset = OMAMER[args.name]
-    url = OMAMER_URL.format(dataset=dataset)
+    dataset = OMAMER_DATASETS[args.name]
+    url = OMAMER_DATASETS_URL.format(dataset=dataset)
     base_name = os.path.splitext(dataset)[0]
     destination_path = os.path.join(output_dir, base_name)
     download_file(url, destination_path)
@@ -63,7 +63,7 @@ def main(args):
     }
 
     # Creates a JSON dictionary representing the Data Manager configuration
-    data_manager_json = {"data_tables": {"omamer_data": [data_manager_entry]}}
+    data_manager_json = {"data_tables": {"omamer": [data_manager_entry]}}
 
     # Writes this JSON dictionary to the specified output file
     with open(args.json, "w") as fh:
@@ -73,7 +73,7 @@ def main(args):
 if __name__ == "__main__":
     # Set up argparse to specify expected command line arguments
     parser = argparse.ArgumentParser(description='Download data for OMAmer')
-    parser.add_argument('--name', default='Primates', choices=OMAMER.keys(), help='Select dataset to download')
+    parser.add_argument('--name', default='Primates', choices=OMAMER_DATASETS.keys(), help='Select dataset to download')
     parser.add_argument('--json', help='Path to JSON file')
 
     args = parser.parse_args()
