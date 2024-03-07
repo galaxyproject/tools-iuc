@@ -1,8 +1,7 @@
 #!/usr/bin/Rscript
 
 # load getopt library
-library("getopt");
-
+library("getopt")
 # convert multi parameter string (i.e. key1: value, key2: value, ...) to object
 split <- function(argument) {
     # process parameter string
@@ -34,9 +33,8 @@ spec <- matrix(c(
     "output",   "o", 1, "character", "Output tabular file",
     "help",     "h", 0, "",          "Help",
     "verbose",  "v", 0, "",          "Verbose"
-), byrow = TRUE, ncol = 5);
-opt <- getopt(spec);
-
+), byrow = TRUE, ncol = 5)
+opt <- getopt(spec)
 # show help
 if (!is.null(opt$help) ||
     is.null(opt$module) ||
@@ -44,7 +42,7 @@ if (!is.null(opt$help) ||
     is.null(opt$columns) ||
     is.null(opt$output)) {
     cat(getopt(spec, usage = TRUE))
-    q(status = 1);
+    q(status = 1)
 }
 
 # read columns/settings
@@ -97,12 +95,12 @@ if (length(l) > 0) {
     # pad columns
     rows <- max(unlist(lapply(l, length)))
     padded <- lapply(l, function(col) {
-        length(col) <- rows;
+        length(col) <- rows
         col
     })
 
     # write table
-    write.table(padded, file = output, row.names = FALSE, col.names  =  FALSE, quote = FALSE, sep = "\t")
+    write.table(padded, file = output, row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
 
     # close file
     close(output)

@@ -1,0 +1,233 @@
+<tool id="meningotype" name="Meningotype" version="@TOOL_VERSION@+galaxy0" profile="21.05">
+    <description>assign sequence type to Neisseria meningitidis genome assemblies</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.8.5</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">meningotype</requirement>
+        <!-- coreutils dep added because of a bug in the meningotype 0.8.5 container - it doesn't have `file` -->
+        <requirement type="package" version="9.0">coreutils</requirement>
+    </requirements>
+    <version_command>meningotype --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+        #if $db_source == 'network'
+            python3 '$__tool_directory__/update_db.py' &&
+        #end if
+        #if $input.source == "single"
+            #set $input_data = "'" + $input.fasta.element_identifier.replace(' uncompressed', '') + "'"
+            ln -s '$input.fasta' $input_data &&
+        #else
+            #set $input_data = ""
+            #for $el in $input.fastas
+                #set $name = $el.element_identifier.replace(' uncompressed', '')
+                ln -s '$el' '$name' &&
+
+                #set $input_data = $input_data + " '" + $name + "'"
+            #end for
+        #end if
+        meningotype 
+        #if $db_source == "network"
+            --db ./db
+        #end if
+            $input_data
+            --cpus \${GALAXY_SLOTS:-1}
+            #if "mlst" in $typing
+                --mlst
+            #end if
+            #if "finetype" in $typing
+                --finetype
+            #end if
+            #if "porb" in $typing
+                --porB
+            #end if
+            #if "bast" in $typing
+                --bast
+            #end if
+            #if $write_allele_sequences
+                --printseq allele_sequences
+            #end if
+            #if not $include_header
+                | python3 '$__tool_directory__/strip_header.py'
+            #end if
+            >'$output_tsv' &&
+            python3 '$__tool_directory__/check_output.py' '$output_tsv'
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param type="select" name="source" label="Input type">
+                <option value="collection" selected="true">Dataset collection</option>
+                <option value="single">Single dataset</option>
+            </param>
+            <when value="collection">
+                <param name="fastas" type="data_collection" format="fasta" collection_type="list" label="N. meningtidis genomes in FASTA format" />
+            </when>
+            <when value="single">
+                <param type="data" format="fasta" name="fasta" label="Input FASTA" help="N. meningitidis genome in FASTA format" />
+            </when>
+        </conditional>
+        <param type="select" name="db_source" label="Database source">
+            <!-- the latest version of the DBs are stored on PubMLST.  -->
+            <option value="network" selected="true">Network</option>
+            <option value="builtin">Built-in</option>
+        </param>
+        <param type="select" multiple="true" name="typing" label="Typing to perform">
+            <option value="mlst" selected="true">MLST</option>
+            <option value="finetype" selected="true">porA and fetA fine typing</option>
+            <option value="bast" selected="true">Bexsero antigen sequence typing (BAST)</option>
+            <option value="porb" selected="true">porB (NEIS2020) sequence typing</option>
+        </param>
+        <param type="boolean" name="include_header" checked="false" label="Include header in output" />
+        <param type="boolean" name="write_allele_sequences" checked="false" label="Output sequences of porA, fetA, portB and BAST alleles" />
+    </inputs>
+    <outputs>
+        <data format="tabular" name="output_tsv" label="Meningotype on ${on_string}">
+            <actions>
+                <action name="column_names" type="metadata" default="Sample_ID,Serogroup,ctrA,MLST,porA,fetA,porB,fHbp,NHBA,NadA,BAST" />
+            </actions>
+        </data>
+        <collection  format="fasta" type="list" name="output_allele_sequences" label="Meningotype allele sequences on ${on_string}">
+            <discover_datasets pattern="__name_and_ext__" directory="allele_sequences" />
+            <filter>write_allele_sequences</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1"> <!-- test1: basic functionality -->
+            <conditional name="input">
+               <param name="source" value="single" /> 
+               <param name="fasta" value="input.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="db_source" value="builtin" />
+            <param name="typing" value="mlst,finetype,bast,porb" />
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_n_columns n="11" />
+                    <has_text text="9367" />
+                    <has_text text="21-15,16" />
+                    <has_text text="F1-7" />
+                    <has_text text="NEIS2020_506" />
+                    <has_text text="27" />
+                    <has_text text="798" />
+                    <has_text text="0" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1"> <!-- test2: test with header included -->
+            <conditional name="input">
+                <param name="source" value="single" /> 
+                <param name="fasta" value="input.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="db_source" value="builtin" />
+            <param name="typing" value="mlst,finetype,bast,porb" />
+            <param name="include_header" value="true" /> 
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_n_columns n="11" />
+                    <has_text text="SAMPLE_ID" /> <!-- the header -->
+                    <has_text text="9367" />
+                    <has_text text="21-15,16" />
+                    <has_text text="F1-7" />
+                    <has_text text="NEIS2020_506" />
+                    <has_text text="27" />
+                    <has_text text="798" />
+                    <has_text text="0" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2"> <!-- test 3: test allele sequence output -->
+            <conditional name="input">
+                <param name="source" value="single" /> 
+                <param name="fasta" value="input.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="db_source" value="builtin" />
+            <param name="typing" value="mlst,finetype,bast,porb" />
+            <param name="write_allele_sequences" value="true" />
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_n_columns n="11" />
+                    <has_text text="9367" />
+                    <has_text text="21-15,16" />
+                    <has_text text="F1-7" />
+                    <has_text text="NEIS2020_506" />
+                    <has_text text="27" />
+                    <has_text text="798" />
+                    <has_text text="0" />
+                </assert_contents>
+            </output>
+            <output_collection name="output_allele_sequences">
+                <element name="NHBA_seqs" file="NHBA_seqs.fasta" ftype="fasta" />
+                <element name="NadA_seqs" file="NadA_seqs.fasta" ftype="fasta" />
+                <element name="fHbp_seqs" file="fHbp_seqs.fasta" ftype="fasta" />
+                <element name="fetA_seqs" file="fetA_seqs.fasta" ftype="fasta" />
+                <element name="porA_seqs" file="porA_seqs.fasta" ftype="fasta" />
+                <element name="porB_seqs" file="porB_seqs.fasta" ftype="fasta" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1"> <!-- test4: test input collection -->
+            <conditional name="input">
+               <param name="source" value="collection" />
+               <param name="fastas">
+                    <collection type="list">
+                        <element name="input1" value="input.fasta.gz" ftype="fasta.gz" />
+                        <element name="input2" value="input2.fasta.gz" ftype="fasta.gz" />
+                    </collection>
+               </param>
+            </conditional>
+            <param name="db_source" value="builtin" />
+            <param name="typing" value="mlst,finetype,bast,porb" />
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_n_columns n="11" />
+                    <has_n_lines n="2" />
+                    <has_text text="9367" />
+                    <has_text text="21-15,16" />
+                    <has_text text="F1-7" />
+                    <has_text text="NEIS2020_506" />
+                    <has_text text="27" />
+                    <has_text text="798" />
+                    <has_text text="0" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+        meningotype_: In silico typing of Neisseria meningitidis contigs
+
+        * Serotyping
+
+        * MLST
+
+        * Finetyping (porA, fetA, porB)
+
+        * Bexsero antigen sequence typing (BAST) (fHbp, NHBA, NadA, PorA)
+
+        The databases used in the tool are sourced from PubMLST_. The default behaviour is to download updated
+        copies of the databases before running the tool. While this can be ineffecient for e.g. typing a single
+        isolate, the databases built-in to the tool are not the most recent versions.
+
+        If many isolates are being typed, they can be provided as a dataset collection. The output of the tool
+        will contain one line of data for each isolate.
+
+        By default the header line is not included in the tool output (to make concatenation of results easier).
+
+        If output of matched alleles is requested, FASTA files are produced for each matching allele, with information
+        on which dataset was matched in the FASTA header.
+
+        .. _meningotype: https://github.com/MDU-PHL/meningotype
+        .. _PubMLST: https://pubmlst.org/
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+            <![CDATA[
+            @misc{Kwong2018,
+                author = {Kwong, J.C. and Gonçalves da Silva, A. and Stinear, T. P. and Howden, B. P. and Seemann, T.},
+                title = {meningotype: in silico typing for Neisseria meningitidis.},
+                year = {2018},
+                publisher = {GitHub},
+                journal = {GitHub repository},
+                howpublished = {\url{https://github.com/MDU-PHL/meningotype}},
+                commit = {aece5c9851c7ffc8357306a33a369307dddb726f}
+              }
+            ]]>
+        </citation>
+    </citations>
+</tool>

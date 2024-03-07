@@ -33,8 +33,10 @@ difference_in_group <- function(lines) {
             test1 <- lines[i, ]
             for (j in i:nlines) {
                 test2 <- lines[j, ]
-                diff.colnames <- c(diff.colnames,
-                                   names(test1[!(test1 %in% test2)]))
+                diff.colnames <- c(
+                    diff.colnames,
+                    names(test1[!(test1 %in% test2)])
+                )
             }
         }
     }
@@ -51,7 +53,9 @@ split_table_and_process <- function(tab) {
     #'
     #' This function is necessary because tidyr is difficult
     #' to write custom group binding functions.
-    group_ind <- tab %>% group_by(POS, REF, ALT) %>% select(POS, REF, ALT) # nolint
+    group_ind <- tab %>%
+        group_by(POS, REF, ALT) %>%
+        select(POS, REF, ALT) # nolint
     nlines <- nrow(tab)
     groups <- list()
     if (nlines) {
@@ -66,8 +70,8 @@ split_table_and_process <- function(tab) {
             group_ind_diff_between_lines <- !all(last_pa == curr_pa)
             if (group_ind_diff_between_lines) {
                 ## end of current group, start of new
-                groups[[length(groups)]][2] <- r - 1     ## change prev end
-                groups[[length(groups) + 1]] <- c(r, r)  ## set (start, end)
+                groups[[length(groups)]][2] <- r - 1 ## change prev end
+                groups[[length(groups) + 1]] <- c(r, r) ## set (start, end)
             } else if (r == nlines) {
                 ## i.e. if the very last line shares
                 ## the same POS REF ALT as the one before,
@@ -87,14 +91,16 @@ split_table_and_process <- function(tab) {
 }
 
 read_and_process <- function(id) {
-    file <- (samples %>% filter(ids == id))$files    # nolint
+    file <- (samples %>% filter(ids == id))$files # nolint
     variants <- read.table(file, header = T, sep = "\t", colClasses = "character")
-    variants["AF"]  <- lapply(variants["AF"], as.numeric)
+    variants["AF"] <- lapply(variants["AF"], as.numeric)
     uniq_ids <- split_table_and_process(variants)
     if (nrow(variants) != nrow(uniq_ids)) {
-        stop(paste0(id, " '", file, "' failed: ", file, "\"",
-                    "nrow(variants)=", nrow(variants),
-                    " but nrow(uniq_ids)=", nrow(uniq_ids)))
+        stop(paste0(
+            id, " '", file, "' failed: ", file, "\"",
+            "nrow(variants)=", nrow(variants),
+            " but nrow(uniq_ids)=", nrow(uniq_ids)
+        ))
     }
     variants <- as_tibble(cbind(variants, uniq_ids)) # nolint
     return(variants)
