@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import sys
-from pathlib import Path
 
 import requests
 
@@ -36,12 +35,14 @@ def download_file(url, dest):
 
 
 def main(args):
-    # Set output directory to default
-    output_dir = DEFAULT_OUTPUT_DIR
+
+    with open(args.json) as fh:
+        params = json.load(fh)
+    target_directory = params["output_data"][0]["extra_files_path"]
 
     # Create output directory if none exists
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if not os.path.exists(target_directory):
+        os.makedirs(target_directory)
 
     # Check if the selected dataset exists
     if args.name not in OMAMER_DATASETS:
@@ -52,14 +53,14 @@ def main(args):
     dataset = OMAMER_DATASETS[args.name]
     url = OMAMER_DATASETS_URL.format(dataset=dataset)
     base_name = os.path.splitext(dataset)[0]
-    destination_path = os.path.join(output_dir, base_name)
+    destination_path = os.path.join(target_directory, dataset)
     download_file(url, destination_path)
 
     data_manager_entry = {
-        "value": os.path.splitext(os.path.basename(base_name))[0],
-        "name": os.path.splitext(os.path.basename(base_name))[0],
-        "version": "2.0.2",
-        "path": str(Path(output_dir)),
+        "value": dataset,
+        "name": base_name,
+        "version": args.version,
+        "path": dataset,
     }
 
     # Creates a JSON dictionary representing the Data Manager configuration
@@ -75,6 +76,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Download data for OMAmer')
     parser.add_argument('--name', default='Primates', choices=OMAMER_DATASETS.keys(), help='Select dataset to download')
     parser.add_argument('--json', help='Path to JSON file')
+    parser.add_argument("--version", help="Omamer version")
 
     args = parser.parse_args()
 
