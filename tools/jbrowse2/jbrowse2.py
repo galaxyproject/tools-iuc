@@ -1176,7 +1176,7 @@ class JbrowseConnector(object):
         self.trackIdlist.append(tId)
 
     def process_annotations(self, track, parent):
-        _parent_genome = parent.attrib['label']
+        _parent_genome = parent.attrib["label"]
         category = track["category"].replace("__pd__date__pd__", TODAY)
         for i, (
             dataset_path,
