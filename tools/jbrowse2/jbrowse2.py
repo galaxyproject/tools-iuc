@@ -807,7 +807,7 @@ class JbrowseConnector(object):
         # self.subprocess_check_call([
         #     'jbrowse', 'add-track',
         #     '--trackType', 'sparql',
-        #     '--name', trackData['label'],
+        #     '--name', trackData["label"],
         #     '--category', trackData['category'],
         #     '--target', os.path.join(self.outdir, 'data'),
         #     '--trackId', id,
@@ -879,7 +879,7 @@ class JbrowseConnector(object):
             self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"])
 
     def process_annotations(self, track, parent):
-        _parent_genome = parent.attrib['label']
+        _parent_genome = parent.attrib["label"]
         category = track["category"].replace("__pd__date__pd__", TODAY)
         outputTrackConfig = {
             "category": category,
@@ -916,7 +916,6 @@ class JbrowseConnector(object):
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
             # much simpler.
-            # TODO hash colision when adding tracks with same bam file but different display => error on add-track
             hashData = [
                 str(dataset_path),
                 track_human_label,
@@ -925,7 +924,7 @@ class JbrowseConnector(object):
                 self.current_assembly_id,
             ]
             hashData = "|".join(hashData).encode("utf-8")
-            outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_%s" % i
+            outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_{}_{}".format(track["track_num"], i)
             outputTrackConfig["metadata"] = extra_metadata
 
             outputTrackConfig["style"] = track["style"]
@@ -1209,9 +1208,11 @@ if __name__ == "__main__":
         genome = assembly.find('genomes/genome')
 
         # TODO add metadata to tracks
+        track_num = 0
         for track in assembly.findall("tracks/track"):
             track_conf = {}
             track_conf["trackfiles"] = []
+            track_conf["track_num"] = track_num
 
             is_multi_bigwig = False
             try:
@@ -1283,6 +1284,8 @@ if __name__ == "__main__":
 
             if track.attrib["visibility"] == "default_on":
                 default_session_data["tracks_on"].append(track_label)
+
+            track_num += 1
 
     default_session_data["defaultLocation"] = real_root.find(
         "metadata/general/defaultLocation"
