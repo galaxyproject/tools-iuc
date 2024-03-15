@@ -21,7 +21,7 @@ phyloseq_obj <- import_biom(
     BIOMfilename = opt$biom,
     treefilename = opt$tree,
     refseqfilename = opt$sequences,
-    parseFunction=parsefoo
+    parseFunction = parsefoo
 )
 
 print(phyloseq_obj)
