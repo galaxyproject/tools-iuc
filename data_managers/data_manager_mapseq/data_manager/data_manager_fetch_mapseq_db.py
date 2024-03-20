@@ -20,8 +20,8 @@ DB_paths = {
 DB_names = {
     "mgnify_lsu": "MGnify LSU (v5.0.7) - silva_lsu-20200130",
     "mgnify_ssu": "MGnify SSU (v5.0.7) - silva_ssu-20200130",
-    "mgnify_its_unite": "MGnify ITS ITSonedb (v5.0.7) - ITSoneDB-20200214",
-    "mgnify_its_itsonedb": "MGnify ITS UNITE (v5.0.7) - UNITE-20200214",
+    "mgnify_its_unite": "MGnify ITS UNITE (v5.0.7) - UNITE-20200214",
+    "mgnify_its_itsonedb": "MGnify ITS ITSonedb (v5.0.7) - ITSoneDB-20200214",
     "test_lsu": "Trimmed LSU Test DB",
 }
 
