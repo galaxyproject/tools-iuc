@@ -29,7 +29,7 @@ DB_names = {
 def download_untar_store(url, tmp_path, dest_path):
     """
     Download a tar.gz file containing one folder,
-    extract that folder and move the content inside dest_path 
+    extract that folder and move the content inside dest_path
     """
 
     extract_path = os.path.join(tmp_path, "extract")
@@ -51,7 +51,7 @@ def download_untar_store(url, tmp_path, dest_path):
             print(f"Copy data to {dest_path}")
             shutil.copytree(folder_path, dest_path)
             print("Done !")
-    
+
     shutil.rmtree(tmp_path)
 
 
@@ -88,7 +88,7 @@ def main():
     tmp_path = os.path.join(workdir, "tmp")
 
     # create DB
-    if args.test:  
+    if args.test:
         url = DB_paths["test_lsu"]
     else:
         url = DB_paths[args.db_type]
