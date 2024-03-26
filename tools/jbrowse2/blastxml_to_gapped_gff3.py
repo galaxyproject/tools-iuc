@@ -32,7 +32,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=F
 
         recid = record.query
         if " " in recid:
-            recid = recid[0: recid.index(" ")]
+            recid = recid[0 : recid.index(" ")]
 
         rec = SeqRecord(Seq("ACTG"), id=recid)
         for idx_hit, hit in enumerate(record.alignments):
@@ -72,7 +72,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=F
                     qualifiers["blast_" + prop] = getattr(hsp, prop, None)
 
                 desc = hit.title.split(" >")[0]
-                qualifiers["description"] = desc[desc.index(" "):]
+                qualifiers["description"] = desc[desc.index(" ") :]
 
                 # This required a fair bit of sketching out/match to figure out
                 # the first time.
@@ -161,9 +161,9 @@ def __remove_query_gaps(query, match, subject):
     fm = ""
     fs = ""
     for position in re.finditer("-", query):
-        fq += query[prev: position.start()]
-        fm += match[prev: position.start()]
-        fs += subject[prev: position.start()]
+        fq += query[prev : position.start()]
+        fm += match[prev : position.start()]
+        fs += subject[prev : position.start()]
         prev = position.start() + 1
     fq += query[prev:]
     fm += match[prev:]
@@ -290,7 +290,9 @@ if __name__ == "__main__":
         help="Trim blast hits to be only as long as the parent feature",
     )
     parser.add_argument(
-        "--trim_end", action="store_true", help="Cut blast results off at end of gene"
+        "--trim_end",
+        action="store_true",
+        help="Cut blast results off at end of gene",
     )
     parser.add_argument("--include_seq", action="store_true", help="Include sequence")
     args = parser.parse_args()

@@ -1,9 +1,9 @@
-#!/usr/bin/env python
-# change to accumulating all configuration for config.json based on the default from the clone
+ #!/usr/bin/env python
+
 import argparse
 import binascii
 import datetime
-import hashlib
+import json
 import logging
 import os
 import re
@@ -11,15 +11,18 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jbrowse")
+
+JB2VER = "v2.10.3"
+# version pinned for cloning
+
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 GALAXY_INFRASTRUCTURE_URL = None
-JB2REL = "v2.10.0"
-# version pinned for cloning
 
 mapped_chars = {
     ">": "__gt__",
@@ -331,49 +334,49 @@ def metadata_from_node(node):
     for (key, value) in node.findall("dataset")[0].attrib.items():
         metadata["dataset_%s" % key] = value
 
-    for (key, value) in node.findall("history")[0].attrib.items():
-        metadata["history_%s" % key] = value
+    if node.findall("history"):
+        for (key, value) in node.findall("history")[0].attrib.items():
+            metadata["history_%s" % key] = value
 
-    for (key, value) in node.findall("metadata")[0].attrib.items():
-        metadata["metadata_%s" % key] = value
-
-    for (key, value) in node.findall("tool")[0].attrib.items():
-        metadata["tool_%s" % key] = value
-
-    # Additional Mappings applied:
-    metadata[
-        "dataset_edam_format"
-    ] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(
-        metadata["dataset_edam_format"], metadata["dataset_file_ext"]
-    )
-    metadata["history_user_email"] = '<a href="mailto:{0}">{0}</a>'.format(
-        metadata["history_user_email"]
-    )
-    metadata["hist_name"] = metadata["history_display_name"]
-    metadata[
-        "history_display_name"
-    ] = '<a target="_blank" href="{galaxy}/history/view/{encoded_hist_id}">{hist_name}</a>'.format(
-        galaxy=GALAXY_INFRASTRUCTURE_URL,
-        encoded_hist_id=metadata["history_id"],
-        hist_name=metadata["history_display_name"],
-    )
-    metadata[
-        "tool_tool"
-    ] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}</a>'.format(
-        galaxy=GALAXY_INFRASTRUCTURE_URL,
-        encoded_id=metadata["dataset_id"],
-        tool_id=metadata["tool_tool_id"],
-        # tool_version=metadata['tool_tool_version'],
-    )
+    if node.findall("metadata"):
+        for (key, value) in node.findall("metadata")[0].attrib.items():
+            metadata["metadata_%s" % key] = value
+            # Additional Mappings applied:
+            metadata[
+                "dataset_edam_format"
+            ] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(
+                metadata["dataset_edam_format"], metadata["dataset_file_ext"]
+            )
+            metadata["history_user_email"] = '<a href="mailto:{0}">{0}</a>'.format(
+                metadata["history_user_email"]
+            )
+            metadata["hist_name"] = metadata["history_display_name"]
+            metadata[
+                "history_display_name"
+            ] = '<a target="_blank" href="{galaxy}/history/view/{encoded_hist_id}">{hist_name}</a>'.format(
+                galaxy=GALAXY_INFRASTRUCTURE_URL,
+                encoded_hist_id=metadata["history_id"],
+                hist_name=metadata["history_display_name"],
+            )
+    if node.findall("tool"):
+        for (key, value) in node.findall("tool")[0].attrib.items():
+            metadata["tool_%s" % key] = value
+        metadata[
+            "tool_tool"
+        ] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}{tool_version}</a>'.format(
+            galaxy=GALAXY_INFRASTRUCTURE_URL,
+            encoded_id=metadata.get("dataset_id", ""),
+            tool_id=metadata.get("tool_tool_id", ""),
+            tool_version=metadata.get("tool_tool_version", ""),
+        )
     return metadata
 
 
 class JbrowseConnector(object):
-    def __init__(self, outdir, genomes):
-        self.debug = False
-        self.usejson = True
+    def __init__(self, outdir, jbrowse2path, genomes):
         self.giURL = GALAXY_INFRASTRUCTURE_URL
         self.outdir = outdir
+        self.jbrowse2path = jbrowse2path
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_paths = genomes
         self.genome_name = None
@@ -386,16 +389,14 @@ class JbrowseConnector(object):
 
     def subprocess_check_call(self, command, output=None):
         if output:
-            if self.debug:
-                log.debug("cd %s && %s >  %s", self.outdir, " ".join(command), output)
+            log.debug("cd %s && %s >  %s", self.outdir, " ".join(command), output)
             subprocess.check_call(command, cwd=self.outdir, stdout=output)
         else:
             log.debug("cd %s && %s", self.outdir, " ".join(command))
             subprocess.check_call(command, cwd=self.outdir)
 
     def subprocess_popen(self, command):
-        if self.debug:
-            log.debug(command)
+        log.debug(command)
         p = subprocess.Popen(
             command,
             cwd=self.outdir,
@@ -413,8 +414,7 @@ class JbrowseConnector(object):
             raise RuntimeError("Command failed with exit code %s" % (retcode))
 
     def subprocess_check_output(self, command):
-        if self.debug:
-            log.debug(" ".join(command))
+        log.debug(" ".join(command))
         return subprocess.check_output(command, cwd=self.outdir)
 
     def symlink_or_copy(self, src, dest):
@@ -437,55 +437,104 @@ class JbrowseConnector(object):
         if trackDict.get("displays", None):  # use first if multiple like bed
             style_data["type"] = trackDict["displays"][0]["type"]
             style_data["displayId"] = trackDict["displays"][0]["displayId"]
-        return {
+        wstyle = {
             "displays": [
                 style_data,
             ]
         }
+        return wstyle
 
     def process_genomes(self):
         assemblies = []
+        useuri = False
         for i, genome_node in enumerate(self.genome_paths):
+            if genome_node["useuri"].strip().lower() == "yes":
+                useuri = True
             genome_name = genome_node["meta"]["dataset_dname"].strip()
             if len(genome_name.split()) > 1:
                 genome_name = genome_name.split()[0]
                 # spaces and cruft break scripts when substituted
-            fapath = genome_node["path"]
-            assem = self.make_assembly(fapath, genome_name)
-            assemblies.append(assem)
-            self.genome_names.append(genome_name)
-            if self.genome_name is None:
-                self.genome_name = (
-                    genome_name  # first one for all tracks - other than paf
-                )
-            if self.config_json.get("assemblies", None):
-                self.config_json["assemblies"] += assemblies
-            else:
-                self.config_json["assemblies"] = assemblies
+            if genome_name not in self.genome_names:
+                # pafs with shared references
+                fapath = genome_node["path"]
+                if not useuri:
+                    fapath = os.path.realpath(fapath)
+                assem = self.make_assembly(fapath, genome_name, useuri)
+                assemblies.append(assem)
+                self.genome_names.append(genome_name)
+                if self.genome_name is None:
+                    self.genome_name = (
+                        genome_name  # first one for all tracks
+                    )
+                    self.genome_sequence_adapter = assem["sequence"]["adapter"]
+                    self.genome_firstcontig = None
+                    if not useuri:
+                        fl = open(fapath, "r").readline()
+                        fls = fl.strip().split(">")
+                        if len(fls) > 1:
+                            fl = fls[1]
+                            if len(fl.split()) > 1:
+                                self.genome_firstcontig = fl.split()[0].strip()
+                            else:
+                                self.genome_firstcontig = fl
+                    else:
+                        try:
+                            fl = urllib.request.urlopen(fapath + ".fai").readline()
+                        except:
+                            fl = None
+                        if fl:  # is first row of the text fai so the first contig name
+                            self.genome_firstcontig = (
+                                fl.decode("utf8").strip().split()[0]
+                            )
+                        else:
+                            self.genome_firstcontig = None
+        if self.config_json.get("assemblies", None):
+            self.config_json["assemblies"] += assemblies
+        else:
+            self.config_json["assemblies"] = assemblies
 
-    def make_assembly(self, fapath, gname):
-        faname = gname + ".fa.gz"
-        fadest = os.path.join(self.outdir, faname)
-        # fadest = os.path.realpath(os.path.join(self.outdir, faname))
-        cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (
-            fapath,
-            fadest,
-            fadest,
-            fadest,
-        )
-        self.subprocess_popen(cmd)
-        adapter = {
-            "type": "BgzipFastaAdapter",
-            "fastaLocation": {
-                "uri": faname,
-            },
-            "faiLocation": {
-                "uri": faname + ".fai",
-            },
-            "gziLocation": {
-                "uri": faname + ".gzi",
-            },
-        }
+    def make_assembly(self, fapath, gname, useuri):
+        if useuri:
+            faname = fapath
+            adapter = {
+                "type": "BgzipFastaAdapter",
+                "fastaLocation": {
+                    "uri": faname,
+                    "locationType": "UriLocation"
+                },
+                "faiLocation": {
+                    "uri": faname + ".fai",
+                    "locationType": "UriLocation"
+                },
+                "gziLocation": {
+                    "uri": faname + ".gzi",
+                    "locationType": "UriLocation"
+                }
+            }
+        else:
+            faname = gname + ".fa.gz"
+            fadest = os.path.realpath(os.path.join(self.outdir, faname))
+            cmd = "bgzip -i -c %s -I %s.gzi > %s && samtools faidx %s" % (
+                fapath,
+                fadest,
+                fadest,
+                fadest,
+            )
+            self.subprocess_popen(cmd)
+
+            adapter = {
+                "type": "BgzipFastaAdapter",
+                "fastaLocation": {
+                    "uri": faname,
+                },
+                "faiLocation": {
+                    "uri": faname + ".fai",
+                },
+                "gziLocation": {
+                    "uri": faname + ".gzi",
+                }
+            }
+
         trackDict = {
             "name": gname,
             "sequence": {
@@ -493,7 +542,16 @@ class JbrowseConnector(object):
                 "trackId": gname,
                 "adapter": adapter,
             },
-            "rendering": {"type": "DivSequenceRenderer"},
+            "displays": [
+                {
+                    "type": "LinearReferenceSequenceDisplay",
+                    "displayId": "%s-LinearReferenceSequenceDisplay" % gname,
+                },
+                {
+                    "type": "LinearGCContentDisplay",
+                    "displayId": "%s-LinearGCContentDisplay" % gname,
+                },
+            ]
         }
         return trackDict
 
@@ -516,7 +574,7 @@ class JbrowseConnector(object):
 
     def write_config(self):
         with open(self.config_json_file, "w") as fp:
-            json.dump(self.config_json, fp)
+            json.dump(self.config_json, fp, indent=2)
 
     def text_index(self):
         # Index tracks
@@ -550,37 +608,36 @@ class JbrowseConnector(object):
             gziLocation:
             uri: 'https://s3.amazonaws.com/jbrowse.org/genomes/GRCh38/fasta/GRCh38.fa.gz.gzi',
         Cool will not be likely to be a good fit - see discussion at https://github.com/GMOD/jbrowse-components/issues/2438
+
         """
         tId = trackData["label"]
         # can be served - if public.
         # dsId = trackData["metadata"]["dataset_id"]
         # url = "%s/api/datasets/%s/display?to_ext=hic " % (self.giURL, dsId)
-        hname = trackData["label"]
-        dest = os.path.join(self.outdir, hname)
-        cmd = ["cp", data, dest]
-        # these can be very big.
-        self.subprocess_check_call(cmd)
-        floc = {
-            "uri": hname,
-        }
+        hic_path = trackData.get("hic_path", None)
+        useuri = trackData["useuri"].lower() == "yes"
+        if useuri:
+            uri = data
+        else:
+            uri = "%s.hic" % trackData["label"]
+            # slashes in names cause path trouble
+            dest = os.path.join(self.outdir, uri)
+            cmd = ["cp", data, dest]
+            self.subprocess_check_call(cmd)
+        categ = trackData["category"]
         trackDict = {
             "type": "HicTrack",
             "trackId": tId,
-            "name": hname,
+            "name":  trackData["name"],
             "assemblyNames": [self.genome_name],
+            "category": [
+                categ,
+            ],
             "adapter": {
                 "type": "HicAdapter",
-                "hicLocation": floc,
-            },
-            "displays": [
-                {
-                    "type": "LinearHicDisplay",
-                    "displayId": "%s-LinearHicDisplay" % tId,
-                },
-            ],
+                "hicLocation": { "uri": uri }
+            }
         }
-        style_json = self._prepare_track_style(trackDict)
-        trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
@@ -591,20 +648,20 @@ class JbrowseConnector(object):
         e.g. hg38.chr1 in the sequence identifiers.
         need the reference id - eg hg18, for maf2bed.pl as the first parameter
         """
+        tId = trackData["label"]
         mafPlugin = {
             "plugins": [
                 {
                     "name": "MafViewer",
-                    "url": "https://unpkg.com/browse/jbrowse-plugin-mafviewer@1.0.6/dist/jbrowse-plugin-mafviewer.umd.production.min.js",
+                    "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js",
                 }
             ]
         }
-        tId = trackData["label"]
-        fname = "%s.bed" % tId
+        categ = trackData["category"]
+        fname = "%s" % tId
         dest = "%s/%s" % (self.outdir, fname)
-        # self.symlink_or_copy(data, dest)
-        # Process MAF to bed-like. Need build to munge chromosomes
         gname = self.genome_name
+
         cmd = [
             "bash",
             os.path.join(INSTALLED_TO, "convertMAF.sh"),
@@ -614,19 +671,20 @@ class JbrowseConnector(object):
             dest,
         ]
         self.subprocess_check_call(cmd)
-        # Construct samples list
-        # We could get this from galaxy metadata, not sure how easily.
-        ps = subprocess.Popen(["grep", "^s [^ ]*", "-o", data], stdout=subprocess.PIPE)
-        output = subprocess.check_output(("sort", "-u"), stdin=ps.stdout)
-        ps.wait()
-        outp = output.decode("ascii")
-        soutp = outp.split("\n")
-        samp = [x.split("s ")[1] for x in soutp if x.startswith("s ")]
-        samples = [x.split(".")[0] for x in samp]
+        mafs = open(data,'r').readlines()
+        mafss = [x for x in mafs if (x.startswith('s\t') or x.startswith('s '))]
+        samp = [x.split()[1] for x in mafss if len(x.split()) > 0]
+        sampu = list(dict.fromkeys(samp))
+        samples = [x.split('.')[0] for x in sampu]
+        samples.sort()
+        logging.warn("$$$$ cmd=%s, mafss=%s samp=%s samples=%s" % (' '.join(cmd), mafss, samp, samples))
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
             "name": trackData["name"],
+            "category": [
+                categ,
+            ],
             "adapter": {
                 "type": "MafTabixAdapter",
                 "samples": samples,
@@ -643,10 +701,13 @@ class JbrowseConnector(object):
             "displays": [
                 {
                     "type": "LinearBasicDisplay",
-                    "displayId": "%s-LinearBasicDisplay" % tId,
+                    "displayId": "%s-LinearBasicDisplay" % tId
                 },
-                {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
-            ],
+                {
+                    "type": "LinearArcDisplay",
+                    "displayId": "%s-LinearArcDisplay" % tId
+                },
+            ]
         }
         style_json = self._prepare_track_style(trackDict)
         trackDict["style"] = style_json
@@ -671,11 +732,11 @@ class JbrowseConnector(object):
         ]
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
+        logging.warn("### blastxml to gff3 cmd = %s" % ' '.join(cmd))
         return gff3_unrebased.name
 
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
         gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts["min_gap"])
-
         if "parent" in blastOpts and blastOpts["parent"] != "None":
             gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
             cmd = ["python", os.path.join(INSTALLED_TO, "gff3_rebase.py")]
@@ -683,21 +744,24 @@ class JbrowseConnector(object):
                 cmd.append("--protein2dna")
             cmd.extend([os.path.realpath(blastOpts["parent"]), gff3])
             subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
+            logging.warn("### gff3rebase cmd = %s" % ' '.join(cmd))
             gff3_rebased.close()
-
             # Replace original gff3 file
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
-        url = "%s.gff3" % trackData["label"]
+        url = "%s.gff3.gz" % trackData["label"]
         dest = "%s/%s" % (self.outdir, url)
         self._sort_gff(gff3, dest)
-        url = url + ".gz"
         tId = trackData["label"]
+        categ = trackData["category"]
         trackDict = {
             "type": "FeatureTrack",
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
+            "category": [
+                categ,
+            ],
             "adapter": {
                 "type": "Gff3TabixAdapter",
                 "gffGzLocation": {
@@ -714,30 +778,38 @@ class JbrowseConnector(object):
                     "type": "LinearBasicDisplay",
                     "displayId": "%s-LinearBasicDisplay" % tId,
                 },
-                {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
+                {
+                    "type": "LinearArcDisplay",
+                    "displayId": "%s-LinearArcDisplay" % tId,
+                },
             ],
         }
         style_json = self._prepare_track_style(trackDict)
         trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
-
         os.unlink(gff3)
 
     def add_bigwig(self, data, trackData):
-        url = "%s.bw" % trackData["label"]
-        # slashes in names cause path trouble
-        dest = os.path.join(self.outdir, url)
-        cmd = ["cp", data, dest]
-        self.subprocess_check_call(cmd)
+        useuri = trackData["useuri"].lower() == "yes"
+        if useuri:
+            url = data
+        else:
+            url = "%s.bigwig" % trackData["label"]
+            # slashes in names cause path trouble
+            dest = os.path.join(self.outdir, url)
+            cmd = ["cp", data, dest]
+            self.subprocess_check_call(cmd)
         bwloc = {"uri": url}
         tId = trackData["label"]
-        trackset = trackData.get('trackset', {})
-        logging.info('#### wig trackData=%s' % str(trackData))
+        categ = trackData["category"]
         trackDict = {
             "type": "QuantitativeTrack",
             "trackId": tId,
             "name": trackData["name"],
+            "category": [
+                categ,
+            ],
             "assemblyNames": [
                 self.genome_name,
             ],
@@ -752,46 +824,51 @@ class JbrowseConnector(object):
                 }
             ],
         }
-        if len(trackset) > 0:
-            trackDict['config'] = trackset
-            logging.info('### bigwig config = %s' % trackset)
         style_json = self._prepare_track_style(trackDict)
         trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
-    def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
+    def add_bam(self, data, trackData, bam_index=None, **kwargs):
         tId = trackData["label"]
-        fname = "%s.bam" % trackData["label"]
-        dest = "%s/%s" % (self.outdir, fname)
-        url = fname
-        self.subprocess_check_call(["cp", data, dest])
-        bloc = {"uri": url}
-        if bam_index is not None and os.path.exists(os.path.realpath(bam_index)):
-            # bai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
-            self.subprocess_check_call(
-                ["cp", os.path.realpath(bam_index), dest + ".bai"]
-            )
+        useuri = trackData["useuri"].lower() == "yes"
+        bindex = bam_index
+        categ = trackData["category"]
+        if useuri:
+            url = data
         else:
-            # Can happen in exotic condition
-            # e.g. if bam imported as symlink with datatype=unsorted.bam, then datatype changed to bam
-            #      => no index generated by galaxy, but there might be one next to the symlink target
-            #      this trick allows to skip the bam sorting made by galaxy if already done outside
-            if os.path.exists(os.path.realpath(data) + ".bai"):
-                self.symlink_or_copy(os.path.realpath(data) + ".bai", dest + ".bai")
-            else:
-                log.warn("Could not find a bam index (.bai file) for %s", data)
+            fname = "%s.bam" % trackData["label"]
+            dest = "%s/%s" % (self.outdir, fname)
+            url = fname
+            bindex = fname + ".bai"
+            self.subprocess_check_call(["cp", data, dest])
+            if bam_index is not None and os.path.exists(bam_index):
+                if not os.path.exists(bindex):
+                    # bai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
+                    self.subprocess_check_call(["cp", bam_index, bindex])
+                else:
+                    # Can happen in exotic condition
+                    # e.g. if bam imported as symlink with datatype=unsorted.bam, then datatype changed to bam
+                    #      => no index generated by galaxy, but there might be one next to the symlink target
+                    #      this trick allows to skip the bam sorting made by galaxy if already done outside
+                    if os.path.exists(os.path.realpath(data) + ".bai"):
+                        self.symlink_or_copy(os.path.realpath(data) + ".bai", bindex)
+                    else:
+                        log.warn("Could not find a bam index (.bai file) for %s", data)
         trackDict = {
             "type": "AlignmentsTrack",
             "trackId": tId,
             "name": trackData["name"],
+            "category": [
+                categ,
+            ],
             "assemblyNames": [self.genome_name],
             "adapter": {
                 "type": "BamAdapter",
-                "bamLocation": bloc,
+                "bamLocation": {"uri": url},
                 "index": {
                     "location": {
-                        "uri": fname + ".bai",
+                        "uri": bindex,
                     }
                 },
             },
@@ -807,28 +884,84 @@ class JbrowseConnector(object):
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
 
+    def add_cram(self, data, trackData, cram_index=None, **kwargs):
+        tId = trackData["label"]
+        categ = trackData["category"]
+        useuri = trackData["useuri"].lower() == "yes"
+        if useuri:
+            url = data
+        else:
+            fname = "%s.cram" % trackData["label"]
+            dest = "%s/%s" % (self.outdir, fname)
+            url = fname
+            self.subprocess_check_call(["cp", data, dest])
+            if cram_index is not None and os.path.exists(cram_index):
+                if not os.path.exists(dest + ".crai"):
+                    # most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
+                    self.subprocess_check_call(
+                        ["cp", os.path.realpath(cram_index), dest + ".crai"]
+                    )
+            else:
+                cpath = os.path.realpath(dest) + ".crai"
+                cmd = ["samtools", "index", "-c", "-o", cpath, os.path.realpath(dest)]
+                logging.debug("executing cmd %s" % " ".join(cmd))
+                self.subprocess_check_call(cmd)
+        trackDict = {
+            "type": "AlignmentsTrack",
+            "trackId": tId,
+            "name": trackData["name"],
+            "category": [
+                categ,
+            ],
+            "assemblyNames": [self.genome_name],
+            "adapter": {
+                "type": "CramAdapter",
+                "cramLocation": {"uri": url},
+                "craiLocation": {
+                    "uri": url + ".crai",
+                },
+                "sequenceAdapter": self.genome_sequence_adapter,
+            },
+            "displays": [
+                {
+                    "type": "LinearAlignmentsDisplay",
+                    "displayId": "%s-LinearAlignmentsDisplay" % tId,
+                },
+            ],
+        }
+        style_json = self._prepare_track_style(trackDict)
+        trackDict["style"] = style_json
+        self.tracksToAdd.append(trackDict)
+        self.trackIdlist.append(tId)
+
     def add_vcf(self, data, trackData):
         tId = trackData["label"]
-        url = "%s/api/datasets/%s/display" % (
-            self.giURL,
-            trackData["metadata"]["dataset_id"],
-        )
-        url = "%s.vcf.gz" % tId
-        dest = "%s/%s" % (self.outdir, url)
-        cmd = "bgzip -c %s  > %s" % (data, dest)
-        self.subprocess_popen(cmd)
-        cmd = ["tabix", "-f", "-p", "vcf", dest]
-        self.subprocess_check_call(cmd)
+        # url = "%s/api/datasets/%s/display" % (
+        # self.giURL,
+        # trackData["metadata"]["dataset_id"],
+        # )
+        categ = trackData["category"]
+        useuri = trackData["useuri"].lower() == "yes"
+        if useuri:
+            url = data
+        else:
+            url = "%s.vcf.gz" % tId
+            dest = "%s/%s" % (self.outdir, url)
+            cmd = "bgzip -c %s  > %s" % (data, dest)
+            self.subprocess_popen(cmd)
+            cmd = ["tabix", "-f", "-p", "vcf", dest]
+            self.subprocess_check_call(cmd)
         trackDict = {
             "type": "VariantTrack",
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
+            "category": [
+                categ,
+            ],
             "adapter": {
                 "type": "VcfTabixAdapter",
-                "vcfGzLocation": {
-                    "uri": url,
-                },
+                "vcfGzLocation": {"uri": url},
                 "index": {
                     "location": {
                         "uri": url + ".tbi",
@@ -857,33 +990,40 @@ class JbrowseConnector(object):
 
     def _sort_gff(self, data, dest):
         # Only index if not already done
-        if not os.path.exists(dest + ".gz"):
-            cmd = "jbrowse sort-gff %s | bgzip -c > %s.gz" % (
+        if not os.path.exists(dest):
+            cmd = "jbrowse sort-gff '%s' | bgzip -c > '%s'" % (
                 data,
                 dest,
             )  # "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'"
             self.subprocess_popen(cmd)
-            self.subprocess_check_call(["tabix", "-f", "-p", "gff", dest + ".gz"])
+            self.subprocess_check_call(["tabix", "-f", "-p", "gff", dest])
 
     def _sort_bed(self, data, dest):
         # Only index if not already done
         if not os.path.exists(dest):
-            cmd = "sort -k1,1 -k2,2n %s | bgzip -c > %s" % (data, dest)
+            cmd = "sort -k1,1 -k2,2n '%s' | bgzip -c > '%s'" % (data, dest)
             self.subprocess_popen(cmd)
             cmd = ["tabix", "-f", "-p", "bed", dest]
             self.subprocess_check_call(cmd)
 
     def add_gff(self, data, ext, trackData):
-        url = "%s.%s" % (trackData["label"], ext)
-        dest = "%s/%s" % (self.outdir, url)
-        self._sort_gff(data, dest)
-        url = url + ".gz"
+        useuri = trackData["useuri"].lower() == "yes"
+        if useuri:
+            url = trackData["path"]
+        else:
+            url = "%s.%s.gz" % (trackData["label"], ext)
+            dest = "%s/%s" % (self.outdir, url)
+            self._sort_gff(data, dest)
         tId = trackData["label"]
+        categ = trackData["category"]
         trackDict = {
             "type": "FeatureTrack",
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
+            "category": [
+                categ,
+            ],
             "adapter": {
                 "type": "Gff3TabixAdapter",
                 "gffGzLocation": {
@@ -900,7 +1040,10 @@ class JbrowseConnector(object):
                     "type": "LinearBasicDisplay",
                     "displayId": "%s-LinearBasicDisplay" % tId,
                 },
-                {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
+                {
+                    "type": "LinearArcDisplay",
+                    "displayId": "%s-LinearArcDisplay" % tId,
+                },
             ],
         }
         style_json = self._prepare_track_style(trackDict)
@@ -909,17 +1052,24 @@ class JbrowseConnector(object):
         self.trackIdlist.append(tId)
 
     def add_bed(self, data, ext, trackData):
-        url = "%s.%s" % (trackData["label"], ext)
-        dest = "%s/%s.gz" % (self.outdir, url)
-        self._sort_bed(data, dest)
         tId = trackData["label"]
-        url = url + ".gz"
+        categ = trackData["category"]
+        useuri = trackData["useuri"].lower() == "yes"
+        if useuri:
+            url = data
+        else:
+            url = "%s.%s.gz" % (trackData["label"], ext)
+            dest = "%s/%s" % (self.outdir, url)
+            self._sort_bed(data, dest)
         trackDict = {
             "type": "FeatureTrack",
             "trackId": tId,
             "name": trackData["name"],
             "assemblyNames": [self.genome_name],
             "adapter": {
+                "category": [
+                    categ,
+                ],
                 "type": "BedTabixAdapter",
                 "bedGzLocation": {
                     "uri": url,
@@ -932,14 +1082,17 @@ class JbrowseConnector(object):
             },
             "displays": [
                 {
+                    "type": "LinearBasicDisplay",
+                    "displayId": "%s-LinearBasicDisplay" % tId,
+                },
+                {
                     "type": "LinearPileupDisplay",
                     "displayId": "%s-LinearPileupDisplay" % tId,
                 },
                 {
-                    "type": "LinearBasicDisplay",
-                    "displayId": "%s-LinearBasicDisplay" % tId,
+                    "type": "LinearArcDisplay",
+                    "displayId": "%s-LinearArcDisplay" % tId,
                 },
-                {"type": "LinearArcDisplay", "displayId": "%s-LinearArcDisplay" % tId},
             ],
         }
         style_json = self._prepare_track_style(trackDict)
@@ -950,150 +1103,87 @@ class JbrowseConnector(object):
     def add_paf(self, data, trackData, pafOpts, **kwargs):
         tname = trackData["name"]
         tId = trackData["label"]
-        pgname = pafOpts["genome_label"]
-        if len(pgname.split() > 1):
-            pgname = pgname.split()[
-                0
-            ]  # trouble from spacey names in command lines avoidance
-        asstrack, gname = self.make_assembly(pafOpts["genome"], pgname)
-        self.genome_names.append(pgname)
-        if self.config_json.get("assemblies", None):
-            self.config_json["assemblies"].append(asstrack)
-        else:
-            self.config_json["assemblies"] = [
-                asstrack,
-            ]
-
-        style_json = self._prepare_track_style(trackData)
+        categ = trackData["category"]
+        pgnames = [x.strip() for x in pafOpts["genome_label"].split(",") if len(x.strip()) > 0]
+        pgpaths = [x.strip() for x in pafOpts["genome"].split(",") if len(x.strip()) > 0]
+        passnames = [self.genome_name]  # always first
+        logging.debug("### add_paf got pafOpts=%s, pgnames=%s, pgpaths=%s for %s" % (pafOpts, pgnames, pgpaths, tId))
+        for i, gname in enumerate(pgnames):
+            if len(gname.split()) > 1:
+                gname = gname.split()[0]
+            passnames.append(gname)
+            # trouble from spacey names in command lines avoidance
+            if gname not in self.genome_names:
+                # ignore if already there - eg for duplicates among pafs.
+                useuri = pgpaths[i].startswith("http://") or pgpaths[i].startswith(
+                    "https://"
+                )
+                asstrack = self.make_assembly(pgpaths[i], gname, useuri)
+                self.genome_names.append(gname)
+                if self.config_json.get("assemblies", None):
+                    self.config_json["assemblies"].append(asstrack)
+                else:
+                    self.config_json["assemblies"] = [
+                        asstrack,
+                    ]
         url = "%s.paf" % (trackData["label"])
         dest = "%s/%s" % (self.outdir, url)
         self.symlink_or_copy(os.path.realpath(data), dest)
-
-        if self.usejson:
-            trackDict = {
-                "type": "SyntenyTrack",
-                "trackId": tId,
-                "assemblyNames": [self.genome_name, pgname],
-                "name": tname,
-                "adapter": {
-                    "type": "PAFAdapter",
-                    "pafLocation": {"uri": url},
-                    "assemblyNames": [self.genome_name, pgname],
-                },
-                "config": style_json,
-            }
-            self.tracksToAdd.append(trackDict)
-            self.trackIdlist.append(tId)
-        else:
-            self._add_track(
-                trackData["label"],
-                trackData["key"],
-                trackData["category"],
-                dest,
-                assemblies=[self.genome_name, pgname],
-                config=style_json,
-            )
-
-    def add_hicab(self, data, trackData, hicOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".hic")
-        dest = os.path.join(self.outdir, rel_dest)
-
-        self.symlink_or_copy(os.path.realpath(data), dest)
-
-        style_json = self._prepare_track_style(trackData)
-
-        self._add_track(
-            trackData["label"],
-            trackData["key"],
-            trackData["category"],
-            rel_dest,
-            config=style_json,
-        )
-
-    def add_sparql(self, url, query, query_refnames, trackData):
-
-        json_track_data = {
-            "type": "FeatureTrack",
-            "trackId": id,
-            "name": trackData["label"],
+        trackDict = {
+            "type": "SyntenyTrack",
+            "trackId": tId,
+            "assemblyNames": passnames,
+            "category": [
+                categ,
+            ],
+            "name": tname,
             "adapter": {
-                "type": "SPARQLAdapter",
-                "endpoint": {"uri": url, "locationType": "UriLocation"},
-                "queryTemplate": query,
-            },
-            "category": [trackData["category"]],
-            "assemblyNames": [self.genome_name],
+                "type": "PAFAdapter",
+                "pafLocation": {"uri": url},
+                "assemblyNames": passnames,
+            }
         }
-
-        if query_refnames:
-            json_track_data["adapter"]["refNamesQueryTemplate"]: query_refnames
-
-        self.subprocess_check_call(
-            [
-                "jbrowse",
-                "add-track-json",
-                "--target",
-                os.path.join(self.outdir, "data"),
-                json_track_data,
+        style_json = {
+        "displays": [
+            { "type": "LinearBasicDisplay",
+            "displayId": "%s-LinearBasicyDisplay" % trackDict["trackId"]
+            }
             ]
-        )
-
-        # Doesn't work as of 1.6.4, might work in the future
-        # self.subprocess_check_call([
-        #     'jbrowse', 'add-track',
-        #     '--trackType', 'sparql',
-        #     '--name', trackData['label'],
-        #     '--category', trackData['category'],
-        #     '--target', os.path.join(self.outdir, 'data'),
-        #     '--trackId', id,
-        #     '--config', '{"queryTemplate": "%s"}' % query,
-        #     url])
+        }
+        trackDict["style"] = style_json
+        self.tracksToAdd.append(trackDict)
+        self.trackIdlist.append(tId)
 
     def process_annotations(self, track):
         category = track["category"].replace("__pd__date__pd__", TODAY)
         for i, (
             dataset_path,
             dataset_ext,
+            useuri,
             track_human_label,
             extra_metadata,
         ) in enumerate(track["trackfiles"]):
-            # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
-            for key, value in mapped_chars.items():
-                track_human_label = track_human_label.replace(value, key)
+            if not dataset_path.strip().startswith("http"):
+                # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
+                for key, value in mapped_chars.items():
+                    track_human_label = track_human_label.replace(value, key)
+                track_human_label = track_human_label.replace(" ", "_")
             outputTrackConfig = {
                 "category": category,
                 "style": {},
             }
 
             outputTrackConfig["key"] = track_human_label
-            if self.debug:
-                logging.info(
-                    "Processing category = %s, track_human_label = %s",
-                    category,
-                    track_human_label,
-                )
-            # We add extra data to hash for the case of REST + SPARQL.
-            if (
-                "conf" in track
-                and "options" in track["conf"]
-                and "url" in track["conf"]["options"]
-            ):
-                rest_url = track["conf"]["options"]["url"]
-            else:
-                rest_url = ""
-            outputTrackConfig['trackset'] = track.get('trackset', {})
-            # I chose to use track['category'] instead of 'category' here. This
-            # is intentional. This way re-running the tool on a different date
-            # will not generate different hashes and make comparison of outputs
-            # much simpler.
-            hashData = [
-                str(dataset_path),
+            outputTrackConfig["useuri"] = useuri
+            outputTrackConfig["path"] = dataset_path
+            outputTrackConfig["ext"] = dataset_ext
+
+            outputTrackConfig["trackset"] = track.get("trackset", {})
+            outputTrackConfig["label"] = "%s_%i_%s" % (
+                dataset_ext,
+                i,
                 track_human_label,
-                track["category"],
-                rest_url,
-            ]
-            hashData = "|".join(hashData).encode("utf-8")
-            outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_%s" % i
+            )
             outputTrackConfig["metadata"] = extra_metadata
             outputTrackConfig["name"] = track_human_label
 
@@ -1103,9 +1193,27 @@ class JbrowseConnector(object):
                     dataset_ext,
                     outputTrackConfig,
                 )
-            elif dataset_ext in ("hic",):
+            elif dataset_ext in ("hic", "juicebox_hic"):
                 self.add_hic(
                     dataset_path,
+                    outputTrackConfig,
+                )
+            elif dataset_ext in ("cool", "mcool", "scool"):
+                hic_url = "%s_%d.hic" % (track_human_label, i)
+                hic_path = os.path.join(self.outdir, hic_url)
+                self.subprocess_check_call(
+                    [
+                        "hictk",
+                        "convert",
+                        "-f",
+                        "--output-fmt",
+                        "hic",
+                        dataset_path,
+                        hic_path,
+                    ]
+                )
+                self.add_hic(
+                    hic_url,
                     outputTrackConfig,
                 )
             elif dataset_ext in ("bed",):
@@ -1125,101 +1233,115 @@ class JbrowseConnector(object):
                     outputTrackConfig,
                 )
             elif dataset_ext == "bam":
-                real_indexes = track["conf"]["options"]["pileup"]["bam_indices"][
-                    "bam_index"
-                ]
-                if not isinstance(real_indexes, list):
-                    # <bam_indices>
-                    #  <bam_index>/path/to/a.bam.bai</bam_index>
-                    # </bam_indices>
-                    #
-                    # The above will result in the 'bam_index' key containing a
-                    # string. If there are two or more indices, the container
-                    # becomes a list. Fun!
-                    real_indexes = [real_indexes]
-
+                real_indexes = track["conf"]["options"]["bam"]["bam_index"]
                 self.add_bam(
                     dataset_path,
                     outputTrackConfig,
-                    track["conf"]["options"]["pileup"],
-                    bam_index=real_indexes[i],
+                    bam_index=real_indexes,
+                )
+            elif dataset_ext == "cram":
+                real_indexes = track["conf"]["options"]["cram"]["cram_index"]
+                self.add_cram(
+                    dataset_path,
+                    outputTrackConfig,
+                    cram_index=real_indexes,
                 )
             elif dataset_ext == "blastxml":
                 self.add_blastxml(
-                    dataset_path, outputTrackConfig, track["conf"]["options"]["blast"]
+                    dataset_path,
+                    outputTrackConfig,
+                    track["conf"]["options"]["blast"],
                 )
             elif dataset_ext == "vcf":
                 self.add_vcf(dataset_path, outputTrackConfig)
+            elif dataset_ext == "paf":
+                self.add_paf(
+                    dataset_path,
+                    outputTrackConfig,
+                    track["conf"]["options"]["paf"],
+                )
             else:
-                log.warn("Do not know how to handle %s", dataset_ext)
+                logging.warn("Do not know how to handle %s", dataset_ext)
             # Return non-human label for use in other fields
             yield outputTrackConfig["label"]
 
-    def add_default_session(self, data):
+    def add_default_session(self, default_data):
         """
-        Add some default session settings: set some assemblies/tracks on/off
+        default session settings are hard and fragile.
+        .add_default_view() and other configuration code adapted from
+         https://github.com/abretaud/tools-iuc/blob/jbrowse2/tools/jbrowse2/jbrowse2.py
         """
         tracks_data = []
-
         # TODO using the default session for now, but check out session specs in the future https://github.com/GMOD/jbrowse-components/issues/2708
-
-        # We need to know the track type from the config.json generated just before
         track_types = {}
         with open(self.config_json_file, "r") as config_file:
             config_json = json.load(config_file)
-
+        if self.config_json:
+            config_json.update(self.config_json)
         for track_conf in self.tracksToAdd:
-            track_types[track_conf["trackId"]] = track_conf["type"]
-
-        for on_track in data["visibility"]["default_on"]:
-            style_data = {"type": "LinearBasicDisplay", "height": 100}
-            if on_track in data["style"]:
-                if "display" in data["style"][on_track]:
-                    style_data["type"] = data["style"][on_track]["display"]
-                    del data["style"][on_track]["display"]
-                style_data.update(data["style"][on_track])
-            if on_track in data["style_labels"]:
+            tId = track_conf["trackId"]
+            track_types[tId] = track_conf["type"]
+            style_data = default_data["style"].get(tId,  None)
+            if not style_data:
+                logging.warn("### No style data in default data %s for %s" % (default_data, tId))
+                style_data = {"type": "LinearBasicDisplay"}
+            if "displays" in track_conf:
+                disp = track_conf["displays"][0]["type"]
+                style_data["type"] = disp
+            if track_conf.get("style_labels", None):
                 # TODO fix this: it should probably go in a renderer block (SvgFeatureRenderer) but still does not work
                 # TODO move this to per track displays?
-                style_data["labels"] = data["style_labels"][on_track]
-
+                style_data["labels"] = track_conf["style_labels"]
             tracks_data.append(
                 {
-                    "type": track_types[on_track],
-                    "configuration": on_track,
+                    "type": track_types[tId],
+                    "configuration": tId,
                     "displays": [style_data],
                 }
             )
-
         # The view for the assembly we're adding
         view_json = {"type": "LinearGenomeView", "tracks": tracks_data}
-
         refName = None
-        if data.get("defaultLocation", ""):
-            loc_match = re.search(r"^(\w+):(\d+)\.+(\d+)$", data["defaultLocation"])
+        drdict = {
+            "reversed": False,
+            "assemblyName": self.genome_name,
+            "start": 1,
+            "end": 100000,
+            "refName": "x",
+        }
+
+        if default_data.get("defaultLocation", ""):
+            ddl = default_data["defaultLocation"]
+            loc_match = re.search(r"^([^:]+):([\d,]*)\.*([\d,]*)$", ddl)
+            # allow commas like 100,000 but ignore as integer
             if loc_match:
                 refName = loc_match.group(1)
-                start = int(loc_match.group(2))
-                end = int(loc_match.group(3))
-        elif self.genome_name is not None:
-            refName = self.genome_name
-            start = 0
-            end = 100000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
-
-        if refName is not None:
+                drdict["refName"] = refName
+                if loc_match.group(2) > "":
+                    drdict["start"] = int(loc_match.group(2).replace(",", ""))
+                if loc_match.group(3) > "":
+                    drdict["end"] = int(loc_match.group(3).replace(",", ""))
+            else:
+                logging.info(
+                    "@@@ regexp could not match contig:start..end in the supplied location %s - please fix"
+                    % ddl
+                )
+        else:
+            drdict["refName"] = self.genome_firstcontig
+        if drdict.get("refName", None):
             # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
             view_json["displayedRegions"] = [
-                {
-                    "refName": refName,
-                    "start": start,
-                    "end": end,
-                    "reversed": False,
-                    "assemblyName": self.genome_name,
-                }
+                drdict,
             ]
 
-        session_name = data.get("session_name", "New session")
-
+            logging.info("@@@ defaultlocation %s for default session" % drdict)
+        else:
+            logging.info(
+                "@@@ no contig name found for default session - please add one!"
+            )
+        session_name = default_data.get("session_name", "New session")
+        for key, value in mapped_chars.items():
+            session_name = session_name.replace(value, key)
         # Merge with possibly existing defaultSession (if upgrading a jbrowse instance)
         session_json = {}
         if "defaultSession" in config_json:
@@ -1233,9 +1355,10 @@ class JbrowseConnector(object):
         session_json["views"].append(view_json)
 
         config_json["defaultSession"] = session_json
+        self.config_json.update(config_json)
 
         with open(self.config_json_file, "w") as config_file:
-            json.dump(config_json, config_file, indent=2)
+            json.dump(self.config_json, config_file, indent=2)
 
     def add_general_configuration(self, data):
         """
@@ -1243,11 +1366,13 @@ class JbrowseConnector(object):
         """
 
         config_path = self.config_json_file
-        config_json = {}
         if os.path.exists(config_path):
             with open(config_path, "r") as config_file:
                 config_json = json.load(config_file)
-
+        else:
+            config_json = {}
+        if self.config_json:
+            config_json.update(self.config_json)
         config_data = {}
 
         config_data["disableAnalytics"] = data.get("analytics", "false") == "true"
@@ -1264,15 +1389,21 @@ class JbrowseConnector(object):
         if not config_json.get("configuration", None):
             config_json["configuration"] = {}
         config_json["configuration"].update(config_data)
-
+        self.config_json.update(config_json)
         with open(config_path, "w") as config_file:
-            json.dump(config_json, config_file, indent=2)
+            json.dump(self.config_json, config_file, indent=2)
 
-    def clone_jbrowse(self):
-        """Clone a JBrowse directory into a destination directory."""
+    def clone_jbrowse(self, realclone=True):
+        """Clone a JBrowse directory into a destination directory. This also works in Biocontainer testing now
+        Leave as True between version updates on temporary tools - requires manual conda trigger :(
+        """
         dest = self.outdir
-        cmd = ["jbrowse", "create", "-t", JB2REL, "-f", dest]
-        self.subprocess_check_call(cmd)
+        if realclone:
+            self.subprocess_check_call(
+                ["jbrowse", "create", dest, "-f", "--tag", f"{JB2VER}"]
+            )
+        else:
+            shutil.copytree(self.jbrowse2path, dest, dirs_exist_ok=True)
         for fn in [
             "asset-manifest.json",
             "favicon.ico",
@@ -1281,18 +1412,15 @@ class JbrowseConnector(object):
             "version.txt",
             "test_data",
         ]:
-            cmd = ["rm", "-rf", os.path.join(self.outdir, fn)]
+            cmd = ["rm", "-rf", os.path.join(dest, fn)]
             self.subprocess_check_call(cmd)
-        cmd = ["cp", os.path.join(INSTALLED_TO, "webserver.py"), self.outdir]
+        cmd = ["cp", os.path.join(INSTALLED_TO, "jb2_webserver.py"), dest]
         self.subprocess_check_call(cmd)
 
 
 def parse_style_conf(item):
-    if "type" in item.attrib and item.attrib["type"] in ["boolean", "integer"]:
-        if item.attrib["type"] == "boolean":
-            return item.text in ("yes", "true", "True")
-        elif item.attrib["type"] == "integer":
-            return int(item.text)
+    if item.text.lower() in ['false','true','yes','no']:
+            return item.text.lower in ("yes", "true")
     else:
         return item.text
 
@@ -1300,10 +1428,12 @@ def parse_style_conf(item):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument("--xml", help="Track Configuration")
+    parser.add_argument(
+        "--jbrowse2path", help="Path to JBrowse2 directory in biocontainer or Conda"
+    )
     parser.add_argument("--outdir", help="Output directory", default="out")
     parser.add_argument("--version", "-V", action="version", version="%(prog)s 2.0.1")
     args = parser.parse_args()
-
     tree = ET.parse(args.xml)
     root = tree.getroot()
 
@@ -1316,9 +1446,12 @@ if __name__ == "__main__":
         GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
     jc = JbrowseConnector(
         outdir=args.outdir,
+        jbrowse2path=args.jbrowse2path,
         genomes=[
             {
-                "path": os.path.realpath(x.attrib["path"]),
+                "path": x.attrib["path"],
+                "label": x.attrib["label"],
+                "useuri": x.attrib["useuri"],
                 "meta": metadata_from_node(x.find("metadata")),
             }
             for x in root.findall("metadata/genomes/genome")
@@ -1326,7 +1459,6 @@ if __name__ == "__main__":
     )
     jc.process_genomes()
 
-    # .add_default_view() replace from https://github.com/abretaud/tools-iuc/blob/jbrowse2/tools/jbrowse2/jbrowse2.py
     default_session_data = {
         "visibility": {
             "default_on": [],
@@ -1353,32 +1485,38 @@ if __name__ == "__main__":
         trackfiles = track.findall("files/trackFile")
         if trackfiles:
             for x in track.findall("files/trackFile"):
+                track_conf["label"] = x.attrib["label"]
+                trackkey = track_conf["label"]
+                track_conf["useuri"] = x.attrib["useuri"]
                 if is_multi_bigwig:
                     multi_bigwig_paths.append(
-                        (x.attrib["label"], os.path.realpath(x.attrib["path"]))
+                        (
+                            x.attrib["label"],
+                            x.attrib["useuri"],
+                            os.path.realpath(x.attrib["path"]),
+                        )
                     )
                 else:
                     if trackfiles:
                         metadata = metadata_from_node(x.find("metadata"))
                         track_conf["dataset_id"] = metadata["dataset_id"]
-                        track_conf["trackfiles"].append(
-                            (
-                                os.path.realpath(x.attrib["path"]),
+                        if x.attrib["useuri"].lower() == "yes":
+                            tfa = (
+                                x.attrib["path"],
                                 x.attrib["ext"],
+                                x.attrib["useuri"],
                                 x.attrib["label"],
                                 metadata,
                             )
-                        )
-        else:
-            # For tracks without files (rest, sparql)
-            track_conf["trackfiles"].append(
-                (
-                    "",  # N/A, no path for rest or sparql
-                    track.attrib["format"],
-                    track.find("options/label").text,
-                    {},
-                )
-            )
+                        else:
+                            tfa = (
+                                os.path.realpath(x.attrib["path"]),
+                                x.attrib["ext"],
+                                x.attrib["useuri"],
+                                x.attrib["label"],
+                                metadata,
+                            )
+                        track_conf["trackfiles"].append(tfa)
 
         if is_multi_bigwig:
             metadata = metadata_from_node(x.find("metadata"))
@@ -1391,24 +1529,11 @@ if __name__ == "__main__":
                     {},  # No metadata for multiple bigwig
                 )
             )
-        wopts = track.findall("options/wiggle")
-        wstyle = {}
-        if wopts:
-            for x in wopts[0]:
-                wstyle[x.tag] = x.text
-        track_conf['trackset'] = wstyle
         track_conf["category"] = track.attrib["cat"]
         track_conf["format"] = track.attrib["format"]
-        track_conf["style"] = {
-            item.tag: parse_style_conf(item) for item in track.find("options/style")
-        }
-
-        track_conf["style_labels"] = {
-            item.tag: parse_style_conf(item)
-            for item in track.find("options/style_labels")
-        }
-
         track_conf["conf"] = etree_to_dict(track.find("options"))
+        track_conf["category"] = track.attrib["cat"]
+        track_conf["format"] = track.attrib["format"]
         keys = jc.process_annotations(track_conf)
 
         if keys:
@@ -1416,41 +1541,41 @@ if __name__ == "__main__":
                 default_session_data["visibility"][
                     track.attrib.get("visibility", "default_off")
                 ].append(key)
-                default_session_data["style"][key] = track_conf[
-                    "style"
-                ]  # TODO do we need this anymore?
-                default_session_data["style_labels"][key] = track_conf["style_labels"]
+            if track.find("options/style"):
+                default_session_data["style"][key] = {
+                    item.tag: parse_style_conf(item) for item in track.find("options/style")
+                }
+            else:
+                default_session_data["style"][key] = {}
+                logging.warn("@@@@ no options/style found for %s" % (key))
 
-        default_session_data["defaultLocation"] = root.find(
-            "metadata/general/defaultLocation"
-        ).text
-        default_session_data["session_name"] = root.find(
-            "metadata/general/session_name"
-        ).text
-
-        general_data = {
-            "analytics": root.find("metadata/general/analytics").text,
-            "primary_color": root.find("metadata/general/primary_color").text,
-            "secondary_color": root.find("metadata/general/secondary_color").text,
-            "tertiary_color": root.find("metadata/general/tertiary_color").text,
-            "quaternary_color": root.find("metadata/general/quaternary_color").text,
-            "font_size": root.find("metadata/general/font_size").text,
-        }
-        track_conf["category"] = track.attrib["cat"]
-        track_conf["format"] = track.attrib["format"]
-        try:
-            # Only pertains to gff3 + blastxml. TODO?
-            track_conf["style"] = {t.tag: t.text for t in track.find("options/style")}
-        except TypeError:
-            track_conf["style"] = {}
-            pass
-        track_conf["conf"] = etree_to_dict(track.find("options"))
-        jc.add_general_configuration(general_data)
-    x = open(args.xml, "r").read()
-    jc.config_json["tracks"] = jc.tracksToAdd
-    if jc.usejson:
-        jc.write_config()
-    # jc.add_default_view()
+            if track.find("options/style_labels"):
+                default_session_data["style_labels"][key] = {
+                    item.tag: parse_style_conf(item)
+                    for item in track.find("options/style_labels")
+                }
+    default_session_data["defaultLocation"] = root.find(
+        "metadata/general/defaultLocation"
+    ).text
+    default_session_data["session_name"] = root.find(
+        "metadata/general/session_name"
+    ).text
+    logging.debug("default_session=%s" % (default_session_data))
+    jc.zipOut = root.find("metadata/general/zipOut").text == "true"
+    general_data = {
+        "analytics": root.find("metadata/general/analytics").text,
+        "primary_color": root.find("metadata/general/primary_color").text,
+        "secondary_color": root.find("metadata/general/secondary_color").text,
+        "tertiary_color": root.find("metadata/general/tertiary_color").text,
+        "quaternary_color": root.find("metadata/general/quaternary_color").text,
+        "font_size": root.find("metadata/general/font_size").text,
+    }
+    jc.add_general_configuration(general_data)
+    trackconf = jc.config_json.get("tracks", None)
+    if trackconf:
+        jc.config_json["tracks"].update(jc.tracksToAdd)
+    else:
+        jc.config_json["tracks"] = jc.tracksToAdd
+    jc.write_config()
     jc.add_default_session(default_session_data)
-
     # jc.text_index() not sure what broke here.

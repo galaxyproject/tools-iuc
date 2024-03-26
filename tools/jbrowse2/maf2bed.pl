@@ -27,7 +27,7 @@ while (<STDIN>) {
         s/^s //;
         s/ +/:/g;
         my $temp = $_;
-        $buffer = $buffer eq '' ? $temp : "$buffer,$temp";
+        $buffer = $buffer eq '' ? $temp : "$buffer;$temp";
     }
     elsif (/^a/) {
         $score = +(s/^a score=//);
