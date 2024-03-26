@@ -390,6 +390,7 @@ class JbrowseConnector(object):
     def __init__(self, outdir, jbrowse2path, genomes):
         self.giURL = GALAXY_INFRASTRUCTURE_URL
         self.outdir = outdir
+        self.genome_firstcontig = None
         self.jbrowse2path = jbrowse2path
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_paths = genomes
@@ -416,7 +417,7 @@ class JbrowseConnector(object):
             log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
             subprocess.check_call(command, cwd=self.get_cwd(cwd))
 
-    def subprocess_popen(self, command):
+    def subprocess_popen(self, command, cwd=True):
         log.debug(command)
         p = subprocess.Popen(
             command,
@@ -1355,7 +1356,7 @@ class JbrowseConnector(object):
             view_json["displayedRegions"] = [
                 drdict,
             ]
-        }
+
 
             logging.info("@@@ defaultlocation %s for default session" % drdict)
         else:
@@ -1467,8 +1468,8 @@ if __name__ == "__main__":
         # so we'll prepend `http://` and hope for the best. Requests *should*
         # be GET and not POST so it should redirect OK
         GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
+
     jc = JbrowseConnector(
-        jbrowse=args.jbrowse,
         outdir=args.outdir,
         jbrowse2path=args.jbrowse2path,
         genomes=[
@@ -1478,10 +1479,11 @@ if __name__ == "__main__":
                 "useuri": x.attrib["useuri"],
                 "meta": metadata_from_node(x.find("metadata")),
             }
-            for x in root.findall("metadata/genomes/genome")
+            for x in root.findall("assembly/metadata/genomes/genome")
         ],
     )
     jc.process_genomes()
+
 
     default_session_data = {
         "tracks_on": [],
@@ -1489,7 +1491,7 @@ if __name__ == "__main__":
         "style_labels": {},
     }
 
-    for track in root.findall("tracks/track"):
+    for track in root.findall("assembly/tracks/track"):
         track_conf = {}
         track_conf["trackfiles"] = []
 
@@ -1550,7 +1552,7 @@ if __name__ == "__main__":
                         {},  # No metadata for multiple bigwig
                     )
                 )
-            )
+
         track_conf["category"] = track.attrib["cat"]
         track_conf["format"] = track.attrib["format"]
         track_conf["conf"] = etree_to_dict(track.find("options"))
