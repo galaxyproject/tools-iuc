@@ -65,7 +65,10 @@ def feature_lambda(feature_list, test, test_kwargs, subfeatures=True):
 
         if hasattr(feature, "sub_features"):
             for x in feature_lambda(
-                feature.sub_features, test, test_kwargs, subfeatures=subfeatures
+                feature.sub_features,
+                test,
+                test_kwargs,
+                subfeatures=subfeatures,
             ):
                 yield x
 
@@ -114,7 +117,7 @@ def __update_feature_location(feature, parent, protein2dna):
         start *= 3
         end *= 3
 
-    if parent.location.strand >= 0:
+    if parent.location.strand != None and parent.location.strand >= 0:
         ns = parent.location.start + start
         ne = parent.location.start + end
         st = +1
@@ -133,7 +136,8 @@ def __update_feature_location(feature, parent, protein2dna):
         ns %= 3
     if ne < 0:
         ne %= 3
-
+    if ns > ne:
+        ne, ns = ns, ne  # dunno why but sometimes happens
     feature.location = FeatureLocation(ns, ne, strand=st)
 
     if hasattr(feature, "sub_features"):
@@ -197,7 +201,9 @@ if __name__ == "__main__":
         help="Child GFF3 annotations to rebase against parent",
     )
     parser.add_argument(
-        "--interpro", action="store_true", help="Interpro specific modifications"
+        "--interpro",
+        action="store_true",
+        help="Interpro specific modifications",
     )
     parser.add_argument(
         "--protein2dna",
