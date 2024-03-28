@@ -200,11 +200,10 @@ if __name__ == "__main__":
             # "font_size": root.find("metadata/general/font_size").text,
             # }
             # jc.add_general_configuration(general_data)
-            trackconf = jc.config_json.get("tracks", None)
-            if trackconf:
-                jc.config_json["tracks"].update(jc.tracksToAdd)
-            else:
-                jc.config_json["tracks"] = jc.tracksToAdd
+            trackconf = jc.config_json.get("tracks", [])
+            for gnome in jc.genome_names:
+                trackconf += jc.tracksToAdd[gnome]
+            jc.config_json["tracks"] = trackconf
             jc.write_config()
             defLoc = makeDefaultLocation()
             default_session_data.update(

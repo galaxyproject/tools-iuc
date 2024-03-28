@@ -1142,7 +1142,8 @@ class JbrowseConnector(object):
                     self.config_json["assemblies"] = [
                         asstrack,
                     ]
-        url = "%s.paf" % (trackData["label"])
+        lab = trackData["label"]
+        url = "%s.paf" % (lab)
         dest = "%s/%s" % (self.outdir, url)
         self.symlink_or_copy(os.path.realpath(data), dest)
         trackDict = {
@@ -1158,12 +1159,27 @@ class JbrowseConnector(object):
                 "pafLocation": {"uri": url},
                 "assemblyNames": passnames,
             },
+            "displays": [
+                {"type": "DotplotDisplay", "displayId": "%s-DotplotDisplay" % lab},
+                {
+                    "type": "LinearComparativeDisplay",
+                    "displayId": "%s-LinearComparativeDisplay" % lab,
+                },
+                {
+                    "type": "LinearSyntenyDisplay",
+                    "displayId": "%s-LinearSyntenyDisplay" % lab,
+                },
+                {
+                    "type": "LGVSyntenyDisplay",
+                    "displayId": "%s-LGVSyntenyDisplay" % lab,
+                },
+            ],
         }
         style_json = {
             "displays": [
                 {
-                    "type": "LinearBasicDisplay",
-                    "displayId": "%s-LinearBasicyDisplay" % trackDict["trackId"],
+                    "type": "SyntenyDisplay",
+                    "displayId": "%s-SyntenyDisplay" % lab,
                 }
             ]
         }
@@ -1328,17 +1344,16 @@ class JbrowseConnector(object):
                 )
             # The view for the assembly we're adding
             view_json = {"type": "LinearGenomeView", "tracks": tracks_data}
-            refName = None
+            refName = self.assmeta[gnome][0].get("genome_firstcontig", None)
             drdict = {
                 "reversed": False,
                 "assemblyName": gnome,
                 "start": 1,
                 "end": 100000,
-                "refName": "x",
+                "refName": refName
             }
-
-            if default_data.get("defaultLocation", ""):
-                ddl = default_data["defaultLocation"]
+            ddl = default_data.get("defaultLocation", None)
+            if ddl:
                 loc_match = re.search(r"^([^:]+):([\d,]*)\.*([\d,]*)$", ddl)
                 # allow commas like 100,000 but ignore as integer
                 if loc_match:
@@ -1353,8 +1368,6 @@ class JbrowseConnector(object):
                         "@@@ regexp could not match contig:start..end in the supplied location %s - please fix"
                         % ddl
                     )
-            else:
-                drdict["refName"] = gnome
             if drdict.get("refName", None):
                 # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
                 view_json["displayedRegions"] = [
