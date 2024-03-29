@@ -1616,7 +1616,7 @@ if __name__ == "__main__":
     assconf = jc.config_json.get("assemblies", [])
     assconf += jc.assemblies
     jc.config_json["assemblies"] = assconf
-    logging.warn("%%%assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
+    logging.warn("&&&assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
     jc.write_config()
     jc.add_default_session(default_session_data)
     # jc.text_index() not sure what broke here.
