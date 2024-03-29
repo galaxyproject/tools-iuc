@@ -32,7 +32,7 @@ for line in sys.stdin:
     elif line[0] == 'a':
         score = int(line[1].split('=')[1])
         if id > 0:
-            sys.stdout.write('\t'.join([chrom, '%d' % start, '%d' % end, f"{sys.argv[1]}_{id}", '%d' % score, buffer])+ '\n')
+            sys.stdout.write('\t'.join([chrom, '%d' % start, '%d' % end, f"{sys.argv[1]}_{id}", '%d' % score, buffer]) + '\n')
         id += 1
         buffer = ''
     elif line[0] == 's':

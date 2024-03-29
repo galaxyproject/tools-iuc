@@ -457,7 +457,7 @@ class JbrowseConnector(object):
         assmeta = []
         useuri = False
         genome_names = []
-        for i, genome_node in enumerate(genomes):
+        for genome_node in genomes:
             this_genome = {}
             if genome_node["useuri"] == "yes":
                 useuri = True
