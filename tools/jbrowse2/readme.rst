@@ -4,9 +4,6 @@ JBrowse2 in Galaxy
     JBrowse2 is a fast, embeddable genome browser built completely with
     JavaScript and HTML5
 
-Added Mar 26:
-  - Testing history added with tests of the 8 simple formats hic and paf need small tests but work with big ones...
-
 Added Mar 8:
  - URI as data source for tracks
  - Autogenerate from a collection now builtin to advanced options - ignores form
