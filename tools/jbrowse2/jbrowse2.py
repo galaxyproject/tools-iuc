@@ -1136,12 +1136,7 @@ class JbrowseConnector(object):
                 )
                 asstrack = self.make_assembly(pgpaths[i], gname, useuri)
                 self.genome_names.append(gname)
-                if self.config_json.get("assemblies", None):
-                    self.config_json["assemblies"].append(asstrack)
-                else:
-                    self.config_json["assemblies"] = [
-                        asstrack,
-                    ]
+                self.assemblies.append(asstrack)
         lab = trackData["label"]
         url = "%s.paf" % (lab)
         dest = "%s/%s" % (self.outdir, url)
@@ -1613,6 +1608,7 @@ if __name__ == "__main__":
     }
     jc.add_general_configuration(general_data)
     trackconf = jc.config_json.get("tracks", [])
+    logging.warn("genome_names=%s" % jc.genome_names)
     for gnome in jc.genome_names:
         trackconf += jc.tracksToAdd[gnome]
     jc.config_json["tracks"] = trackconf
