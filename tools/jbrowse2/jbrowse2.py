@@ -1609,7 +1609,7 @@ if __name__ == "__main__":
     }
     jc.add_general_configuration(general_data)
     trackconf = jc.config_json.get("tracks", [])
-    logging.warn("%%%%%%%%% genome_names=%s" % jc.genome_names)
+    logging.warn("++++++++++++ genome_names=%s" % jc.genome_names)
     for gnome in jc.genome_names:
         trackconf += jc.tracksToAdd[gnome]
     jc.config_json["tracks"] = trackconf
