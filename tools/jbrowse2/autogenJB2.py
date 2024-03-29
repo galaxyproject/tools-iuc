@@ -204,9 +204,13 @@ if __name__ == "__main__":
             for gnome in jc.genome_names:
                 trackconf += jc.tracksToAdd[gnome]
             logging.warn(
-                "^^%% adding trackconf=%s for gnome %s" % (trackconf, gnome)
+                "++++ adding trackconf=%s for gnome %s" % (trackconf, gnome)
             )
             jc.config_json["tracks"] = trackconf
+            assconf = jc.config_json.get("assemblies", [])
+            assconf += jc.assemblies
+            jc.config_json["assemblies"] = assconf
+            logging.warn("+++assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
             jc.write_config()
             default_session_data.update({"session_name": sessName})
             track_conf.update(default_session_data)

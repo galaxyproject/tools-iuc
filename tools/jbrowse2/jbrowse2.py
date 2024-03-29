@@ -503,10 +503,6 @@ class JbrowseConnector(object):
         self.assemblies += assembly
         self.assmeta[genome_names[0]] = assmeta
         self.tracksToAdd[genome_names[0]] = []
-        if self.config_json.get("assemblies", None):
-            self.config_json["assemblies"] += assembly
-        else:
-            self.config_json["assemblies"] = assembly
         self.genome_names += genome_names
         return this_genome["genome_name"]
 
@@ -1125,6 +1121,7 @@ class JbrowseConnector(object):
             % (pafOpts, pgnames, pgpaths, tId)
         )
         for i, gname in enumerate(pgnames):
+            lab = trackData["label"]
             if len(gname.split()) > 1:
                 gname = gname.split()[0]
             passnames.append(gname)
@@ -1136,11 +1133,14 @@ class JbrowseConnector(object):
                 )
                 asstrack = self.make_assembly(pgpaths[i], gname, useuri)
                 self.genome_names.append(gname)
+                self.tracksToAdd[gname] = []
                 self.assemblies.append(asstrack)
-        lab = trackData["label"]
-        url = "%s.paf" % (lab)
-        dest = "%s/%s" % (self.outdir, url)
-        self.symlink_or_copy(os.path.realpath(data), dest)
+                if not useuri:
+                    url = "%s.paf" % (lab)
+                    dest = "%s/%s" % (self.outdir, url)
+                    self.symlink_or_copy(os.path.realpath(data), dest)
+                else:
+                    url = data
         trackDict = {
             "type": "SyntenyTrack",
             "trackId": tId,
@@ -1155,6 +1155,10 @@ class JbrowseConnector(object):
                 "assemblyNames": passnames,
             },
             "displays": [
+                {
+                    "type": "LGVSyntenyDisplay",
+                    "displayId": "%s-LGVSyntenyDisplay" % lab,
+                },
                 {"type": "DotplotDisplay", "displayId": "%s-DotplotDisplay" % lab},
                 {
                     "type": "LinearComparativeDisplay",
@@ -1164,17 +1168,13 @@ class JbrowseConnector(object):
                     "type": "LinearSyntenyDisplay",
                     "displayId": "%s-LinearSyntenyDisplay" % lab,
                 },
-                {
-                    "type": "LGVSyntenyDisplay",
-                    "displayId": "%s-LGVSyntenyDisplay" % lab,
-                },
             ],
         }
         style_json = {
             "displays": [
                 {
-                    "type": "SyntenyDisplay",
-                    "displayId": "%s-SyntenyDisplay" % lab,
+                    "type": "LGVSyntenyDisplay",
+                    "displayId": "%s-LGVSyntenyDisplay" % lab,
                 }
             ]
         }
@@ -1337,43 +1337,44 @@ class JbrowseConnector(object):
                         "displays": [style_data],
                     }
                 )
-            # The view for the assembly we're adding
-            view_json = {"type": "LinearGenomeView", "tracks": tracks_data}
-            refName = self.assmeta[gnome][0].get("genome_firstcontig", None)
-            drdict = {
-                "reversed": False,
-                "assemblyName": gnome,
-                "start": 1,
-                "end": 100000,
-                "refName": refName
-            }
-            ddl = default_data.get("defaultLocation", None)
-            if ddl:
-                loc_match = re.search(r"^([^:]+):([\d,]*)\.*([\d,]*)$", ddl)
-                # allow commas like 100,000 but ignore as integer
-                if loc_match:
-                    refName = loc_match.group(1)
-                    drdict["refName"] = refName
-                    if loc_match.group(2) > "":
-                        drdict["start"] = int(loc_match.group(2).replace(",", ""))
-                    if loc_match.group(3) > "":
-                        drdict["end"] = int(loc_match.group(3).replace(",", ""))
+            # paf genomes have no tracks associated so nothing for the view
+            if len(tracks_data) > 0:
+                view_json = {"type": "LinearGenomeView", "tracks": tracks_data}
+                refName = self.assmeta[gnome][0].get("genome_firstcontig", None)
+                drdict = {
+                    "reversed": False,
+                    "assemblyName": gnome,
+                    "start": 1,
+                    "end": 100000,
+                    "refName": refName
+                }
+                ddl = default_data.get("defaultLocation", None)
+                if ddl:
+                    loc_match = re.search(r"^([^:]+):([\d,]*)\.*([\d,]*)$", ddl)
+                    # allow commas like 100,000 but ignore as integer
+                    if loc_match:
+                        refName = loc_match.group(1)
+                        drdict["refName"] = refName
+                        if loc_match.group(2) > "":
+                            drdict["start"] = int(loc_match.group(2).replace(",", ""))
+                        if loc_match.group(3) > "":
+                            drdict["end"] = int(loc_match.group(3).replace(",", ""))
+                    else:
+                        logging.info(
+                            "@@@ regexp could not match contig:start..end in the supplied location %s - please fix"
+                            % ddl
+                        )
+                if drdict.get("refName", None):
+                    # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
+                    view_json["displayedRegions"] = [
+                        drdict,
+                    ]
+                    logging.info("@@@ defaultlocation %s for default session" % drdict)
                 else:
                     logging.info(
-                        "@@@ regexp could not match contig:start..end in the supplied location %s - please fix"
-                        % ddl
+                        "@@@ no contig name found for default session - please add one!"
                     )
-            if drdict.get("refName", None):
-                # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
-                view_json["displayedRegions"] = [
-                    drdict,
-                ]
-                logging.info("@@@ defaultlocation %s for default session" % drdict)
-            else:
-                logging.info(
-                    "@@@ no contig name found for default session - please add one!"
-                )
-            session_views.append(view_json)
+                session_views.append(view_json)
         session_name = default_data.get("session_name", "New session")
         for key, value in mapped_chars.items():
             session_name = session_name.replace(value, key)
@@ -1608,10 +1609,14 @@ if __name__ == "__main__":
     }
     jc.add_general_configuration(general_data)
     trackconf = jc.config_json.get("tracks", [])
-    logging.warn("genome_names=%s" % jc.genome_names)
+    logging.warn("%%%%%%%%% genome_names=%s" % jc.genome_names)
     for gnome in jc.genome_names:
         trackconf += jc.tracksToAdd[gnome]
     jc.config_json["tracks"] = trackconf
+    assconf = jc.config_json.get("assemblies", [])
+    assconf += jc.assemblies
+    jc.config_json["assemblies"] = assconf
+    logging.warn("%%%assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
     jc.write_config()
     jc.add_default_session(default_session_data)
     # jc.text_index() not sure what broke here.
