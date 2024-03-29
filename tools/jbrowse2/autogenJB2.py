@@ -76,7 +76,7 @@ if __name__ == "__main__":
                     for i, x in enumerate(genome_paths)
                 ],
             )
-            logging.warn("#!!! paths=%s, genomes=%s" % (genome_paths, genomes))
+            logging.debug("#!!! paths=%s, genomes=%s" % (genome_paths, genomes))
             assref_name = jc.process_genomes(genomes[0])
             default_session_data = {
                 "visibility": {
@@ -203,14 +203,14 @@ if __name__ == "__main__":
             trackconf = jc.config_json.get("tracks", [])
             for gnome in jc.genome_names:
                 trackconf += jc.tracksToAdd[gnome]
-            logging.warn(
+            logging.debug(
                 "++++ adding trackconf=%s for gnome %s" % (trackconf, gnome)
             )
             jc.config_json["tracks"] = trackconf
             assconf = jc.config_json.get("assemblies", [])
             assconf += jc.assemblies
             jc.config_json["assemblies"] = assconf
-            logging.warn("+++assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
+            logging.debug("+++assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
             jc.write_config()
             default_session_data.update({"session_name": sessName})
             track_conf.update(default_session_data)

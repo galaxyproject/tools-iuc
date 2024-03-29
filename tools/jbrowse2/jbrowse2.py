@@ -1584,7 +1584,7 @@ if __name__ == "__main__":
                     }
                 else:
                     default_session_data["style"][key] = {}
-                    logging.warn("@@@@ no options/style found for %s" % (key))
+                    logging.debug("@@@@ no options/style found for %s" % (key))
 
                 if track.find("options/style_labels"):
                     default_session_data["style_labels"][key] = {
@@ -1609,14 +1609,13 @@ if __name__ == "__main__":
     }
     jc.add_general_configuration(general_data)
     trackconf = jc.config_json.get("tracks", [])
-    logging.warn("++++++++++++ genome_names=%s" % jc.genome_names)
     for gnome in jc.genome_names:
         trackconf += jc.tracksToAdd[gnome]
     jc.config_json["tracks"] = trackconf
     assconf = jc.config_json.get("assemblies", [])
     assconf += jc.assemblies
     jc.config_json["assemblies"] = assconf
-    logging.warn("&&&assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
+    logging.debug("&&&assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
     jc.write_config()
     jc.add_default_session(default_session_data)
     # jc.text_index() not sure what broke here.
