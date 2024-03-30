@@ -493,7 +493,7 @@ class JbrowseConnector(object):
                     else:
                         try:
                             fl = urllib.request.urlopen(fapath + ".fai").readline()
-                        except:
+                        except Exception:
                             fl = None
                         if fl:  # is first row of the text fai so the first contig name
                             this_genome["genome_firstcontig"] = (
@@ -618,7 +618,6 @@ class JbrowseConnector(object):
         # can be served - if public.
         # dsId = trackData["metadata"]["dataset_id"]
         # url = "%s/api/datasets/%s/display?to_ext=hic " % (self.giURL, dsId)
-        hic_path = trackData.get("hic_path", None)
         useuri = trackData["useuri"].lower() == "yes"
         if useuri:
             uri = data
@@ -678,7 +677,7 @@ class JbrowseConnector(object):
         sampu = list(dict.fromkeys(samp))
         samples = [x.split(".")[0] for x in sampu]
         samples.sort()
-        logging.warn(
+        logging.debug(
             "$$$$ cmd=%s, mafss=%s samp=%s samples=%s"
             % (" ".join(cmd), mafss, samp, samples)
         )
@@ -733,7 +732,7 @@ class JbrowseConnector(object):
         ]
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
-        logging.warn("### blastxml to gff3 cmd = %s" % " ".join(cmd))
+        logging.debug("### blastxml to gff3 cmd = %s" % " ".join(cmd))
         return gff3_unrebased.name
 
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
@@ -745,7 +744,7 @@ class JbrowseConnector(object):
                 cmd.append("--protein2dna")
             cmd.extend([os.path.realpath(blastOpts["parent"]), gff3])
             subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
-            logging.warn("### gff3rebase cmd = %s" % " ".join(cmd))
+            logging.debug("### gff3rebase cmd = %s" % " ".join(cmd))
             gff3_rebased.close()
             # Replace original gff3 file
             shutil.copy(gff3_rebased.name, gff3)
@@ -1318,7 +1317,7 @@ class JbrowseConnector(object):
                 track_types[tId] = track_conf["type"]
                 style_data = default_data["style"].get(tId, None)
                 if not style_data:
-                    logging.warn(
+                    logging.debug(
                         "### No style data in default data %s for %s"
                         % (default_data, tId)
                     )
@@ -1497,7 +1496,6 @@ if __name__ == "__main__":
             }
             for x in ass.findall("metadata/genomes/genome")
         ]
-        logging.warn("#!!! genomes=%s" % genomes)
         assref_name = jc.process_genomes(genomes)
 
         for track in ass.find("tracks"):
