@@ -5,6 +5,7 @@ import binascii
 import datetime
 import json
 import logging
+import hashlib
 import os
 import re
 import shutil
@@ -621,11 +622,10 @@ class JbrowseConnector(object):
         if useuri:
             uri = data
         else:
-            uri = "%s.hic" % trackData["label"]
+            uri = f"{trackData['label']}.hic"
             # slashes in names cause path trouble
             dest = os.path.join(self.outdir, uri)
-            cmd = ["cp", data, dest]
-            self.subprocess_check_call(cmd)
+            shutil.copyfile(data, dest)
         categ = trackData["category"]
         trackDict = {
             "type": "HicTrack",
@@ -657,8 +657,8 @@ class JbrowseConnector(object):
             ]
         }
         categ = trackData["category"]
-        fname = "%s" % tId
-        dest = "%s/%s" % (self.outdir, fname)
+        fname = f"{tId}"
+        dest = os.path.join(self.outdir, fname)
         gname = trackData["assemblyNames"]
 
         cmd = [
@@ -748,8 +748,8 @@ class JbrowseConnector(object):
             # Replace original gff3 file
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
-        url = "%s.gff3.gz" % trackData["label"]
-        dest = "%s/%s" % (self.outdir, url)
+        url = f"{trackData['label']}.gff3.gz"
+        dest = os.path.join(self.outdir, url)
         self._sort_gff(gff3, dest)
         tId = trackData["label"]
         categ = trackData["category"]
@@ -939,18 +939,14 @@ class JbrowseConnector(object):
 
     def add_vcf(self, data, trackData):
         tId = trackData["label"]
-        # url = "%s/api/datasets/%s/display" % (
-        # self.giURL,
-        # trackData["metadata"]["dataset_id"],
-        # )
         categ = trackData["category"]
         useuri = trackData["useuri"].lower() == "yes"
         if useuri:
             url = data
         else:
-            url = "%s.vcf.gz" % tId
-            dest = "%s/%s" % (self.outdir, url)
-            cmd = "bgzip -c %s  > %s" % (data, dest)
+            url = f"{tId}.vcf.gz"
+            dest = os.path.join(self.outdir, url)
+            cmd = f"bgzip -c {data}  > {dest}"
             self.subprocess_popen(cmd)
             cmd = ["tabix", "-f", "-p", "vcf", dest]
             self.subprocess_check_call(cmd)
@@ -1014,8 +1010,8 @@ class JbrowseConnector(object):
         if useuri:
             url = trackData["path"]
         else:
-            url = "%s.%s.gz" % (trackData["label"], ext)
-            dest = "%s/%s" % (self.outdir, url)
+            url = f"{trackData['label']}.{ext}.gz"
+            dest = os.path.join(self.outdir, url)
             self._sort_gff(data, dest)
         tId = trackData["label"]
         categ = trackData["category"]
@@ -1061,8 +1057,8 @@ class JbrowseConnector(object):
         if useuri:
             url = data
         else:
-            url = "%s.%s.gz" % (trackData["label"], ext)
-            dest = "%s/%s" % (self.outdir, url)
+            url = f"{trackData['label']}.{ext}.gz"
+            dest = os.path.join(self.outdir, url)
             self._sort_bed(data, dest)
         trackDict = {
             "type": "FeatureTrack",
@@ -1106,10 +1102,10 @@ class JbrowseConnector(object):
     def add_paf(self, data, trackData, pafOpts, **kwargs):
         tname = trackData["name"]
         tId = trackData["label"]
-        url = "%s.paf" % tId
+        url = f"{tId}.paf"
         useuri = data.startswith("http://") or data.startswith("https://")
         if not useuri:
-            dest = "%s/%s" % (self.outdir, url)
+            dest = os.path.join(self.outdir, url)
             self.symlink_or_copy(os.path.realpath(data), dest)
         else:
             url = data
@@ -1202,18 +1198,27 @@ class JbrowseConnector(object):
                 "style": {},
             }
 
+            hashData = [
+                str(dataset_path),
+                track_human_label,
+                track["category"],
+            ]
+            hashData = "|".join(hashData).encode("utf-8")
+            hash_string = hashlib.md5(hashData).hexdigest()
+
             outputTrackConfig["assemblyNames"] = track["assemblyNames"]
             outputTrackConfig["key"] = track_human_label
             outputTrackConfig["useuri"] = useuri
             outputTrackConfig["path"] = dataset_path
             outputTrackConfig["ext"] = dataset_ext
-
             outputTrackConfig["trackset"] = track.get("trackset", {})
-            outputTrackConfig["label"] = "%s_%i_%s" % (
+            outputTrackConfig["label"] = "%s_%i_%s_%s" % (
                 dataset_ext,
                 i,
                 track_human_label,
+                hash_string,
             )
+
             outputTrackConfig["metadata"] = extra_metadata
             outputTrackConfig["name"] = track_human_label
 
@@ -1428,8 +1433,13 @@ class JbrowseConnector(object):
             json.dump(self.config_json, config_file, indent=2)
 
     def clone_jbrowse(self, realclone=False):
-        """Clone a JBrowse directory into a destination directory. This also works in Biocontainer testing now
-        Leave as True between version updates on temporary tools - requires manual conda trigger :(
+        """
+            Clone a JBrowse directory into a destination directory.
+
+            `realclone=true` will use the `jbrowse create` command.
+            To allow running on internet-less compute and for reproducibility
+            use frozen code with `realclone=false
+
         """
         dest = self.outdir
         if realclone:
@@ -1438,18 +1448,23 @@ class JbrowseConnector(object):
             )
         else:
             shutil.copytree(self.jbrowse2path, dest, dirs_exist_ok=True)
+        # cleanup files/dirs that are not needed
+        try:
+            shutil.rmtree(os.path.join(dest, 'test_data'))
+        except OSError as e:
+            log.error("Error: %s - %s." % (e.filename, e.strerror))
         for fn in [
             "asset-manifest.json",
             "favicon.ico",
             "robots.txt",
             "umd_plugin.js",
             "version.txt",
-            "test_data",
         ]:
-            cmd = ["rm", "-rf", os.path.join(dest, fn)]
-            self.subprocess_check_call(cmd)
-        cmd = ["cp", os.path.join(INSTALLED_TO, "jb2_webserver.py"), dest]
-        self.subprocess_check_call(cmd)
+            try:
+                os.unlink(os.path.join(dest, fn))
+            except OSError as e:
+                log.error("Error: %s - %s." % (e.filename, e.strerror))
+        shutil.copyfile(os.path.join(INSTALLED_TO, "jb2_webserver.py"), os.path.join(dest, "jb2_webserver.py"))
 
 
 def parse_style_conf(item):
@@ -1463,7 +1478,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument("--xml", help="Track Configuration")
     parser.add_argument(
-        "--jbrowse2path", help="Path to JBrowse2 directory in biocontainer or Conda"
+        "--jbrowse2path", help="Path to JBrowse2 directory in BioContainer or Conda"
     )
     parser.add_argument("--outdir", help="Output directory", default="out")
     parser.add_argument("--version", "-V", action="version", version=JB2VER)
@@ -1502,10 +1517,11 @@ if __name__ == "__main__":
         ]
         assref_name = jc.process_genomes(genomes)
 
-        for track in ass.find("tracks"):
+        for track_num, track in enumerate(ass.find("tracks")):
             track_conf = {}
             track_conf["trackfiles"] = []
             track_conf["assemblyNames"] = assref_name
+            track_conf["track_num"] = track_num
             is_multi_bigwig = False
             try:
                 if track.find("options/wiggle/multibigwig") and (
@@ -1566,8 +1582,6 @@ if __name__ == "__main__":
                         )
                     )
 
-            track_conf["category"] = track.attrib["cat"]
-            track_conf["format"] = track.attrib["format"]
             track_conf["conf"] = etree_to_dict(track.find("options"))
             track_conf["category"] = track.attrib["cat"]
             track_conf["format"] = track.attrib["format"]
@@ -1617,7 +1631,6 @@ if __name__ == "__main__":
     assconf = jc.config_json.get("assemblies", [])
     assconf += jc.assemblies
     jc.config_json["assemblies"] = assconf
-    logging.debug("&&&assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
+    logging.debug("assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
     jc.write_config()
     jc.add_default_session(default_session_data)
-    # jc.text_index() not sure what broke here.
