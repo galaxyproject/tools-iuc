@@ -378,7 +378,6 @@ class JbrowseConnector(object):
         self.assmeta = {}
         self.giURL = GALAXY_INFRASTRUCTURE_URL
         self.outdir = outdir
-        self.genome_firstcontig = None
         self.jbrowse2path = jbrowse2path
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_names = []
@@ -1107,6 +1106,13 @@ class JbrowseConnector(object):
     def add_paf(self, data, trackData, pafOpts, **kwargs):
         tname = trackData["name"]
         tId = trackData["label"]
+        url = "%s.paf" % tId
+        useuri = data.startswith("http://") or data.startswith("https://")
+        if not useuri:
+            dest = "%s/%s" % (self.outdir, url)
+            self.symlink_or_copy(os.path.realpath(data), dest)
+        else:
+            url = data
         categ = trackData["category"]
         pgnames = [
             x.strip() for x in pafOpts["genome_label"].split(",") if len(x.strip()) > 0
@@ -1120,26 +1126,19 @@ class JbrowseConnector(object):
             % (pafOpts, pgnames, pgpaths, tId)
         )
         for i, gname in enumerate(pgnames):
-            lab = trackData["label"]
             if len(gname.split()) > 1:
                 gname = gname.split()[0]
             passnames.append(gname)
             # trouble from spacey names in command lines avoidance
+            useuri = pgpaths[i].startswith("http://") or pgpaths[i].startswith(
+                "https://"
+            )
             if gname not in self.genome_names:
                 # ignore if already there - eg for duplicates among pafs.
-                useuri = pgpaths[i].startswith("http://") or pgpaths[i].startswith(
-                    "https://"
-                )
                 asstrack = self.make_assembly(pgpaths[i], gname, useuri)
                 self.genome_names.append(gname)
                 self.tracksToAdd[gname] = []
                 self.assemblies.append(asstrack)
-                if not useuri:
-                    url = "%s.paf" % (lab)
-                    dest = "%s/%s" % (self.outdir, url)
-                    self.symlink_or_copy(os.path.realpath(data), dest)
-                else:
-                    url = data
         trackDict = {
             "type": "SyntenyTrack",
             "trackId": tId,
@@ -1156,16 +1155,19 @@ class JbrowseConnector(object):
             "displays": [
                 {
                     "type": "LGVSyntenyDisplay",
-                    "displayId": "%s-LGVSyntenyDisplay" % lab,
+                    "displayId": "%s-LGVSyntenyDisplay" % tId,
                 },
-                {"type": "DotplotDisplay", "displayId": "%s-DotplotDisplay" % lab},
+                {
+                    "type": "DotplotDisplay",
+                    "displayId": "%s-DotplotDisplay" % tId,
+                },
                 {
                     "type": "LinearComparativeDisplay",
-                    "displayId": "%s-LinearComparativeDisplay" % lab,
+                    "displayId": "%s-LinearComparativeDisplay" % tId,
                 },
                 {
                     "type": "LinearSyntenyDisplay",
-                    "displayId": "%s-LinearSyntenyDisplay" % lab,
+                    "displayId": "%s-LinearSyntenyDisplay" % tId,
                 },
             ],
         }
@@ -1173,7 +1175,7 @@ class JbrowseConnector(object):
             "displays": [
                 {
                     "type": "LGVSyntenyDisplay",
-                    "displayId": "%s-LGVSyntenyDisplay" % lab,
+                    "displayId": "%s-LGVSyntenyDisplay" % tId,
                 }
             ]
         }
@@ -1343,9 +1345,9 @@ class JbrowseConnector(object):
                 drdict = {
                     "reversed": False,
                     "assemblyName": gnome,
-                    "start": 1,
+                    "start": 0,
                     "end": 100000,
-                    "refName": refName
+                    "refName": refName,
                 }
                 ddl = default_data.get("defaultLocation", None)
                 if ddl:
@@ -1384,9 +1386,11 @@ class JbrowseConnector(object):
         else:
             session_json["views"] += session_views
 
+        pp = json.dumps(session_views, indent=2)
         config_json["defaultSession"] = session_json
         self.config_json.update(config_json)
 
+        logging.debug("defaultSession=%s" % (pp))
         with open(self.config_json_file, "w") as config_file:
             json.dump(self.config_json, config_file, indent=2)
 
@@ -1423,7 +1427,7 @@ class JbrowseConnector(object):
         with open(config_path, "w") as config_file:
             json.dump(self.config_json, config_file, indent=2)
 
-    def clone_jbrowse(self, realclone=True):
+    def clone_jbrowse(self, realclone=False):
         """Clone a JBrowse directory into a destination directory. This also works in Biocontainer testing now
         Leave as True between version updates on temporary tools - requires manual conda trigger :(
         """
