@@ -76,7 +76,6 @@ if __name__ == "__main__":
                     for i, x in enumerate(genome_paths)
                 ],
             )
-            logging.debug("#!!! paths=%s, genomes=%s" % (genome_paths, genomes))
             assref_name = jc.process_genomes(genomes[0])
             default_session_data = {
                 "visibility": {
