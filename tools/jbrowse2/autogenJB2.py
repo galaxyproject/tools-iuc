@@ -105,7 +105,7 @@ if __name__ == "__main__":
                     refdat = [x[2] for x in listtracks if x[2] == refname]
                     if not refdat:
                         jc.logging.warn(
-                            "!! No reference file %s corresponding to paf file %s found. Not building - there must be a corresponding fasta for each paf"
+                            "No reference file %s corresponding to paf file %s found. Not building - there must be a corresponding fasta for each paf"
                             % (refname, trackname)
                         )
                         sys.exit(3)
@@ -217,5 +217,5 @@ if __name__ == "__main__":
             # jc.text_index() not sure what broke here.
     else:
         sys.stderr.write(
-            "!!!! Collection has no suitable trackfiles for autogenJB2 - nothing to process"
+            "Collection has no suitable trackfiles for autogenJB2 - nothing to process"
         )

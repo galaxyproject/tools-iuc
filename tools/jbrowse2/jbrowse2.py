@@ -393,7 +393,6 @@ class JbrowseConnector(object):
             return self.outdir
         else:
             return subprocess.check_output(["pwd"]).decode("utf-8").strip()
-            # return None
 
     def subprocess_check_call(self, command, output=None, cwd=True):
         if output:
@@ -416,10 +415,9 @@ class JbrowseConnector(object):
         output, err = p.communicate()
         retcode = p.returncode
         if retcode != 0:
-            log.error(command)
             log.error(output)
             log.error(err)
-            raise RuntimeError("Command failed with exit code %s" % (retcode))
+            raise RuntimeError(f"Command ( {command} ) failed with exit code {retcode}")
 
     def subprocess_check_output(self, command):
         log.debug(" ".join(command))
