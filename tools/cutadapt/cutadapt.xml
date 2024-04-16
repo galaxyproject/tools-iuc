@@ -9,15 +9,17 @@
     <version_command>cutadapt --version</version_command>
 
     <command detect_errors="exit_code"><![CDATA[
-## Link in the input and output files, so Cutadapt can tell their type
-
 #import re
-#set read1 = "input_f"
-#set read2 = "input_r"
-#set paired = False
+
+## set things up for handling inputs and outputs in single- vs paired-end modes
 #set library_type = str($library.type)
-#if $library_type == 'paired':
+#if $library_type == 'single':
+    #set paired = False
+#else:
     #set paired = True
+#end if
+
+#if $library_type == 'paired':
     #set input_1 = $library.input_1
     #set input_2 = $library.input_2
     ## Avoid the paired read input files sharing the same name, else the program still runs but 
@@ -28,8 +30,7 @@
         #set read1 = read1 + "_1"
         #set read2 = read2 + "_2"
     #end if
-#else if $library_type == 'paired_collection'
-    #set paired = True
+#elif $library_type == 'paired_collection'
     #set input_1 = $library.input_1.forward
     #set input_2 = $library.input_1.reverse
     #set read1 = re.sub('[^\w\-\s]', '_', str($library.input_1.name)) + "_1"
@@ -50,7 +51,6 @@
     #set ext=ext+".bz2"
 #end if
 
-
 #set read1 = $read1 + $ext
 #set out1 = "out1" + $ext
 #set rest_output = "rest_output" + $ext
@@ -58,7 +58,6 @@
 #set too_short_output = "too_short_output" + $ext
 #set too_long_output = "too_long_output" + $ext
 #set untrimmed_output = "untrimmed_output" + $ext
-ln -f -s '${input_1}' '$read1' &&
 
 #if $paired:
     #if $input_2.is_of_type("fastq", "fastq.gz", "fastq.bz2"):
@@ -76,15 +75,19 @@ ln -f -s '${input_1}' '$read1' &&
     #set too_short_paired_output = "too_short_paired_output" + $ext2
     #set too_long_paired_output = "too_long_paired_output" + $ext2
     #set untrimmed_paired_output = "untrimmed_paired_output" + $ext2
-    ln -f -s '${input_2}' '$read2' &&
 #end if
 
-## Run Cutadapt
+## Link in the input and output files, so Cutadapt can tell their type
+ln -f -s '$input_1' '$read1' &&
+#if $paired:
+    ln -f -s '$input_2' '$read2' &&
+#end if
 
 #if 'multiple_output' in $output_selector:
     mkdir split &&
 #end if
 
+## Run Cutadapt
 cutadapt
 
 -j=\${GALAXY_SLOTS:-4}
@@ -93,20 +96,10 @@ cutadapt
     --json stats.json
 #end if
 
-#if str( $library.type ) == "single":
-    @read1_options@
-    #if 'multiple_output' in $output_selector:
-        --output='split/{name}.${input_1.ext}'
-    #else:
-        --output='$out1'
-    #end if
-#else:
-    @read1_options@
+@read1_options@
+#if $paired:
     @read2_options@
-    --output='$out1'
-    --paired-output='$out2'
 #end if
-
 --error-rate=$adapter_options.error_rate
 --times=$adapter_options.times
 --overlap=$adapter_options.overlap
@@ -119,23 +112,21 @@ $adapter_options.revcomp
 $filter_options.discard_trimmed
 $filter_options.discard_untrimmed
 
-#if str($filter_options.minimum_length) and str($library.type) != "single" and str($library.minimum_length2) != '':
+#if $paired and str($library.minimum_length2):
     --minimum-length=$filter_options.minimum_length:$library.minimum_length2
-#else if str($filter_options.minimum_length):
+#elif $filter_options.minimum_length > 0:
     --minimum-length=$filter_options.minimum_length
 #end if
-#if str($filter_options.maximum_length) and str($library.type) != "single" and str($library.maximum_length2) != '':
+#if $paired and str($library.maximum_length2):
     --maximum-length=$filter_options.maximum_length:$library.maximum_length2
-#else if str($filter_options.maximum_length):
+#elif str($filter_options.maximum_length):
     --maximum-length=$filter_options.maximum_length
 #end if
 #if str($filter_options.max_n):
     --max-n=$filter_options.max_n
 #end if
-#if str( $library.type ) != "single":
-    #if $filter_options.pair_filter:
-        --pair-filter=$filter_options.pair_filter
-    #end if
+#if $paired and str($filter_options.pair_filter) != 'any':
+    --pair-filter=$filter_options.pair_filter
 #end if
 #if str($filter_options.max_expected_errors):
     --max-expected-errors=$filter_options.max_expected_errors
@@ -172,8 +163,6 @@ $read_mod_options.poly_a
 #end if
 $read_mod_options.zero_cap
 
-
-'${read1}'
 #if $paired:
     '${read2}'
     #if $library.r2.quality_cutoff2:
@@ -181,12 +170,25 @@ $read_mod_options.zero_cap
     #end if
 #end if
 
+#if not $paired and 'multiple_output' in $output_selector:
+    --output='split/{name}.${input_1.ext}'
+#else:
+    --output='$out1'
+#end if
+#if $paired:
+    --paired-output='$out2'
+#end if
+
+'$read1'
+#if $paired:
+    '$read2'
+#end if
+
 #if 'report' in $output_selector:
     > report.txt
 #end if
     ]]></command>
     <inputs>
-
         <!-- Reads -->
         <conditional name="library">
             <param name="type" type="select" label="Single-end or Paired-end reads?">
@@ -194,25 +196,20 @@ $read_mod_options.zero_cap
                 <option value="paired">Paired-end</option>
                 <option value="paired_collection">Paired-end Collection</option>
             </param>
-
             <when value="single">
                 <param name="input_1" format="@FASTQ_TYPES@" type="data" label="FASTQ/A file" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
                 <expand macro="single_end_options" />
             </when>
-
             <when value="paired">
                 <param name="input_1" format="@FASTQ_TYPES@" type="data" label="FASTQ/A file #1" help="Should be of datatype &quot;fastq.gz&quot;or &quot;fasta&quot;" />
                 <param name="input_2" format="@FASTQ_TYPES@" type="data" label="FASTQ/A file #2" help="Should be of datatype &quot;fastq.gz&quot;or &quot;fasta&quot;" />
                 <expand macro="paired_end_options" />
             </when>
-
             <when value="paired_collection">
                 <param name="input_1" format="@FASTQ_TYPES@" type="data_collection" collection_type="paired" label="Paired Collection" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
                 <expand macro="paired_end_options" />
             </when>
-
         </conditional>
-
         <!-- Adapter Options -->
         <section name="adapter_options" title="Adapter Options">
             <param name="action" type="select" label="What to do if a match is found">
@@ -230,29 +227,26 @@ $read_mod_options.zero_cap
             <param argument="--no-match-adapter-wildcards" type="boolean" checked="true" truevalue="" falsevalue="--no-match-adapter-wildcards" label="Match wilcards in adapters" help="Interpret IUPAC wildcards in adapters."/>
             <param argument="--revcomp" type="boolean" checked="false" truevalue="--revcomp" falsevalue="" label="Look for adapters in the reverse complement" help="Check both the read and its reverse complement for adapter matches. If match is on reverse-complemented version, output that one. Default: check only read." />
         </section>
-
         <!-- Filter Options -->
         <section name="filter_options" title="Filter Options">
             <param argument="--discard-trimmed" type="boolean" checked="false" truevalue="--discard-trimmed" falsevalue="" label="Discard Trimmed Reads" help="Discard reads that contain the adapter instead of trimming them. Use the 'Minimum overlap length' option in order to avoid throwing away too many randomly matching reads!" />
             <param argument="--discard_untrimmed" type="boolean" checked="false" truevalue="--discard-untrimmed" falsevalue="" label="Discard Untrimmed Reads" help="Discard reads that do not contain the adapter." />
-            <param argument="--minimum-length" type="integer" min="0" optional="true" value="" label="Minimum length (R1)" help="Discard trimmed reads that are shorter than LENGTH.  Reads that are too short even before adapter removal are also discarded." />
-            <param argument="--maximum-length" type="integer" min="0" optional="true" value="" label="Maximum length (R1)" help="Discard trimmed reads that are longer than LENGTH.  Reads that are too long even before adapter removal are also discarded." />
+            <param argument="--minimum-length" type="integer" min="0" value="1" label="Minimum length (R1)" help="Discard reads that, after processing, are shorter than LENGTH. Note: You can set this parameter to zero to keep empty reads (with zero-length sequence and quality string) in the output, but some downstream tools may have problems with these. Default: 1" />
+            <param argument="--maximum-length" type="integer" min="0" optional="true" value="" label="Maximum length (R1)" help="Discard trimmed reads that are longer than LENGTH. Reads that are too long even before adapter removal are also discarded." />
             <param argument="--max-n" type="float" min="0" optional="true" label="Max N" help="Discard reads with more than this number of 'N' bases. A number between 0 and 1 is interpreted as a fraction of the read length." />
             <param argument="--pair-filter" type="select" optional="true" label="Pair filter" help="Which of the reads in a paired-end read have to match the filtering criterion in order for the pair to be filtered. Default: any">
                 <option value="any" selected="true">Any: a read pair is discarded (or redirected) if one of the reads (R1 or R2) fulfills the filtering criterion. </option>
                 <option value="both">Both: filtering criteria must apply to both reads in order for a read pair to be discarded. </option>
                 <option value="first">First: will make a decision about the read pair by inspecting whether the filtering criterion applies to the first read, ignoring the second read.</option>
-
             </param>
             <param argument="--max-expected-errors" type="float" min="0" optional="true" value="" label="Max expected errors" help="Discard reads whose expected number of errors (computed from quality values) exceeds this value." />
             <param argument="--max-average-error-rate" type="float" min="0" max="1" optional="true" value="" label="Max average expected errors" help="As --max-expected-errors (see above), but divided by length to account for reads of varying length" />
             <param argument="--discard-cassava" type="boolean" truevalue="--discard-cassava" falsevalue="" checked="false" label="Discard CASAVA filtering" help="Discard reads that did not pass CASAVA filtering (header has :Y:)." />
         </section>
-
         <!-- Read Modification Options -->
         <section name="read_mod_options" title="Read Modification Options">
             <param argument="--cut" type="integer" value="0" optional="true" label="Cut bases from reads before adapter trimming" help="Remove bases from each read (first read only if paired). If positive, remove bases from the beginning. If negative, remove bases from the end. This is applied *before* adapter trimming." />
-            <param argument="--quality-cutoff" type="text" value="0" label="Quality cutoff" help=" Trim low-quality bases from 5' and/or 3' ends of each read before adapter removal. Applied to both reads for paired-end data, unless a separate value for the second read is specified. If one value is given, only the 3' end is trimmed. If two comma-separated cutoffs are given, the 5' end is trimmed with the first cutoff, the 3' end with the second.">
+            <param argument="--quality-cutoff" type="text" value="0" label="Quality cutoff" help="Trim low-quality bases from 5' and/or 3' ends of each read before adapter removal. Applied to both reads for paired-end data, unless a separate value for the second read is specified. If one value is given, only the 3' end is trimmed. If two comma-separated cutoffs are given, the 5' end is trimmed with the first cutoff, the 3' end with the second.">
                 <sanitizer>
                     <valid initial="string.digits"><add value="," /></valid>
                 </sanitizer>
@@ -304,7 +298,6 @@ $read_mod_options.zero_cap
             </param>
             <param argument="--zero-cap" type="boolean" truevalue="--zero-cap" falsevalue="" checked="false" label="Change negative quality values to zero" />
         </section>
-
         <!-- Output Options -->
         <param name="output_selector" type="select" multiple="true" display="checkboxes" label="Outputs selector">
             <option value="report">Report: Cutadapt's per-adapter statistics. You can use this file with MultiQC.</option>
@@ -318,7 +311,6 @@ $read_mod_options.zero_cap
             <option value="json_stats">Statistics in JSON format</option>
         </param>
     </inputs>
-
     <outputs>
         <data name="out1" format="fastqsanger" metadata_source="library|input_1" default_identifier_source="library|input_1" from_work_dir="out1.*" label="${tool.name} on ${on_string}: Read 1 Output">
             <filter>library['type'] != 'paired_collection' and 'multiple_output' not in output_selector</filter>
@@ -388,7 +380,6 @@ $read_mod_options.zero_cap
             <filter>output_selector and 'multiple_output' in output_selector</filter>
         </collection>
     </outputs>
-
     <tests>
         <!-- Ensure fastq works -->
         <test expect_num_outputs="1">
