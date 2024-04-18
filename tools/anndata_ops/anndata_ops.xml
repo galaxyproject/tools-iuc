@@ -1,0 +1,636 @@
+<tool id="anndata_ops" name="AnnData Operations" version="1.9.3+galaxy0" profile="20.09">
+    <description>
+        is a Swiss army knife for AnnData files
+    </description>
+    <macros/>
+    <requirements>
+        <requirement type="package" version="1.9.301">
+            scanpy-scripts
+        </requirement>
+    </requirements>
+    <command detect_errors="exit_code">
+ln -s '${input_obj_file}' input.h5 &amp;&amp;
+
+#if $copy_r.default:
+ln -s '${copy_r.r_source}' r_source.h5 &amp;&amp;
+#end if
+
+#if $copy_x.default:
+#for $i, $xs in enumerate($copy_x.xlayers):
+  ln -s '${xs.x_source}' x_source_${i}.h5 &amp;&amp;
+#end for
+#end if
+
+#if $copy_l.default:
+#for $i, $ls in enumerate($copy_l.layer_sources):
+  ln -s '${ls}' layer_source_${i}.h5 &amp;&amp;
+#end for
+#end if
+
+#if $copy_o.default:
+#for $i, $os in enumerate($copy_o.obs_sources):
+  ln -s '${os}' obs_source_${i}.h5 &amp;&amp;
+#end for
+#end if
+
+#if $copy_e.default:
+#for $i, $es in enumerate($copy_e.embedding_sources):
+  ln -s '${es}' embedding_source_${i}.h5 &amp;&amp;
+#end for
+#end if
+
+#if $copy_u.default:
+#for $i, $us in enumerate($copy_u.uns_sources):
+  ln -s '${us}' uns_source_${i}.h5 &amp;&amp;
+#end for
+#end if
+
+#if $add_cell_metadata.default:
+  ln -s ${add_cell_metadata.file} cell_metadata.tsv &amp;&amp;
+#end if
+python $operations
+    </command>
+    <configfiles>
+        <configfile name="operations">
+import gc
+from os import makedirs
+import scanpy as sc
+import anndata
+from numpy import all
+import logging
+
+def make_column_values_unique(df, field, new_field=None, suffix = '-duplicate-'):
+  if new_field is None:
+    new_field = f"{field}_u"
+  appendents = (suffix + df.groupby(field).cumcount().astype(str).replace('0','')).replace(suffix, '')
+  df[new_field] = df[field].astype(str) + appendents.astype(str)
+  return df
+
+adata = sc.read('input.h5')
+	    
+#if $add_cell_metadata.default:
+import pandas as pd
+
+def add_cell_metadata(ad, metadata_file="cell_metadata.tsv", drop_duplicates=True):
+  metadata_df = pd.read_csv(metadata_file, sep="\t", index_col=0)
+  # we avoid renames in the original object or outright drop the column in the metadata
+  for col in ad.obs.columns:
+      if col in metadata_df.columns:
+          print(f"Renaming {col} to {col}_x")
+          if drop_duplicates:
+              metadata_df = metadata_df.drop(col, axis=1)
+          else:
+              metadata_df.rename(columns={col: col + "_x"}, inplace=True)
+  # merge metadata into ad.obs column by column, changing columns to category dtype if they become object dtype on merge
+  merged_obs = ad.obs.merge(
+      metadata_df, left_index=True, right_index=True, how="left"
+  )
+  for o_col in metadata_df.columns:
+      col = o_col
+      # lets consider cases where columns where renamed during merge
+      if o_col + "_x" in merged_obs.columns:
+          col = o_col + "_x"
+      if o_col + "_y" in merged_obs.columns:
+          col = o_col + "_y"
+      if col in merged_obs.columns:
+          if merged_obs[col].dtype == object:
+              prev_dtype = metadata_df[o_col].dtype
+              if prev_dtype == str or prev_dtype == object:
+                  prev_dtype = "category"
+              print(f"Changing {col} from {merged_obs[col].dtype} to {prev_dtype}")
+              merged_obs[col] = merged_obs[col].astype(prev_dtype)
+  return merged_obs
+
+adata.obs = add_cell_metadata(adata)
+#end if
+
+#if $copy_adata_to_raw:
+adata.raw = adata
+#end if
+
+#if $swap_layer_to_x.default:
+#if $swap_layer_to_x.new_name_x:
+adata.layers['${swap_layer_to_x.new_name_x}'] = adata.X
+#end if
+adata.X = adata.layers['${swap_layer_to_x.layer}']
+del adata.layers['${swap_layer_to_x.layer}']
+#end if
+
+gene_name = '${gene_symbols_field}'
+qc_vars = list()
+
+#for $i, $s in enumerate($modifications)
+#if $s.make_unique:
+adata.obs = make_column_values_unique(adata.obs, field='${s.from_obs}', new_field='${s.to_obs}', suffix = "_d")
+#else
+adata.obs['${s.to_obs}'] = adata.obs['${s.from_obs}']
+#end if
+#if not $s.keep_original:
+del adata.obs['${s.from_obs}']
+#end if
+#end for
+
+#for $i, $s in enumerate($var_modifications)
+#if $s.make_unique:
+adata.var = make_column_values_unique(adata.var, field='${s.from_var}', new_field='${s.to_var}', suffix = "_d")
+#else
+adata.var['${s.to_var}'] = adata.var['${s.from_var}']
+#end if
+#if not $s.keep_original:
+del adata.var['${s.from_var}']
+#end if
+#end for
+
+gene_names = getattr(adata.var, gene_name)
+
+#for $i, $flag in enumerate($gene_flags)
+k_cat = gene_names.str.startswith('${flag.startswith}')
+if k_cat.sum() &gt; 0:
+    adata.var['${flag.flag}'] = k_cat
+    qc_vars.append('${flag.flag}')
+else:
+    logging.warning('No genes starting with {} found, skip calculating expression of {} genes'.format('${flag.startswith}', '${flag.flag}'))
+#end for
+
+#if $field_unique:
+field_unique = '${field_unique}'
+made_unique = 0
+if field_unique in adata.var_keys(): 	    
+  adata.var = make_column_values_unique(adata.var, field_unique, suffix = "_d")
+  made_unique += 1
+if field_unique in adata.obs_keys():
+  adata.obs = make_column_values_unique(adata.obs, field_unique, suffix = "_d")
+  made_unique += 1
+	 
+if made_unique == 0:
+  logging.error("Specified field to be made unique is not in var or obs.")
+  sys.exit(1)  
+#end if	
+	    
+#if $copy_r.default and $copy_r.r_source:
+ad_s = sc.read('r_source.h5')
+if not all(adata.obs.index.isin(ad_s.obs.index)):
+  logging.error("Specified object for .raw must contain all .obs from main object.")
+  sys.exit(1)
+else:
+  adata.raw = ad_s[adata.obs.index]
+del ad_s
+gc.collect()
+#end if
+
+#if $copy_x.default and len($copy_x.xlayers) &gt; 0:
+#for $i, $x_s in enumerate($copy_x.xlayers):
+ad_s = sc.read('x_source_${i}.h5')
+if adata.n_obs == ad_s.n_obs and all(adata.obs_names == ad_s.obs_names):
+  #set xs=$copy_x.xlayers[$i]
+  if "${xs.dest}" == '':
+    logging.error("%sth destination layer for %sth X source not specified" % ("${i}", "${i}"))
+    sys.exit(1)
+  adata.layers["${xs.dest}"] = ad_s.X
+else:
+  logging.error("X source ${i} AnnData file is not compatible to be merged to main AnnData file, different cell names.")
+  sys.exit(1)
+del ad_s
+gc.collect()
+#end for
+#end if
+
+#if $copy_l.default and len($copy_l.layers) &gt; 0:
+#for $i, $layer_s in enumerate($copy_l.layer_sources):
+ad_s = sc.read('layer_source_${i}.h5')
+if adata.n_obs == ad_s.n_obs and all(adata.obs_names == ad_s.obs_names):
+  #for $j, $l_key in enumerate($copy_l.layers):
+  layers_to_copy = (k for k in ad_s.layers.keys() if "${l_key.contains}" in k)
+  for l_to_copy in layers_to_copy:
+    suffix=''
+    if l_to_copy in adata.layers:
+        suffix = "_${i}"
+    adata.layers[l_to_copy+suffix] = ad_s.layers[l_to_copy]
+  #end for
+else:
+  logging.error("Layer source ${i} AnnData file is not compatible to be merged to main AnnData file, different cell names.")
+  sys.exit(1)
+del ad_s
+gc.collect()
+#end for
+#end if
+
+#if $copy_o.default and len($copy_o.obs_keys) &gt; 0:
+#for $i, $obs_s in enumerate($copy_o.obs_sources):
+ad_s = sc.read('obs_source_${i}.h5')
+if adata.n_obs == ad_s.n_obs and all(adata.obs_names == ad_s.obs_names):
+  #for $j, $o_key in enumerate($copy_o.obs_keys):
+  keys_to_copy = (k for k in ad_s.obs.keys() if "${o_key.contains}" in k)
+  for k_to_copy in keys_to_copy:
+    suffix=''
+    if k_to_copy in adata.obs:
+        suffix = "_${i}"
+
+    adata.obs[[k_to_copy+suffix]] = ad_s.obs[[k_to_copy]]
+    if k_to_copy in ad_s.uns.keys():
+      adata.uns[k_to_copy+suffix] = ad_s.uns[k_to_copy]
+  #end for
+else:
+  logging.error("Observation source ${i} AnnData file is not compatible to be merged to main AnnData file, different cell names.")
+  sys.exit(1)
+del ad_s
+gc.collect()
+#end for
+#end if
+
+
+#if $copy_e.default and len($copy_e.embedding_keys) &gt; 0:
+#for $i, $obs_s in enumerate($copy_e.embedding_sources):
+ad_s = sc.read('embedding_source_${i}.h5')
+if adata.n_obs == ad_s.n_obs and all(adata.obs_names == ad_s.obs_names):
+  #for $j, $e_key in enumerate($copy_e.embedding_keys):
+  keys_to_copy = (k for k in ad_s.obsm.keys() if "${e_key.contains}" in k)
+  for k_to_copy in keys_to_copy:
+    suffix = ''
+    if k_to_copy in adata.obsm:
+        suffix = "_${i}"
+    adata.obsm[k_to_copy+suffix] = ad_s.obsm[k_to_copy]
+  #end for
+else:
+  logging.error("Embedding source ${i} AnnData file is not compatible to be merged to main AnnData file, different cell names.")
+  sys.exit(1)
+del ad_s
+gc.collect()
+#end for
+#end if
+
+#if $copy_u.default and len($copy_u.uns_keys) &gt; 0:
+#for $i, $uns_s in enumerate($copy_u.uns_sources):
+ad_s = sc.read('uns_source_${i}.h5')
+if adata.n_obs == ad_s.n_obs and all(adata.obs_names == ad_s.obs_names):
+  #for $j, $u_key in enumerate($copy_u.uns_keys):
+  keys_to_copy = (k for k in ad_s.uns.keys() if "${u_key.contains}" in k)
+  for k_to_copy in keys_to_copy:
+    suffix=''
+    if k_to_copy in adata.uns:
+        suffix="_${i}"
+    adata.uns[k_to_copy+suffix] = ad_s.uns[k_to_copy]
+  #end for
+else:
+  logging.error("Uns source ${i} AnnData file is not compatible to be merged to main AnnData file, different cell names.")
+  sys.exit(1)
+del ad_s
+gc.collect()
+#end for
+#end if
+
+#if $sanitize_varm:
+if hasattr(adata, 'raw') and  hasattr(adata.raw, 'X') and hasattr(adata.raw, 'var'):
+  new_ad = anndata.AnnData(X=adata.raw.X, obs=adata.obs, var=adata.raw.var)
+  adata.raw = new_ad
+#end if
+
+if len(qc_vars) &gt; 0:
+    pct_top = [${top_genes}]
+    sc.pp.calculate_qc_metrics(adata, qc_vars=qc_vars, percent_top=pct_top, inplace=True)
+
+if 'n_genes' not in adata.obs.columns:
+    sc.pp.filter_cells(adata, min_genes=0)
+if 'n_counts' not in adata.obs.columns:
+    sc.pp.filter_cells(adata, min_counts=0)
+if 'n_cells' not in adata.var.columns:
+    sc.pp.filter_genes(adata, min_cells=0)
+if 'n_counts' not in adata.var.columns:
+    sc.pp.filter_genes(adata, min_counts=0)
+
+#if not $split_on_obs.default or $split_on_obs.output_main:
+adata.write('output.h5', compression='gzip')
+#end if
+
+#if $split_on_obs.default:
+s = 0
+res_dir = "output_split"
+makedirs(res_dir, exist_ok=True)
+for field_value in adata.obs["${split_on_obs.key}"].unique():
+    ad_s = adata[adata.obs.${split_on_obs.key} == field_value]
+    ad_s.write(f"{res_dir}/${split_on_obs.key}_{s}.h5", compression='gzip')
+    if s &gt; 0:
+        gc.collect()
+    s += 1
+#end if
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="input_obj_file" argument="input-object-file" type="data" format="h5,h5ad" label="Input object in hdf5 AnnData format"/>
+        <param name="output_format" argument="--output-format" type="select" label="Format of output object" help="Legacy 'h5' datatypes are useful for interacting with older tools. Choosing 'No packaged matrix output' is useful for cases where auxiliary files are generated (like in marker genes). Do not use when there are no other output files, as the tool will generate no output in Galaxy then.">
+            <option value="anndata_h5ad" selected="true">
+                AnnData format
+            </option>
+            <option value="anndata">
+                AnnData format (h5 for older versions)
+            </option>
+            <option value="no_matrix_output">
+                No packaged matrix output (useful for cases where auxiliary files are generated)
+            </option>
+        </param>
+        <conditional name="swap_layer_to_x">
+            <param name="default" type="boolean" checked="false" label="Swap layer to X"/>
+            <when value="true">
+                <param name="layer" type="text" value="" label="Name of layer to swap to X" help="This layer name needs to exist within ad.layers or this will fail."/>
+                <param name="new_name_x" type="text" value="old_X" label="Name of the new slot for X within layers" help="Leave empty and the old X will be lost."/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <conditional name="add_cell_metadata">
+            <param name="default" type="boolean" checked="false" label="Merge additional cell metadata"/>
+            <when value="true">
+                <param name="file" type="data" label="Cell metadata with headers" help="A tabular file with headers, where the first column contains cell barcodes. Will be merged via a left join, so not all cells in the obs need to be in the metadata. Currently duplicated column headers will be ignored and the originals in the AnnData will be kept." format="tsv,tabular"/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <param name="copy_adata_to_raw" type="boolean" label="Copy AnnData to .raw" help="If activated, it will do 'adata.raw = adata'" checked="false"/>
+        <repeat name="modifications" title="Change field names in AnnData observations" min="0">
+            <param name="from_obs" type="text" label="Original name" help="Name in observations that you want to change">
+                <sanitizer>
+                    <valid initial="string.printable"/>
+                </sanitizer>
+            </param>
+            <param name="to_obs" type="text" label="New name" help="New name in observations that you want to change to"/>
+            <param name="keep_original" type="boolean" label="Keep original" help="If activated, it will also keep the original column" checked="false"/>
+            <param name="make_unique" type="boolean" label="Make values in the field unique" help="If activated, it will make the values in the column unique by appending '_dnum' on each repeated value." checked="false"/>
+        </repeat>
+        <repeat name="var_modifications" title="Change field names in AnnData var" min="0">
+            <param name="from_var" type="text" label="Original name" help="Name in var that you want to change">
+                <sanitizer>
+                    <valid initial="string.printable"/>
+                </sanitizer>
+            </param>
+            <param name="to_var" type="text" label="New name" help="New name in var that you want to change"/>
+            <param name="keep_original" type="boolean" label="Keep original" help="If activated, it will also keep the original column" checked="false"/>
+            <param name="make_unique" type="boolean" label="Make values in the field unique" help="If activated, it will make the values in the column unique by appending '_dnum' on each repeated value." checked="false"/>
+        </repeat>
+        <param name="gene_symbols_field" value="index" type="text" label="Gene symbols field in AnnData" help="Field inside var.params where the gene symbols are, normally 'index' or 'gene_symbols'"/>
+        <repeat name="gene_flags" title="Flag genes that start with these names">
+            <param name="startswith" type="text" label="Starts with" help="Text that you expect the genes to be flagged to start with, such as 'MT-' for mito genes"/>
+            <param name="flag" type="text" label="Var name" help="Name of the column in var.names where this boolean flag is stored, for example 'mito' for mitochondrial genes."/>
+        </repeat>
+        <param name="top_genes" label="Number of top genes" value="50" help="to calculate percentage of the flagged genes in that number of top genes. Used by sc.pp.calculate_qc_metrics (integer)." type="integer"/>
+        <param name="field_unique" type="text" optional="true" label="Field in var or obs to make unique" help="Field inside var or obs to be made unique by appending a suffix (useful for gene symbols in var). A new field will be added with the '_u' suffix. It happens after all the above operations."/>
+        <conditional name="copy_r">
+            <param name="default" type="boolean" checked="false" label="Copy adata.X to adata.raw"/>
+            <when value="true">
+                <param name="r_source" type="data" label="AnnData object .X with to copy to .raw" help="Copies adata (subset to matching obs) from this AnnData object into the main input as .raw. Make sure to use an AnnData object containing all .obs in the main input." format="h5,h5ad"/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <conditional name="copy_x">
+            <param name="default" type="boolean" checked="false" label="Copy .X to layers"/>
+            <when value="true">
+                <repeat name="xlayers" title="Source objects for .X and paired destination layers in the main AnnData object" help="make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." min="1">
+                    <param name="x_source" type="data" label="AnnData objects with .X to copy" help="Extracts .X from these AnnData objects and merges them into the main input as layers. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." format="h5,h5ad"/>
+                    <param name="dest" type="text" label="Destination layer"/>
+                </repeat>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <conditional name="copy_l">
+            <param name="default" type="boolean" checked="false" label="Copy layers"/>
+            <when value="true">
+                <repeat name="layers" title="Layers from which matrices will be copied" help="will copy all layers in the given AnnData object to the main AnnData object. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." min="1">
+                    <param name="contains" type="text" label="Key contains" help="Keys to be copied need to contain the text set here."/>
+                </repeat>
+                <param name="layer_sources" type="data" label="AnnData objects with layers to copy" help="Extracts layers from these AnnData objects and merges them into the main input. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." format="h5,h5ad" multiple="true"/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <conditional name="copy_o">
+            <param name="default" type="boolean" checked="false" label="Copy observations (such as clusters)"/>
+            <when value="true">
+                <repeat name="obs_keys" title="Keys from obs to copy" help="will copy all obs keys in the given AnnData object to the main AnnData object. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data. You can use this to copy clusters. Uns elements with the same name will be also transferred." min="1">
+                    <param name="contains" type="text" label="Key contains" help="Keys to be copied need to contain the text set here."/>
+                </repeat>
+                <param name="obs_sources" type="data" label="AnnData objects with obs to copy" help="Extracts obs (such as clusters) from these AnnData objects and merges them into the main input. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." format="h5,h5ad" multiple="true"/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <conditional name="copy_e">
+            <param name="default" type="boolean" checked="false" label="Copy embeddings (such as UMAP, tSNE)"/>
+            <when value="true">
+                <repeat name="embedding_keys" title="Keys from embeddings to copy" help="will copy all embedding keys in the given AnnData object to the main AnnData object. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data. You can use this to copy tSNE, UMAP, etc." min="1">
+                    <param name="contains" type="text" label="Key contains" help="Keys to be copied need to contain the text set here."/>
+                </repeat>
+                <param name="embedding_sources" type="data" label="AnnData objects with embeddings to copy" help="Extracts embeddings (tSNE, UMAP) from these AnnData objects and merges them into the main input. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." format="h5,h5ad" multiple="true"/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <conditional name="copy_u">
+            <param name="default" type="boolean" checked="false" label="Copy uns"/>
+            <when value="true">
+                <repeat name="uns_keys" title="Keys from uns to copy" help="will copy all uns keys in the given AnnData object to the main AnnData object. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data. You can use this to copy rank_genes_groups for instance." min="1">
+                    <param name="contains" type="text" label="Key contains" help="Keys to be copied need to contain the text set here."/>
+                </repeat>
+                <param name="uns_sources" type="data" label="AnnData objects with uns to copy" help="Extracts uns (such as ranked_genes_groups) from these AnnData objects and merges them into the main input. Make sure to use AnnData objects that are compatible in terms of genes, cells and expression data." format="h5,h5ad" multiple="true"/>
+            </when>
+        </conditional>
+        <param name="sanitize_varm" type="boolean" checked="false" label="Sanitise any null raw.varm objects if any" help="This might be relevant for interfacing with newer versions of AnnData, that might complain if .raw includes a varm null object."/>
+        <conditional name="split_on_obs">
+            <param name="default" type="boolean" checked="false" label="Split on obs" help="Split the AnnData object into multiple AnnData objects based on the values of a given obs key. This is useful for example to split a dataset based on a cluster annotation."/>
+            <when value="true">
+                <param name="key" type="text" label="Obs key to split on" help="The obs key to split on. For example, if you want to split on cluster annotation, you can use the key 'louvain'."/>
+                <param name="output_main" type="boolean" checked="true" label="Output main AnnData object" help="If checked, the main AnnData object will be outputted as well."/>
+            </when>
+            <when value="false"/>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output_h5ad" format="h5ad" from_work_dir="output.h5" label="${tool.name} on ${on_string}: @DESCRIPTION@ AnnData">
+            <filter>
+                output_format == 'anndata_h5ad' and (('output_main' in split_on_obs and split_on_obs['output_main']) or (not split_on_obs['default']))
+            </filter>
+        </data>
+        <data name="output_h5" format="h5" from_work_dir="output.h5" label="${tool.name} on ${on_string}: @DESCRIPTION@ AnnData (h5)">
+            <filter>
+                output_format == 'anndata' and (('output_main' in split_on_obs and split_on_obs['output_main']) or (not split_on_obs['default']))
+            </filter>
+        </data>
+        <collection name="output_h5ad_split" type="list" label="${tool.name} on ${on_string}: @DESCRIPTION@ AnnData split">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.h5" directory="output_split" format="h5ad" visible="true"/>
+            <filter>
+                split_on_obs['default']
+            </filter>
+        </collection>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_obj_file" value="find_cluster.h5"/>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/gene_symbols"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="mnn.h5"/>
+            <conditional name="swap_layer_to_x">
+                <param name="default" value="true"/>
+                <param name="layer" value="mnn"/>
+                <param name="new_name_x" value="X_old"/>
+            </conditional>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="layers/X_old"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="anndata_ops.h5"/>
+            <param name="from_var" value="gene_symbols"/>
+            <param name="to_var" value="hello_all"/>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/hello_all"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="anndata_ops.h5"/>
+            <conditional name="add_cell_metadata">
+                <param name="default" value="true"/>
+                <param name="file" value="test_incomplete_metadata.tsv"/>
+            </conditional>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="anndata_ops.h5"/>
+            <repeat name="var_modifications">
+                <param name="from_var" value="gene_symbols"/>
+                <param name="to_var" value="gene_symbols_unique"/>
+                <param name="make_unique" value="True"/>
+            </repeat>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/gene_symbols_unique"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="anndata_ops.h5"/>
+            <param name="field_unique" value="gene_symbols"/>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/gene_symbols_u"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="find_cluster.h5"/>
+            <conditional name="copy_r">
+                <param name="default" value="true"/>
+                <param name="r_source" value="read_10x.h5"/>
+            </conditional>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="raw/X"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="normalise_data.h5"/>
+            <conditional name="copy_x">
+                <param name="default" value="true"/>
+                <repeat name="xlayers">
+                    <param name="x_source" value="filter_genes.h5"/>
+                    <param name="dest" value="filtered"/>
+                </repeat>
+            </conditional>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="layers/filtered"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="find_cluster.h5"/>
+            <conditional name="copy_l">
+                <param name="default" value="true"/>
+                <repeat name="layers">
+                    <param name="contains" value="filtered"/>
+                </repeat>
+                <param name="layer_sources" value="anndata_ops_xlayer.h5"/>
+            </conditional>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="layers/filtered"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_obj_file" value="find_cluster.h5"/>
+            <conditional name="split_on_obs">
+                <param name="default" value="true"/>
+                <param name="key" value="louvain"/>
+                <param name="output_main" value="true"/>
+            </conditional>
+            <output name="output_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/louvain"/>
+                </assert_contents>
+            </output>
+            <output_collection name="output_h5ad_split" type="list" count="5">
+                <element name="louvain_0" ftype="h5ad">
+                    <assert_contents>
+                        <has_h5_keys keys="obs/louvain"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help>
+        =============================
+Operations on AnnData objects
+=============================
+
+Performs the following operations:
+
+* Change observation/var fields, mostly for downstreaming processes convenience. Multiple fields can be changed at once.
+* Flag genes that start with a certain text: useful for flagging mitochondrial, spikes or other groups of genes.
+* For the flags created, calculates qc metrics (pct_&lt;flag&gt;_counts).
+* Calculates `n_genes`, `n_counts` for cells and `n_cells`, `n_counts` for genes.
+* For top &lt;N&gt; genes specified, calculate qc metrics (pct_counts_in_top_&lt;N&gt;_genes).
+* Make a specified column of var or obs unique (normally useful for gene symbols).
+* Copy from a set of compatible AnnData objects (same cells and genes):
+  * Observations, such as clustering results.
+  * Embeddings, such as tSNE or UMAPs.
+  * Unstructure annotations, like gene markers.
+
+This functionality will probably be added in the future to a larger package.
+
+History
+-------
+1.8.1+galaxy10: Adds field to be made unique in obs or var.
+
+1.6.0+galaxy0: Moves to Scanpy Scripts 0.3.0 (Scanpy 1.6.0), versioning switched to track Scanpy as other tools.
+
+0.0.3+galaxy0: Adds ability to merge AnnData objects (Scanpy 1.4.3).
+    </help>
+    <citations>
+        <citation type="doi">
+            10.1038/s41592-021-01102-w
+        </citation>
+        <citation type="doi">
+            10.1186/s13059-017-1382-0
+        </citation>
+        <citation type="bibtex">
+            @misc{githubscanpy-scripts,
+	author = {Ni Huang, EBI Gene Expression Team},
+	year = {2018},
+	title = {Scanpy-scripts: command line interface for Scanpy},
+	publisher = {GitHub},
+	journal = {GitHub repository},
+	url = {https://github.com/ebi-gene-expression-group/scanpy-scripts},
+      }
+        </citation>
+        <citation type="doi">
+            10.1101/2020.04.08.032698
+        </citation>
+    </citations>
+</tool>
