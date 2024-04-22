@@ -1,12 +1,16 @@
-<tool id="slamdunk" name="Slamdunk" version="@TOOL_VERSION@+galaxy3" profile="@PROFILE@">
+<tool id="slamdunk" name="Slamdunk" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>- streamlining SLAM-seq analysis with ultra-high sensitivity</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" />
+    <expand macro="requirements"/>
     <version_command>slamdunk --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
 #import re
+
+mkdir fastq &&
+#set $reads_id = re.sub('[^\w\-\.]', '_', str($reads.element_identifier))
+ln -s '$reads' './fastq/$reads_id' &&
 
 #if $reference_source.reference_source_selector == 'history':
     ln -f -s '$reference_source.ref_file' reference.fa &&
@@ -14,146 +18,155 @@
     ln -f -s '$reference_source.ref_file.fields.path' reference.fa &&
 #end if
 
-mkdir ./fastq &&
-#for $fastq in $reads:
-    #set $fastq_name = re.sub('[^\w\-\.]', '_', str($fastq.element_identifier))
-    ln -s '$fastq' './fastq/${fastq_name}' &&
-#end for
-
-    slamdunk all -r reference.fa -b '$Reference' -o ./out
+    slamdunk all -r reference.fa -b '$reference' -o ./out
        -t \${GALAXY_SLOTS:-1}
        -n $multimapper.multimappers
-       $multimapper.multimap
-       #if $multimapper.filterbed.bedtofilter:
-        -fb $multimapper.filterbed.bedtofilter
-       #end if
-       -5 $quantseq.trim5
-       -a $quantseq.maxpolyA
-       $advanced.endtoend
-       -mq $advanced.minMQ
-       -mi $advanced.minID
-       -nm=$advanced.maxNM
-       -mc $advanced.minCov
-       -mv $advanced.minVar
-       -mbq $advanced.minBaseQual
-    -rl $readLength
-    -c $covThresh
-    ./fastq/*
+        $multimapper.multimap
+        #if $multimapper.filterbed.bedtofilter:
+            -fb $multimapper.filterbed.bedtofilter
+        #end if
+        -5 $quantseq.trim5
+        -a $quantseq.maxpolyA
+        $advanced.endtoend
+        -mq $advanced.minMQ
+        -mi $advanced.minID
+        -nm=$advanced.maxNM
+        -mc $advanced.minCov
+        -mv $advanced.minVar
+        -mbq $advanced.minBaseQual
+        -rl $readLength
+        -c $covThresh
+        #if $advanced.vcf
+            --vcf $advanced.vcf
+        #end if
+        './fastq/$reads_id'
+
+        && mv out/filter/*_slamdunk_mapped_filtered.bam '$outputBam'
+        && mv out/count/*_slamdunk_mapped_filtered_tcount.tsv '$outputTsv'
+        #if not $advanced.vcf
+            && mv out/snp/*_slamdunk_mapped_filtered_snp.vcf '$outputVcf'
+        #end if
     ]]></command>
     <inputs>
-        <expand macro="reference_files" />
-        <param name="reads" type="data" format="fastqsanger,fastqsanger.gz" multiple="True" label="FASTQ files"/>
+        <expand macro="reference_files"/>
+        <param name="reads" type="data" format="fastqsanger,fastqsanger.gz" label="FASTQ files"/>
         <section name="multimapper" title="Multimapper recovery"
             expanded="false">
             <section name="filterbed"
                 title="Use separate 3' UTR bed to filter multimappers." expanded="false">
-                <param name="bedtofilter" type="data" format="bed" optional="true"
-                    label="Bed to filter" />
+                <param name="bedtofilter" argument="--filterbed" type="data" format="bed" optional="true"
+                    label="Bed to filter"/>
             </section>
-            <param name="multimappers" type="integer" min="1" value="1"
+            <param name="multimappers" argument="--topn" type="integer" min="1" value="1"
                 label="Maximum number of alignments to report per read"
-                help="The maximum number of alignments is used to track multimapping read alignments. The more are allowed, the more sensitive the multimapper filtering will be, but also the longer the runtime will be. 100 was used in previous publications." />
-            <param name="multimap" type="boolean" truevalue="--multimap" falsevalue=""
+                help="The maximum number of alignments is used to track multimapping read alignments. The more are allowed, the more sensitive the multimapper filtering will be, but also the longer the runtime will be. 100 was used in previous publications."/>
+            <param name="multimap" argument="--multimap" type="boolean" truevalue="--multimap" falsevalue=""
                 label="Use reference bed file to resolve multimappers."
-                help="Enable multimapper recovery, requires -n to be set to a value > 1 to have impact." />
+                help="Enable multimapper recovery, requires -n to be set to a value > 1 to have impact."/>
         </section>
         <section name="quantseq" title="Quantseq" expanded="false">
-            <param name="trim5" type="integer" min="0" value="12"
+            <param name="trim5" argument="--trim-5p" type="integer" min="0" value="12"
                 label="Number of bp to remove from the 5' end of all reads"
-                help="For Lexogen's Quantseq kit and previous SLAM-seq papers a clipping of 12 bp from the 5' end is recommended." />
-            <param name="maxpolyA" type="integer" min="0" value="4"
+                help="For Lexogen's Quantseq kit and previous SLAM-seq papers a clipping of 12 bp from the 5' end is recommended."/>
+            <param name="maxpolyA" argument="--max-polya" type="integer" min="0" value="4"
                 label="Maximum number of As at the 3' end of a read"
-                help="The maximum number of allowed As at the 3' end of a read. All A-stretches that exceed this threshold are clipped because they are likely part of the poly-A tail." />
+                help="The maximum number of allowed As at the 3' end of a read. All A-stretches that exceed this threshold are clipped because they are likely part of the poly-A tail."/>
         </section>
         <section name="advanced" title="Advanced settings." expanded="false">
-            <param name="endtoend" type="boolean" truevalue="--endtoend" falsevalue=""
+            <param name="endtoend" argument="--endtoend" type="boolean" truevalue="--endtoend" falsevalue=""
                 label="Enable end-to-end alignments for mapping."
-                help="Enable end-to-end alignments for mapping in slamdunk with --endtoend" />
-            <param name="minMQ" type="integer" min="0" value="2"
+                help="Enable end-to-end alignments for mapping in slamdunk with --endtoend"/>
+            <param name="minMQ" argument="--min-mq" type="integer" min="0" value="2"
                 label="Minimum mapping quality"
-                help="Minimum mapping quality to consider alignments (default: 2)." />
-            <param name="minID" type="float" min="0" value="0.95"
+                help="Minimum mapping quality to consider alignments (default: 2)."/>
+            <param name="minID" argument="--min-identity" type="float" min="0" value="0.95"
                 label="Minimum alignment identity"
-                help="Minimum alignment-identity to consider alignments (default: 0.95)." />
-            <param name="maxNM" type="integer" value="-1"
+                help="Minimum alignment-identity to consider alignments (default: 0.95)."/>
+            <param name="maxNM" argument="--max-nm" type="integer" value="-1"
                 label="Maximum number of mismatches"
-                help="Maximum number of mismatches to consider alignments. Negative numbers deactivate filter (default: -1)." />
-            <param name="minCov" type="integer" min="0" value="10"
+                help="Maximum number of mismatches to consider alignments. Negative numbers deactivate filter (default: -1)."/>
+            <param name="minCov" argument="--min-coverage" type="integer" min="0" value="10"
                 label="Minimum coverage to call variant"
-                help="Minimum coverage to call variant (default: 10)." />
-            <param name="minVar" type="float" min="0" value="0.8"
+                help="Minimum coverage to call variant (default: 10)."/>
+            <param name="minVar" argument="--var-fraction" type="float" min="0" value="0.8"
                 label="Minimum variant fraction to call variant"
-                help="Minimum variant fraction to call variant (default: 0.8)." />
-            <param name="minBaseQual" type="integer" min="0" value="27"
+                help="Minimum variant fraction to call variant (default: 0.8)."/>
+            <param name="minBaseQual" argument="--min-base-qual" type="integer" min="0" value="27"
                 label="Minimum base quality"
-                help="Minimum base quality for T>C conversions (default: 27)." />
+                help="Minimum base quality for T>C conversions (default: 27)."/>
+            <param argument="--vcf" type="data" format="vcf" optional="true" label="Skip SNP step and provide custom variant file."/>
         </section>
-        <param name="covThresh" type="integer" min="1" value="1"
+        <param name="covThresh" argument="--conversion-threshold" type="integer" min="1" value="1"
             label="T>C conversion threshold"
-            help="Number of T>C conversions required to count a read as a T>C read (default: 1)." />
-        <param name="readLength" type="integer" min="50" value="50"
+            help="Number of T>C conversions required to count a read as a T>C read (default: 1)."/>
+        <param name="readLength" argument="--max-read-length" type="integer" min="50" value="50"
             label="Read length"
-            help="Maximum read length (before trimming)." />
+            help="Maximum read length (before trimming)."/>
     </inputs>
     <outputs>
-        <collection name="outputBam" type="list" label="${tool.name} on ${on_string}: BAM">
-            <discover_datasets pattern="(?P&lt;name&gt;.+)\.bam$" format="bam" directory="./out/filter" visible="false" />
-        </collection>
-        <collection name="outputTsv" type="list" label="${tool.name} on ${on_string}: Count TSV">
-            <discover_datasets pattern="(?P&lt;name&gt;.+)_tcount.tsv$" format="tabular" directory="./out/count" visible="false" />
-        </collection>
-        <collection name="outputVcf" type="list" label="${tool.name} on ${on_string}: VCF">
-            <discover_datasets pattern="(?P&lt;name&gt;.+)_snp.vcf$" format="vcf" directory="./out/snp" visible="false" />
-        </collection>
+        <data name="outputBam" format="bam" label="${tool.name} on ${on_string}: BAM"/>
+        <data name="outputTsv" format="tabular" label="${tool.name} on ${on_string}: Count TSV"/>
+        <data name="outputVcf" format="vcf" label="${tool.name} on ${on_string}: VCF">
+            <filter>advanced['vcf'] == None</filter>
+        </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="3">
             <!--Ensure default outputs work -->
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="ref.fa" />
-            <param name="Reference" value="actb.bed" />
-            <param name="reads" value="reads.fq" />
-            <param name="readLength" value="100" />
+            <param name="reference_source_selector" value="history"/>
+            <param name="ref_file" value="ref.fa"/>
+            <param name="reference" value="actb.bed"/>
+            <param name="reads" value="reads.fq"/>
+            <param name="readLength" value="100"/>
             <section name="quantseq">
-                <param name="trim5" value="0" />
+                <param name="trim5" value="0"/>
             </section>
             <section name="advanced">
-                <param name="minBaseQual" value="27" />
+                <param name="minBaseQual" value="27"/>
             </section>
-            <output_collection name="outputBam">
-                <element name="reads_slamdunk_mapped_filtered" ftype="bam" file="reads1.bam" compare="sim_size" />
-            </output_collection>
-            <output_collection name="outputTsv">
-                <element name="reads_slamdunk_mapped_filtered" ftype="tabular" file="reads_slamdunk_mapped_filtered_tcount.tsv"
-                compare="re_match"  />
-            </output_collection>
-            <output_collection name="outputVcf">
-                <element name="reads_slamdunk_mapped_filtered" ftype="vcf" file="reads1_snp.vcf" compare="sim_size" />
-            </output_collection>
+            <output name="outputBam" ftype="bam" value="reads1.bam" compare="sim_size"/>
+            <output name="outputTsv" ftype="tabular" value="reads_slamdunk_mapped_filtered_tcount.tsv" compare="re_match"/>
+            <output name="outputVcf" ftype="vcf" file="reads1_snp.vcf" compare="sim_size"/>
         </test>
-        <test>
+        <test expect_num_outputs="3">
             <!--Ensure built-in fasta works -->
-            <param name="reference_source_selector" value="cached" />
-            <param name="ref_file" value="hg38full" />
-            <param name="Reference" value="actb.bed" />
-            <param name="reads" ftype="fastqsanger" dbkey="hg38" value="reads.fq" />
-            <param name="readLength" value="100" />
+            <param name="reference_source_selector" value="cached"/>
+            <param name="ref_file" value="hg38full"/>
+            <param name="reference" value="actb.bed"/>
+            <param name="reads" ftype="fastqsanger" dbkey="hg38" value="reads.fq"/>
+            <param name="readLength" value="100"/>
             <section name="quantseq">
-                <param name="trim5" value="0" />
+                <param name="trim5" value="0"/>
             </section>
             <section name="advanced">
-                <param name="minBaseQual" value="27" />
+                <param name="minBaseQual" value="27"/>
             </section>
-            <output_collection name="outputBam">
-                <element name="reads_slamdunk_mapped_filtered" ftype="bam" file="reads1.bam" compare="sim_size" />
-            </output_collection>
-            <output_collection name="outputTsv">
-                <element name="reads_slamdunk_mapped_filtered" ftype="tabular" file="reads_slamdunk_mapped_filtered_tcount.tsv"
-                compare="re_match"  />
-            </output_collection>
-            <output_collection name="outputVcf">
-                <element name="reads_slamdunk_mapped_filtered" ftype="vcf" file="reads1_snp.vcf" compare="sim_size" />
-            </output_collection>
+            <output name="outputBam" ftype="bam" value="reads1.bam" compare="sim_size"/>
+            <output name="outputTsv" ftype="tabular" value="reads_slamdunk_mapped_filtered_tcount.tsv" compare="re_match"/>
+            <output name="outputVcf" ftype="vcf" file="reads1_snp.vcf" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test with vcf -->
+            <param name="reference_source_selector" value="history"/>
+            <param name="ref_file" value="ref.fa"/>
+            <param name="reference" value="actb.bed"/>
+            <param name="reads" value="reads.fq"/>
+            <param name="readLength" value="100"/>
+            <section name="quantseq">
+                <param name="trim5" value="0"/>
+            </section>
+            <section name="advanced">
+                <param name="vcf" value="reads_slamdunk_mapped_filtered_snp.vcf" ftype="vcf"/>
+                <param name="minBaseQual" value="27"/>
+            </section>
+            <output name="outputBam" ftype="bam" value="reads1.bam" compare="sim_size"/>
+            <output name="outputTsv" ftype="tabular" value="reads_slamdunk_mapped_filtered_tcount.tsv" compare="re_match"/>
+            <assert_stderr>
+                <not_has_text text="Running slamDunk SNP"/>
+            </assert_stderr>
+            <assert_command>
+                <has_text text="--vcf"/>
+            </assert_command>
         </test>
     </tests>
     <help><![CDATA[
@@ -221,6 +234,6 @@ Parameter  Description
 
     ]]></help>
     <citations>
-        <expand macro="citations" />
+        <expand macro="citations"/>
     </citations>
 </tool>

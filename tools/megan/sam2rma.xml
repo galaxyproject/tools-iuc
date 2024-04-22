@@ -1,0 +1,249 @@
+<tool id="megan_sam2rma" name="MEGAN: Generate a MEGAN rma6 file" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>from a DIAMOND or MALT sam file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#if str($input_type_cond.input_type) in ['single', 'pair']:
+    #set read1 = $input_type_cond.read1
+    #set sam1 = $input_type_cond.sam1
+#else:
+    ## Processing paired reads are tricky if we're
+    ## downstream from MALT.  MALT doesn’t have a
+    ## paired-read mode, so it won’t attempt to analyze
+    ## reads in pairs.  To do paired read processing,
+    ## set MALT to generate SAM files and then import the
+    ## SAM files into MEGAN, specifying paired read mode
+    ## there. If you have multiple SAM files for the same
+    ## sample, then import them all at the same time to
+    ## create one unified rma6 file.
+
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set sam1 = $input_type_cond.sam1
+#end if
+
+#if $read1.is_of_type('fasta', 'fasta.gz'):
+    #set read_ext = '.fasta'
+#else:
+    #set read_ext = '.fastq'
+#end if
+#if $read1.ext.endswith('.gz'):
+    #set read_ext = $read_ext + '.gz'
+#end if
+
+#set read1_identifier = 'read1' + $read_ext
+ln -s '${read1}' '${read1_identifier}' &&
+
+#set sam1_identifier = 'sam1.' + $sam1.ext
+ln -s '${sam1}' '${sam1_identifier}' &&
+
+#if str($input_type_cond.input_type) in ['pair', 'paired']:
+    #if str($input_type_cond.input_type) == 'pair':
+        #set read2 = $input_type_cond.read2
+        #set sam2 = $input_type_cond.sam2
+    #else if str($input_type_cond.input_type) == 'paired':
+        #set read2 = $input_type_cond.reads_collection['reverse']
+        #set sam2 = $input_type_cond.sam2
+    #end if
+    #set read2_identifier = 'read2' + $read_ext
+    ln -s '${read2}' '${read2_identifier}' &&
+    #set sam2_identifier = 'sam2.' + $sam2.ext
+    ln -s '${sam2}' '${sam2_identifier}' &&
+#end if
+
+## The output must be a directory when we have multiple
+## inputs, and the outputs inherit the base name of the
+## inputs.
+
+sam2rma
+#if str($input_type_cond.input_type) == 'single':
+    --in '${sam1_identifier}'
+    --reads '${read1_identifier}'
+    --out '${output_single}'
+#else if str($input_type_cond.input_type) == 'pair':
+    --in '${sam1_identifier}' '${sam2_identifier}'
+    --reads '${read1_identifier}' '${read2_identifier}'
+    --paired
+    --pairedSuffixLength $input_type_cond.pairedSuffixLength 
+    --out '.'
+#else if str($input_type_cond.input_type) == 'paired':
+    --in '${sam1_identifier}' '${sam2_identifier}'
+    --reads '${read1_identifier}' '${read2_identifier}'
+    --paired
+    --pairedSuffixLength $input_type_cond.pairedSuffixLength 
+    ## Strangely, megan requires an output
+    ## directory when processing paired reads
+    ## even though it produces a single file.
+    ## We'll accommodate thie by prepending ./
+    ## to a temporary output file and then move
+    ## it later.
+    --out '.'
+#end if
+#if $advanced_options.metaDataFile:
+    --metaDataFile '$advanced_options.metaDataFile'
+#end if
+#if str($advanced_options.paired_reads_cond.paired_reads) == 'yes':
+    --paired
+    $advanced_options.paired_reads_cond.pairedSuffixLength
+#end if
+$advanced_options.longReads
+--maxMatchesPerRead $advanced_options.maxMatchesPerRead
+$advanced_options.classify
+--minScore $advanced_options.minScore
+--maxExpected $advanced_options.maxExpected
+--topPercent $advanced_options.topPercent
+--minSupportPercent $advanced_options.minSupportPercent
+--minSupport $advanced_options.minSupport
+--minPercentReadCover $advanced_options.minPercentReadCover
+--minPercentReferenceCover $advanced_options.minPercentReferenceCover
+--minReadLength $advanced_options.minReadLength
+--lcaAlgorithm '$advanced_options.lcaAlgorithm'
+--lcaCoveragePercent $advanced_options.lcaCoveragePercent
+--readAssignmentMode '$advanced_options.readAssignmentMode'
+#if $advanced_options.conFile:
+    --conFile '$advanced_options.conFile'
+#end if
+#if $advanced_options.mapDB:
+    --mapDB '$advanced_options.mapDB'
+#end if
+#if str($advanced_options.only) != '':
+    --only '$advanced_options.only'
+#end if
+--useCompression 'false'
+--threads \${GALAXY_SLOTS:-8}
+--tempStoreDir '.'
+#if str($input_type_cond.input_type) in ['pair', 'paired']:
+    && mv 'sam1.rma6' '$output_forward'
+    && mv 'sam2.rma6' '$output_reverse'
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Choose the category of the reads files to be analyzed">
+                <option value="single" selected="true">Single dataset</option>
+                <option value="pair">Dataset pair</option>
+                <option value="paired">List of dataset pairs</option>
+            </param>
+            <when value="single">
+                <param name="read1" type="data" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" label="Forward read file" help="This read file should be the one used by DIAMOND or MALT to generate the SAM file below"/>
+                <param name="sam1" type="data" format="sam" label="Output file of DIAMOND or MALT on input forward read file"/>
+            </when>
+            <when value="pair">
+                <param name="read1" type="data" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" label="Forward read file" help="This read file should be the one used by DIAMOND or MALT to generate the SAM file below"/>
+                <param name="sam1" type="data" format="sam" label="Output file of DIAMOND or MALT on input forward read file"/>
+                <param name="read2" type="data" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" label="Reverse read file" help="This read file should be the one used by DIAMOND or MALT to generate the SAM file below"/>
+                <param name="sam2" type="data" format="sam" label="Output file of DIAMOND or MALT on input reverse read file"/>
+                <param argument="--pairedSuffixLength" type="integer" value="0" label="Length of name suffix used to distinguish read names" help="Use 0 if read and mate have the same name"/>
+            </when>
+            <when value="paired">
+                <param name="reads_collection" type="data_collection" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" collection_type="paired" label="Collection of paired read files"/>
+                <param name="sam1" type="data" format="sam" label="Output file of DIAMOND or MALT on input forward read file"/>
+                <param name="sam2" type="data" format="sam" label="Output file of DIAMOND or MALT on input reverse read file"/>
+                <param argument="--pairedSuffixLength" type="integer" value="0" label="Length of name suffix used to distinguish read names" help="Use 0 if read and mate have the same name"/>
+            </when>
+        </conditional>
+        <section name="advanced_options" title="Advanced options" expanded="false">
+            <param argument="--metaDataFile" type="data" format="tabular" multiple="true" optional="true" label="Files containing metadata to be included in the output files"/>
+            <conditional name="paired_reads_cond">
+                <param name="paired_reads" type="select" label="DAA file was created using paired reads?">
+                    <option value="no" selected="true">no</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param argument="--pairedSuffixLength" type="integer" value="0" label="Length of name suffix used to distinguish read names" help="Use 0 if read and mate have the same name"/>
+                </when>
+            </conditional>
+            <expand macro="long_reads_param"/>
+            <expand macro="max_matches_per_read_param"/>
+            <expand macro="classify_param"/>
+            <expand macro="min_score_param"/>
+            <expand macro="max_expected_param"/>
+            <expand macro="top_percent_param"/>
+            <expand macro="min_max_params"/>
+            <expand macro="lca_params"/>
+            <expand macro="read_assignment_mode_param"/>
+            <expand macro="con_file_param"/>
+            <expand macro="mapdb_param"/>
+            <expand macro="only_named_classifications_param"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_single" format="rma6">
+            <filter>input_type_cond['input_type'] == 'single'</filter>
+        </data>
+        <data name="output_forward" format="rma6" label="${tool.name} on ${on_string} (forward">
+            <filter>input_type_cond['input_type'] != 'single'</filter>
+        </data>
+        <data name="output_reverse" format="rma6" label="${tool.name} on ${on_string} (reverse)">
+            <filter>input_type_cond['input_type'] != 'single'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Single dataset input -->
+        <test expect_num_outputs="1">
+            <param name="sam1" ftype="sam" value="input1.sam"/>
+            <param name="read1" ftype="fastqsanger.gz" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+            <output name="output_single" ftype="rma6">
+                <assert_contents>
+                    <has_size value="885" delta="15"/>
+                </assert_contents>
+            </output>
+       </test>
+        <!-- Dataset pair input -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="sam1" value="input1.sam" ftype="sam"/>
+            <param name="read2" value="13-1941-6_S4_L001_R2_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="sam2" value="input2.sam" ftype="sam"/>
+            <output name="output_forward" ftype="rma6">
+                <assert_contents>
+                    <has_size value="805" delta="1"/>
+                </assert_contents>
+            </output>
+            <output name="output_reverse" ftype="rma6">
+                <assert_contents>
+                    <has_size value="805" delta="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- List of dataset pairs input -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+                    <element name="reverse" value="13-1941-6_S4_L001_R2_600000.fastq.gz"/>
+                </collection>
+            </param>
+            <param name="sam1" value="input1.sam" ftype="sam"/>
+            <param name="sam2" value="input2.sam" ftype="sam"/>
+            <output name="output_forward" ftype="rma6">
+                <assert_contents>
+                    <has_size value="805" delta="1"/>
+                </assert_contents>
+            </output>
+            <output name="output_reverse" ftype="rma6">
+                <assert_contents>
+                    <has_size value="805" delta="1"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+Generates a MEGAN RMA (RealMedia Audio) file from a SAM file that was generated by DIAMOND or MALT.  MEGAN uses an
+update of the original RMA file format known as RMA6.
+
+Inputs consist of reads in fasta or fasqsanger format (gzip compression is supported) and associated SAM files.
+Each read file should have been used previously as the input to DIAMOND or MALT to produce the associated SAM file
+for this tool.
+    </help>
+    <expand macro="citations"/>
+</tool>

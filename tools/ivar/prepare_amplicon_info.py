@@ -11,7 +11,10 @@ import sys
 primer_starts = {}
 with open(sys.argv[1]) as i:
     for line in i:
-        f = line.strip().split('\t')
+        line = line.strip()
+        if not line:
+            continue
+        f = line.split('\t')
         try:
             if f[5] == '+':
                 primer_starts[f[3]] = int(f[1])
@@ -32,8 +35,11 @@ with open(sys.argv[1]) as i:
 with open(sys.argv[2]) as i:
     ret_lines = []
     for line in i:
+        line = line.strip()
+        if not line:
+            continue
         first = last = None
-        for pname in line.strip().split('\t'):
+        for pname in line.split('\t'):
             try:
                 primer_start = primer_starts[pname]
             except KeyError:

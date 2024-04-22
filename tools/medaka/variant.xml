@@ -1,28 +1,10 @@
-<?xml version="1.0"?>
-<tool id="medaka_variant" name="medaka variant tool" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
-    <description>Probability decoding</description>
+<tool id="medaka_variant" name="medaka variant tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>decodes variant calls from medaka consensus output</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
-
     <expand macro="version_command"/>
-
-    <configfiles>
-        <configfile name="convert_fasta">
-import sys
-infile = open(sys.argv[1], 'r')
-outfile = open(sys.argv[2], 'w')
-for line in infile:
-    if line[0] == '>':
-        outfile.write(line)
-    else:
-        outfile.write(line.upper())
-infile.close()
-outfile.close()
-        </configfile>
-    </configfiles>
-
     <command detect_errors="exit_code"><![CDATA[
 ## initialize
 @REF_FASTA@
@@ -44,8 +26,6 @@ outfile.close()
     #for $current in $pool.inputs
         '$current'
     #end for
-    '$out_result' ## output
-    2>&1 | tee '$out_log'
 #elif $pool.pool_mode == "No":
     ## run
     medaka variant
@@ -60,16 +40,17 @@ outfile.close()
     ## required
     reference.fa
     '$pool.input'
-    '$out_result' ##output
-    2>&1 | tee '$out_log'
 #end if
-#if $out_annotated:
-    ## medaka annotate errors out if the reference is lower case at a position it's annotating because it checks vs the ref base in the vcf
-    && python '$convert_fasta' reference.fa  upper_reference.fa
+#if str($output_annotated.output_annotated_select) == 'false':
+    '$out_variants' ##output
+    2>&1 | tee '$out_log'
+#else
+    raw.vcf ##output of medaka variant
+    2>&1 | tee '$out_log'
     && ln -s '$output_annotated.in_bam' in.bam
     && ln -s '$output_annotated.in_bam.metadata.bam_index' in.bai
-    && medaka tools annotate --dpsp --pad $output_annotated.pad '$out_result' upper_reference.fa in.bam tmp.vcf
-    && python '$__tool_directory__/convert_VCF_info_fields.py' tmp.vcf '$out_annotated'
+    && medaka tools annotate --dpsp --pad $output_annotated.pad raw.vcf reference.fa in.bam tmp.vcf
+    && python '$__tool_directory__/convert_VCF_info_fields.py' tmp.vcf '$out_variants'
 #end if
     ]]></command>
     <inputs>
@@ -99,39 +80,38 @@ outfile.close()
         <param argument="--ambig_ref" type="boolean" truevalue="--ambig_ref" falsevalue="" label="Decode variants at ambiguous reference positions?" checked="false"/>
         <param argument="--gvcf" type="boolean" truevalue="--gvcf" falsevalue="" label="Output VCF records for reference loci predicted to be non-variant?" checked="false"/>
         <conditional name="output_annotated">
-            <param name="output_annotated_select" type="select" label="Output annotated VCF?" help="Annotate allele frequency, depth of coverage, etc for each variant (requires BAM file)">
-                <option value="true" selected="true">Output annotated VCF</option>
-                <option value="false">Don't output annotated VCF</option>
+            <param name="output_annotated_select" type="select"
+            label="Type of VCF to generate"
+            help="Variant INFO fields in the VCF can be extended to include allele frequency, depth of coverage, etc., but this requires a BAM dataset to calculate those values from.">
+                <option value="true" selected="true">Write annotated VCF with extended INFO</option>
+                <option value="false">Write original decoded VCF with minimal INFO field</option>
             </param>
             <when value="true">
-                <param name="in_bam" type="data" format="bam" optional="false" label="BAM to annotate the VCF"/>
-                <param name="pad" type="integer" min="1" value="25" label="Padding width on either side of variant for realignment in medaka tools anntotate, used to calculate DPSP, DPSPS, AF, FAF, RAF, SB, DP4, and AS in the output annotated VCF"/>
+                <param name="in_bam" type="data" format="bam" optional="false" label="BAM to caclulate additional INFO fields from"/>
+                <param name="pad" type="integer" min="1" value="25"
+                label="Padding width on either side of variant for realignment"
+                help="To calculate the additional INFO fields the tool will run medaka tools anntotate, which performs local realignment of the region +- this width around each variant. All calculated new fields will depend on the width chosen, so only change this value if you know what you are doing." />
             </when>
             <when value="false"/>
         </conditional>
         <param name="output_log_bool" type="boolean" label="Output log file?" checked="true"/>
     </inputs>
     <outputs>
-        <!-- standard -->
-        <data name="out_result" format="vcf" label="${tool.name} on ${on_string}: Result"/>
-        <!-- optional -->
-        <data name="out_annotated" format="vcf" label="${tool.name} on ${on_string}: Annotated">
-            <filter>output_annotated['output_annotated_select']!='false'</filter>
-        </data>
+        <data name="out_variants" format="vcf" label="${tool.name} on ${on_string}: called variants"/>
         <data name="out_log" format="tabular" label="${tool.name} on ${on_string}: Log">
             <filter>output_log_bool</filter>
         </data>
     </outputs>
     <tests>
         <!-- #1 default -->
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="2">
             <conditional name="pool">
                 <param name="pool_mode" value="Yes"/>
                 <param name="inputs" value="medaka_test.hdf,medaka_test.hdf"/>
             </conditional>
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="history"/>
-                <param name="ref_file" value="ref.fasta.gz"/>
+                <param name="ref_file" value="ref.fasta"/>
             </conditional>
             <param name="ambig_ref" value="true"/>
             <conditional name="output_annotated">
@@ -139,17 +119,9 @@ outfile.close()
                 <param name="in_bam" value="medaka_test.bam"/>
             </conditional>
             <param name="output_log_bool" value="true"/>
-            
-            <output name="out_result">
+            <output name="out_variants">
                 <assert_contents>
-                    <has_n_lines n="9"/>
-                    <has_line line="##fileformat=VCFv4.1" />
-                    <has_line_matching expression="##medaka_version=[0-9]+\.[0-9]+\.[0-9]+" />
-                </assert_contents>
-            </output>
-            <output name="out_annotated">
-                <assert_contents>
-                    <has_n_lines n="23"/>
+                    <has_n_lines n="18"/>
                     <has_line line="##fileformat=VCFv4.1" />
                     <has_line_matching expression="##medaka_version=[0-9]+\.[0-9]+\.[0-9]+" />
                     <has_line_matching expression="##convert_VCF_info_fields=[0-9]+\.[0-9]+" />
@@ -157,12 +129,12 @@ outfile.close()
             </output>
             <output name="out_log">
                 <assert_contents>
-                    <has_n_lines n="10" />
+                    <has_n_lines n="12" />
                 </assert_contents>
             </output>
         </test>
         <!--No pooling-->
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="2">
             <conditional name="pool">
                 <param name="pool_mode" value="No"/>
                 <param name="input" value="medaka_test.hdf"/>
@@ -177,17 +149,9 @@ outfile.close()
                 <param name="in_bam" value="medaka_test.bam"/>
             </conditional>
             <param name="output_log_bool" value="true"/>
-            
-            <output name="out_result">
+            <output name="out_variants">
                 <assert_contents>
-                    <has_n_lines n="9"/>
-                    <has_line line="##fileformat=VCFv4.1" />
-                    <has_line_matching expression="##medaka_version=[0-9]+\.[0-9]+\.[0-9]+" />
-                </assert_contents>
-            </output>
-            <output name="out_annotated">
-                <assert_contents>
-                    <has_n_lines n="23"/>
+                    <has_n_lines n="18"/>
                     <has_line line="##fileformat=VCFv4.1" />
                     <has_line_matching expression="##medaka_version=[0-9]+\.[0-9]+\.[0-9]+" />
                     <has_line_matching expression="##convert_VCF_info_fields=[0-9]+\.[0-9]+" />
@@ -195,7 +159,7 @@ outfile.close()
             </output>
             <output name="out_log">
                 <assert_contents>
-                    <has_n_lines n="8" />
+                    <has_n_lines n="9" />
                 </assert_contents>
             </output>
         </test>
@@ -213,8 +177,7 @@ outfile.close()
                 <param name="output_annotated_select" value="false"/>
             </conditional>
             <param name="output_log_bool" value="false"/>
-            
-            <output name="out_result">
+            <output name="out_variants">
                 <assert_contents>
                     <has_n_lines n="9"/>
                     <has_line line="##fileformat=VCFv4.1" />
@@ -232,14 +195,26 @@ outfile.close()
 
 The module *variant* decodes probabilities.
 
+----
+
+.. class:: infomark
+
 **Input**
 
 - reference sequence (FASTA)
 - (several) consensus files (H5/HDF)
 
+----
+
+.. class:: infomark
+
 **Output**
 
 - decoded probabilities (VCF)
+
+----
+
+.. class:: infomark
 
 **References**
 

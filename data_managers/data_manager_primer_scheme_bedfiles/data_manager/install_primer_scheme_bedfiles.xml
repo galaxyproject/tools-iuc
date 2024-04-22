@@ -1,13 +1,33 @@
-<tool id="data_manager_primer_scheme_bedfiles" name="BED-format primer scheme data manager" version="0.0.12" tool_type="manage_data" profile="19.05">
+<tool id="data_manager_primer_scheme_bedfiles" name="BED-format primer scheme data manager" version="0.0.13" tool_type="manage_data" profile="20.09">
     <requirements>
-        <requirement type="package" version="2.24.0">requests</requirement>
+        <requirement type="package" version="2.26.0">requests</requirement>
     </requirements>
     <!-- fetch all the primers in one go -->
     <command detect_errors="exit_code"><![CDATA[
     python '$__tool_directory__/install_primer_scheme_bedfiles.py'
         '${output_file}'
-        #if $input.input_type == "ARTIC"
-            --artic_primers '${input.primers}'
+        #if $input.input_type == "network"
+            ## this code looks up the existing table and uses it to build a list of known primers which
+            ## is then used to filter the $input.primers variable. some notes:
+            ##
+            ## $__app__.tool_data_tables is a dictionary where the keys are data table names and the values 
+            ## are TabularToolDataTable objects (from lib/galaxy/tools/data/__init__.py)
+            ##
+            ## the get_fields() method on the TabularToolDataTable returns a list of lists, with one list
+            ## per line of the tool data table, so row[0] is the first field (i.e. the value column)
+            ##
+            ## $input.primers is a string ('val1,val2') when interpreted outside of #set but a list inside of #set
+            ##
+            ## known_primers is the $known_primers variable but because it is in a list comprehension the $ should
+            ## not be used
+            #set $data_table = $__app__.tool_data_tables.get("primer_scheme_bedfiles")
+            #if $data_table is not None:
+                #set $known_primers = [ row[0] for row in $data_table.get_fields() ]
+                #set $primer_list = ','.join([ primer_name for primer_name in $input.primers if primer_name not in known_primers ])
+            #else
+                #set $primer_list = $input.primers
+            #end if
+            --artic_primers '$primer_list'
         #else 
             --primer_file '${input.primer_input}'
             --primer_name '${input.primer_name}'
@@ -17,20 +37,23 @@
     <inputs>
         <conditional name="input">
             <param name="input_type" label="Choose the source for primer schemes" type="select">
-                <option value="ARTIC" selected="true">ARTIC SARS-CoV-2 Github page</option>
+                <option value="network" selected="true">ARTIC SARS-CoV-2, VarSkip and Midnight web pages</option>
                 <option value="history">History</option>
             </param>
-            <when value="ARTIC">                    
+            <when value="network">
                 <param name="primers" type="select" multiple="true" label="SARS-CoV-2 Primers to fetch">
                     <option value="SARS-CoV-2-ARTICv1" selected="true">SARS-CoV-2 ARTIC v1</option>
                     <option value="SARS-CoV-2-ARTICv2" selected="true">SARS-CoV-2 ARTIC v2</option>
                     <option value="SARS-CoV-2-ARTICv3" selected="true">SARS-CoV-2 ARTIC v3</option>
+                    <option value="SARS-CoV-2-ARTICv4" selected="true">SARS-CoV-2 ARTIC v4</option>
+                    <option value="VarSkip-V1a" selected="true">NEB VarSkip-V1a</option>
+                    <option value="Midnight-v1" selected="true">RAPID/Midnight v1</option>
                 </param>
             </when>
             <when value="history">
                 <param name="primer_input" label="Select history item" type="data" format="bed" />
                 <param name="primer_name" label="Name for this primer scheme" type="text" 
-                       help="Non-word characters will be removed from primer scheme name and spaces replaced with underscore (_)" />
+                       help="Characters that are not word characters or - will be removed from primer scheme name and spaces replaced with underscore (_)" />
                 <param name="primer_description" label="Description for primer scheme" type="text" />
             </when>
         </conditional>
@@ -40,13 +63,9 @@
     </outputs>
     <tests>
         <test>
-            <param name="input_type" value="ARTIC" />
-            <param name="primers" value="SARS-CoV-2-ARTICv1,SARS-CoV-2-ARTICv2,SARS-CoV-2-ARTICv3"/>
-            <output name="output_file">
-                <assert_contents>
-                    <has_text text="ARTIC"/>
-                </assert_contents>
-            </output>        
+            <param name="input_type" value="network" />
+            <param name="primers" value="SARS-CoV-2-ARTICv1,SARS-CoV-2-ARTICv2,SARS-CoV-2-ARTICv3,SARS-CoV-2-ARTICv4,VarSkip-V1a,Midnight-v1"/>
+            <output name="output_file" value="data_manager_primer_scheme_bedfiles.json.template" compare="re_match" />
         </test>
         <test>
             <param name="input_type" value="history" />
@@ -59,15 +78,38 @@
                 </assert_contents>
             </output>        
         </test>
+        <test>
+            <param name="input_type" value="history" />
+            <param name="primer_input" ftype="bed" value="sample1.bed" />
+            <param name="primer_name" value="sample^primer" />
+            <param name="primer_description" value="sample primer scheme" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="sampleprimer"/>
+                </assert_contents>
+            </output>        
+        </test>
     </tests>
     <help><![CDATA[
         Amplicon sequencing for viral pathogens using the ARTIC_ pipeline or `PrimalSeq and iVar`_ relies on
         identifying primer locations in a reference sequence using BED format files. This 
         data manager populates a Galaxy tool data table, either from files provided via
-        a history or via the ARTIC_ network Github repository.
+        a history or via the ARTIC_, the New England Biolabs VarSkip_ and the Massey 
+        University Midnight_ web pages.
+
+        If the data manager fails with an error message about downloading some of the primer data files,
+        try and visit the corresponding website to see if it is functioning correctly. As with anything
+        network-dependent, problems can sometimes happen. A simple solution is to wait some time and
+        run the data manager again.
+
+        Finally, the data manager is designed to not duplicate primer files, so primers schemes that have
+        already been downloaded will be skipped when the install from network download mode is used.
 
         .. _PrimalSeq and iVar: https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1618-7
         .. _ARTIC: https://artic.network/
+        .. _VarSkip: https://github.com/nebiolabs/VarSkip/
+        .. _Midnight: https://zenodo.org/record/3897530#.XwM3ApMzZ0v
+        .. here_: https://gist.github.com/pvanheus/8403813b77e44cbd18e3fb1b3ca1b624
     ]]></help>
     <citations>
       <citation type="doi">10.1186/s13059-018-1618-7</citation>

@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
 import argparse
+import itertools
+import multiprocessing
 import os
+import queue
 import re
 
 import pandas
@@ -16,6 +19,9 @@ from Bio import SeqIO
 # to use LibreOffice for Excel spreadsheets.
 MAXCOLS = 1024
 OUTPUT_EXCEL_DIR = 'output_excel_dir'
+INPUT_JSON_AVG_MQ_DIR = 'input_json_avg_mq_dir'
+INPUT_JSON_DIR = 'input_json_dir'
+INPUT_NEWICK_DIR = 'input_newick_dir'
 
 
 def annotate_table(table_df, group, annotation_dict):
@@ -148,11 +154,6 @@ def get_sample_name(file_path):
     return base_file_name
 
 
-def output_cascade_table(cascade_order, mqdf, group, annotation_dict):
-    cascade_order_mq = pandas.concat([cascade_order, mqdf], join='inner')
-    output_table(cascade_order_mq, "cascade", group, annotation_dict)
-
-
 def output_excel(df, type_str, group, annotation_dict, count=None):
     # Output the temporary json file that
     # is used by the excel_formatter.
@@ -176,19 +177,6 @@ def output_excel(df, type_str, group, annotation_dict, count=None):
     df.to_json(json_file_name, orient='split')
     # Output the Excel file.
     excel_formatter(json_file_name, excel_file_name, group, annotation_dict)
-
-
-def output_sort_table(cascade_order, mqdf, group, annotation_dict):
-    sort_df = cascade_order.T
-    sort_df['abs_value'] = sort_df.index
-    sort_df[['chrom', 'pos']] = sort_df['abs_value'].str.split(':', expand=True)
-    sort_df = sort_df.drop(['abs_value', 'chrom'], axis=1)
-    sort_df.pos = sort_df.pos.astype(int)
-    sort_df = sort_df.sort_values(by=['pos'])
-    sort_df = sort_df.drop(['pos'], axis=1)
-    sort_df = sort_df.T
-    sort_order_mq = pandas.concat([sort_df, mqdf], join='inner')
-    output_table(sort_order_mq, "sort", group, annotation_dict)
 
 
 def output_table(df, type_str, group, annotation_dict):
@@ -221,74 +209,76 @@ def output_table(df, type_str, group, annotation_dict):
         output_excel(df, type_str, group_str, annotation_dict)
 
 
-def preprocess_tables(newick_file, json_file, json_avg_mq_file, annotation_dict):
-    avg_mq_series = pandas.read_json(json_avg_mq_file, typ='series', orient='split')
-    # Map quality to dataframe.
-    mqdf = avg_mq_series.to_frame(name='MQ')
-    mqdf = mqdf.T
-    # Get the group.
-    group = get_sample_name(newick_file)
-    snps_df = pandas.read_json(json_file, orient='split')
-    with open(newick_file, 'r') as fh:
-        for line in fh:
-            line = re.sub('[:,]', '\n', line)
-            line = re.sub('[)(]', '', line)
-            line = re.sub(r'[0-9].*\.[0-9].*\n', '', line)
-            line = re.sub('root\n', '', line)
-    sample_order = line.split('\n')
-    sample_order = list([_f for _f in sample_order if _f])
-    sample_order.insert(0, 'root')
-    tree_order = snps_df.loc[sample_order]
-    # Count number of SNPs in each column.
-    snp_per_column = []
-    for column_header in tree_order:
-        count = 0
-        column = tree_order[column_header]
-        for element in column:
-            if element != column[0]:
-                count = count + 1
-        snp_per_column.append(count)
-    row1 = pandas.Series(snp_per_column, tree_order.columns, name="snp_per_column")
-    # Count number of SNPS from the
-    # top of each column in the table.
-    snp_from_top = []
-    for column_header in tree_order:
-        count = 0
-        column = tree_order[column_header]
-        # for each element in the column
-        # skip the first element
-        for element in column[1:]:
-            if element == column[0]:
-                count = count + 1
-            else:
-                break
-        snp_from_top.append(count)
-    row2 = pandas.Series(snp_from_top, tree_order.columns, name="snp_from_top")
-    tree_order = tree_order.append([row1])
-    tree_order = tree_order.append([row2])
-    # In pandas=0.18.1 even this does not work:
-    # abc = row1.to_frame()
-    # abc = abc.T --> tree_order.shape (5, 18), abc.shape (1, 18)
-    # tree_order.append(abc)
-    # Continue to get error: "*** ValueError: all the input arrays must have same number of dimensions"
-    tree_order = tree_order.T
-    tree_order = tree_order.sort_values(['snp_from_top', 'snp_per_column'], ascending=[True, False])
-    tree_order = tree_order.T
-    # Remove snp_per_column and snp_from_top rows.
-    cascade_order = tree_order[:-2]
-    # Output the cascade table.
-    output_cascade_table(cascade_order, mqdf, group, annotation_dict)
-    # Output the sorted table.
-    output_sort_table(cascade_order, mqdf, group, annotation_dict)
+def preprocess_tables(task_queue, annotation_dict, timeout):
+    while True:
+        try:
+            tup = task_queue.get(block=True, timeout=timeout)
+        except queue.Empty:
+            break
+        newick_file, json_file, json_avg_mq_file = tup
+        # Get the group.
+        group = get_sample_name(newick_file)
+        snps_df = pandas.read_json(json_file, orient='split')
+        with open(newick_file, 'r') as fh:
+            for line in fh:
+                line = re.sub('[:,]', '\n', line)
+                line = re.sub('[)(]', '', line)
+                line = re.sub(r'[0-9].*\.[0-9].*\n', '', line)
+                line = re.sub("'", '', line)
+                line = re.sub('root\n', '', line)
+        sample_order = line.split('\n')
+        sample_order = list(filter(None, sample_order))
+        sample_order.insert(0, 'root')
+        tree_order_df = snps_df.loc[sample_order]
+        # Output the sorted table.
+        output_table(tree_order_df, "sort", group, annotation_dict)
+        # Count number of SNPs in each column.
+        snp_per_column = []
+        for column_header in tree_order_df:
+            count = 0
+            column = tree_order_df[column_header]
+            for element in column:
+                # column[0] is top row/root/reference,
+                # element is everything below it.
+                if element != column[0] and element != '-':
+                    count = count + 1
+            snp_per_column.append(count)
+        row1 = pandas.Series(snp_per_column, tree_order_df.columns, name="snp_per_column")
+        # Count number of SNPS from the
+        # top of each column in the table.
+        snp_from_top = []
+        for column_header in tree_order_df:
+            count = 0
+            column = tree_order_df[column_header]
+            index_list_of_ref_differences = []
+            for ind, list_item in enumerate(column[1:].to_list()):
+                if list_item not in [column[0], '-']:
+                    index_list_of_ref_differences.append(ind)
+            c = itertools.count()
+            val = max((list(g) for _, g in itertools.groupby(index_list_of_ref_differences, lambda x: x - next(c))), key=len)
+            # Starting row number with longest continous SNPs in column
+            snp_from_top.append(val[0])
+        row2 = pandas.Series(snp_from_top, tree_order_df.columns, name="snp_from_top")
+        tree_order_df = tree_order_df.append([row1])
+        tree_order_df = tree_order_df.append([row2])
+        tree_order_df = tree_order_df.T
+        tree_order_df = tree_order_df.sort_values(['snp_from_top', 'snp_per_column'], ascending=[True, False])
+        tree_order_df = tree_order_df.T
+        # Remove snp_per_column and snp_from_top rows.
+        cascade_order_df = tree_order_df[:-2]
+        # Output the cascade table.
+        output_table(cascade_order_df, "cascade", group, annotation_dict)
+        task_queue.task_done()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--input_avg_mq_json', action='store', dest='input_avg_mq_json', required=False, default=None, help='Average MQ json file')
+    parser.add_argument('--input_newick', action='store', dest='input_newick', required=False, default=None, help='Newick file')
+    parser.add_argument('--input_snps_json', action='store', dest='input_snps_json', required=False, default=None, help='SNPs json file')
     parser.add_argument('--gbk_file', action='store', dest='gbk_file', required=False, default=None, help='Optional gbk file'),
-    parser.add_argument('--input_avg_mq_json', action='store', dest='input_avg_mq_json', help='Average MQ json file')
-    parser.add_argument('--input_newick', action='store', dest='input_newick', help='Newick file')
-    parser.add_argument('--input_snps_json', action='store', dest='input_snps_json', help='SNPs json file')
+    parser.add_argument('--processes', action='store', dest='processes', type=int, help='User-selected number of processes to use for job splitting')
 
     args = parser.parse_args()
 
@@ -299,4 +289,55 @@ if __name__ == '__main__':
     else:
         annotation_dict = None
 
-    preprocess_tables(args.input_newick, args.input_snps_json, args.input_avg_mq_json, annotation_dict)
+    # The assumption here is that the list of files
+    # in both INPUT_NEWICK_DIR and INPUT_JSON_DIR are
+    # named such that they are properly matched if
+    # the directories contain more than 1 file (i.e.,
+    # hopefully the newick file names and json file names
+    # will be something like Mbovis-01D6_* so they can be
+    # sorted and properly associated with each other).
+    if args.input_newick is not None:
+        newick_files = [args.input_newick]
+    else:
+        newick_files = []
+        for file_name in sorted(os.listdir(INPUT_NEWICK_DIR)):
+            file_path = os.path.abspath(os.path.join(INPUT_NEWICK_DIR, file_name))
+            newick_files.append(file_path)
+    if args.input_snps_json is not None:
+        json_files = [args.input_snps_json]
+    else:
+        json_files = []
+        for file_name in sorted(os.listdir(INPUT_JSON_DIR)):
+            file_path = os.path.abspath(os.path.join(INPUT_JSON_DIR, file_name))
+            json_files.append(file_path)
+    if args.input_avg_mq_json is not None:
+        json_avg_mq_files = [args.input_avg_mq_json]
+    else:
+        json_avg_mq_files = []
+        for file_name in sorted(os.listdir(INPUT_JSON_AVG_MQ_DIR)):
+            file_path = os.path.abspath(os.path.join(INPUT_JSON_AVG_MQ_DIR, file_name))
+            json_avg_mq_files.append(file_path)
+
+    multiprocessing.set_start_method('spawn')
+    queue1 = multiprocessing.JoinableQueue()
+    queue2 = multiprocessing.JoinableQueue()
+    num_files = len(newick_files)
+    # Set a timeout for get()s in the queue.
+    timeout = 0.05
+
+    for i, newick_file in enumerate(newick_files):
+        json_file = json_files[i]
+        json_avg_mq_file = json_avg_mq_files[i]
+        queue1.put((newick_file, json_file, json_avg_mq_file))
+
+    # Complete the preprocess_tables task.
+    processes = [multiprocessing.Process(target=preprocess_tables, args=(queue1, annotation_dict, timeout, )) for _ in range(args.processes)]
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
+    queue1.join()
+
+    if queue1.empty():
+        queue1.close()
+        queue1.join_thread()

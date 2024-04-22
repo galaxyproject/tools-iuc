@@ -107,7 +107,7 @@ bzcat '$inputs.in.raw_in.in_r' > 'in_r'
 #if $inputs.db.db_selector == "history"
 mkdir 'ref_db'
 &&
-bowtie2-build '$inputs.db.bowtie2db' 'ref_db/custom_db'
+bowtie2-build --large-index '$inputs.db.bowtie2db' 'ref_db/custom_db'
 &&
 python '$__tool_directory__/customizemetadata.py'
     transform_json_to_pkl
@@ -123,9 +123,15 @@ metaphlan
     --read_min_len $inputs.in.read_min_len
     --bt2_ps '$inputs.in.mapping.bt2_ps'
     --min_mapq_val $inputs.in.mapping.min_mapq_val
+    #if $ext == "sam"
+        --nreads \$(cat '$file_path' | grep -c -v '^@')
+    #end if
 #else
     '$inputs.in.in'
     --input_type '$inputs.in.selector'
+    #if $inputs.in.selector == "sam"
+        --nreads \$(cat '$inputs.in.in' | grep -c -v '^@')
+    #end if
 #end if
 #if $inputs.db.db_selector == "cached"
     --bowtie2db '$inputs.db.cached_db.fields.path'
@@ -186,16 +192,18 @@ metaphlan
 mv 'bowtie2out' '$bowtie2out'
 #end if
 
-#if $analysis.analysis_type.tax_lev.tax_lev == 'a' and $analysis.analysis_type.tax_lev.split_levels
-&&
-mkdir 'split_levels'
-&&
-python '$__tool_directory__/formatoutput.py'
-    split_levels
-    --metaphlan_output '$output_file'
-    --outdir 'split_levels'
-    $out.legacy_output
 
+#if $analysis.analysis_type.t in ['rel_ab', 'rel_ab_w_read_stats']
+    #if $analysis.analysis_type.tax_lev.tax_lev == 'a' and $analysis.analysis_type.tax_lev.split_levels
+        &&
+        mkdir 'split_levels'
+        &&
+        python '$__tool_directory__/formatoutput.py'
+            split_levels
+            --metaphlan_output '$output_file'
+            --outdir 'split_levels'
+            $out.legacy_output
+    #end if
 #end if
 
 #if $out.krona_output
@@ -237,8 +245,8 @@ python '$__tool_directory__/formatoutput.py'
                         <param argument="--bt2_ps" type="select" label="Presets options for BowTie2" help="Applied only with FASTA files">
                             <option value="sensitive">Sensitive</option>
                             <option value="very-sensitive" selected="true">Very sensitive</option>
-                            <option value="sensite-local">Sensitive local</option>
-                            <option value="very-sensite-local">Very sensitive local</option>
+                            <option value="sensitive-local">Sensitive local</option>
+                            <option value="very-sensitive-local">Very sensitive local</option>
                         </param>
                         <param argument="--min_mapq_val" type="integer" value="5" label="Minimum mapping quality value (MAPQ)"/>
                     </section>
@@ -257,15 +265,16 @@ python '$__tool_directory__/formatoutput.py'
                     <option value="history">From history</option>
                 </param>
                 <when value="cached">
-                    <param name="cached_db" label="Cached database with clade-specific marker genes" type="select">
-                        <options from_data_table="metaphlan_database">
-                            <validator message="No MetaPhlAn database is available" type="no_options" />
+                    <param name="cached_db" type="select" label="Cached database with clade-specific marker genes">
+                        <options from_data_table="@IDX_DATA_TABLE@">
+                            <filter type="static_value" column="4" value="@IDX_VERSION@"/>
+                            <validator message="No compatible MetaPhlAn database is available" type="no_options"/>
                         </options>
                     </param>
                 </when>
                 <when value="history">
                     <param argument="--bowtie2db" type="data" format="fasta" label="Database with clade-specific marker genes from history"/>
-                    <param argument="--mpa_pkl" type="data" format="json" label="Metadata associate to the database with clade-specific marker genes from history"/>
+                    <param argument="--mpa_pkl" type="data" format="json" label="Metadata associated to the database with clade-specific marker genes from history"/>
                 </when>
             </conditional>
         </section>
@@ -334,7 +343,7 @@ python '$__tool_directory__/formatoutput.py'
             <param argument="--sample_id" type="text" value="Metaphlan_Analysis" label="Sample ID for this analysis"/>
             <param argument="--use_group_representative" type='boolean' checked="false" truevalue='--use_group_representative' falsevalue='' 
                 label="Use a species as representative for species groups?"/>
-            <param name="legacy_output" argument="--legacy-output" type='boolean' checked="false" truevalue='--legacy-output' falsevalue='' 
+            <param argument="--legacy-output" type='boolean' checked="false" truevalue='--legacy-output' falsevalue='' 
                 label="Old MetaPhlAn2 two columns output?"/>
             <param argument="--CAMI_format_output" type='boolean' checked="false" truevalue='--CAMI_format_output' falsevalue='' 
                 label="Report the profiling using the CAMI output format?"/>
@@ -354,7 +363,7 @@ python '$__tool_directory__/formatoutput.py'
         <data name="biom_output_file" format="biom1" label="${tool.name} on ${on_string}: BIOM file" />
         <collection name="levels" type="list" label="${tool.name} on ${on_string}: Predicted taxon relative abundances at each taxonomic levels" >
             <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="split_levels/" format="tabular"/>
-            <filter>analysis['analysis_type']['tax_lev']['tax_lev'] == "a" and analysis['analysis_type']['tax_lev']['split_levels']</filter>
+            <filter>analysis['analysis_type']['t'] in ['rel_ab', 'rel_ab_w_read_stats'] and analysis['analysis_type']['tax_lev']['tax_lev'] == "a" and analysis['analysis_type']['tax_lev']['split_levels']</filter>
         </collection>
         <data name="krona_output_file" format="tabular" label="${tool.name} on ${on_string}: Predicted taxon relative abundances for Krona">
             <filter>out['krona_output']</filter>
@@ -408,7 +417,7 @@ python '$__tool_directory__/formatoutput.py'
             </section>
             <output name="output_file" ftype="tabular">
                 <assert_contents>
-                    <has_text text="UNKNOWN"/>
+                    <has_text text="UNCLASSIFIED"/>
                 </assert_contents>
             </output>
             <output name="bowtie2out" ftype="tabular">
@@ -428,7 +437,7 @@ python '$__tool_directory__/formatoutput.py'
                     <not_has_text text="p__Actinobacteria"/>
                 </assert_contents>
             </output>
-            <output_collection name="levels" type="list" >
+            <output_collection name="levels" type="list">
                 <element name="all" ftype="tabular">
                     <assert_contents>
                         <has_text text="class"/>
@@ -436,33 +445,10 @@ python '$__tool_directory__/formatoutput.py'
                         <has_n_lines n="1"/>
                     </assert_contents>
                 </element>
-                <element name="kingdom" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="kingdom_id"/>
-                        <has_n_columns n="3"/>
-                        <has_n_lines n="1"/>
-                    </assert_contents>
-                </element>
-                <element name="phylum" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="phylum_id"/>
-                        <not_has_text text="kingdom_id"/>
-                        <has_n_columns n="3"/>
-                        <has_n_lines n="1"/>
-                    </assert_contents>
-                </element>
                 <element name="class" ftype="tabular">
                     <assert_contents>
                         <has_text text="class_id"/>
                         <not_has_text text="phylum_id"/>
-                        <has_n_columns n="3"/>
-                        <has_n_lines n="1"/>
-                    </assert_contents>
-                </element>
-                <element name="order" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="order_id"/>
-                        <not_has_text text="class_id"/>
                         <has_n_columns n="3"/>
                         <has_n_lines n="1"/>
                     </assert_contents>
@@ -479,6 +465,29 @@ python '$__tool_directory__/formatoutput.py'
                     <assert_contents>
                         <has_text text="genus_id"/>
                         <not_has_text text="family"/>
+                        <has_n_columns n="3"/>
+                        <has_n_lines n="1"/>
+                    </assert_contents>
+                </element>
+                <element name="kingdom" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="kingdom_id"/>
+                        <has_n_columns n="3"/>
+                        <has_n_lines n="1"/>
+                    </assert_contents>
+                </element>
+                <element name="order" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="order_id"/>
+                        <not_has_text text="class_id"/>
+                        <has_n_columns n="3"/>
+                        <has_n_lines n="1"/>
+                    </assert_contents>
+                </element>
+                <element name="phylum" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="phylum_id"/>
+                        <not_has_text text="kingdom_id"/>
                         <has_n_columns n="3"/>
                         <has_n_lines n="1"/>
                     </assert_contents>
@@ -503,7 +512,8 @@ python '$__tool_directory__/formatoutput.py'
             <output name="krona_output_file" ftype="tabular">
                 <assert_contents>
                     <not_has_text text="k__Bacteria"/>
-                    <has_n_lines n="0"/>
+                    <has_n_lines n="1" delta="1"/>
+                    <has_size value="1" delta="1"/>
                 </assert_contents>
             </output>
         </test>
@@ -581,34 +591,11 @@ python '$__tool_directory__/formatoutput.py'
                         <has_n_columns n="17"/>
                     </assert_contents>
                 </element>
-                <element name="kingdom" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="kingdom_id"/>
-                        <has_text text="Bacteria"/>
-                        <has_n_columns n="3"/>
-                    </assert_contents>
-                </element>
-                <element name="phylum" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="phylum_id"/>
-                        <not_has_text text="kingdom_id"/>
-                        <has_text text="Firmicutes"/>
-                        <has_n_columns n="3"/>
-                    </assert_contents>
-                </element>
                 <element name="class" ftype="tabular">
                     <assert_contents>
                         <has_text text="class_id"/>
                         <not_has_text text="phylum_id"/>
                         <has_text text="Actinobacteria"/>
-                        <has_n_columns n="3"/>
-                    </assert_contents>
-                </element>
-                <element name="order" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="order_id"/>
-                        <not_has_text text="class_id"/>
-                        <has_text text="Propionibacteriales"/>
                         <has_n_columns n="3"/>
                     </assert_contents>
                 </element>
@@ -625,6 +612,29 @@ python '$__tool_directory__/formatoutput.py'
                         <has_text text="genus_id"/>
                         <not_has_text text="family"/>
                         <has_text text="Cutibacterium"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="kingdom" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="kingdom_id"/>
+                        <has_text text="Bacteria"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="order" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="order_id"/>
+                        <not_has_text text="class_id"/>
+                        <has_text text="Propionibacteriales"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="phylum" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="phylum_id"/>
+                        <not_has_text text="kingdom_id"/>
+                        <has_text text="Firmicutes"/>
                         <has_n_columns n="3"/>
                     </assert_contents>
                 </element>
@@ -981,31 +991,10 @@ python '$__tool_directory__/formatoutput.py'
                         <has_n_columns n="9"/>
                     </assert_contents>
                 </element>
-                <element name="kingdom" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="kingdom"/>
-                        <has_text text="Bacteria"/>
-                        <has_n_columns n="2"/>
-                    </assert_contents>
-                </element>
-                <element name="phylum" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="phylum"/>
-                        <has_text text="Firmicutes"/>
-                        <has_n_columns n="2"/>
-                    </assert_contents>
-                </element>
                 <element name="class" ftype="tabular">
                     <assert_contents>
                         <has_text text="class"/>
                         <has_text text="Actinobacteria"/>
-                        <has_n_columns n="2"/>
-                    </assert_contents>
-                </element>
-                <element name="order" ftype="tabular">
-                    <assert_contents>
-                        <has_text text="order"/>
-                        <has_text text="Propionibacteriales"/>
                         <has_n_columns n="2"/>
                     </assert_contents>
                 </element>
@@ -1020,6 +1009,27 @@ python '$__tool_directory__/formatoutput.py'
                     <assert_contents>
                         <has_text text="genus"/>
                         <has_text text="Cutibacterium"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="kingdom" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="kingdom"/>
+                        <has_text text="Bacteria"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="order" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="order"/>
+                        <has_text text="Propionibacteriales"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="phylum" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="phylum"/>
+                        <has_text text="Firmicutes"/>
                         <has_n_columns n="2"/>
                     </assert_contents>
                 </element>
@@ -1045,13 +1055,41 @@ python '$__tool_directory__/formatoutput.py'
                 </assert_contents>
             </output>
         </test>
+        <!-- Check a non-default analysis mode -->
+        <test expect_num_outputs="4">
+            <section name="inputs">
+                <conditional name="in">
+                    <param name="selector" value="raw"/>
+                    <conditional name="raw_in">
+                        <param name="selector" value="single"/>
+                        <param name="in" value="SRS014464-Anterior_nares.fasta"/>
+                    </conditional>
+                </conditional>
+                <conditional name="db">
+                    <param name="db_selector" value="cached"/>
+                    <param name="cached_db" value="test-db-20210409"/>
+                </conditional>
+            </section>
+            <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="marker_ab_table"/>
+                </conditional>
+            </section>
+            <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-legacy-abundances.tabular" compare="sim_size">
+                <assert_contents>
+                    <has_text text="29394__H3NC06__B8A41_08715"/>
+                    <has_text text="SampleID"/>
+                    <has_text text="Metaphlan_Analysis"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 What it does
 ============
 
 MetaPhlAn is a computational tool for profiling the composition of microbial communities (Bacteria, 
-Archaea and Eukaryotes) from metagenomic shotgun sequencing data (i.e. not 16S) with species-level. 
+Archaea and Eukaryotes) from metagenomic shotgun sequencing data (i.e. not 16S) at species-level. 
 
 MetaPhlAn relies on ~1.1M unique clade-specific marker genes identified from ~100,000 reference genomes 
 (~99,500 bacterial and archaeal and ~500 eukaryotic), allowing:
@@ -1077,8 +1115,8 @@ MetaPhlAn introduces the capability of characterizing organisms at the strain le
 aggregated marker information. Such capability comes with several slightly different flavours and 
 are a way to perform strain tracking and comparison across multiple samples.
 
-Usually, MetaPhlAn is first ran with the default parameter for the type of analysis to profile the 
-species present in the community, and then a strain-level profiling can be performed to zoom-in into 
+Usually, MetaPhlAn is first ran with default parameters for the type of analysis to profile the 
+species present in the community, and then a strain-level profiling can be performed to zoom-in on 
 specific species of interest. This operation can be performed quickly as it exploits the bowtie2out 
 intermediate file saved during the execution of the default analysis type.
 
@@ -1087,16 +1125,16 @@ Inputs
 
 Metaphlan takes as input either:
 
-- one or several sequence files in Fasta, FastQ (compressed or not)
+- one or several sequence files in Fasta, FastQ (whether compressed or not)
 - a BowTie2 produced SAM file
 - an intermediary mapping file of the microbiota generated by a previous MetaPhlAn run
 
-It also need the reference database, which can be locally installed or customized using the dedicated tools.
+It also needs the reference database, which can be locally installed or customized using the dedicated tools.
 
 Outputs
 =======
 
-The main output file is a tab-separated file with the predicted taxon relative abundances.
+The main output is a tab-separated file with the predicted taxon relative abundances.
 
 It also generates a BIOM file and some intermediate files (SAM and BowTie2out) if sequence files are given as inputs.
 
@@ -1106,7 +1144,7 @@ More help and use cases
 
 To get more information about MetaPhlAn usage and use cases, please refer to the `Metaphlan documentation`_.
 
-.. _Metaphlan documentation: https://github.com/biobakery/MetaPhlAn/wiki/MetaPhlAn-3.0#basic-usage
+.. _Metaphlan documentation: https://github.com/biobakery/MetaPhlAn/wiki/MetaPhlAn-4#Basic-Usage
 
     ]]></help>
     <expand macro="citations"/>

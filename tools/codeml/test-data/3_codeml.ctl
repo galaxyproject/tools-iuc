@@ -1,7 +1,7 @@
 
-      seqfile = /tmp/tmpr0j4bmyj/files/000/dataset_23.dat * sequence data file name
+      seqfile = /tmp/tmpag83k3gw/files/9/9/6/dataset_99661b4e-1dc8-471d-9db3-6eb3d2655fbe.dat * sequence data file name
       outfile = run_codeml * main result file name
-     treefile = /tmp/tmpr0j4bmyj/files/000/dataset_24.dat * tree structure file name
+     treefile = /tmp/tmpag83k3gw/files/d/4/d/dataset_d4d2b602-4042-48d7-9636-abdf169513fa.dat * tree structure file name
         noisy = 9  * 0,1,2,3,9: how much rubbish on the screen
       verbose = 0  * 1: detailed output, 0: concise output
       runmode = 0  * 0: user tree;  1: semi-automatic;  2: automatic
@@ -35,7 +35,7 @@
         ncatG = 3  * # of categories in dG of NSsites models
       fix_rho = 1  * 0: estimate rho; 1: fix it at rho
           rho = 0.0 * initial or fixed rho,   0:no correlation
-        getSE = 0  * 0: don't want them, 1: want S.E.s of estimates
+        getSE = 0  * 0: dont want them, 1: want S.E.s of estimates
  RateAncestor = 1  * (0,1,2): rates (alpha>0) or ancestral states (1 or 2)
    Small_Diff = 5e-07
     cleandata = 0  * remove sites with ambiguity data (1:yes, 0:no)?

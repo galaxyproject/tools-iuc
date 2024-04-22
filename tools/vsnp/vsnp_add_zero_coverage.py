@@ -33,15 +33,17 @@ def get_coverage_df(bam_file):
 def get_zero_df(reference):
     # Create a zero coverage dictionary.
     zero_dict = {}
+    reference_length = 0
     for record in SeqIO.parse(reference, "fasta"):
         chrom = record.id
         total_len = len(record.seq)
+        reference_length = reference_length + len(record.seq)
         for pos in list(range(1, total_len + 1)):
             zero_dict["%s-%s" % (str(chrom), str(pos))] = 0
     # Convert it to a data frame with depth_x
     # and depth_y columns - index is NaN.
     zero_df = pandas.DataFrame.from_dict(zero_dict, orient='index', columns=["depth"])
-    return zero_df
+    return zero_df, reference_length
 
 
 def output_zc_vcf_file(base_file_name, vcf_file, zero_df, total_zero_coverage, output_vcf):
@@ -82,25 +84,28 @@ def output_zc_vcf_file(base_file_name, vcf_file, zero_df, total_zero_coverage, o
     return good_snp_count
 
 
-def output_metrics_file(base_file_name, average_coverage, genome_coverage, good_snp_count, output_metrics):
-    bam_metrics = [base_file_name, "", "%4f" % average_coverage, genome_coverage]
-    vcf_metrics = [base_file_name, str(good_snp_count), "", ""]
-    metrics_columns = ["File", "Number of Good SNPs", "Average Coverage", "Genome Coverage"]
+def output_metrics_file(base_file_name, average_coverage, genome_coverage, good_snp_count, dbkey, reference,
+                        reference_length, total_zero_coverage, percent_ref_with_zero_coverage, output_metrics):
+    columns = ["BAM File", "Reference", "reference Length", "Genome with Coverage", "Average Depth",
+               "No Coverage Bases", "Percent Ref with Zero Coverage", "Quality SNPs"]
+    values = [base_file_name, dbkey, str(reference_length), genome_coverage, average_coverage,
+              str(total_zero_coverage), percent_ref_with_zero_coverage, str(good_snp_count)]
     with open(output_metrics, "w") as fh:
-        fh.write("# %s\n" % "\t".join(metrics_columns))
-        fh.write("%s\n" % "\t".join(bam_metrics))
-        fh.write("%s\n" % "\t".join(vcf_metrics))
+        fh.write("# %s\n" % "\t".join(columns))
+        fh.write("%s\n" % "\t".join(values))
 
 
-def output_files(vcf_file, total_zero_coverage, zero_df, output_vcf, average_coverage, genome_coverage, output_metrics):
+def output_files(vcf_file, total_zero_coverage, percent_ref_with_zero_coverage, zero_df, output_vcf,
+                 average_coverage, genome_coverage, output_metrics, reference, reference_length, dbkey):
     base_file_name = get_sample_name(vcf_file)
     good_snp_count = output_zc_vcf_file(base_file_name, vcf_file, zero_df, total_zero_coverage, output_vcf)
-    output_metrics_file(base_file_name, average_coverage, genome_coverage, good_snp_count, output_metrics)
+    output_metrics_file(base_file_name, average_coverage, genome_coverage, good_snp_count, dbkey, reference,
+                        reference_length, total_zero_coverage, percent_ref_with_zero_coverage, output_metrics)
 
 
-def get_coverage_and_snp_count(bam_file, vcf_file, reference, output_metrics, output_vcf):
+def get_coverage_and_snp_count(bam_file, vcf_file, dbkey, reference, output_metrics, output_vcf):
     coverage_df = get_coverage_df(bam_file)
-    zero_df = get_zero_df(reference)
+    zero_df, reference_length = get_zero_df(reference)
     coverage_df = zero_df.merge(coverage_df, left_index=True, right_index=True, how='outer')
     # depth_x "0" column no longer needed.
     coverage_df = coverage_df.drop(columns=['depth_x'])
@@ -109,19 +114,22 @@ def get_coverage_and_snp_count(bam_file, vcf_file, reference, output_metrics, ou
     coverage_df = coverage_df.fillna(0)
     coverage_df['depth'] = coverage_df['depth'].apply(int)
     total_length = len(coverage_df)
-    average_coverage = coverage_df['depth'].mean()
+    average_coverage = "{:.2f}".format(coverage_df['depth'].mean())
     zero_df = coverage_df[coverage_df['depth'] == 0]
     total_zero_coverage = len(zero_df)
+    percent_ref_with_zero_coverage = "{:.6%}".format(total_zero_coverage / reference_length * 100)
     total_coverage = total_length - total_zero_coverage
     genome_coverage = "{:.2%}".format(total_coverage / total_length)
     # Output a zero-coverage vcf fil and the metrics file.
-    output_files(vcf_file, total_zero_coverage, zero_df, output_vcf, average_coverage, genome_coverage, output_metrics)
+    output_files(vcf_file, total_zero_coverage, percent_ref_with_zero_coverage, zero_df, output_vcf,
+                 average_coverage, genome_coverage, output_metrics, reference, reference_length, dbkey)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--bam_input', action='store', dest='bam_input', help='bam input file')
+    parser.add_argument('--dbkey', action='store', dest='dbkey', help='bam input dbkey')
     parser.add_argument('--output_metrics', action='store', dest='output_metrics', required=False, default=None, help='Output metrics text file')
     parser.add_argument('--output_vcf', action='store', dest='output_vcf', required=False, default=None, help='Output VCF file')
     parser.add_argument('--reference', action='store', dest='reference', help='Reference dataset')
@@ -129,4 +137,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    get_coverage_and_snp_count(args.bam_input, args.vcf_input, args.reference, args.output_metrics, args.output_vcf)
+    get_coverage_and_snp_count(args.bam_input, args.vcf_input, args.dbkey, args.reference, args.output_metrics, args.output_vcf)

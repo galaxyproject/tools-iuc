@@ -1,4 +1,4 @@
-<tool id="stacks2_procrad" name="Stacks2: process radtags" profile="@PROFILE@" version="@STACKS_VERSION@+galaxy@WRAPPER_VERSION@">
+<tool id="stacks2_procrad" name="Stacks2: process radtags" profile="@PROFILE@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
     <description>the Stacks demultiplexing script</description>
     <macros>
         <import>macros.xml</import>
@@ -9,8 +9,9 @@
     <command detect_errors="aggressive"><![CDATA[
 @FASTQ_INPUT_FUNCTIONS@
 
-python '$__tool_directory__'/check_bcfile.py '$barcode' &&
-
+#if $input_type.barcode_encoding != ''
+    python '$__tool_directory__'/check_bcfile.py '$input_type.barcode' &&
+#end if
 mkdir stacks_inputs stacks_outputs &&
 
 #if $output_log
@@ -49,7 +50,24 @@ $options_advanced.disable_rad_check
     ]]></command>
 
     <inputs>
-        <expand macro="fastq_input_bc_file" multiple="true" listtype="list:paired"/>
+        <conditional name="input_type">
+            <param name="input_type_select" type="select" label="Single-end or paired-end reads">
+                <option value="single" selected="True">Single-end files</option>
+                <option value="paired">Paired-end files</option>
+            </param>
+            <when value="single">
+                <param name="fqinputs" argument="-f" type="data" format="fastqsanger,fastqsanger.gz" multiple="true" label="Singles-end reads"/>
+                <expand macro="barcode_selector">
+                    <expand macro="barcode_encoding_single" type="Barcode"/>
+                </expand>
+            </when>
+            <when value="paired">
+                <param name="fqinputs" type="data_collection" collection_type="list:paired" label="Paired-end reads" format="fastqsanger,fastqsanger.gz"/>
+                <expand macro="barcode_selector">
+                    <expand macro="barcode_encoding_pair" type="Barcode"/>
+                </expand>
+            </when>
+        </conditional>
         <conditional name="options_enzyme">
             <param name="options_enzyme_selector" type="select" label="Number of enzymes">
                 <option value="1">One</option>
@@ -85,30 +103,51 @@ $options_advanced.disable_rad_check
 
     <outputs>
         <expand macro="out_log"/>
-        <expand macro="process_outputs"/>
+        <expand macro="process_outputs">
+            <collection name="processed" type="list" label="${tool.name} on ${on_string} Processed reads">
+                <filter>input_type['input_type_select'] == "single"</filter>
+                <filter>input_type['barcode_encoding'] == ""</filter>
+                <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;name&gt;.+)" dir="stacks_outputs"/>
+            </collection>
+            <collection name="processed_paired" type="list:paired" label="${tool.name} on ${on_string} Processed reads">
+                <filter>input_type['input_type_select'] == "paired"</filter>
+                <filter>input_type['barcode_encoding'] == ""</filter>
+                <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;identifier_0&gt;.+)\.(?P&lt;identifier_1&gt;[^.]+)" dir="stacks_outputs"/>
+            </collection>
+            <collection name="demultiplexed" type="list" label="${tool.name} on ${on_string} Demultiplexed reads">
+                <filter>input_type['input_type_select'] == "single"</filter>
+                <filter>input_type['barcode_encoding'] != ""</filter>
+                <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;name&gt;.+)" dir="stacks_outputs"/>
+            </collection>
+            <collection name="demultiplexed_paired" type="list:paired" label="${tool.name} on ${on_string} Demultiplexed reads">
+                <filter>input_type['input_type_select'] == "paired"</filter>
+                <filter>input_type['barcode_encoding'] != ""</filter>
+                <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;identifier_0&gt;.+)\.(?P&lt;identifier_1&gt;[^.]+)" dir="stacks_outputs"/>
+            </collection>
+        </expand>
     </outputs>
     <tests>
-        <!-- single single ended input, no filtering (hence no capturing) + log -->
+        <!-- 01 single single ended input, no filtering (hence no capturing) + log -->
         <test expect_num_outputs="2">
             <param name="input_type|input_type_select" value="single"/>
-            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1_01.fq,procrad/R1_02.fq,procrad/R1_03.fq,procrad/R1_04.fq"/>
             <param name="input_type|barcode_encoding" value="--inline_null"/>
-            <param name="barcode" value="procrad/barcodes"/>
+            <param name="input_type|barcode" value="procrad/barcodes"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="add_log" value="yes"/>
             <output name="output_log" file="procrad/process_radtags.out" lines_diff="4"/>
             <output_collection name="demultiplexed" count="40">
-                <element name="PopA_01" file="demultiplexed/PopA_01.fq" ftype="fastqsanger"/>
+                <element name="PopA_01" file="demultiplexed/PopA_01.fq" ftype="fastqsanger" compare="contains"/>
             </output_collection>
         </test>
-        <!-- multiple (zipped) single end input (misusing R2 as add single end read file),
+        <!-- 02 multiple (zipped) single end input (misusing R2 as add single end read file),
              discarding by quality and capturing them -->
         <test expect_num_outputs="3">
             <param name="input_type|input_type_select" value="single"/>
             <param name="input_type|fqinputs" ftype="fastqsanger.gz" value="procrad/R1.fq.gzip,procrad/R2.fq.gzip"/>
             <param name="input_type|barcode_encoding" value="--inline_null"/>
-            <param name="barcode" value="procrad/barcodes"/>
+            <param name="input_type|barcode" value="procrad/barcodes"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="filter_cond|filter_select" value="yes"/>
@@ -131,24 +170,34 @@ $options_advanced.disable_rad_check
                 <element name="PopA_01" ftype="fastqsanger.gz"  md5="c7250f50138cbca747b85223aaae9565"/>
             </output_collection>
             <output_collection name="discarded" count="2">
-                <element name="R1" file="procrad/R1.fq.discards" ftype="fastqsanger"/>
-                <element name="R2" file="procrad/R2.fq.discards" ftype="fastqsanger"/>
+                <element name="R1">
+                    <assert_contents>
+                        <has_size value="1101516" delta="200"/>
+                        <has_text text="@lane1_fakedata0_11 1:N:0:"/>
+                    </assert_contents>
+                </element>
+                <element name="R2">
+                    <assert_contents>
+                        <has_size value="1613724" delta="200"/>
+                        <has_text text="@lane1_fakedata0_0 1:N:0:"/>
+                    </assert_contents>
+                </element>
             </output_collection>
         </test>
-        <!-- paired input, no quality but length filter, gzfasta output -->
+        <!-- 03 paired input, no quality but length filter, gzfasta output -->
         <test expect_num_outputs="4">
             <param name="input_type|input_type_select" value="paired"/>
             <param name="input_type|fqinputs">
                 <collection type="list:paired">
                     <element name="reads">
                         <collection type="paired">
-                            <element name="forward" value="procrad/R1.fq" ftype="fastqsanger"/>
-                            <element name="reverse" value="procrad/R2.fq" ftype="fastqsanger"/>
+                            <element name="forward" value="procrad/R1.fq.gzip" ftype="fastqsanger"/>
+                            <element name="reverse" value="procrad/R2.fq.gzip"  ftype="fastqsanger"/>
                         </collection>
                     </element>
                 </collection>
             </param>
-            <param name="barcode" value="procrad/barcodes"/>
+            <param name="input_type|barcode" value="procrad/barcodes"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="filter_cond|filter_select" value="no"/>
@@ -174,12 +223,17 @@ $options_advanced.disable_rad_check
             </output_collection>
             <output_collection name="discarded_paired" type="list:paired" count="1">
                 <element name="reads">
-                    <element name="forward" file="procrad/R1.fa.discards" ftype="fasta"/>
+                    <element name="forward">
+                        <assert_contents>
+                            <has_size value="609382" delta="200"/>
+                            <has_text text=">lane1_fakedata0_11 1:N:0:"/>
+                        </assert_contents>
+                    </element>
                     <element name="reverse" file="procrad/R2.fa.discards" ftype="fasta"/>
                 </element>
             </output_collection>
         </test>
-        <!-- paired input (gzipped) + advanced options + two enzymes, fasta output -->
+        <!-- 04 paired input (gzipped) + advanced options + two enzymes, fasta output -->
         <test expect_num_outputs="3">
             <param name="input_type|input_type_select" value="paired"/>
             <param name="input_type|fqinputs">
@@ -192,7 +246,7 @@ $options_advanced.disable_rad_check
                     </element>
                 </collection>
             </param>
-            <param name="barcode" value="procrad/barcodes"/>
+            <param name="input_type|barcode" value="procrad/barcodes"/>
             <param name="options_enzyme|options_enzyme_selector" value="2"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="options_enzyme|enzyme2" value="ecoRI"/>
@@ -234,35 +288,108 @@ $options_advanced.disable_rad_check
                 </element>
             </output_collection>
         </test>
-        <!-- test invalid barcode file -->
+        <!-- 05 test invalid barcode file -->
         <test expect_failure="true">
             <param name="input_type|input_type_select" value="single"/>
-            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1_01.fq,procrad/R1_02.fq,procrad/R1_03.fq,procrad/R1_04.fq"/>
             <param name="input_type|barcode_encoding" value="--inline_null"/>
-            <param name="barcode" value="procrad/barcodes-duplicate"/>
+            <param name="input_type|barcode" value="procrad/barcodes-duplicate"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="add_log" value="yes"/>
         </test>
-        <!-- test invalid barcode file -->
+        <!-- 06 test invalid barcode file -->
         <test expect_failure="true">
             <param name="input_type|input_type_select" value="single"/>
-            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1_01.fq,procrad/R1_02.fq,procrad/R1_03.fq,procrad/R1_04.fq"/>
             <param name="input_type|barcode_encoding" value="--inline_null"/>
-            <param name="barcode" value="procrad/barcodes-duplicate2"/>
+            <param name="input_type|barcode" value="procrad/barcodes-duplicate2"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="add_log" value="yes"/>
-    </test>
-        <!-- test invalid barcode file -->
-        <test expect_failure="true">
+        </test>
+        <!-- 07 test no provided barcode file single-->
+        <test expect_num_outputs="3">
             <param name="input_type|input_type_select" value="single"/>
-            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1.fq"/>
-            <param name="input_type|barcode_encoding" value="--inline_null"/>
-            <param name="barcode" value="procrad/barcodes-duplicate3"/>
+            <param name="input_type|fqinputs" ftype="fastqsanger.gz" value="procrad/R1.fq.gzip"/>
+            <param name="input_type|barcode_encoding" value=""/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="add_log" value="yes"/>
+            <param name="capture" value="-D"/>
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="Barcode Not Found"/>
+                    <has_text text="Retained Reads"/>
+                    <has_n_lines n="10"/>
+                </assert_contents>
+            </output>
+            <output_collection name="processed" count="1">
+                <element name="R1">
+                    <assert_contents>
+                        <has_size value="20"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="discarded" count="1">
+                <element name="R1">
+                    <assert_contents>
+                        <has_size value="1613724" delta="200"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- 08 test no provided barcode file paired -->
+        <test expect_num_outputs="3">
+            <param name="input_type|input_type_select" value="paired"/>
+            <param name="input_type|fqinputs">
+                <collection type="list:paired">
+                    <element name="reads">
+                        <collection type="paired">
+                            <element name="forward" value="procrad/R1.fq.gzip" ftype="fastqsanger.gz"/>
+                            <element name="reverse" value="procrad/R2.fq.gzip"  ftype="fastqsanger.gz"/>
+                        </collection>
+                    </element>
+                </collection>
+            </param>
+            <param name="input_type|barcode_encoding" value=""/>
+            <param name="options_enzyme|options_enzyme_selector" value="1"/>
+            <param name="options_enzyme|enzyme" value="ecoRI"/>
+            <param name="outype" value="gzfasta"/>
+            <param name="add_log" value="yes"/>
+            <output name="output_log" file="procrad/process_radtags_paired_no_barcode.out" lines_diff="4"/>
+            <output_collection name="processed_paired" type="list:paired" count="2">
+                <element name="reads_R1_0">
+                    <element name="forward">
+                        <assert_contents>
+                            <has_size value="20"/>
+                        </assert_contents>
+                    </element>
+                </element>
+                <element name="reads_R2_0">
+                    <element name="reverse">
+                        <assert_contents>
+                            <has_size value="20"/>
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
+            <output_collection name="remaining" type="list:paired" count="2">
+                <element name="reads_R1_0">
+                    <element name="forward">
+                        <assert_contents>
+                            <has_size value="20"/>
+                        </assert_contents>
+                    </element>
+                </element>
+                <element name="reads_R2_0">
+                    <element name="reverse">
+                        <assert_contents>
+                            <has_size value="17607" delta="100"/>
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
         </test>
     </tests>
     <help>

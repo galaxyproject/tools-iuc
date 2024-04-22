@@ -1,101 +1,161 @@
-<tool id="Add_a_column1" name="Compute" version="1.6">
-    <description>an expression on every row</description>
+<tool id="Add_a_column1" name="Compute" version="2.0">
+    <description>on rows</description>
+    <macros>
+        <xml name="compute_repeat">
+            <repeat name="expressions" title="Expressions" min="1" default="1">
+                <param name="cond" type="text" value="c3-c2" label="Add expression">
+                    <sanitizer>
+                        <valid initial="default">
+                            <add value="&lt;" />
+                            <add value="&gt;" />
+                            <add value="&quot;" />
+                            <add value="&apos;" />
+                        </valid>
+                    </sanitizer>
+                </param>
+                <conditional name="add_column">
+                    <param name="mode" type="select" label="Mode of the operation">
+                        <option value="">Append</option>
+                        <option value="I">Insert</option>
+                        <option value="R">Replace</option>
+                    </param>
+                    <when value="">
+                        <param name="pos" type="hidden" value="" />
+                    </when>
+                    <when value="I">
+                        <param name="pos" type="integer" min="1" value="1" label="Insert new column before existing column number" />
+                    </when>
+                    <when value="R">
+                        <param name="pos" type="integer" min="1" value="1" label="Use new column to replace column number" />
+                    </when>
+                </conditional>
+                <yield />
+            </repeat>
+        </xml>
+    </macros>
     <requirements>
         <requirement type="package" version="3.8">python</requirement>
-        <requirement type="package" version="1.19.1">numpy</requirement>
+        <requirement type="package" version="1.23.1">numpy</requirement>
     </requirements>
     <command detect_errors="aggressive"><![CDATA[
-## inject colums and column_types metadata into inputs json
-#import json
-#set inputs_dict = json.load(open($inputs))
-#set inputs_dict['columns'] = $input.metadata.columns
-#set inputs_dict['column_types'] = $input.metadata.column_types
-## flatten conditional
-#if $header_lines_conditional.header_lines_select == "yes":
-    #set inputs_dict['header_new_column_name'] = str($header_lines_conditional.header_new_column_name)
-#end if
-#set x = json.dump($inputs_dict, open($inputs, 'w'))
-
 python '$__tool_directory__/column_maker.py'
+#if str($error_handling.auto_col_types) == 'on':
+    #set $col_types = $input.metadata.column_types
+#else:
+    #set $col_types = ','.join(['str' for t in $input.metadata.column_types.split(',')])
+#end if
+--column-types $col_types
+$avoid_scientific_notation
+#if str($ops.header_lines_select) == 'yes':
+    --header
+#end if
+--file '$expressions_file'
+$error_handling.fail_on_non_existent_columns
+$error_handling.non_computable.action
+#if str($error_handling.non_computable.action) == '--non-computable-default':
+    '$error_handling.non_computable.default_value'
+#end if
 '$input'
 '$out_file1'
---load_json '$inputs'
     ]]></command>
     <configfiles>
-      <inputs name="inputs"/>
+      <configfile name="expressions_file"><![CDATA[
+#if str($ops.header_lines_select) == 'yes':
+    #for $expr in $ops.expressions:
+${expr.cond};${expr.add_column.pos}${expr.add_column.mode};${expr.new_column_name}
+    #end for
+#else:
+    #for $expr in $ops.expressions:
+${expr.cond};${expr.add_column.pos}${expr.add_column.mode};
+    #end for
+#end if
+]]></configfile>
     </configfiles>
     <inputs>
-        <param name="cond" type="text" value="c3-c2" label="Add expression">
-            <sanitizer>
-                <valid initial="default">
-                    <add value="&lt;" />
-                    <add value="&gt;" />
-                    <add value="&quot;" />
-                    <add value="&apos;" />
-                </valid>
-            </sanitizer>
-        </param>
-        <param name="input" type="data" format="tabular" label="as a new column to" help="Dataset missing? See TIP below"/>
-        <param name="round" type="boolean" truevalue="yes" falsevalue="no" label="Round result?" />
-        <param name="avoid_scientific_notation" type="boolean" truevalue="yes" falsevalue="no"
-        label="Avoid scientific notation"
-        help="If yes, use fully expanded decimal representation when writing new columns (use only if expression produces decimal numbers)." />
-        <conditional name="header_lines_conditional">
+        <param name="input" type="data" format="tabular" label="Input file" help="Dataset missing? See TIP below" />
+        <conditional name="ops">
             <param name="header_lines_select" type="select"
             label="Input has a header line with column names?"
-            help="Select Yes to be able to specify a name for the new column and have it added to the header line. If you select No, the first line will be treated as a regular line: If it is empty or starts with a # character it will be skipped, otherwise the tool will attempt to compute the specified expression on it." >
+            help="Select Yes to be able to specify names for new columns and have them added to the header line. If you select No, the first line will be treated as a regular line: If it is empty or starts with a # character it will be skipped, otherwise the tool will attempt to compute the specified expression on it." >
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
             </param>
-            <when value="no" />
+            <when value="no">
+                <expand macro="compute_repeat" />
+            </when>
             <when value="yes">
-                <param name="header_new_column_name" type="text" value="New Column" label="The new column name" />
+                <expand macro="compute_repeat">
+                    <param name="new_column_name" type="text" value="New Column" label="The new column name" />
+                </expand>
             </when>
         </conditional>
+        <param name="avoid_scientific_notation" type="boolean" truevalue="--avoid-scientific-notation" falsevalue=""
+        label="Avoid scientific notation in any newly computed columns"
+        help="If yes, use fully expanded decimal representation when writing new columns with floating point values. To prevent scientific notation in just specific new columns, you can use numpy's format_float_positional function in the corresponding expression." />
+        <section name="error_handling" title="Error handling">
+            <param name="auto_col_types" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Autodetect column types"
+            help="By default, try to use the column types that Galaxy has recorded for the input. This simplifies expressions, but can occasionally cause problems on its own. If disabled all column values are assumed to be strings and you will have to handle conversions to different types explicitly in the expression." />
+            <param argument="--fail-on-non-existent-columns" type="boolean" truevalue="--fail-on-non-existent-columns" falsevalue="" checked="true" label="Fail on references to non-existent columns"
+            help="If any expression references a column number that does not exist when that expression gets computed, the tool run will fail. Uncheck to have such a situation handled as a case of a non-computable expression as configured below." />
+            <conditional name="non_computable">
+                <param name="action" type="select" label="If an expression cannot be computed for a row">
+                    <option value="--fail-on-non-computable">Fail the entire tool run</option>
+                    <option value="--skip-non-computable">Skip the row</option>
+                    <option value="--keep-non-computable">Keep the row unchanged</option>
+                    <option value="--non-computable-blank">Produce an empty column value for the row</option>
+                    <option value="--non-computable-default">Fill in a replacement value</option>
+                </param>
+                <when value="--fail-on-non-computable" />
+                <when value="--skip-non-computable" />
+                <when value="--keep-non-computable" />
+                <when value="--non-computable-blank" />
+                <when value="--non-computable-default">
+                    <param name="default_value" type="text" label="Replacement value" help="Pick from suggestions or enter your own.">
+                        <option value="nan">nan (not a number)</option>
+                        <option value="inf">inf (infinity)</option>
+                        <option value="-inf">-inf (negative infinity)</option>
+                        <option value="NA">NA (not available)</option>
+                        <option value=".">.</option>
+                    </param>
+                </when>
+            </conditional>
+        </section>
     </inputs>
     <outputs>
         <data name="out_file1" format_source="input" metadata_source="input"/>
     </outputs>
     <tests>
         <test>
-            <param name="cond" value="c3-c2"/>
-            <param name="input" value="1.bed"/>
-            <param name="round" value="false"/>
+            <param name="cond" value="float(c3-c2)"/>
+            <param name="input" value="1.bed" ftype="bed" />
             <output name="out_file1" file="column_maker_out1.interval"/>
         </test>
         <test>
-            <param name="cond" value="c4*1"/>
-            <param name="input" value="1.interval"/>
-            <param name="round" value="false"/>
+            <param name="cond" value="c4*1."/>
+            <param name="input" value="1.interval" ftype="interval" />
             <output name="out_file1" file="column_maker_out2.interval"/>
         </test>
         <test>
-            <param name="cond" value="c4*1"/>
-            <param name="input" value="1.header.tsv"/>
-            <param name="round" value="false"/>
-            <conditional name="header_lines_conditional">
-                <param name="header_lines_select" value="yes" />
-                <param name="header_new_column_name" value="value1_again" />
-            </conditional>
+            <param name="cond" value="c4*1."/>
+            <param name="input" value="1.header.tsv" ftype="tabular" />
+            <param name="header_lines_select" value="yes" />
+            <param name="new_column_name" value="value1_again" />
             <output name="out_file1" file="column_maker_out2.header.tsv"/>
         </test>
         <test>
-            <param name="cond" value="c4*1"/>
+            <param name="cond" value="round(c4*1)"/>
             <param name="input" value="1.interval"/>
-            <param name="round" value="true"/>
             <output name="out_file1" file="column_maker_out3.interval"/>
         </test>
         <test>
              <!-- test that single column input works -->
              <param name="cond" value="c1/10"/>
-             <param name="input" value="1.tab" ftype="tabular"/>
-             <param name="round" value="no"/>
+             <param name="input" value="1.tab" ftype="tabular" />
              <output name="out_file1" file="column_maker_out4.tab"/>
          </test>
          <test>
             <param name="cond" value="float(.0000000000001)"/>
             <param name="input" value="1.bed"/>
-            <param name="round" value="false"/>
             <output name="out_file1">
                 <assert_contents>
                     <has_text text="CCDS10397" />
@@ -105,8 +165,7 @@ python '$__tool_directory__/column_maker.py'
         </test>
         <test>
             <param name="cond" value="float(.0000000000001)"/>
-            <param name="input" value="1.bed"/>
-            <param name="round" value="false"/>
+            <param name="input" value="1.bed" ftype="bed" />
             <param name="avoid_scientific_notation" value="true"/>
             <output name="out_file1">
                 <assert_contents>
@@ -115,6 +174,122 @@ python '$__tool_directory__/column_maker.py'
                     <not_has_text text="1e-13" />
                 </assert_contents>
             </output>
+        </test>
+        <test>
+            <param name="input" value="1.tab" ftype="tabular" />
+            <repeat name="expressions">
+                <param name="cond" value="c1/10" />
+                <conditional name="add_column">
+                    <param name="mode" value="R" />
+                    <param name="pos" value="1" />
+                </conditional>
+            </repeat>
+            <repeat name="expressions">
+                <param name="cond" value="round(c1*10)" />
+                <conditional name="add_column">
+                    <param name="mode" value="I" />
+                    <param name="pos" value="1" />
+                </conditional>
+            </repeat>
+            <output name="out_file1" file="column_maker_out4.tab" />
+        </test>
+        <!-- Test list column type in input -->
+        <test>
+            <param name="input" value="bed12.bed" ftype="bed12" />
+            <!-- get largest blocksize from column 11 of bed12 and use it as
+            new score value -->
+            <param name="cond" value="max(map(int, c11))" />
+            <conditional name="add_column">
+                <param name="mode" value="R" />
+                <param name="pos" value="5" />
+            </conditional>
+            <output name="out_file1" file="bed12_modified.bed" />
+        </test>
+        <!-- Test error handling example from help section -->
+        <test>
+            <param name="input" value="short_line_test.tab" ftype="tabular" />
+            <param name="cond" value="c6" />
+            <conditional name="add_column">
+                <param name="mode" value="R" />
+                <param name="pos" value="6" />
+            </conditional>
+            <param name="fail_on_non_existent_columns" value="false" />
+            <param name="action" value="--non-computable-default" />
+            <param name="default_value" value="." />
+            <output name="out_file1" file="short_line_test_out.tab" />
+        </test>
+        <!-- Test athletes BMI calculation in presence of NA values as in
+        https://training.galaxyproject.org/training-material/topics/introduction/tutorials/data-manipulation-olympics/tutorial.html#exercises-4
+        -->
+        <test>
+            <param name="input" value="olympics.tsv" ftype="tabular" />
+            <param name="header_lines_select" value="yes" />
+            <param name="new_column_name" value="BMI" />
+            <param name="cond" value="int(c8) / (int(c7) * int(c7)) * 10000" />
+            <param name="auto_col_types" value="false" />
+            <param name="action" value="--non-computable-default" />
+            <param name="default_value" value="NA" />
+            <output name="out_file1" file="olympics_bmi_out.tab" />
+        </test>
+        <!-- Test operation used by iwc SARS-CoV-2 consensus building WF that
+        turns a 3-column CHROM POS REF tabular dataset into a 3-column BED
+        dataset. -->
+        <test>
+            <param name="input" value="chrom_pos_ref.tab" ftype="tabular" />
+            <repeat name="expressions">
+                <param name="cond" value="int(c2) - (len(c3) == 1)" />
+                <conditional name="add_column">
+                    <param name="mode" value="R" />
+                    <param name="pos" value="2" />
+                </conditional>
+            </repeat>
+            <repeat name="expressions">
+                <param name="cond" value="int(c2) + ((len(c3) - 1) or 1)" />
+                <conditional name="add_column">
+                    <param name="mode" value="R" />
+                    <param name="pos" value="3" />
+                </conditional>
+            </repeat>
+            <output name="out_file1" file="bed_from_chrom_pos_ref.bed" />
+        </test>
+        <!-- Test failure on expression syntax errors -->
+        <test expect_failure="true">
+            <param name="cond" value="c3- = c2"/>
+            <param name="input" value="1.bed" ftype="bed" />
+            <assert_stderr>
+                <has_text text="syntax error during parsing." />
+            </assert_stderr>
+        </test>
+        <!-- Test failure on expression NameErrors -->
+        <test expect_failure="true">
+            <param name="cond" value="floatfloat(c3-c2)"/>
+            <param name="input" value="1.bed" ftype="bed" />
+            <assert_stderr>
+                <has_text text="name 'floatfloat' is not defined" />
+            </assert_stderr>
+        </test>
+        <!-- Test failure on non-existent column ref -->
+        <test expect_failure="true">
+            <param name="cond" value="c7 - c2"/>
+            <param name="input" value="1.bed" ftype="bed" />
+            <assert_stderr>
+                <has_text text="name 'c7' is not defined" />
+            </assert_stderr>
+        </test>
+        <!-- Test failure on non-computable expression -->
+        <test expect_failure="true">
+            <param name="cond" value="c3 / 0"/>
+            <param name="input" value="1.bed" ftype="bed" />
+            <assert_stderr>
+                <has_text text="division by zero" />
+            </assert_stderr>
+        </test>
+        <!-- Test keep-non-computable prevents failure -->
+        <test>
+            <param name="cond" value="c3 / 0"/>
+            <param name="input" value="1.bed" ftype="bed" />
+            <param name="action" value="--keep-non-computable" />
+            <output name="out_file1" file="1.bed" />
         </test>
     </tests>
     <help><![CDATA[
@@ -126,52 +301,138 @@ python '$__tool_directory__/column_maker.py'
 
 **What it does**
 
-This tool computes an expression for every row of a dataset and appends the result as a new column (field).
+This tool computes an expression on every row of a dataset and appends or inserts the result as a new column (field).
+
+Several expressions can be specified and will be applied sequentially to each row.
+
+**Expression rules**
 
 - Columns are referenced with **c** and a **number**. For example, **c1** refers to the first column of a tab-delimited file
 
-- **c3-c2** will add a length column to the dataset if **c2** and **c3** are start and end position
+- The following built-in Python functions are available for use in expressions::
+
+    abs | all | any | ascii | bin | bool | chr | ceil | complex | divmod
+
+    exp | float | floor | format | hex | int | len | list | log | log10
+
+    list | map | max | min | oct | ord | pow | range | reversed
+
+    round | set | sorted | sqrt | str | sum | type
+
+- In addition the numpy function ``format_float_positional`` is available to
+  control the formatting of floating point numbers.
+
+- Expressions can be chained, and the tool will keep track of newly added
+  columns while working through the chain. This means you can reference a column
+  that was created as the result of a previous expression in later ones.
 
 -----
 
-**Example**
+**Simple examples**
 
 If this is your input::
 
    chr1  151077881  151077918  2  200  -
    chr1  151081985  151082078  3  500  +
 
-computing "c4*c5" will produce::
-
-   chr1  151077881  151077918  2  200  -   400.0
-   chr1  151081985  151082078  3  500  +  1500.0
-
-if, at the same time, "Round result?" is set to **YES** results will look like this::
+computing "c4 * c5" will produce::
 
    chr1  151077881  151077918  2  200  -   400
    chr1  151081985  151082078  3  500  +  1500
 
-You can also use this tool to evaluate expressions. For example, computing "c3>=c2" for Input will result in the following::
+You can also use this tool to evaluate expressions.
+For example, computing "c3 >= c2" for the input above will result in the following::
 
    chr1  151077881  151077918  2  200  -  True
    chr1  151081985  151082078  3  500  +  True
 
-or computing "type(c2)==type('') for Input will return::
+Similarly, computing "type(c2) == type(c3) will return::
 
-   chr1  151077881  151077918  2  200  -  False
-   chr1  151081985  151082078  3  500  +  False
+   chr1  151077881  151077918  2  200  -  True
+   chr1  151081985  151082078  3  500  +  True
 
+-----
 
-The following built-in functions are available::
+**Error handling**
 
-  abs | all | any | bin | bool | chr | ceil | cmp | complex
+The tool will always fail on syntax errors in and other unrecoverable parsing
+errors with any of your expressions. For other problems, however, it offers
+control over how they should be handled:
 
-  divmod | exp | float | log | log10 | floor | hex | int | len | long
+1. The default for "Autodetect column types" is "Yes", which means the tool
+   will evaluate each column value as the type that Galaxy assumes for the
+   column. This default behavior will allow you to write simpler expressions.
+   The arithmetic expression "c4 * c5" from the first simple example,
+   for instance, works only because Galaxy realizes that c4 and c5 are integer
+   columns. Occasionally, this autodetection can cause issues. A common
+   such situation are missing values in columns that Galaxy thinks are of
+   numeric type. If you're getting errors like "Failed to convert some of the
+   columns in line #X ...", a solution might be to turn off column type
+   autodetection. The price you will have to pay for doing so is that now you
+   will have to handle type conversions yourself. In the first example you would
+   now have to use the epression: "int(c4) * int(c5)".
 
-  max | min | oct | ord | pow | range | reversed
+2. By default, if any expression references columns that are not existing before
+   that expression gets computed, the tool will fail, but you can uncheck the
+   "Fail on references to non-existent columns" option. If you do so, the result
+   will depend on your choice for "If an expression cannot be computed for a row"
+   (see 3.)
 
-  round | sorted | sqrt | str | sum | type | unichr | unicode |
+3. The default for rows, for which an expression fails to compute is, again, to
+   fail the tool run, but you can also choose to:
 
+   - skip the row on output
+
+     This is a simple way to only keep lines conforming to an expected standard.
+     It is also easy to mask problems with your expressions with this option so
+     take a look at the results and try to understand what gets skipped and for
+     what reasons (the stdout of the tool will contain information about both).
+
+   - keep the row unchanged
+
+     This can be a good solution if your input contains special separator lines
+     that don't follow the general tabular format of other lines and you would
+     like to keep those lines
+
+   - produce an empty column value for the row
+
+     This will use the empty string as a substitute for non-computable items.
+     Different from the "keep the row unchanged option" the problematic line will
+     have a column added or changed. This option is a good choice for inputs
+     in which all rows have the same tabular layout where you want to make sure
+     that the same is true for the output, i.e. that all output lines still have
+     the same number of columns.
+
+   - fill in a replacement value
+
+     This option is very similar to the previous one, but lets you control the
+     replacement value.
+
+**Example**
+
+In the following input::
+
+   chr1  151077881  151077918  2  200  -
+   chr1  151081985  151082078  3  500  +
+   chr1  151090031  151090938  4  700
+
+the last line does not have a strand column. This violates the bed file format
+specification, which says that unknown strand is to be encoded as ``.`` in the
+strand column.
+
+You can fix the file with the following tool run:
+
+**Add expression**: `c6`
+
+**Mode of the operation**: `Replace`
+
+**Use new column to replace column number**: `6`
+
+**Fail on references to non-existent columns**: `No`
+
+**If an expression cannot be computed for a row**: `Fill in a replacement value`
+
+**Replacement value**: `.`
     ]]></help>
     <citations />
 </tool>

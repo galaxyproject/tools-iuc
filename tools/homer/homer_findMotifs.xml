@@ -1,0 +1,279 @@
+<tool id="homer_findMotifs" name="findMotifs" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description/>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <requirements>
+        <container type="docker">quay.io/galaxy/homer-galaxy:4.11</container>
+    </requirements>
+    <!--  We circumvented the permissions problem by uploading this custom container to quay.io:
+    # syntax=docker/dockerfile:1
+    FROM quay.io/biocontainers/homer:4.11- -pl5262h9f5acd7_8
+    LABEL Comment="Manually generated container for homer, relaxed permissions to DB directory"
+    RUN chmod -R 777 /usr/local/share/homer
+    -->
+    <command detect_errors="exit_code"><![CDATA[
+
+## If geneID list(s) will be provided, the cached organism DB needs to be accessed. 
+## Homer looks under (and only under) $target_path for the DBs, which needs to be prepared before job execution.
+## Within an ordinary container, this would raise a permission issue as subdirs of / are read-only.
+#if str($input.input_type) in ['auto_bg', 'two_lists']:
+    #set species = str($input.organism.fields.organism)
+    #set source_path = str($input.organism.fields.path)
+    target_path=\$(dirname \$(which findMotifs.pl))/../share/homer &&
+    
+    ln -f -s $source_path/config.txt \$target_path/config.txt &&
+    cp -u -s $source_path/accession/${species}* \$target_path/data/accession/ &&
+    mkdir -p \$target_path/data/promoters &&
+    cp -u -s $source_path/promoters/${species}* \$target_path/data/promoters/ &&
+#end if
+
+findMotifs.pl '$input.target_set'
+#if str($input.input_type) != 'two_fastas':
+    $species
+#else:
+    fasta
+#end if
+./ -p \${GALAXY_SLOTS:-4} -nogo
+
+## background set
+#if str($input.input_type) == "two_lists":
+   -bg '$input.bg_set'
+#elif str($input.input_type) == "two_fastas":
+   -fastaBg '$input.bg_set'
+   #if $input.chopify:
+       -chopify
+   #end if
+#end if
+
+## basic search options
+-len '$search_params.len'
+-S $search_params.S
+-mis $search_params.mis
+$search_params.norevopp
+$search_params.nomotif
+$search_params.rna
+
+## Known motif options
+-mset $motif_options.mset
+$motif_options.bits
+#if $motif_options.mcheck:
+    -mcheck '$motif_options.mcheck'
+#end if
+#if $motif_options.mknown:
+    -mknown '$motif_options.mknown'
+#end if
+$motif_options.nofacts
+-start $motif_options.start
+-end $motif_options.end
+$motif_options.repeat_masking_choice
+
+## Advanced options
+$advanced.norm
+$advanced.b
+$advanced.noredun
+#if $advanced.maskMotif:
+    -maskMotif '$advanced.maskMotif'
+#end if
+#if $advanced.opt:
+    -opt '$advanced.opt'
+#end if
+$advanced.rand
+#if $advanced.fdr:
+    -fdr $advanced.fdr
+#end if
+-min $advanced.min -max $advanced.max
+
+## homer2 specific options
+#if str($advanced.homer12.version) == "homer2":
+    -nlen '$advanced.homer12.nlen'
+    -nmax '$advanced.homer12.nmax'
+    $advanced.homer12.neutral
+    #if $advanced.homer12.olen:
+        -olen $advanced.homer12.olen
+    #end if
+    -e '$advanced.homer12.e'
+    $advanced.homer12.quickMask
+    -minlp '$advanced.homer12.minlp'
+#else:
+    -homer1
+    -depth '$advanced.homer12.depth'
+#end if
+
+#if $output_options.output_peaks:
+    -peaks
+#end if
+&&
+
+mkdir $known_motifs.extra_files_path $denovo_motifs.extra_files_path &&
+mv ./knownResults $known_motifs.extra_files_path/ &&
+mv ./homerResults $denovo_motifs.extra_files_path/
+]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="input_type" type="select" label="How will you provide the input sets?" help="HOMER accepts a broad range of different types of gene identifiers such as NCBI Entrez Gene IDs, NCBI Unigene IDs, NCBI Refseq IDs, Ensembl Gene IDs, Gene Symbols (e.g. 'Nfkb1\'), popular affymetrix probe IDs (MOE430, U133plus, U95, U75A)">
+                <option value="auto_bg" selected="true">I will give a list of geneIDs, you auto-generate the background set.</option>
+                <option value="two_lists">I will give two lists of gene identifiers, for the input and background sets.</option>
+                <option value="two_fastas">I will give two fasta files with sequences, for the input and background sets.</option>
+            </param>
+            <when value="auto_bg">
+                <expand macro="geneid_input"/>
+            </when>
+            <when value="two_lists">
+                <expand macro="geneid_input"/>
+                <param name="bg_set" type="data" format="tabular" label="List of gene identifiers for the background set"/>
+            </when>
+            <when value="two_fastas">
+                <param name="target_set" type="data" format="fasta" label="List of sequences in fasta format for the positive set"/>
+                <param name="bg_set" type="data" format="fasta" label="List of sequences in fasta format for the background set"/>
+                <param name="chopify" type="boolean" value="false" label="Chop up background regions to match the size of target regions" help="Might be useful if background you provide is a full genome, transcriptome or so."/>
+            </when>
+        </conditional>
+        <section name="search_params" title="Search parameters" expanded="True">
+            <param argument="-len" type="text" value="8,10,12" label="Motif lengths to search" help="If multiple, use a comma-separated format, e.g. '8,10,12'. Too high numbers may cause the program to run out of memory. In such cases decrease the number of sequences analyzed (-N).">
+                <validator type="regex" message="motif lengths must be comma-separated integers without space">^(\d+,)*(\d+)$</validator>
+            </param>
+            <param argument="-S" type="integer" min="1" value="25" label="Number of motifs to find"/>
+            <param argument="-mis" type="integer" min="0" value="1" label="Number of mismatches to allow during global optimisation"/>
+            <param argument="-norevopp" type="boolean" truevalue="-norevopp" falsevalue="" checked="false" label="Do not search reverse strand for motifs"/>
+            <param argument="-nomotif" type="boolean" truevalue="-nomotif" falsevalue="" checked="false" label="Do not search for de novo motif enrichment"/>
+            <param argument="-rna" type="boolean" truevalue="-rna" falsevalue="" checked="false" label="Output RNA motif logos and compare to RNA motif database" help="Automatically disables reverse strand search"/>
+        </section>
+        <section name="motif_options" title="Known motif options" expanded="False">
+            <param argument="-mset" type="select" label="Check against motif collect">
+                <option value="auto" selected="True">automatic</option>
+                <option value="vertebrates">vertebrates</option>
+                <option value="insects">insects</option>
+                <option value="worms">worms</option>
+                <option value="plants">plants</option>
+                <option value="yeast">yeast</option>
+                <option value="all">all</option>
+            </param>
+            <param argument="-bits" type="boolean" truevalue="-bits" falsevalue="" checked="false" label="Scale sequence logos by information content"/>
+            <param argument="-mcheck" type="data" optional="true" format="txt" label="known motifs to check against de novo motifs"/>
+            <param argument="-mknown" type="data" optional="true" format="txt" label="Known motifs to check for enrichment"/>
+            <param argument="-nofacts" type="boolean" truevalue="-nofacts" falsevalue="" checked="false" label="Omit humor"/>
+            <param argument="-start" type="integer" min="-2000" max="2000" value="-300" label="Search start position, offset from TSS"/>
+            <param argument="-end" type="integer" min="-2000" max="2000" value="50" label="Search end position, offset from TSS"/>
+            <param name="repeat_masking_choice" type="boolean" truevalue="-mask" falsevalue="-nomask" checked="true" label="Use repeatmasked files"/>
+        </section>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param name="norm" type="select" label="Sequence normalization options:">
+                <option value="-cpg">Use CpG% instead of GC% for sequence content normalization</option>
+                <option value="-noweight" selected="true">No CG correction</option>
+            </param>
+            <param argument="-b" type="boolean" truevalue="-b" falsevalue="" checked="false" label="Use binomial distribution to calculate p-values, instead of hypergeometric."/>            
+            <param argument="-noredun" type="boolean" truevalue="-noredun" falsevalue="" checked="false" label="Do not remove predetermined redundant promoters/sequences."/>
+            <param argument="-maskMotif" type="data" format="txt" optional="true" label="Motifs to mask before motif finding"/>
+            <param argument="-opt" type="data" format="txt" optional="true" label="Motifs to optimize or change the length of"/>
+            <param argument="-rand" type="boolean" truevalue="-rand" falsevalue="" checked="false" label="Randomize the labels of target and background sequences"/>
+            <param argument="-fdr" type="integer" optional="true" min="0" value="" label="Calculate empirical FDR for de novo discovery by doing this many calculations"/>
+            <param argument="-min" type="integer" min="0" value="0" label="Remove sequences shorter than this (bp)"/>
+            <param argument="-max" type="integer" min="0" value="10000000000" max="10000000000" label="Remove sequences longer than this (bp)"/>        
+            <conditional name="homer12">
+                <param name="version" type="select" label="Which homer version do you want to use">
+                    <option value="homer2" selected="true">homer2 (default)</option>
+                    <option value="homer1">homer1 (forces the use of the original homer)</option>
+                </param>
+                <when value="homer2">
+                    <param argument="-nlen" type="integer" min="0" value="3" label="length of lower-order oligos to normalize in background"/>
+                    <param argument="-nmax" type="integer" min="0" value="160" label="Max normalization iterations"/>
+                    <param argument="-neutral" type="boolean" truevalue="-neutral" falsevalue="" checked="false" label="weight sequences to neutral frequencies, i.e. 25%, 6.25%, etc."/>
+                    <param argument="-olen" type="integer" min="0" value="" optional="true" label="Lower-order oligo normalization for oligo table" help="Use this if -nlen does not work well."/>
+                    <param argument="-e" type="float" min="0" max="1" value="0.01" label="" help="Maximum expected motif instance per bp in a random sequence"/>
+                    <param argument="-quickMask" type="boolean" truevalue="-quickMask" falsevalue="" checked="false" label="Skip full masking after finding motifs, similar to original homer"/>
+                    <param argument="-minlp" type="float" value="-10" label="Stop looking for motifs when seed logp score gets above this number."/>
+                </when>
+                <when value="homer1">
+                    <param argument="-depth" type="select" label="Time to spend on local optimization default">
+                        <option value="low">low</option>
+                        <option value="med" selected="true">med</option>
+                        <option value="high">high</option>
+                        <option value="allnight">allnight</option>
+                    </param>
+                </when>
+            </conditional>
+        </section>
+        <section name="output_options" title="Output options">
+            <param argument="-peaks" name="output_peaks" type="boolean" value="False" label="Produce peak file of promoters" help="Can be used with Homer findMotifsGenome tool."/>
+            <param name="save_html" type="boolean" checked="True" label="Save the summary in html files"/>
+            <param name="save_motif_matrices" type="boolean" checked="False" label="Save the 4xn matrices for discovered motifs"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="known_motifs" format="html" from_work_dir="knownResults.html" label="${tool.name} on ${on_string}: Known motifs">
+            <filter>motif_options['noknown'] is False</filter>
+        </data>
+        <data name="denovo_motifs" format="html" from_work_dir="homerResults.html" label="${tool.name} on ${on_string}: De novo motifs">
+            <filter>search_params['nomotif'] is False</filter>
+        </data>
+         <data name="peaks" format="html" from_work_dir="outputKnown.html" label="${tool.name} on ${on_string}: Peaks">
+            <filter>advanced['output_peaks'] is True</filter>
+        </data>
+    </outputs>
+    <tests>
+       <!-- Search for motifs from gene list + auto-generated background -->
+       <test expect_num_outputs="3">
+            <conditional name="input">
+                <param name="input_type" value="auto_bg"/>
+                <param name="target_set" value="demoDB/target_list.tabular"/>
+                <param name="organism" value="worm"/>
+            </conditional>
+            <output name="known_motifs" file="demoDB/knownResults_id.html" ftype="html"/>
+            <output name="denovo_motifs" file="demoDB/homerResults_id.html" ftype="html"/>
+        </test>
+        <!-- Search for motifs from positive & bg gene lists -->
+        <test expect_num_outputs="3">
+            <conditional name="input">
+                <param name="input_type" value="two_lists"/>
+                <param name="target_set" value="demoDB/target_list.tabular"/>
+                <param name="bg_set" value="demoDB/bg_list.tabular"/>
+                <param name="organism" value="worm"/>
+            </conditional>
+            <section name="advanced">
+                <param name="output_peaks" value="true"/>
+            </section>
+            <output name="known_motifs" file="demoDB/knownResults_id.html" ftype="html"/>
+            <output name="denovo_motifs" file="demoDB/homerResults_id.html" ftype="html"/>
+            <output name="peaks" file="demoDB/peaks_id.html" ftype="html"/>
+        </test>
+        <!-- Search for motifs from fasta positive & bg sets -->
+        <test expect_num_outputs="3">
+            <conditional name="input">
+                <param name="input_type" value="two_fastas"/>
+                <param name="target_set" value="demoDB/target.fa"/>
+                <param name="bg_set" value="demoDB/background.fa"/>
+            </conditional>
+            <output name="known_motifs" file="demoDB/knownResults_fasta.html" ftype="html"/>
+            <output name="denovo_motifs" file="demoDB/homerResults_fasta.html" ftype="html"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+    This tool is a wrapper for findMotifs.pl from Homer package. By default, this is a promoter-based motif finding analysis, but can also be used to look for RNA motifs in mRNAs or any motifs in sequences within user provided fasta datasets.
+
+    The tool requires, at a minimum the input of a list of genes or some fasta sequences to serve as the positive set and the name of the promoter set (i.e. organism). If a background set is not provided, it can be auto-generated from the set of all genes in the DB. By default the tool scans for both the differential enrichment of known motifs that are stored in its DB, as well as de novo discovery of motifs that are disproportionally represented sequences in the input dataset in comparison to the background set.
+    
+This program performs a number of operations en route to providing a basic analysis of motif and functional enrichment.  The various steps are outlined below:
+
+* Convert Gene IDs to consistent gene identifier (usually Entrez Gene ID).
+* Select appropriate background IDs (usually all confident genes, i.e. not olfactory genes), or take user supplied list.
+* Perform Gene Ontology enrichment calculation (disabled, refer to other tools such as GoSeq).
+* Assign weights to background promoters based on the distribution of CpG content in the target gene promoters such that comparable numbers of low and high-CpG promoters are analyzed.
+* Perform de novo motif analysis.
+* Create output HTML pages for de novo analysis.
+* Perform known motif enrichment analysis and generate corresponding output pages.
+
+If a list of gene identifiers is provided for the positive and/or background, set ensure that the input contains in each line of its first column, either of the following:
+HOMER accepts a broad range of different types of gene identifiers:
+* NCBI Entrez Gene IDs
+* NCBI Unigene IDs
+* NCBI Refseq IDs (mRNA, protein)
+* Ensembl Gene IDs
+* Gene Symbols (i.e. Official Gene names, like "Nfkb1" )
+* Popular affymetrix probe IDs (MOE430, U133plus, U95, U75A)
+
+    ]]></help>
+    <expand macro="citation"/>
+</tool>
