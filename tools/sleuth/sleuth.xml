@@ -1,0 +1,234 @@
+<tool id="sleuth" name="Sleuth" version="@TOOL_VERSION@+galaxy@SUFFIX_VERSION@" profile="@PROFILE@">
+    <description>differential expression analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro='xrefs'/>
+    <expand macro='requirements'/>
+    <stdio>
+        <regex match="Execution halted"
+           source="both"
+           level="fatal"
+           description="Execution halted." />
+        <regex match="Error in"
+           source="both"
+           level="fatal"
+           description="An undefined error occurred, please check your input carefully and contact your administrator." />
+        <regex match="Fatal error"
+           source="both"
+           level="fatal"
+           description="An undefined error occurred, please check your input carefully and contact your administrator." />
+    </stdio>
+    <version_command><![CDATA[echo $(R --version | grep version | grep -v GNU)", sleuth version" $(R --vanilla --slave -e "library(sleuth); cat(sessionInfo()\$otherPkgs\$sleuth\$Version)" 2> /dev/null | grep -v -i "WARNING: ")]]></version_command>
+    <command><![CDATA[
+        #import os
+        mkdir -p './kallisto_outputs' &&
+        #set $cond_files = list()
+        #if $experiment_design.selector == "single"
+            #set $factor_levels = list()
+            #set $cond_n_files = list()
+            #for $level in $experiment_design.rep_factorLevel
+                $factor_levels.append(str($level.factorLevel))
+                $cond_n_files.append(len(str($level.countsFile).split(",")))
+                #for $i, $count in enumerate(str($level.countsFile).split(","))
+                    #set $fname = str($level.factorLevel) + "_"  + str($i) + '.h5'
+                    #set $output_path =  "/".join(['./kallisto_outputs',$fname])
+                    ln -s '${count}' $output_path &&
+                    $cond_files.append($output_path)
+                #end for
+            #end for
+        #else
+            #for $count in $experiment_design.countsFile
+                #set $output_path =  "/".join(['./kallisto_outputs',$count.element_identifier])
+                ln -s '${count}' $output_path &&
+                $cond_files.append($output_path)
+            #end for
+        #end if
+        Rscript '${__tool_directory__}/sleuth.R'
+            #if $experiment_design.selector == "single"
+                #for $i, $factor in enumerate($factor_levels)
+                    --factorLevel $factor
+                    --factorLevel_n $cond_n_files[$i]
+                #end for
+            #else
+                --metadata_file $experiment_design.metadata_file
+            #end if
+            #for $file in $cond_files
+                --factorLevel_counts $file
+            #end for
+            --cores  \${GALAXY_SLOTS:-4}
+            $advanced_options.normalization
+            --nbins $advanced_options.nbins
+            --lwr $advanced_options.lwr
+            --upr $advanced_options.upr
+            --experiment_design $experiment_design.selector
+    ]]></command>
+    <inputs>
+        <conditional name="experiment_design">
+            <param name="selector" type="select" label="Experiment design" help="If you have multiple experimental conditions, you should use propably the complex design mode. In the help section you can find more information.">
+                <option value="single">Simple design mode (one experimental factor)</option>
+                <option value="complex">Complex design mode (two or more experimental factors)</option>
+            </param>
+            <when value="single">
+                <repeat name="rep_factorLevel" title="Factor level" min="2" default="2">
+                    <param name="factorLevel" type="text" value="FactorLevel" label="Specify a factor level, typical values could be 'tumor', 'normal', 'treated' or 'control'"
+                        help="Only letters, numbers and underscores will be retained in this field">
+                        <sanitizer>
+                            <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                        </sanitizer>
+                    </param>
+                    <param name="countsFile" type="data" format="h5" multiple="true" label="Counts file(s)"/>
+                </repeat>
+            </when>
+            <when value="complex">
+                <param name="countsFile" type="data_collection" format="h5" multiple="true" label="Counts file(s)"/>
+                <param argument="--metadata_file" type="data" format="txt" label="Input metadata file" help="You can find more details about the format of the design table in the help section." />
+            </when>
+        </conditional>
+        <section name="advanced_options" title="Advanced options" expanded="true">
+            <param argument="normalization" type="boolean" truevalue="--normalize" falsevalue="" checked="true" label="Normalize data" 
+                help="If this is set to false, bootstraps will not be read and transformation of the data will not be done. This should 
+                    only be set to false if one desires to do a quick check of the raw data. " />
+            <param argument="nbins" type="integer" min="0" value="100" label="NBins" help="The number of bins that the data should be 
+                split for the sliding window shrinkage using the mean-variance curve." />
+            <param argument="lwr" type="float" min="0" max="1" value="0.25" label="LWR" help="The lower range of variances within each 
+                bin that should be included for the shrinkage procedure. " />
+            <param argument="upr" type="float" min="0" max="1" value="0.75" label="UPR" help="The upper range of variances within each 
+                bin that should be included for the shrinkage procedure." />
+        </section>
+
+    </inputs>
+    <outputs>
+        <data name="sleuth_table" from_work_dir="sleuth_table.tab" format="tabular" label="${tool.name} on ${on_string}: DE table">
+            <actions>
+                <action name="column_names" type="metadata" default="target_id,pval,qval,test_stat,rss,degrees_free,mean_obs,var_obs,tech_var,sigma_sq,smooth_sigma_sq,final_sigma_sq" />
+            </actions>
+        </data>
+        <data name="pca_plot" from_work_dir="pca_plot.pdf" format="pdf" label="${tool.name} on ${on_string}: PCA plot"/>
+        <data name="density_plot" from_work_dir="group_density.pdf" format="pdf" label="${tool.name} on ${on_string}: density plot"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Control"/>
+                <param name="countsFile" value="kallisto_output_01.h5,kallisto_output_02.h5"/>
+            </repeat>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Cancer"/>
+                <param name="countsFile" value="kallisto_output_03.h5,kallisto_output_04.h5"/>
+            </repeat>
+            <section name="advanced_options">
+                <param name="normalization" value="true"/>
+                <param name="nbins" value="100"/>
+                <param name="lwr" value="0.25"/>
+                <param name="upr" value="0.75"/>
+            </section>
+            <output name="sleuth_table" ftype="tabular">
+                <assert_contents>
+                    <has_size value="689791" delta="100"/>
+                    <has_text text="ENST00000281092.9"/>
+                    <has_text text="ENST00000700211.1"/>
+                </assert_contents>
+            </output>
+            <output name="pca_plot" file="test01_pca.pdf" ftype="pdf" compare="sim_size"/>
+            <output name="density_plot" file="test01_density.pdf" ftype="pdf" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="experiment_design">
+                <param name="selector" value="complex"/>
+                <param name="countsFile">
+                    <collection type="list">
+                        <element name="kallisto_output_01.h5" ftype="h5" value="kallisto_output_01.h5"/>
+                        <element name="kallisto_output_02.h5" ftype="h5" value="kallisto_output_02.h5"/>
+                        <element name="kallisto_output_03.h5" ftype="h5" value="kallisto_output_03.h5"/>
+                        <element name="kallisto_output_04.h5" ftype="h5" value="kallisto_output_04.h5"/>
+                    </collection>
+                </param>
+                <param name="metadata_file" value="design_two_factors.tab"/>
+            </conditional>
+            <section name="advanced_options">
+                <param name="normalization" value="true"/>
+                <param name="nbins" value="100"/>
+                <param name="lwr" value="0.25"/>
+                <param name="upr" value="0.75"/>
+            </section>
+            <output name="sleuth_table" ftype="tabular">
+                <assert_contents>
+                    <has_size value="756310" delta="100"/>
+                    <has_text text="ENST00000394894.8"/>
+                    <has_text text="ENST00000524187.1"/>
+                </assert_contents>
+            </output>
+            <output name="pca_plot" file="test02_pca.pdf" ftype="pdf" compare="sim_size"/>
+            <output name="density_plot" file="test02_density.pdf" ftype="pdf" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="experiment_design">
+                <param name="selector" value="complex"/>
+                <param name="countsFile">
+                    <collection type="list">
+                        <element name="kallisto_output_01.h5" ftype="h5" value="kallisto_output_01.h5"/>
+                        <element name="kallisto_output_02.h5" ftype="h5" value="kallisto_output_02.h5"/>
+                        <element name="kallisto_output_03.h5" ftype="h5" value="kallisto_output_03.h5"/>
+                        <element name="kallisto_output_04.h5" ftype="h5" value="kallisto_output_04.h5"/>
+                    </collection>
+                </param>
+                <param name="metadata_file" value="design_three_factors.tab"/>
+            </conditional>
+            <section name="advanced_options">
+                <param name="normalization" value="true"/>
+                <param name="nbins" value="100"/>
+                <param name="lwr" value="0.25"/>
+                <param name="upr" value="0.75"/>
+            </section>
+            <output name="sleuth_table" ftype="tabular">
+                <assert_contents>
+                    <has_size value="756310" delta="100"/>
+                    <has_text text="ENST00000394894.8"/>
+                    <has_text text="ENST00000524187.1"/>
+                </assert_contents>
+            </output>
+            <output name="pca_plot" file="test03_pca.pdf" ftype="pdf" compare="sim_size"/>
+            <output name="density_plot" file="test03_density.pdf" ftype="pdf" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**Purpose**
+
+Sleuth is a tool for the analysis and comparison of multiple related RNA-Seq experiments. Key features include:
+
+- The ability to perform both transcript-level and gene-level analysis.
+- Compatibility with kallisto enabling a fast and accurate workflow from reads to results.
+- The use of bootstraps to ascertain and correct for technical variation in experiments.
+- An interactive app for exploratory data analysis.
+
+To use sleuth, RNA-Seq data must first be quantified with kallisto, which is a program for very fast RNA-Seq quantification based on 
+pseudo-alignment. An important feature of kallisto is that it outputs bootstraps along with the estimates of transcript abundances. 
+These can serve as proxies for technical replicates, allowing for an ascertainment of the variability in estimates due to the random 
+processes underlying RNA-Seq as well as the statistical procedure of read assignment. 
+
+.. class:: infomark
+
+**Experimental design tabular input for complex experimental designs**
+
+The experimental design input should have this format:
+
+        ::
+        
+            data_filename	condition	sample
+            finename_01.fastq.gz	condition1	replicate1
+            filename_02.fastq.gz	condition1	replicate2
+            filename_03.fastq.gz	condition2	replicate1
+            filename_04.fastq.gz	condition2	replicate2
+
+
+The tabular file **requires to have at least three columns with the same names as the previous example** (path, condition, sample). The path column correspond to original FASTQ filenames uploaded to Galaxy. 
+Condition includes the information about the first factor, and sample includes information about the second factor. **Only alphanumeric characters, undescores and dots are allowed**. 
+Additional factors can be included in the design table.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>

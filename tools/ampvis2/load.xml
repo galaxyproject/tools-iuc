@@ -5,13 +5,24 @@
     </macros>
     <expand macro="header"/>
     <command detect_errors="exit_code"><![CDATA[
-        #if $otutable.ext.startswith("biom")
+        #if $otutable.is_of_type("biom1") or $otutable.is_of_type("biom2")
             ln -s '$otutable' otutable.biom &&
-        #else
-            ln -s '$otutable' otutable.tsv &&
+        #else if not $otutable.is_of_type("phyloseq")
+            ## asv/otu column can not be specified so set the needed name
+            ## if empty https://github.com/KasperSkytte/ampvis2/issues/166 
+            ## also done in taxonomy.tsv
+            #if $asv_otu_col_empty
+                sed -e '1 s/^\t/ASV\t/' '$otutable' > otutable.tsv &&
+            #else
+                ln -s '$otutable' otutable.tsv &&
+            #end if
         #end if
         #if $taxonomy
-            ln -s '$taxonomy' taxonomy.tsv &&
+            #if $asv_otu_col_empty
+                sed -e '1 s/^\t/ASV\t/' '$taxonomy' > taxonomy.tsv &&
+            #else
+                ln -s '$taxonomy' taxonomy.tsv &&
+            #end if
         #end if
         Rscript '$rscript'
     ]]></command>
@@ -21,11 +32,29 @@
             library(readr, quietly = TRUE)
             ## 'manually' load metadata treating all columns as character
             ## giving colClasses to amp_load seems not possible
+            ## - check.names=F: leave empty column names empty .. fixed below
             #if $metadata
-                metadata <- read.table("$metadata", header = TRUE, sep = "\t", colClasses = "character")
+                metadata <- read.table("$metadata", header = TRUE, sep = "\t", colClasses = "character", check.names=F)
+                ## we do not require the metadata to have a 1st column named "SampleID",
+                ## but it should not be empty
+                if(colnames(metadata)[1] == ""){
+                    colnames(metadata)[1] <- "SampleID"
+                }
+                if(exists("SampleID", where = metadata)){
+                    rownames(metadata) <- metadata[["SampleID"]]
+                }else{
+                    rownames(metadata) <- metadata[[1]]
+                }
+            #end if
+
+            #if $otutable.is_of_type("phyloseq")
+                otutable <- readRDS("$otutable")
+                print(class(otutable))
             #end if
             data <- amp_load(
-                #if $otutable.ext.startswith("biom")
+                #if $otutable.is_of_type("phyloseq")
+                    otutable = otutable,
+                #else if $otutable.is_of_type("biom1") or $otutable.is_of_type("biom2")
                     otutable = "otutable.biom",
                 #else
                     otutable = "otutable.tsv",
@@ -44,10 +73,21 @@
                 #end if
                 pruneSingletons = $pruneSingletons
             )
+
+            #if $asv_sequences
+                library(ape, quietly = TRUE)
+
+                seq <- as.DNAbin(strsplit(rownames(data\$abund), ""))
+                names(seq) <- paste0("ASV", seq_along(seq))
+                data\$refseq <- seq
+                data <- matchOTUs(data, seq)
+            #end if
+
             ## try to guess column types with plyr::type.convert
             #if $guess_column_types
                 data\$metadata <- readr::type_convert(data\$metadata, guess_integer=TRUE)
             #end if
+
             saveRDS(data, "$ampvis")
             ## write metadata list for biom input or if metadata is given 
             #if "metadata" in $write_lists
@@ -62,12 +102,11 @@
         ]]></configfile>
     </configfiles>
     <inputs>
-        <param argument="otutable" type="data" format="tabular,biom1,biom2" label="OTU table"/>
-        <param argument="metadata" type="data" format="tsv" optional="true" label="Sample metadata">
+        <param argument="otutable" type="data" format="phyloseq,dada2_sequencetable,tabular,biom1,biom2" label="OTU table"/>
+        <param name="asv_otu_col_empty" type="boolean" checked="false" label="OTU/ASV column has empty header" help="By default ampvis2 expects a column named ASV or OTU containing the ASV or OTU identifiers. By checking this a column with an empty header will be used (as produced by dada2)."/>
+        <param name="asv_sequences" type="boolean" checked="false" label="ASV identifiers are the ASV sequences" help="By checking this the identifiers will be renamed to ASV1, ASV2, etc and the sequences will be stored in the ampvis2 object." />
+        <param argument="metadata" type="data" format="tabular,tsv" optional="true" label="Sample metadata">
             <validator type="expression" message="Table must have at least 1 column"><![CDATA[value.metadata.columns > 0]]></validator>
-            <!-- TODO in future versions this might change https://github.com/MadsAlbertsen/ampvis2/pull/134
-                 if so, then also adapt help text and test data -->
-            <validator type="expression" message="First column must be named SampleID"><![CDATA[value.metadata.column_names[0] == "SampleID"]]></validator>
         </param>
         <param name="guess_column_types" type="boolean" checked="true" label="Guess metadata column types" help="See help"/>
         <param argument="taxonomy" type="data" format="tabular" optional="true" label="Taxonomy table"/>
@@ -98,6 +137,7 @@
             <output name="metadata_list_out" value="AalborgWWTPs-metadata.list"/>
             <output name="taxonomy_list_out" value="AalborgWWTPs-taxonomy.list"/>
             <assert_stdout>
+                <has_text text="ampvis2 object with 3 elements."/>
                 <has_text text="575.79"/>
                 <has_text text="SampleID, Plant, Date, Year, Period"/>
                 <has_text text="200(100%)   194(97%) 177(88.5%)   170(85%)   152(76%) 113(56.5%)      2(1%)"/>
@@ -114,6 +154,7 @@
             <output name="metadata_list_out" value="AalborgWWTPs-metadata.list"/>
             <output name="taxonomy_list_out" value="AalborgWWTPs-taxonomy.list"/>
             <assert_stdout>
+                <has_text text="ampvis2 object with 5 elements."/>
                 <has_text text="575.79"/>
                 <has_text text="SampleID, Plant, Date, Year, Period"/>
                 <has_text text="200(100%)   194(97%) 177(88.5%)   170(85%)   152(76%) 113(56.5%)      2(1%)"/>
@@ -123,57 +164,126 @@
              metadata seems not to be loaded from a biom file https://github.com/MadsAlbertsen/ampvis2/issues/129
              taxonomy is loaded from all but 1 
             -->
-        <test>
+        <test expect_num_outputs="1">
             <param name="otutable" value="rich-dense.biom" ftype="biom1"/>
+            <param name="write_lists" value=""/>
             <output name="ampvis" ftype="ampvis2">
                 <assert_contents>
                     <has_size value="748"/>
                 </assert_contents>
             </output>
             <assert_stdout>
+                <has_text text="ampvis2 object with 3 elements."/>
                 <has_text text="4.5"/>
                 <has_text text="SampleID, BarcodeSequence, LinkerPrimerSequence, BODY_SITE, Description"/>
                 <has_text text="5(100%) 5(100%) 5(100%) 5(100%) 5(100%) 5(100%)  1(20%)"/>
             </assert_stdout>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="otutable" value="rich-sparse.biom" ftype="biom1"/>
+            <param name="write_lists" value=""/>
             <output name="ampvis" ftype="ampvis2">
                 <assert_contents>
                     <has_size value="751"/>
                 </assert_contents>
             </output>
             <assert_stdout>
+                <has_text text="ampvis2 object with 3 elements."/>
                 <has_text text="4.5"/>
                 <has_text text="SampleID, BarcodeSequence, LinkerPrimerSequence, BODY_SITE, Description"/>
                 <has_text text="5(100%) 5(100%) 5(100%) 5(100%) 5(100%) 5(100%)  1(20%)"/>
             </assert_stdout>
         </test>
-        <test>
+        <!-- input file seems to miss metadata check that no metadata & taxonomy is loaded (ampvis2 adds dummy metadata) -->
+        <test expect_num_outputs="1">
             <param name="otutable" value="min_sparse_otu_table_hdf5.biom" ftype="biom2"/>
             <output name="ampvis" ftype="ampvis2">
                 <assert_contents>
                     <has_size value="395"/>
                 </assert_contents>
             </output>
+            <param name="write_lists" value=""/>
             <assert_stdout>
+                <has_text text="ampvis2 object with 3 elements."/>
                 <has_text text="4.5"/>
-                <!-- input file seems to miss metadata check that no metadata & taxonomy is loaded (ampvis2 adds dummy metadata) -->
                 <has_text text="SampleID, DummyVariable"/>
                 <has_text text="0(0%)   0(0%)   0(0%)   0(0%)   0(0%)   0(0%)   0(0%)"/>
             </assert_stdout>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="otutable" value="rich_sparse_otu_table_hdf5.biom" ftype="biom2"/>
             <output name="ampvis" ftype="ampvis2">
                 <assert_contents>
                     <has_size value="753"/>
                 </assert_contents>
             </output>
+            <param name="write_lists" value=""/>
             <assert_stdout>
+                <has_text text="ampvis2 object with 3 elements."/>
                 <has_text text="4.5"/>
                 <has_text text="SampleID, BODY_SITE, BarcodeSequence, Description, LinkerPrimerSequence"/>
                 <has_text text="5(100%) 5(100%) 5(100%) 5(100%) 5(100%) 5(100%)  1(20%)"/>
+            </assert_stdout>
+        </test>
+        <!-- load dada2 ASV table + metadata + taxonomy -->
+        <test expect_num_outputs="3">
+            <param name="otutable" value="dada2-removeBimeraDenovo.tab" ftype="dada2_sequencetable"/>
+            <param name="metadata" value="dada2-metadata.tsv" ftype="tsv"/>
+            <param name="taxonomy" value="dada2-assignTaxonomy.tabular"/>
+            <param name="asv_otu_col_empty" value="true"/>
+            <param name="asv_sequences" value="true"/>
+            <output name="ampvis" ftype="ampvis2">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="metadata_list_out">
+                <assert_contents>
+                    <has_n_lines n="23"/>
+                    <has_n_columns n="4"/>
+                    <has_text text="Sample"/>
+                </assert_contents>
+            </output>
+            <output name="taxonomy_list_out">
+                <assert_contents>
+                    <has_n_lines n="370"/>
+                    <has_n_columns n="2"/>
+                    <has_line line="Bacteria&#009;Kingdom"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="ampvis2 object with 4 elements."/> <!-- this also has fasta, i.e. 4 -->
+                <has_text text="6212.45"/>
+                <has_text text="Sample, time"/>
+                <has_text text="232(100%)   232(100%)   232(100%) 231(99.57%) 209(90.09%) 127(54.74%)"/>
+            </assert_stdout>
+        </test>
+        <!-- load data from phyloseq -->
+        <test expect_num_outputs="3">
+            <param name="otutable" value="output.phyloseq" ftype="phyloseq"/>
+            <output name="ampvis" ftype="ampvis2">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="metadata_list_out">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                    <has_n_columns n="4"/>
+                    <has_text text="SampleID"/>
+                </assert_contents>
+            </output>
+            <output name="taxonomy_list_out">
+                <assert_contents>
+                    <has_n_lines n="147"/>
+                    <has_n_columns n="2"/>
+                    <has_line line="Bacteria&#009;Kingdom"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="ampvis2 object with 4 elements."/> <!-- this also has fasta, i.e. 4 -->
+                <has_text text="SampleID, Property, Number"/>
+                <has_text text="64(100%)   64(100%)   64(100%)   64(100%) 62(96.88%)  56(87.5%)      0(0%)"/>
             </assert_stdout>
         </test>
     </tests>
@@ -182,11 +292,11 @@
 What it does
 ============
 
-This tool reads an OTU-table and corresponding sample metadata, and returns
+This tool reads an OTU or ASV table and corresponding sample metadata, and returns
 a RDS data set for use in all ampvis2 tools. It is therefore required to load
 data with this tool before any other ampvis2 tools can be used.
 
-The Galaxy tool calls the `amp_load <https://madsalbertsen.github.io/ampvis2/reference/amp_load.html>`_
+The Galaxy tool calls the `amp_load <https://kasperskytte.github.io/ampvis2/reference/amp_load.html>`_
 function of the ampvis2 package. This function validates and corrects the
 provided data frames in different ways to make it suitable for the rest of the
 ampvis2 tools. It is important that the provided data sets match the
@@ -197,7 +307,7 @@ Input
 
 **The OTU-table**
 
-contains information about the OTUs, their read counts in each sample, and
+contains information about the OTU/ASVs, their read counts in each sample, and
 optionally their assigned taxonomy. The OTU table can be given as
 
 - Tabular data set
@@ -211,11 +321,17 @@ If given in tabular format the provided OTU-table must be a table with the
 following requirements:
 
 - The rows are OTU IDs and the columns are samples.
-- The OTU ID's are expected to be in a column called "OTU", "ASV", or "#OTU ID".
+- The OTU IDs are by default expected to be in a column called "OTU", "ASV", or "#OTU ID".
+  For data using an empty header for the OTU/ASV colum enable the option *OTU/ASV column has empty header*
+  (this allows to process data as produced e.g. by dada2).
 - The column names of the table are the sample IDs, exactly matching those in
   the metadata
 - The last 7 columns are optionally the corresponding taxonomy assigned to the
   OTUs, named "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species".
+
+If the ASV IDs are actually the ASV Sequences then enabling
+*ASV identifiers are the ASV sequences* will rename the identifiers to ASV1, ASV2,...
+(and save the sequences in the ampvis2 object).
 
 Generally avoid special characters and spaces in row- and column names.
 
@@ -232,10 +348,9 @@ samples during analysis. The amount of information in the metadata is unlimited,
 it can contain any number of columns (variables), however there are a few
 requirements:
     
-- The sample IDs must be in the first column and the column must be named
-  ``SampleID``. These sample IDs must match exactly to those in the OTU-table. Any
-  unmatched samples between the otutable and metadata will be removed with a
-  warning.
+- The sample IDs must be in the first column. The sample IDs must match exactly
+  to those in the OTU-table. Any unmatched samples between the otutable and
+  metadata will be removed with a warning.
 - Generally avoid special characters and spaces in row- and column names.
 
 By default the data types of metadata columns are guessed with

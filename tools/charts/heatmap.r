@@ -17,8 +17,9 @@ get_label <- function(table, column_key) {
 
 # inflate three columns into matrix
 matrify <- function(data) {
-    if (ncol(data) != 3)
+    if (ncol(data) != 3) {
         stop("Data frame must have three column format")
+    }
     plt <- data[, 1]
     spc <- data[, 2]
     abu <- data[, 3]
@@ -44,7 +45,6 @@ flatten <- function(my_matrix) {
 
 # wrapper
 wrapper <- function(table, columns, options) {
-
     # initialize output list
     l <- list()
 

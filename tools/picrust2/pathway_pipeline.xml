@@ -1,0 +1,164 @@
+<tool id="picrust2_pathway_pipeline" name="PICRUSt2 Pathway abundance inference" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tool"/>
+    <expand macro="requirements"/>
+    <version_command>pathway_pipeline.py -v</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+@VAR_ACCESS_FOO@
+#if $intermediate_check
+    mkdir intermediate &&
+#end if
+
+pathway_pipeline.py
+    --input '$input'
+    @PATHWAY_PIPELINE_PARAMS@
+    #if $intermediate_check
+        --intermediate 'intermediate/pathways/'
+    #end if
+    --out_dir 'pathways_out'
+    --processes "\${GALAXY_SLOTS:-1}"
+
+## gunzip all results and rename all tsv files to tabular to simplify discovery
+#set find_paths="pathways_out"
+#if $intermediate_check
+    #set find_paths+=" intermediate"
+#end if
+&&
+find $find_paths -name "*.gz" -exec gunzip {} \;
+&&
+find $find_paths -name "*.tsv" -exec sh -c 'mv {} \$(dirname {})/\$(basename {} .tsv).tabular' \;
+&&
+## otherwise the `;` on the last line is swallowed
+true
+    ]]></command>
+    <inputs>
+        <param argument="--input" type="data" format="tabular" label="Input table with gene family abundances" help="Unstratified or stratified output of PICRUSt2 Metagenome prediction tool"/>
+        <expand macro="pathway_pipeline_params" mapargument="--map"/>
+        <param argument="--intermediate_check" type="boolean" truevalue="intermediate_check" falsevalue="" checked="false" label="Keep intermediate files" help="Intermediate output files will be deleted by default"/>
+    </inputs>
+    <outputs>
+        <expand macro="pathways_output" from_work_dir="./">
+            <token name="intermediate_filter">
+                <filter>intermediate_check</filter>
+            </token>
+            <token name="coverage_filter">
+                <filter>coverage</filter>
+            </token>
+            <token name="per_sequence_filter">
+                <filter>strat_output['per_sequence_contrib'] != ''</filter>
+            </token>
+        </expand>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" ftype="tabular" value="pred_metagenome_unstrat.tsv.gz"/>
+            <param name="skip_minpath" value="true"/>
+            <param name="no_gap_fill" value="true"/>
+            <param name="no_regroup" value=""/>
+            <conditional name="strat_output">
+                <param name="per_sequence_contrib" value=""/>
+            </conditional>
+            <param name="intermediate_check" value="false"/>
+            <output name="pathways_output" ftype="tabular">
+                <assert_contents>
+                    <has_text text="pathway"/>
+                    <has_n_lines n="205"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <!-- assert that regrouping is chosen but without custom map-->
+                <has_text text="--no_regroup" negate="true"/>
+                <has_text text="--regroup_map" negate="true"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="6">
+            <param name="input" ftype="tabular" value="pred_metagenome_unstrat.tsv.gz"/>
+            <param name="skip_minpath" value="true"/>
+            <param name="no_gap_fill" value="true"/>
+            <param name="no_regroup" value=""/>
+            <param name="intermediate_check" value="false"/>
+            <conditional name="strat_output">
+                <param name="per_sequence_contrib" value="--per_sequence_contrib"/>
+                <param name="wide_table" value="false"/>
+                <param name="per_sequence_abun" ftype="tabular" value="seqtab_norm.tsv.gz"/>
+                <param name="per_sequence_function" ftype="tabular" value="per_seq_func.tsv.gz"/>
+            </conditional>
+            <param name="coverage" value="true"/>
+            <param name="intermediate_check" value="true"/>
+            <output name="pathways_output" ftype="tabular">
+                <assert_contents>
+                    <has_text text="pathway"/>
+                    <has_n_lines n="205"/>
+                </assert_contents>
+            </output>
+            <output name="path_cov_unstrat" ftype="tabular">
+                <assert_contents>
+                    <has_text text="100CHE6KO"/>
+                    <has_n_lines n="92"/>
+                </assert_contents>
+            </output>
+            <output name="path_abun_unstrat_per_seq" ftype="tabular">
+                <assert_contents>
+                    <has_text text="101CHE6WT"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+            <output name="path_abun_predictions" ftype="tabular">
+                <assert_contents>
+                    <has_text text="PWY-5837"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+            <output name="path_abun_contrib" ftype="tabular">
+                <assert_contents>
+                    <has_text text="taxon"/>
+                    <has_n_lines n="7"/>
+                </assert_contents>
+            </output>
+            <output_collection name="pathways_intermediate_output" type="list" count="2">
+                <element name="parsed_mapfile" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="METHYLENETHFDEHYDROG"/>
+                        <has_n_lines n="575"/>
+                    </assert_contents>
+                </element>
+                <element name="regrouped_infile" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="100CHE6KO"/>
+                        <has_n_lines n="1790"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+@HELP_HEADER@
+
+Infer pathway abundances
+========================
+Infer the presence and abundances of pathways based on gene family abundances in a sample. By default, this script expects a table of E.C. number abundances (as output by PICRUSt2). However, alternative reaction to pathways mapping files can also be specified. By default, E.C. numbers are first regrouped to MetaCyc reactions, which are then linked to MetaCyc pathways through the default database.
+
+Pathway abundances are calculated using the same approach as HUMAnN2 based on the abundances of gene families that can be linked to reactions within pathways (E.C. numbers regrouped to MetaCyc reactions be default). By default, pathways will first be identified as present or not with MinPath.
+
+Either a structured or unstructured pathway mapfile can be input (the mapfile is structured by default), which will identify which set of pathways are likely present based on the presence of requisite gene families.
+
+Note
+====
+Stratified output will only be output if a stratified metagenome is input (or if --per_sequence_contrib is set). Please note that by default stratified abundances are based on how much predicted genomes (e.g. sequences) contribute to the community-wide abundance, not the abundance of the pathway based on the predicted genes in that genome alone. In other words, a predicted genome might be contributing greatly to the community-wide pathway abundance simply because one required gene for that pathway is at extremely high abundance in that genome even though no other required genes for that pathway are present. In contrast, the --per_sequence_contrib option should be used to get the predicted abundance and coverage of each pathway based on the predicted gene families within each genome. Note that using the --per_sequence_contrib option can greatly increase runtime.
+
+Input
+=====
+Input tabular table of gene family abundances (either the unstratified or stratified output of metagenome_pipeline.py).
+
+Output
+======
+Pathway abundance.
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41587-020-0548-6</citation>
+    </citations>
+</tool>

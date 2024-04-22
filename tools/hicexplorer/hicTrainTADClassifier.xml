@@ -1,0 +1,134 @@
+<tool id="hicexplorer_hictraintadclassifier" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>train a TAD detection ML model</description>
+    <macros>
+        <token name="@BINARY@">hicTrainTADClassifier</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+       #import re
+        
+        @BINARY@
+            --matrices '$matrix_cooler_multiple'
+            --mode train_new
+            --domain_file '$domainFile'
+            --resolution $resolution
+            @CHROMOSOME_LIST@
+            --normalization_method $normalization_method_select
+            --threads @THREADS@
+
+            #if $protein_conditional.protein_selector == 'yes':
+                --protein_file '$proteinFile'
+                #if $protein_conditional.threshold:
+                    --threshold $protein_conditional.threshold
+                #end if
+                #if $protein_conditional.leniency:
+                    --leniency $protein_conditional.leniency
+                #end if
+            #end if
+         
+            #if $ml_conditional.ml_selector == 'yes':
+                $ml_conditional.unselect_border_cases
+                $ml_conditional.concatenate_before_resample
+                $ml_conditional.use_cleanlab
+                --estimators_per_step $ml_conditional.estimators_per_step
+                --distance $ml_conditional.distance
+                --impute_value $ml_conditional.impute_value
+                --resampling_method  $ml_conditional.sampling_method_selector
+            #end if
+            --out_file trained_model
+]]>
+    </command>
+    <inputs>
+        <expand macro="matrix_cooler_multiple_macro" />
+        <param name="domainFile" format="tabular"  type="data" multiple="true" label="Domain file or list of files containing tad boundaries"/>
+        <param name="normalization_method_select" type="select" label="Normalization method">
+            <option value="obs_exp" selected="True">Observed / expected</option>
+            <option value="range">0 - 1 range</option>
+        </param>
+        <param argument="--resolution" type="integer" min="0" max="100000000" label="Resolution of the matrix" help="The matrix resolution of the Hi-C interaction matrix." value="10000" />
+        
+        <conditional name="protein_conditional">
+            <param name="protein_selector" type="select" label="Consider protein locations">
+                <option value="yes">Yes</option>
+                <option value="no" selected="True">No</option>
+            </param>
+            <when value="yes">
+                <param name="proteinFile" type="data" format="bed" label="Protein file in bed format" />
+                <param name="threshold" type="float" optional="True" label="Threshold" help="Consider only protein peaks with at least the threshold value"/>
+                <param name="leniency" type="float" optional="True" label="Leniency" help="Leniency for protein quality check. Widens peaks of protein file by leniency*resolution"/>
+            </when>
+            <when value="no" />
+        </conditional>
+
+        <conditional name="ml_conditional">
+            <param name="ml_selector" type="select" label="Configure ML model options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="True">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--unselect_border_cases" type="boolean" truevalue="--unselect_border_cases" falsevalue="" label="Unselect border cases" help="Set whether genes at the border of the matrix up to set distance will not be used for training and testing" />
+                <param argument="--concatenate_before_resample" type="boolean" truevalue="--concatenate_before_resample" falsevalue="" label="Concatenate before resample" help="Whether features build from matrix list are concatenated and resampled together or resampled separatly per matrix. Not important for random undersampling, but alter for other resampling methods and check if performance increases." />
+                <param argument="--use_cleanlab" type="boolean" truevalue="--use_cleanlab" falsevalue="" label="Use cleanlab" help="Use Confident Learning with the cleanlab library" />
+                <param argument="--estimators_per_step" type="integer" min="5" max="1000" label="Estimators per step" help="How many estimators are added in each training step for the classifier" value="20" />
+                <param argument="--distance" type="integer" min="5" max="30" label="Distance" help="max distance between TADs to be used in calculation" value="15" />
+                <param argument="--impute_value" type="float" label="Resolution of the matrix" help="non-numerical float values in matrix will be replaced by this value" value="-1.0" />
+                <param name="sampling_method_selector" type="select" label="Configure ML model options">
+                    <option value="undersample_cluster_centroids">Undersample cluster centroids</option>
+                    <option value="undersample_random" selected="True">undersample random</option>
+                    <option value="passed_method">passed method</option>
+                </param>
+            </when>
+            <when value="no" />
+        </conditional>
+
+        <expand macro="chromosome_list" />
+        
+        <param name="saved_classifier" format="binary"  optional="True"  type="data" label="Use a self-trained classifier"/>
+
+    </inputs>
+    <outputs>
+        <data name="trained_classifier" from_work_dir="trained_model.BIN" format="binary" label="Trained classifier" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="matrix_cooler_multiple" value="hicTrainTADClassifier/small_test_matrix.cool" />
+            <param name="normalization_method_select" value="obs_exp" />
+            <param name="domainFile" value="hicTrainTADClassifier/multiFDR_dekker_domains.bed" />
+            <param name="resolution" value="10000" />
+            <conditional name="ml_conditional">
+                <param name="ml_selector" value="yes" />
+                <param name="unselect_border_cases" value="true" />
+            </conditional>
+            <conditional name="protein_conditional">
+                <param name="protein_selector" value="no" />
+            </conditional>
+            <output name="trained_classifier" file="hicTrainTADClassifier/model.BIN" ftype="binary" />
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Train TAD predictor
+====================
+
+This program can be used to train new classifiers for hicTADClassifier. These classifiers can later be run to call boundaries for TADs. By default, an EasyEnsembleClassifier as described in Liu et al.: “Exploratory Undersampling for Class-Imbalance Learning” will be trained, but you can pass any sklearn classifier that allows for a warm start. You may also vary the resampling method and a range of hyperparameters to fine tune the model. Do mind to set the correct normalization method and resolution for the classifier. The program will check and raise warnings, when resolutions and normalization methods are mixed up. 
+Also, a protein track file in the narrowPeak format with a threshold value may be passed to filter out low quality boundaries.
+
+The resulting classifier will be pickled at the specified out_file. A quick example can be seen here, where we varied the feature distance:
+##                <!-- <param name="proteinFile" value='hicTrainTADClassifier/ctcf_chr2.csv' /> -->
+
+Usage
+-----
+
+.. code-block:: text
+
+    $ hicTrainTADClassifier -m 'train_new' -f 'my_test_matrix.cool' -d 'domains.bed' -o 'new_classifier.data' -n 'range' -r 10000 --distance 18
+
+
+For more information about HiCExplorer please consider our documentation on readthedocs.io_.
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+
+]]>    </help>
+    <expand macro="citations" />
+</tool>

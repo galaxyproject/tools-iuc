@@ -1,7 +1,7 @@
 htseq-count wrapper for Galaxy
 ==============================
 
-Galaxy wrapper for `htseq-count <https://htseq.readthedocs.io/en/release_0.9.1/count.html>`_
+Galaxy wrapper for `htseq-count <https://htseq.readthedocs.io/en/latest/history.html#version-2-0-5>`_
 script from the `HTSEQ <https://readthedocs.org/projects/htseq/>`_ python package.
 
 Installation

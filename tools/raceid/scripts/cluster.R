@@ -4,8 +4,8 @@ VERSION <- "0.5" # nolint
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) != 1) {
-     message(paste("VERSION:", VERSION))
-     stop("Please provide the config file")
+    message(paste("VERSION:", VERSION))
+    stop("Please provide the config file")
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
@@ -17,8 +17,9 @@ do.filter <- function(sc) { # nolint
     if (!is.null(filt.lbatch.regexes)) {
         lar <- filt.lbatch.regexes
         nn <- colnames(sc@expdata)
-        filt$LBatch <- lapply(1:length(lar), function(m) {  # nolint
-            return(nn[grep(lar[[m]], nn)])})
+        filt$LBatch <- lapply(1:length(lar), function(m) { # nolint
+            return(nn[grep(lar[[m]], nn)])
+        })
     }
 
     sc <- do.call(filterdata, c(sc, filt))
@@ -44,9 +45,12 @@ do.filter <- function(sc) { # nolint
     unq <- unique(filt_feat)
     if (length(unq) == 1) {
         abline(v = unq, col = "red", lw = 2)
-        text(tmp$mids, table(filt_feat)[[1]] - 100, pos = 1,
-             paste(10^unq, "\nFeatures\nin remaining\nCells",
-                   sep = ""), cex = 0.8)
+        text(tmp$mids, table(filt_feat)[[1]] - 100,
+            pos = 1,
+            paste(10^unq, "\nFeatures\nin remaining\nCells",
+                sep = ""
+            ), cex = 0.8
+        )
     }
 
     if (filt.use.ccorrect) {
@@ -80,7 +84,7 @@ do.outlier <- function(sc) { # nolint
     ## Heatmaps
     test1 <- list()
     test1$side <- 3
-    test1$line <- 0  #1 #3
+    test1$line <- 0 # 1 #3
 
     x <- clustheatmap(sc, final = FALSE)
     print(do.call(mtext, c(paste("(Initial)"), test1)))
@@ -122,8 +126,10 @@ mkgenelist <- function(sc) {
         test$line <- -1
         print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))
         test$line <- 0
-        print(do.call(mtext, c(paste(buffer, "(fc > ",
-                                     genelist.foldchange, ")"), test)))
+        print(do.call(mtext, c(paste(
+            buffer, "(fc > ",
+            genelist.foldchange, ")"
+        ), test)))
     })
     write.table(df, file = out.genelist, sep = "\t", quote = FALSE)
 }
@@ -131,14 +137,18 @@ mkgenelist <- function(sc) {
 
 writecellassignments <- function(sc) {
     dat <- sc@cluster$kpart
-    tab <- data.frame(row.names = NULL,
-                      cells = names(dat),
-                      cluster.initial = dat,
-                      cluster.final = sc@cpart,
-                      is.outlier = names(dat) %in% sc@out$out)
+    tab <- data.frame(
+        row.names = NULL,
+        cells = names(dat),
+        cluster.initial = dat,
+        cluster.final = sc@cpart,
+        is.outlier = names(dat) %in% sc@out$out
+    )
 
-    write.table(tab, file = out.assignments, sep = "\t",
-                quote = FALSE, row.names = FALSE)
+    write.table(tab,
+        file = out.assignments, sep = "\t",
+        quote = FALSE, row.names = FALSE
+    )
 }
 
 
@@ -146,19 +156,29 @@ pdf(out.pdf)
 
 if (use.filtnormconf) {
     sc <- do.filter(sc)
-    message(paste(" - Source:: genes:", nrow(sc@expdata),
-                  ", cells:", ncol(sc@expdata)))
-    message(paste(" - Filter:: genes:", nrow(as.matrix(getfdata(sc))),
-                  ", cells:", ncol(as.matrix(getfdata(sc)))))
-    message(paste("         :: ",
-                  sprintf("%.1f", 100 * nrow(as.matrix(
-                                            getfdata(sc))) / nrow(sc@expdata)),
-                  "% of genes remain,",
-                  sprintf("%.1f", 100 * ncol(as.matrix(
-                                            getfdata(sc))) / ncol(sc@expdata)),
-                  "% of cells remain"))
-    write.table(as.matrix(sc@ndata), file = out.table, col.names = NA,
-                row.names = TRUE, sep = "\t", quote = FALSE)
+    message(paste(
+        " - Source:: genes:", nrow(sc@expdata),
+        ", cells:", ncol(sc@expdata)
+    ))
+    message(paste(
+        " - Filter:: genes:", nrow(as.matrix(getfdata(sc))),
+        ", cells:", ncol(as.matrix(getfdata(sc)))
+    ))
+    message(paste(
+        "         :: ",
+        sprintf("%.1f", 100 * nrow(as.matrix(
+            getfdata(sc)
+        )) / nrow(sc@expdata)),
+        "% of genes remain,",
+        sprintf("%.1f", 100 * ncol(as.matrix(
+            getfdata(sc)
+        )) / ncol(sc@expdata)),
+        "% of cells remain"
+    ))
+    write.table(as.matrix(sc@ndata),
+        file = out.table, col.names = NA,
+        row.names = TRUE, sep = "\t", quote = FALSE
+    )
 }
 
 if (use.cluster) {

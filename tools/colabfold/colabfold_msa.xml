@@ -1,0 +1,114 @@
+<tool id="colabfold_msa" name="Colabfold MSA" version="@VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>Generate MSAs for the Alphafold step of Colabfold</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[ 
+    #import re
+
+    ## Symlinking and formatting
+    #if $custom_template:
+        mkdir template_dir &&
+        #for $file in $custom_template:
+            #set input_file = re.sub('[^\w\-_\.]', '_', str($file.element_identifier)) + '.pdb'
+            ln -s $file 'template_dir/${file.element_identifier}.pdb' &&
+        #end for
+    #end if   
+    ## For single file runs. Will need to be updated for multiple file calls
+    #set input_file = re.sub('[^\w\-_\.]', '_', str($query_type.input.element_identifier)) + "." + str($query_type.input.ext)
+    ln -s $query_type.input '$input_file' &&
+
+    mkdir output &&
+    colabfold_batch --msa-only
+    #if $query_type.select_query_type == "fasta":
+        #if $query_type.select_db.use_db == "yes":
+            --msa-mode $query_type.select_db.msa_mode
+        #end if
+    #end if
+    --pair-mode $pair_mode
+    ## --pair-strategy $pairing_strategy
+    $templates
+    #if $custom_template:
+        --custom-template-path template_dir
+    #end if
+    --jobname-prefix 'galaxy'
+    '$input_file'
+    output.colab &&
+    tar -cf output.colab.tar output.colab
+    ]]></command>
+    <inputs>
+        <conditional name="query_type">
+            <param name="select_query_type" label="Data input method" type="select">
+                <option value="fasta">FASTA file</option>
+                <option value="a3m">a3m file</option>
+            </param>
+            <when value="fasta">
+                <param name="input" type="data" format="fasta" label="Query sequence fasta"/>
+                <expand macro="db_selector"/>
+            </when>
+            <when value="a3m">
+                <param name="input" type="data" format="a3m" label="Query sequence a3m file"/>
+            </when>
+        </conditional>
+        <param name="pair_mode" label="Pair mode" type="select">
+            <option value="unpaired_paired">Attempt to pair sequences from the same operon within the genome</option>
+            <option value="paired">Only used sequences that were successfully paired</option>
+            <option value="unpaired">Generate separate MSA for each protein</option>
+        </param> 
+        <!-- Non functional in current release of colabfold, planned to expose in next one -->
+        <!-- <param name="pairing_strategy" label="Pairing strategy" type="select">
+            <option value="greedy">Greedy: MSA sequences should only be paired if the same species exist in at least two MSAs </option>
+            <option value="complete">Complete: MSA sequences should only be paired if the same species exist in all MSAs</option>
+        </param> -->
+        <param argument="--templates" type="boolean" truevalue="--templates" falsevalue="" label="Query PDB templates from the MSA server"/>
+        <param name="custom_template" type="data" format="pdb" multiple="true" optional="true" label="List of PDB files to provide the prediction as custom templates" />
+    </inputs>
+    <outputs>
+        <data name="output" format="colab.tar" from_work_dir="output.colab.tar" label="${tool.name} on ${on_string}: tar file"/>
+    </outputs>
+    <tests>
+        <!-- fasta -->
+        <test expect_num_outputs="1">
+            <conditional name="query_type">
+                <param name="select_query_type" value="fasta"/>
+                <param name="input" value="test.fasta"/>
+                <conditional name="select_db">
+                    <param name="use_db" value="yes"/>
+                    <param name="msa_mode" value="mmseqs2_uniref"/>
+                </conditional>
+            </conditional>
+            <assert_command>
+                <has_text text="colabfold_batch --msa-only --msa-mode mmseqs2_uniref --pair-mode unpaired_paired"/>
+            </assert_command>
+            <output name="output">
+                <assert_contents>
+                    <has_archive_member path=".*\/galaxy_0_all/msa.sh"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a3m -->
+        <test expect_num_outputs="1">
+            <conditional name="query_type">
+                <param name="select_query_type" value="a3m"/>
+                <param name="input" value="test.a3m" ftype="a3m"/>
+            </conditional>
+            <param name="pair_mode" value="paired"/>
+            <param name="templates" value="--templates"/>
+            <param name="custom_template" value="test.pdb,test_2.pdb"/>
+            <assert_command>
+                <has_text text="colabfold_batch --msa-only --pair-mode paired --templates --custom-template-path template_dir"/>
+            </assert_command>
+            <output name="output">
+                <assert_contents>
+                    <has_archive_member path=".*\/galaxy_0.pickle"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+        Generate MSAs for the alphafold step of Colabfold
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

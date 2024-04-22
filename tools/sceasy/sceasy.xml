@@ -1,0 +1,224 @@
+<tool id="sceasy_convert" name="SCEasy Converter" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="22.05">
+    <description>
+        Convert between common single cell formats
+    </description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.0.7</token>
+        <token name="@VERSION_SUFFIX@">2</token>
+        <macro name="mac_input_form" token_format="@FORMAT@" >
+            <param name="input_object_file" type="data" format="@FORMAT@" label="Input object in @FORMAT@ format"/>
+        </macro>
+    </macros>
+    <requirements>
+        <requirement type="package" version="0.0.7">r-sceasy</requirement>
+        <requirement type="package" version="3.0.6" >loompy</requirement>
+        <requirement type="package" version="0.10.0" >anndata</requirement>
+        <requirement type="package" version="3.10" >python</requirement>
+        <requirement type="package" version="0.7.5.4" >r-anndata</requirement>
+        <requirement type="package" version="1.32.0" >r-reticulate</requirement>
+    </requirements>
+    <command detect_errors="exit_code">
+            Rscript '$script_file'
+    </command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+direction='$conversion.direction'
+tokens = unlist(strsplit(direction, split="2"))
+format.from = tokens[1]
+format.to = tokens[2]
+
+library(sceasy)
+library(reticulate)
+
+## HACK: CI biocontainers do not contain a useable conda binary, just the env.
+##  see: https://github.com/galaxyproject/tools-iuc/issues/5585#issuecomment-1803773923
+is_biocontainer = grepl("^# cmd: /opt/conda/bin/",
+                        paste0(reticulate:::python_info_condaenv_find("/usr/local/"),
+                               "-none"))
+if (is_biocontainer) {
+   ## conda detection false positive
+   assignInNamespace("is_conda_python", function(x) FALSE, ns="reticulate")
+   use_python("/usr/local/bin/python")
+} else {
+   conda_path = Sys.getenv("CONDA_PREFIX")
+   if (conda_path != "") {
+      ## Active conda env found
+      use_python(file.path(conda_path, "bin", "python3"))
+   } else {
+      ## Not biocontainer or conda, assume system python
+      use_python("/usr/bin/python3")
+   }
+}
+loompy = reticulate::import('loompy')
+infile = '$input_object_file'
+
+outfile_ext_map=list(
+    "anndata" = "h5ad",
+    "seurat" = "rds",
+    "sce" = "rds",
+    "cds" = "rds",
+    "loom" = "loom") ## this has to be a .loom ending for the export to work.
+
+outfile = paste0("outfile.", outfile_ext_map[format.to])
+
+
+## IDIOSYNCRACIES:
+## Some input formats need be loaded first and then converted,
+## and other formats need to be specified as filenames only,
+## and even then as formats with specific extensions,
+## and some formats need to be objects, or stripped down objects,
+## and probably more issues will be discovered in time.
+
+do_infile_as_first_arg = as.logical(direction == "loom2sce")
+do_filename_as_first_arg = as.logical(direction %in% c("anndata2cds", "anndata2seurat", "loom2anndata"))
+do_dietseurat_in_first_arg = as.logical(direction == "seurat2sce")
+
+if (do_infile_as_first_arg) {
+   if (format.from == "loom") {
+      ## LoomExperiment::import only correctly imports when ext is set
+      loom_file = tempfile(tmpdir="/tmp", fileext=".loom")
+      file.copy(from=infile, to=loom_file)  ## rename doesn't work in containers
+      infile = loom_file
+   }
+   convertFormat(inFile = infile, from = format.from, to = format.to, outFile = outfile)
+} else if (do_filename_as_first_arg) {
+   convertFormat(infile, from = format.from, to = format.to, outFile = outfile)
+} else {
+   ## We need to physically load the object (either Seurat or SCE, both which should be
+   ## of RDS input type)
+   rds = readRDS(infile)
+
+   if (do_dietseurat_in_first_arg){
+      library(Seurat)
+      rds = DietSeurat(rds)
+   }
+   convertFormat(rds, from = format.from, to = format.to, outFile = outfile)
+}
+
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="conversion" >
+            <param name="direction" type="select" label="Convert From / To" >
+                <option value="anndata2cds" >AnnData to CellDataSet</option>
+                <option value="anndata2seurat" >AnnData to Seurat</option>
+                <option value="loom2anndata" >Loom to AnnData</option>
+                <option value="loom2sce">Loom to SingleCellexperiment</option>
+                <option value="sce2anndata" >SingleCellexperiment to AnnData</option>
+                <option value="sce2loom" >SingleCellexperiment to Loom</option>
+                <option value="seurat2anndata">Seurat to AnnData</option>
+                <option value="seurat2sce" >Seurat to SingleCellexperiment</option>
+            </param>
+            <when value="anndata2cds" >
+                <expand macro="mac_input_form" format="h5ad,h5" />
+            </when>
+            <when value="anndata2seurat" >
+                <expand macro="mac_input_form" format="h5ad,h5" />
+            </when>
+            <when value="loom2anndata">
+                <expand macro="mac_input_form" format="h5,loom,rdata" />
+            </when>
+            <when value="loom2sce">
+                <expand macro="mac_input_form" format="h5,loom,rdata" />
+            </when>
+            <when value="sce2anndata">
+                <expand macro="mac_input_form" format="sce,rds,rdata.sce" />
+            </when>
+            <when value="sce2loom">
+                <expand macro="mac_input_form" format="sce,rds,rdata.sce" />
+            </when>
+            <when value="seurat2anndata">
+                <expand macro="mac_input_form" format="rds,rdata" />
+            </when>
+            <when value="seurat2sce">
+                <expand macro="mac_input_form" format="rds,rdata" />
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output_sce" format="rdata" from_work_dir="outfile.rds" label="${tool.name} on ${on_string}: SingleCellExperiment">
+            <filter>
+                conversion['direction'].endswith('sce')
+            </filter>
+        </data>
+        <data name="output_cds" format="rdata" from_work_dir="outfile.rds" label="${tool.name} on ${on_string}: CellDataSet">
+            <filter>
+                conversion['direction'].endswith('cds')
+            </filter>
+        </data>
+        <data name="output_loom" format="h5" from_work_dir="outfile.loom" label="${tool.name} on ${on_string}: Loom">
+            <filter>
+                conversion['direction'].endswith('loom')
+            </filter>
+        </data>
+        <data name="output_anndata" format="h5ad" from_work_dir="outfile.h5ad" label="${tool.name} on ${on_string}: AnnData">
+            <filter>
+                conversion['direction'].endswith('anndata')
+            </filter>
+        </data>
+        <data name="output_seurat" format="rdata" from_work_dir="outfile.rds" label="${tool.name} on ${on_string}: Seurat">
+            <filter>
+                conversion['direction'].endswith('seurat')
+            </filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="direction" value="anndata2cds"/>
+            <param name="input_object_file" value="test_anndata.h5ad"/>
+            <output name="output_cds" file="ad2cds.rds" ftype="rdata" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="anndata2seurat"/>
+            <param name="input_object_file" value="test_anndata.h5ad"/>
+            <output name="output_seurat" file="ad2seurat.rds" ftype="rdata" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="loom2anndata"/>
+            <param name="input_object_file" value="sce2loom.rds"/>
+            <output name="output_anndata" file="loom2anndata.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="loom2sce"/>
+            <param name="input_object_file" value="sce2loom.rds"/>
+            <output name="output_sce" file="loom2sce.rds" ftype="rdata" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="sce2anndata"/>
+            <param name="input_object_file" value="test_sce.rds"/>
+            <output name="output_anndata" file="sce2anndata.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="sce2loom"/>
+            <param name="input_object_file" value="test_sce.rds"/>
+            <output name="output_loom" file="sce2loom.rds" ftype="h5" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="seurat2anndata"/>
+            <param name="input_object_file" value="test_seurat.rds"/>
+            <output name="output_anndata" file="test_anndata.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="direction" value="seurat2sce"/>
+            <param name="input_object_file" value="test_seurat.rds"/>
+            <output name="output_sce" file="test_sce.rds" ftype="rdata" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+SCeasy
+======
+
+        Convert scRNA data object between formats `sceasy::convertFormat()`
+
+Supports the following conversion:
+
+.. image:: $PATH_TO_IMAGES/conv.png
+	:width: 80 %
+	:align: center
+
+
+    ]]></help>
+    <citations>
+        <citation type="doi"> doi:10.1093/nargab/lqaa052</citation>
+    </citations>
+</tool>

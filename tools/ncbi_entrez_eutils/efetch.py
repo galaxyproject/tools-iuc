@@ -102,7 +102,7 @@ if __name__ == '__main__':
             os.rename(relpath, 'downloads/%s' % (file))
 
         if problem is not None:
-            raise(problem)
+            raise problem
 
     else:
         merged_ids = c.parse_ids(args.id_list, args.id, args.history_file, args.id_xml, args.id_json)

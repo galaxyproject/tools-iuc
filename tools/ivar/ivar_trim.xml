@@ -1,4 +1,4 @@
-<tool id="ivar_trim" name="ivar trim" version="@TOOL_VERSION@+galaxy5" profile="@PROFILE@">
+<tool id="ivar_trim" name="ivar trim" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
     <description>Trim reads in aligned BAM</description>
     <macros>
         <import>macros.xml</import>
@@ -26,17 +26,22 @@
         ivar trim
         -i sorted.bam
         -b bed.bed
-        #if $amplicons.filter_by == 'yes'
+        #if $amplicons.filter_by == 'yes' or $amplicons.filter_by == 'yes_compute'
             -f amplicon_info.tsv
         #end if
         -x $primer_pos_wiggle
         $inc_primers
-        -m $min_len
+        #if $trimmed_length.filter == 'off':
+            -m 0
+        #elif $trimmed_length.filter == 'auto':
+            -m -1
+        #else:
+            -m $trimmed_length.min_len
+        #end if
         -q $min_qual
         -s $window_width
-        -p trimmed &&
-        samtools sort -@ \${GALAXY_SLOTS:-1} -o trimmed.sorted.bam trimmed.bam
-    ]]>    </command>
+        | samtools sort -@ \${GALAXY_SLOTS:-1} -T "\${TMPDIR:-.}" -o trimmed.sorted.bam -
+    ]]></command>
     <inputs>
         <param name="input_bam" argument="-i" type="data" format="bam" label="Bam file" help="Aligned reads, to trim primers and quality"/>
         <conditional name="primer">
@@ -74,9 +79,20 @@
         label="Wiggling room for read ends relative to primer binding sites"
         help="Reads that occur at the specified offset positions relative to primer positions (as annotated in the primer information dataset) will also be trimmed (default: 0)" />
         <param name="inc_primers" argument="-e" type="boolean" truevalue="-e" falsevalue="" checked="false" label="Include reads not ending in any primer binding sites?"/>
-        <param name="min_len" argument="-m" type="integer" min="0" value="30" label="Minimum length of read to retain after trimming"/>
-        <param name="min_qual" argument="-q" type="integer" min="0" value="20" label="Minimum quality threshold for sliding window to pass"/>
-        <param name="window_width" argument="-s" type="integer" min="0" value="4" label="Width of sliding window"/>
+        <param name="min_qual" argument="-q" type="integer" min="0" max="255" value="20" label="Minimum quality threshold for sliding window to pass"/>
+        <param name="window_width" argument="-s" type="integer" min="0" max="255" value="4" label="Width of sliding window"/>
+        <conditional name="trimmed_length">
+            <param name="filter" type="select" label="Require a minimum length for reads to retain them after any trimming?" help="The default automatic setting will determine the threshold as 50% of the mean length of the first 1000 raw input reads, which may or may not be adequate for your data. You can always make the outcome of filtering more predictable by specifying the threshold explicitly. You can also opt to retain reads independently of their trimmed length, but typically this only makes sense if you are performing additional read filtering with additional tools in your analysis pipeline.">
+                <option value="off">No, keep reads independently of their trimmed length (-m 0)</option>
+                <option value="auto" selected="true">Yes, and determine required length threshold automatically from input (-m -1)</option>
+                <option value="custom">Yes, and provide a custom threshold</option>
+            </param>
+            <when value="off" />
+            <when value="auto" />
+            <when value="custom">
+                <param name="min_len" argument="-m" type="integer" min="1" value="30" label="Minimum trimmed length threshold" help="Reads with a trimmed length shorter than this value will be discarded."/>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
         <data name="output_bam" format="bam" label="${tool.name} on ${on_string} Trimmed bam" from_work_dir="trimmed.sorted.bam"/>
@@ -87,6 +103,10 @@
             <param name="input_bam" value="covid19/PC00101P_sub.sorted.bam" />
             <param name="input_bed" value="covid19/ARTIC-V1.bed" />
             <param name="inc_primers" value="true" />
+            <conditional name="trimmed_length">
+                <param name="filter" value="custom" />
+                <param name="min_len" value="30" />
+            </conditional>
             <output name="output_bam" file="covid19/PC00101P_sub.sorted.bam" compare="sim_size" delta="300000"/>
         </test>
         <test>
@@ -94,6 +114,10 @@
             <param name="input_bam" value="covid19/PC00101P_sub.sorted.bam" />
             <param name="input_bed" value="covid19/ARTIC-V1-bad.bed" />
             <param name="inc_primers" value="true" />
+            <conditional name="trimmed_length">
+                <param name="filter" value="custom" />
+                <param name="min_len" value="30" />
+            </conditional>
             <output name="output_bam" file="covid19/PC00101P_sub.sorted.bam" compare="sim_size" delta="300000"/>
         </test>
         <!-- #1: Zika data-->
@@ -103,6 +127,10 @@
                 <param name="input_bed" value="zika/db/zika_primers.bed" />
             </conditional>
             <param name="input_bam" value="zika/Z52_a.sorted.bam" />
+            <conditional name="trimmed_length">
+                <param name="filter" value="custom" />
+                <param name="min_len" value="30" />
+            </conditional>
             <output name="output_bam" file="zika/Z52_a.trimmed.sorted.bam" compare="sim_size" delta="100000"/>
         </test>
         <test>
@@ -111,18 +139,19 @@
                 <param name="input_bed" value="zika/db/zika_primers.bed" />
             </conditional>
             <param name="input_bam" value="zika/Z52_b.sorted.bam" />
+            <conditional name="trimmed_length">
+                <param name="filter" value="auto" />
+            </conditional>
             <output name="output_bam" ftype="bam">
                 <assert_contents>
-                    <has_size value="4023965" delta="1000"/>
+                    <has_size value="3373924" delta="1000"/>
                 </assert_contents>
             </output>
-            <assert_stdout>
+            <assert_stderr>
                 <has_text text="Found 68 primers in BED file"/>
-                <has_text text="Using Region: PRV"/>
-                <has_text text="Found 40964 mapped reads"/>
-                <has_text text="reads were quality trimmed below the minimum length of 30 bp and were not written to file"/>
+                <has_text text="reads were quality trimmed below the minimum length of 125 bp and were not written to file"/>
                 <has_text text="reads that started outside of primer regions were not written to file"/>
-            </assert_stdout>
+            </assert_stderr>
         </test>
         <test>
             <conditional name="primer">
@@ -130,6 +159,10 @@
                 <param name="cached_bed" value="SARS-CoV-2-ARTICv1" />
             </conditional>
             <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
+            <conditional name="trimmed_length">
+                <param name="filter" value="custom" />
+                <param name="min_len" value="30" />
+            </conditional>
             <output name="output_bam" file="sars-cov-2/sars_cov2_trimmed.bam" compare="sim_size" delta="100000"/>
         </test>
         <test>
@@ -141,6 +174,10 @@
                 <param name="filter_by" value="yes_compute" />
             </conditional>
             <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
+            <conditional name="trimmed_length">
+                <param name="filter" value="custom" />
+                <param name="min_len" value="30" />
+            </conditional>
             <assert_command>
                 <has_text text="write_amplicon_info_file" />
             </assert_command>
@@ -186,13 +223,15 @@ If the primer scheme has more than two primers contributing to a given amplicon
 specify all of them on one line and the tool will calculate the maximum extent
 of the amplicon.
 
-**Quality trimming details**
+**Quality trimming details and final length filtering**
 
 To do the quality trimming, iVar uses a sliding window approach. The window
 slides from the 5' end to the 3' end and if at any point the average base
 quality in the window falls below the threshold, the remaining read is soft
-clipped. If after trimming, the length of the read is greater than the minimum
-length specified, the read is written to the new trimmed BAM file.
+clipped.
+
+Finally, the trimmed length threshold gets applied if specified, and fully
+trimmed surviving reads are written to the BAM output.
 
 Documentation can be found at `<https://andersen-lab.github.io/ivar/html/manualpage.html>`_.
     ]]></help>

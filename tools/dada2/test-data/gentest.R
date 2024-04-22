@@ -1,5 +1,5 @@
-library(dada2, quietly = T)
-library(ggplot2, quietly = T)
+library(dada2, quietly = TRUE)
+library(ggplot2, quietly = TRUE)
 
 sample_names <- c("F3D0_S188_L001", "F3D141_S207_L001")
 fwd <- c("F3D0_S188_L001_R1_001.fastq.gz", "F3D141_S207_L001_R1_001.fastq.gz")
@@ -12,8 +12,8 @@ print("filterAndTrim")
 
 for (i in seq_len(fwd)) {
     ftout <- dada2::filterAndTrim(fwd[i], filt_fwd[i], rev[i], filt_rev[i])
-    b <- paste(strsplit(fwd[i], ".", fixed = T)[[1]][1], "tab", sep = ".")
-    write.table(ftout, b, quote = F, sep = "\t", col.names = NA)
+    b <- paste(strsplit(fwd[i], ".", fixed = TRUE)[[1]][1], "tab", sep = ".")
+    write.table(ftout, b, quote = FALSE, sep = "\t", col.names = NA)
 }
 
 # In the test only the 1st data set is used
@@ -21,7 +21,7 @@ t <- data.frame()
 t <- rbind(t, ftout[1, ])
 colnames(t) <- colnames(ftout)
 rownames(t) <- rownames(ftout)[1]
-write.table(t, "filterAndTrim.tab", quote = F, sep = "\t", col.names = NA)
+write.table(t, "filterAndTrim.tab", quote = FALSE, sep = "\t", col.names = NA)
 
 names(fwd) <- sample_names
 names(rev) <- sample_names
@@ -79,7 +79,7 @@ for (id in sample_names) {
 # make sequence table
 print("makeSequenceTable")
 seqtab <- makeSequenceTable(merged)
-write.table(t(seqtab), file = "makeSequenceTable.tab", quote = F, sep = "\t", row.names = T, col.names = NA)
+write.table(t(seqtab), file = "makeSequenceTable.tab", quote = FALSE, sep = "\t", row.names = TRUE, col.names = NA)
 
 reads_per_seqlen <- tapply(colSums(seqtab), factor(nchar(getSequences(seqtab))), sum)
 df <- data.frame(length = as.numeric(names(reads_per_seqlen)), count = reads_per_seqlen)
@@ -92,7 +92,7 @@ bequiet <- dev.off()
 # remove bimera
 print("removeBimera")
 seqtab_nochim <- dada2::removeBimeraDenovo(seqtab)
-write.table(t(seqtab), file = "removeBimeraDenovo.tab", quote = F, sep = "\t", row.names = T, col.names = NA)
+write.table(t(seqtab), file = "removeBimeraDenovo.tab", quote = FALSE, sep = "\t", row.names = TRUE, col.names = NA)
 
 # assign taxonomy/species
 tl <- "Level1,Level2,Level3,Level4,Level5"
@@ -100,17 +100,17 @@ tl <- strsplit(tl, ",")[[1]]
 
 set.seed(42)
 print("assignTaxonomyAndSpecies")
-taxa <- dada2::assignTaxonomy(seqtab_nochim, "reference.fa.gz", outputBootstraps = T, taxLevels = tl, multithread = 1)
+taxa <- dada2::assignTaxonomy(seqtab_nochim, "reference.fa.gz", outputBootstraps = TRUE, taxLevels = tl, multithread = 1)
 
 taxa$tax <- dada2::addSpecies(taxa$tax, "reference_species.fa.gz")
-write.table(taxa$tax, file = "assignTaxonomyAddspecies.tab", quote = F, sep = "\t", row.names = T, col.names = NA)
+write.table(taxa$tax, file = "assignTaxonomyAddspecies.tab", quote = FALSE, sep = "\t", row.names = TRUE, col.names = NA)
 
-write.table(taxa$boot, file = "assignTaxonomyAddspecies_boot.tab", quote = F, sep = "\t", row.names = T, col.names = NA)
+write.table(taxa$boot, file = "assignTaxonomyAddspecies_boot.tab", quote = FALSE, sep = "\t", row.names = TRUE, col.names = NA)
 
 
 ## Generate extra test data for parameter testing
 print("alternatives")
-dada2::filterAndTrim(fwd, c("filterAndTrim_single_F3D0_R1.fq.gz", "filterAndTrim_single_F3D141_R1.fq.gz"), rm.phix = T, orient.fwd = "TACGG")
+dada2::filterAndTrim(fwd, c("filterAndTrim_single_F3D0_R1.fq.gz", "filterAndTrim_single_F3D141_R1.fq.gz"), rm.phix = TRUE, orient.fwd = "TACGG")
 
 dada2::filterAndTrim(fwd, c("filterAndTrim_single_trimmers_F3D0_R1.fq.gz", "filterAndTrim_single_trimmers_F3D141_R1.fq.gz"), truncQ = 30, truncLen = 2, trimLeft = 150, trimRight = 2)
 
@@ -122,7 +122,7 @@ for (id in sample_names) {
     saveRDS(merged_nondef[[id]], file = paste("mergePairs_", id, "_nondefault.Rdata", sep = ""))
 }
 rb_dada_fwd <- dada2::removeBimeraDenovo(dada_fwd[["F3D0_S188_L001"]])
-write.table(rb_dada_fwd, file = "removeBimeraDenovo_F3D0_dada_uniques.tab", quote = F, sep = "\t", row.names = T, col.names = F)
+write.table(rb_dada_fwd, file = "removeBimeraDenovo_F3D0_dada_uniques.tab", quote = FALSE, sep = "\t", row.names = TRUE, col.names = FALSE)
 
 rb_merged <- dada2::removeBimeraDenovo(merged, method = "pooled")
 saveRDS(rb_merged, file = "removeBimeraDenovo_F3D0_mergepairs.Rdata")
@@ -134,22 +134,22 @@ get_n <- function(x) {
 
 print("seqCounts ft")
 samples <- list()
-samples[["F3D0_S188_L001_R1_001.tab"]] <- read.table("F3D0_S188_L001_R1_001.tab", header = T, sep = "\t", row.names = 1)
+samples[["F3D0_S188_L001_R1_001.tab"]] <- read.table("F3D0_S188_L001_R1_001.tab", header = TRUE, sep = "\t", row.names = 1)
 dname <- "filter"
 tdf <- samples[["F3D0_S188_L001_R1_001.tab"]]
 names(tdf) <- paste(dname, names(tdf))
 tdf <- cbind(data.frame(samples = names(samples)), tdf)
-write.table(tdf, "seqCounts_filter.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+write.table(tdf, "seqCounts_filter.tab", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)
 
 samples <- list()
-samples[["F3D0_S188_L001_R1_001.tab"]] <- read.table("F3D0_S188_L001_R1_001.tab", header = T, sep = "\t", row.names = 1)
-samples[["F3D141_S207_L001_R1_001.tab"]] <- read.table("F3D141_S207_L001_R1_001.tab", header = T, sep = "\t", row.names = 1)
+samples[["F3D0_S188_L001_R1_001.tab"]] <- read.table("F3D0_S188_L001_R1_001.tab", header = TRUE, sep = "\t", row.names = 1)
+samples[["F3D141_S207_L001_R1_001.tab"]] <- read.table("F3D141_S207_L001_R1_001.tab", header = TRUE, sep = "\t", row.names = 1)
 dname <- "filter"
 tdf <- samples[["F3D0_S188_L001_R1_001.tab"]]
 tdf <- rbind(tdf, samples[["F3D141_S207_L001_R1_001.tab"]])
 names(tdf) <- paste(dname, names(tdf))
 tdf <- cbind(data.frame(samples = names(samples)), tdf)
-write.table(tdf, "seqCounts_filter_both.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+write.table(tdf, "seqCounts_filter_both.tab", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)
 
 print("seqCounts dada")
 samples <- list()
@@ -158,7 +158,7 @@ samples[["dada_F3D141_S207_L001_R1.Rdata"]] <- readRDS("dada_F3D141_S207_L001_R1
 dname <- "dadaF"
 tdf <- data.frame(samples = names(samples))
 tdf[[dname]] <- sapply(samples, get_n)
-write.table(tdf, "seqCounts_dadaF.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+write.table(tdf, "seqCounts_dadaF.tab", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)
 
 print("seqCounts mp")
 samples <- list()
@@ -167,20 +167,20 @@ samples[["mergePairs_F3D141_S207_L001.Rdata"]] <- readRDS("mergePairs_F3D141_S20
 dname <- "merge"
 tdf <- data.frame(samples = names(samples))
 tdf[[dname]] <- sapply(samples, get_n)
-write.table(tdf, "seqCounts_merge.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+write.table(tdf, "seqCounts_merge.tab", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)
 
 print("seqCounts st")
 samples <- list()
-samples <- t(as.matrix(read.table("makeSequenceTable.tab", header = T, sep = "\t", row.names = 1)))
+samples <- t(as.matrix(read.table("makeSequenceTable.tab", header = TRUE, sep = "\t", row.names = 1)))
 dname <- "seqtab"
 tdf <- data.frame(samples = row.names(samples))
 tdf[[dname]] <- rowSums(samples)
-write.table(tdf, "seqCounts_seqtab.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+write.table(tdf, "seqCounts_seqtab.tab", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)
 
 print("seqCounts rb")
 samples <- list()
-samples <- t(as.matrix(read.table("removeBimeraDenovo.tab", header = T, sep = "\t", row.names = 1)))
+samples <- t(as.matrix(read.table("removeBimeraDenovo.tab", header = TRUE, sep = "\t", row.names = 1)))
 dname <- "nochim"
 tdf <- data.frame(samples = row.names(samples))
 tdf[[dname]] <- rowSums(samples)
-write.table(tdf, "seqCounts_nochim.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+write.table(tdf, "seqCounts_nochim.tab", quote = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE)

@@ -1,11 +1,11 @@
 #!/usr/bin/env R
-VERSION = "0.3"
+VERSION <- "0.3"
 
-args = commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = T)
 
-if (length(args) != 1){
-     message(paste("VERSION:", VERSION))
-     stop("Please provide the config file")
+if (length(args) != 1) {
+    message(paste("VERSION:", VERSION))
+    stop("Please provide the config file")
 }
 
 source(args[1])
@@ -36,14 +36,18 @@ plate.data <- calculatePlatePositions(spec$plates, num.barcodes, barcode.data)
 ordering <- reorderMatrixHeaders(barcodes, input_matrix, spec$format, spec$plates, sort.cells)
 
 ## Unfiltered, but sorted matrix
-nmatrix <- input_matrix[,ordering$all]
+nmatrix <- input_matrix[, ordering$all]
 plot.prefilter <- contaminationPlot("Pre-Filter", colSums(nmatrix),
-                                    barcode.data, plate.data, RAW=TRUE)
+    barcode.data, plate.data,
+    RAW = TRUE
+)
 
 ## Filtered, but sorted matrix
-cmatrix <- input_matrix[,ordering$filtered]
+cmatrix <- input_matrix[, ordering$filtered]
 plot.postfilter <- contaminationPlot("Post-Filter", colSums(cmatrix),
-                                     barcode.data, plate.data, RAW=FALSE)
+    barcode.data, plate.data,
+    RAW = FALSE
+)
 
 plot.histogram.pre <- log10histoPlot("Histogram of Pre-Filter Matrix Counts", colSums(nmatrix))
 plot.histogram.post <- log10histoPlot("Histogram of Post-Filter Matrix Counts", colSums(cmatrix))
@@ -55,4 +59,4 @@ plot.histogram.pre
 plot.histogram.post
 dev.off()
 
-write.table(cmatrix, file=out.table, quote=FALSE, na="0", sep="\t")
+write.table(cmatrix, file = out.table, quote = FALSE, na = "0", sep = "\t")

@@ -6,7 +6,11 @@ import bz2
 import json
 import pickle
 import re
+import sys
+from importlib.metadata import version
 from pathlib import Path
+
+from packaging.version import Version
 
 
 def load_from_json(json_fp):
@@ -56,6 +60,7 @@ def transform_pkl_to_json(pkl_fp, json_fp):
         'taxonomy': in_metadata['taxonomy'],
         'merged_taxon': {}
     }
+
     # transform merged_taxons tuple keys to string
     for k in in_metadata['merged_taxon']:
         n = ' , '.join(k)
@@ -63,6 +68,38 @@ def transform_pkl_to_json(pkl_fp, json_fp):
 
     # dump metadata to JSON file
     dump_to_json(out_metadata, json_fp)
+
+
+def validate_map_version(infile, file_type):
+    '''
+    Check conformity of a user-provided pkl file to Metaphlan SGB (>= v4.0).
+
+    :param infile: Path to input Pickle/JSON file
+    :param file_type: String definining file type, pkl or JSON. Case-insensitive
+    '''
+    file_type = file_type.lower()
+    if file_type == 'pkl' or file_type == 'pickle':
+        # load metadata from Pickle file
+        with bz2.BZ2File(infile, 'r') as pkl_f:
+            in_metadata = pickle.load(pkl_f)
+    elif file_type == 'json':
+        in_metadata = load_from_json(infile)
+    else:
+        raise ValueError("Unsupported file type to validate.")
+
+    # Get metaphlan version in $PATH
+    metaphlan_version = Version(version('metaphlan'))
+
+    # Ensure that there are 8 taxonomy levels separated with "|"s.
+    # v3 DB release encodes the taxids as: ('2|1224|1236|91347|543|547|354276', 4404432)
+    # v4 DB release encodes the taxids as: ('2|1224|1236|91347|543|547|354276|', 4404432)
+    for k in in_metadata['taxonomy']:
+        if (in_metadata['taxonomy'][k][0].count('|') != 7 and metaphlan_version >= Version('4')) or (in_metadata['taxonomy'][k][0].count('|') != 6 and metaphlan_version < Version('4')):
+            # raise ValueError("Missing/Extra values in GCA list")
+            print("The input taxonomy mapping file %s is incompatible with Metaphlan v.%s in $PATH." % (infile, metaphlan_version))
+            sys.exit(42)
+
+    print("%s is compatible with Metaphlan v.%s." % (infile, metaphlan_version))
 
 
 def transform_json_to_pkl(json_fp, pkl_fp):
@@ -80,6 +117,7 @@ def transform_json_to_pkl(json_fp, pkl_fp):
         'taxonomy': in_metadata['taxonomy'],
         'merged_taxon': {}
     }
+
     # transform merged_taxons keys to tuple
     for k in in_metadata['merged_taxon']:
         n = ' , '.split(k)
@@ -448,8 +486,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.function == 'transform_pkl_to_json':
+        validate_map_version(Path(args.pkl), 'pkl')
         transform_pkl_to_json(Path(args.pkl), Path(args.json))
     elif args.function == 'transform_json_to_pkl':
+        validate_map_version(Path(args.json), 'json')
         transform_json_to_pkl(Path(args.json), Path(args.pkl))
     elif args.function == 'add_marker':
         add_marker(
