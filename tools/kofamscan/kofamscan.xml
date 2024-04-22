@@ -2,7 +2,7 @@
     <description>gene function annotation based on KEGG orthology and HMM</description>
     <macros>
         <token name="@TOOL_VERSION@">1.3.0</token>
-        <token name="@VERSION_SUFFIX@">1</token>
+        <token name="@VERSION_SUFFIX@">2</token>
         <xml name="reportannotation" token_selected="">
             <param name="reportannotation" type="boolean" truevalue="--report-unannotated" falsevalue="--no-report-unannotated" checked="@SELECTED@" label="Include sequence name to outputs even if no KOs are assigned?"/>
         </xml>
@@ -14,27 +14,35 @@
         <requirement type="package" version="@TOOL_VERSION@">kofamscan</requirement>
         <requirement type="package" version="3.0">zip</requirement>
     </requirements>
-    <version_command><![CDATA[sansa -v | grep "Sansa " | cut -d "v" -f 3]]></version_command>
+    <version_command><![CDATA[exec_annotation --version | cut -d " " -f 2]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
-## preprocessing
-mkdir ./profile &&
-mkdir ./temp_extract &&
-#if $p_cond.p_sel == 'compressed'
-    tar -xf '${p_cond.p}' -C temp_extract &&
-    find ./temp_extract/ -name '*.hmm' -exec mv {} ./profile \; &&
-    find ./temp_extract/ -name '*.hal' -exec mv {} ./profile \; &&
-#elif $p_cond.p_sel == 'hmm'
-    ## input files require prefix 'K' and file extension '.hmm'
-    #for $i, $current in enumerate($p_cond.p)
-        ln -s '$current' 'profile/K${i}.hmm' &&
-    #end for
+#if $p_cond.p_sel != "cached"
+    ## preprocessing
+    mkdir ./profile &&
+    mkdir ./temp_extract &&
+    #if $p_cond.p_sel == 'compressed'
+        tar -xf '${p_cond.p}' -C temp_extract &&
+        find ./temp_extract/ -name '*.hmm' -exec mv {} ./profile \; &&
+        find ./temp_extract/ -name '*.hal' -exec mv {} ./profile \; &&
+    #elif $p_cond.p_sel == 'hmm'
+        ## input files require prefix 'K' and file extension '.hmm'
+        #for $i, $current in enumerate($p_cond.p)
+            ln -s '$current' 'profile/K${i}.hmm' &&
+        #end for
+    #end if
 #end if
 
 ## run
 exec_annotation
--p 'profile'
+
+#if $p_cond.p_sel != "cached"
+    -p 'profile'
+    -k '$p_cond.k'
+#else
+    -p '$p_cond.kofam.fields.profile_dir/#if $p_cond.kofam_subset then $p_cond.kofam_subset else ""#'
+    -k '$p_cond.kofam.fields.ko_list'
+#end if
 -o 'result.txt'
--k '$k'
 --cpu \${GALAXY_SLOTS:-4}
 -E $E
 -T $ap.T
@@ -54,17 +62,34 @@ $ap.f_cond.reportannotation
         <param name="query" type="data" format="fasta" label="Select query sequence file" help="Nucleotide sequences are not accepted."/>
         <conditional name="p_cond">
             <param name="p_sel" type="select" label="Select profile database format">
-                <option value="compressed" selected="true">Compressed set of HMM and HAL file(s)</option>
+                <option value="cached" selected="true">Cached</option>
+                <option value="compressed">Compressed set of HMM and HAL file(s)</option>
                 <option value="hmm">HMM file(s)</option>
             </param>
+            <when value="cached">
+                <param name="kofam" type="select">
+                    <options from_data_table="kofam"/>
+                </param>
+                <param name="kofam_subset" type="select" optional="true">
+                    <options from_data_table="kofam_subset">
+                        <filter type="param_value" column="2" ref="kofam"/>
+                        <filter type="sort_by" column="1"/>
+                        <filter type="unique_value" column="1"/>
+                        <column name="name" index="1"/>
+                        <column name="value" index="0"/>
+                    </options>
+                    <validator type="no_options" message="No option available for this input"/>
+                </param>
+            </when>
             <when value="compressed">
                 <param argument="-p" type="data" format="tar" label="Select a compressed file with HMM and HAL file(s)" help="Compressed archives are available from KofamKOALA web service (https://www.genome.jp/tools/kofamkoala/)."/>
+                <param argument="-k" type="data" format="tabular" label="Select KO list file"/>
             </when>
             <when value="hmm">
                 <param argument="-p" type="data" format="hmm3" multiple="true" label="Select profile HMM file(s)"/>
+                <param argument="-k" type="data" format="tabular" label="Select KO list file"/>
             </when>
         </conditional>
-        <param argument="-k" type="data" format="tabular" label="Select KO list file"/>
         <param argument="-E" type="float" min="0.0" max="1.0" value="0.01" label="Set E-value threshold"/>
         <section name="ap" title="Advanced parameters" expanded="true">
             <param argument="-T" type="integer" value="1" label="Set threshold scale" help="The score thresholds will be multiplied by this value."/>
@@ -97,14 +122,17 @@ $ap.f_cond.reportannotation
         </section>
     </inputs>
     <outputs>
+        <data name="out_result" format="txt" from_work_dir="result.txt" label="${tool.name} on ${on_string}: Results">
+            <filter>'result' in ap['out']</filter>
+            <change_format>
+                <when input='ap.f_cond.f_sel' value="detail-tsv" format="tabular" />
+            </change_format>
+        </data>
         <data name="out_alignments" format="zip" from_work_dir="tmp/alignments.zip" label="${tool.name} on ${on_string}: HMMER alignments">
             <filter>'alignments' in ap['out']</filter>
         </data>
         <data name="out_output" format="txt" from_work_dir="tmp/output/output.txt" label="${tool.name} on ${on_string}: HMMER output">
             <filter>'output' in ap['out']</filter>
-        </data>
-        <data name="out_result" format="txt" from_work_dir="result.txt" label="${tool.name} on ${on_string}: Results">
-            <filter>'result' in ap['out']</filter>
         </data>
         <data name="out_tabular" format="txt" from_work_dir="tmp/tabular/tabular.txt" label="${tool.name} on ${on_string}: HMMER tabular">
             <filter>'tabular' in ap['out']</filter>
@@ -131,7 +159,7 @@ $ap.f_cond.reportannotation
             <param name="query" value="query.fasta"/>
             <conditional name="p_cond">
                 <param name="p_sel" value="hmm"/>
-                <param name="p" value="K00001.hmm,K00002.hmm,K00003.hmm"/>
+                <param name="p" value="profiles/K00001.hmm,profiles/K00002.hmm,profiles/K00003.hmm"/>
             </conditional>
             <param name="k" value="ko"/>
             <param name="E" value="0.02"/>
@@ -154,7 +182,7 @@ $ap.f_cond.reportannotation
                     <has_line line="Internal pipeline statistics summary:"/>
                 </assert_contents>
             </output>
-            <output name="out_result">
+            <output name="out_result" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="9"/>
                     <has_text_matching expression=".+sp\|P19858\|LDHA_BOVIN"/>
@@ -172,7 +200,7 @@ $ap.f_cond.reportannotation
             <param name="query" value="query.fasta"/>
             <conditional name="p_cond">
                 <param name="p_sel" value="hmm"/>
-                <param name="p" value="K00001.hmm,K00002.hmm,K00003.hmm"/>
+                <param name="p" value="profiles/K00001.hmm,profiles/K00002.hmm,profiles/K00003.hmm"/>
             </conditional>
             <param name="k" value="ko"/>
             <section name="ap">
@@ -180,7 +208,7 @@ $ap.f_cond.reportannotation
                     <param name="f_sel" value="mapper"/>
                 </conditional>
             </section>
-            <output name="out_result">
+            <output name="out_result" ftype="txt">
                 <assert_contents>
                     <has_n_lines n="7"/>
                     <has_line line="sp|P19858|LDHA_BOVIN"/>
@@ -192,7 +220,7 @@ $ap.f_cond.reportannotation
             <param name="query" value="query.fasta"/>
             <conditional name="p_cond">
                 <param name="p_sel" value="hmm"/>
-                <param name="p" value="K00001.hmm,K00002.hmm,K00003.hmm"/>
+                <param name="p" value="profiles/K00001.hmm,profiles/K00002.hmm,profiles/K00003.hmm"/>
             </conditional>
             <param name="k" value="ko"/>
             <section name="ap">
@@ -219,6 +247,47 @@ $ap.f_cond.reportannotation
                 <assert_contents>
                     <has_n_lines n="5"/>
                     <has_text_matching expression=".+sp\|P00329\|ADH1_MOUSE.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #6 test with cached data -->
+        <test expect_num_outputs="1">
+            <param name="query" value="query.fasta"/>
+            <conditional name="p_cond">
+                <param name="p_sel" value="cached"/>
+                <param name="kofam" value="test_value"/>
+            </conditional>
+            <param name="k" value="ko"/>
+            <section name="ap">
+                <conditional name="f_cond">
+                    <param name="f_sel" value="mapper-one-line"/>
+                </conditional>
+            </section>
+            <output name="out_result" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_line line="sp|P19858|LDHA_BOVIN"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #6 test with cached data + subset -->
+        <test expect_num_outputs="1">
+            <param name="query" value="query.fasta"/>
+            <conditional name="p_cond">
+                <param name="p_sel" value="cached"/>
+                <param name="kofam" value="test_value"/>
+                <param name="kofam_subset" value="SUBSET"/>
+            </conditional>
+            <param name="k" value="ko"/>
+            <section name="ap">
+                <conditional name="f_cond">
+                    <param name="f_sel" value="mapper-one-line"/>
+                </conditional>
+            </section>
+            <output name="out_result" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_line line="sp|P19858|LDHA_BOVIN"/>
                 </assert_contents>
             </output>
         </test>
