@@ -8,7 +8,7 @@
 #       matrixPath", "m", 2, "character"    -Path to count matrix
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
-#       formula", "y", 2, "character".      -String containing a formula to override default use of factInput
+#       formula", "Y", 2, "character".      -String containing a formula to override default use of factInput
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
 #       contrastFile", "C", 1, "character"  -Path to contrasts information file
 #       contrastInput", "D", 1, "character" -String containing contrasts of interest
@@ -184,7 +184,7 @@ spec <- matrix(
         "filesPath", "j", 2, "character",
         "matrixPath", "m", 2, "character",
         "factFile", "f", 2, "character",
-        "formula", "y", 2, "character",
+        "formula", "Y", 2, "character",
         "factInput", "i", 2, "character",
         "annoPath", "a", 2, "character",
         "contrastFile", "C", 1, "character",
