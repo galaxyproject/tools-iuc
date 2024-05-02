@@ -108,6 +108,12 @@ unmake_names <- function(string) {
     return(string)
 }
 
+# Sanitise file base names coming from factors or contrasts
+sanitise_basename <- function(string) {
+    string <- gsub("[/^]", "_", string)
+    return(string)
+}
+
 # Generate output folder and paths
 make_out <- function(filename) {
     return(paste0(opt$outPath, "/", filename))
