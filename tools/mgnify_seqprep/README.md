@@ -1,5 +1,8 @@
 # SeqPrep Tool Documentation
 
+> [!CAUTION]
+> This is a modified version of the 1.2 release. Made for use with the MGnify pipeline.
+
 ## Overview
 
 SeqPrep is a bioinformatics tool primarily used for processing paired-end Illumina reads. It excels in merging overlapping reads and trimming adapter sequences, making it a valuable asset in genomic sequence analysis. Its efficient handling of paired-end data ensures high-quality preparation for downstream analysis.
