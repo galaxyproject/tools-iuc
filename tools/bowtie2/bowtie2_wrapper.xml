@@ -12,6 +12,8 @@
     </requirements>
     <version_command>bowtie2 --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
+## Use pipefail if available to quit with first non-zero exit code
+set -o | grep -q pipefail && set -o pipefail;
 ## prepare bowtie2 index
 #set index_path = ''
 #if str($reference_genome.source) == "history":
@@ -306,11 +308,18 @@ bowtie2
 
 ## output file
 #if str( $sam_options.sam_options_selector ) == "no" or (str( $sam_options.sam_opt ) == "false" and str($sam_options.reorder) == ''):
-    > alignment.sam
-    && samtools sort -@\${GALAXY_SLOTS:-2} -T "\${TMPDIR:-.}" -O bam -o '$output' alignment.sam
+    ## Convert SAM output to sorted BAM
+    ## using the two pipe stages has the following effect
+    ## - mapping and sorting run in parallel, during this time sort produces
+    ##   presorted temporary files but does not produce output (hence
+    ##   view does not run)
+    ## - once mapping is finished sort will start to merge the temporary
+    ##   files (which should be fast also on a single thread) gives the
+    ##   sorted output to view which only compresses the files (now
+    ##   using full parallelism again)
+    | samtools sort -l 0 -T "\${TMPDIR:-.}" -O bam | samtools view --no-PG -O bam -@ \${GALAXY_SLOTS:-1} -o '$output'
 #else if $sam_options.reorder:
-    > alignment.sam
-    && samtools view -b -o '$output' alignment.sam
+    | samtools view --no-PG -b -o '$output' 
 #else:
     > '$output'
 #end if
