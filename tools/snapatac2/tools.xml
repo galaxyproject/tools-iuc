@@ -20,10 +20,16 @@ export NUMBA_CACHE_DIR="\${TEMP:-/tmp}";
 
 #if $method.method == 'tl.spectral'
 @CMD_read_inputs@
+	#if $method.features
+with open('$method.features') as f:
+	features_mask = [x.lower().capitalize() == "True" for x in f.read().splitlines()]
+#end if
 sa.tl.spectral(
 	adata,
 	n_comps = $method.n_comps,
-	features = '$method.features',
+	#if $method.features
+	features = features_mask,
+	#end if
 	random_state = $method.random_state,
 	#if $method.sample_size
 	sample_size = $method.sample_size,
@@ -31,34 +37,19 @@ sa.tl.spectral(
 	chunk_size = $method.chunk_size,
 	distance_metric = '$method.distance_metric',
 	weighted_by_sd = $method.weighted_by_sd,
-	#if $method.feature_weights
-	feature_weights = $method.feature_weights,
-	#end if
 	inplace = True
 )
 
 adata.close()
-
-#else if $method.method == 'tl.multi_spectral'
-@CMD_read_inputs@
-sa.tl.multi_spectral(
-	adatas = adata,
-	n_comps = $method.n_comps,
-	features = '$method.features',
-	#if $method.weights
-	weights = $method.weights,
-	#end if
-	random_state = $method.random_state,
-	weighted_by_sd = $method.weighted_by_sd
-)
 
 #else if $method.method == 'tl.umap'
 @CMD_read_inputs@
 sa.tl.umap(
 	adata,
 	n_comps = $method.n_comps,
-	#if $method.use_dims
-	use_dims = $method.use_dims,
+	#if $method.use_dims != ''
+	    #set $dims = ([x.strip() for x in str($method.use_dims).split(',')])
+	use_dims=$dims,
 	#end if
 	use_rep = '$method.use_rep',
 	key_added = '$method.key_added',
@@ -78,7 +69,6 @@ sa.tl.leiden(
 	n_iterations = $method.n_iterations,
 	random_state = $method.random_state,
 	key_added = '$method.key_added',
-	use_leidenalg = $method.use_leidenalg,
 	weighted = $method.weighted,
 	inplace = True
 )
@@ -126,17 +116,18 @@ sa.tl.hdbscan(
 @CMD_read_inputs@
 sa.tl.macs3(
 	adata,
+	#if $method.groupby != ''
 	groupby = '$method.groupby',
+	#end if
 	qvalue = $method.qvalue,
+	#if $method.replicate
 	replicate = '$method.replicate',
+	#end if
 	#if $method.replicate_qvalue
 	replicate_qvalue = $method.replicate_qvalue,
 	#end if
 	#if $method.max_frag_size
 	max_frag_size = $method.max_frag_size,
-	#end if
-	#if $method.selections
-	selections = '$method.selections',
 	#end if
 	nolambda = $method.nolambda,
 	shift = $method.shift,
@@ -145,10 +136,12 @@ sa.tl.macs3(
 	blacklist = '$method.blacklist',
 	#end if
 	key_added = '$method.key_added',
-	inplace = True
+	inplace = True,
+	n_jobs = '\${GALAXY_SLOTS:-4}'
 )
 
 #else if $method.method == 'tl.merge_peaks'
+@CMD_read_inputs@
 
 import json
 import pandas as pd
@@ -157,7 +150,7 @@ with open('$method.chrom_sizes') as f:
     chr_sizes = {x[0]:int(x[1]) for x in csv.reader(f, delimiter='\t')}
 
 sa.tl.merge_peaks(
-	peaks = '$method.peaks',
+	peaks = adata.uns['$method.macs_key'],
 	chrom_sizes = chr_sizes,
 	half_width = $method.half_width
 )
@@ -172,16 +165,43 @@ sa.tl.marker_regions(
 
 #else if $method.method == 'tl.diff_test'
 @CMD_read_inputs@
-sa.tl.diff_test(
+import numpy as np
+
+group_key = '$method.group_key'
+peaks = adata.uns['$method.macs_key']
+
+	#if $method.compare.with == 'single_group'
+group1 = '$method.compare.group1_value'
+group1_cells = data.obs[group_key] == group1
+group2 = '$method.compare.group2_value'
+group2_cells = data.obs[group_key] == group2
+peaks_selected = np.logical_or(
+    peaks[group1].to_numpy(),
+    peaks[group2].to_numpy(),
+)
+	#else if $method.compare.with == 'background_group'
+group1 = '$method.compare.group1_value'
+group1_cells = data.obs[group_key] == group1
+barcodes = np.array(adata.obs_names)
+group2_cells = []
+for i in np.unique(data.obs[group_key]):
+    if i != group1:
+        cells = np.random.choice(barcodes[data.obs[group_key] == i], size=$method.compare.number_of_cells, replace=False)
+        group2_cells.append(cells)
+group2_cells = np.concatenate(group2_cells)
+peaks_selected = peaks[group1].to_numpy()
+	#end if
+
+diff_peaks = sa.tl.diff_test(
 	data = adata,
-	cell_group1 = '$method.cell_group1',
-	cell_group2 = '$method.cell_group2',
-	features = '$method.features',
-	covariates = '$method.covariates',
+	cell_group1 = group1_cells,
+	cell_group2 = group2_cells,
+	features = peaks_selected,
 	direction = '$method.direction',
 	min_log_fc = $method.min_log_fc,
 	min_pct = $method.min_pct
 )
+diff_peaks.write('differential_peaks.tsv', sep='\t', index=False)
 
 #else if $method.method == 'tl.motif_enrichment'
 sa.tl.motif_enrichment(
@@ -192,68 +212,14 @@ sa.tl.motif_enrichment(
 	method = '$method.test_method'
 )
 
-#else if $method.method == 'tl.init_network_from_annotation'
-sa.tl.init_network_from_annotation(
-	regions = '$method.regions',
-	anno_file = '$method.anno_file',
-	upstream = $method.upstream,
-	downstream = $method.downstream,
-	id_type = '$method.id_type',
-	coding_gene_only = $method.coding_gene_only
-)
-
-#else if $method.method == 'tl.add_cor_scores'
-sa.tl.add_cor_scores(
-	network = '$method.network',
-	gene_mat = '$method.gene_mat',
-	peak_mat = '$method.peak_mat',
-	select = '$method.select_genes',
-	overwrite = $method.overwrite
-)
-
-#else if $method.method == 'tl.add_regr_scores'
-sa.tl.add_regr_scores(
-	network = '$method.network',
-	peak_mat = '$method.peak_mat',
-	gene_mat = '$method.gene_mat',
-	select = '$method.select_genes',
-	method = '$method.regresson_model',
-	scale_X = $method.scale_X,
-	scale_Y = $method.scale_Y,
-	alpha = $method.alpha,
-	l1_ratio = $method.l1_ratio,
-	use_gpu = $method.use_gpu,
-	overwrite = $method.overwrite
-)
-
-#else if $method.method == 'tl.add_tf_binding'
-sa.tl.add_tf_binding(
-	network = '$method.network',
-	motifs = '$method.motifs',
-	genome_fasta = '$method.genome_fasta',
-	pvalue = $method.pvalue
-)
-
-#else if $method.method == 'tl.link_tf_to_gene'
-sa.tl.link_tf_to_gene(
-	network = '$method.network'
-)
-
-#else if $method.method == 'tl.prune_network'
-sa.tl.prune_network(
-	network = '$method.network',
-	node_filter = '$method.node_filter',
-	edge_filter = '$method.edge_filter',
-	remove_isolates = $method.remove_isolates
-)
-
 #else if $method.method == 'tl.aggregate_X'
 @CMD_read_inputs@
 sa.tl.aggregate_X(
 	adata,
+	#if $method.groupby != ''
 	groupby = '$method.groupby',
-	normalize = '$method.normalize',
-	file = '$method.file'
+	#end if
+	normalize = '$method.normalize'
 )
 
 #else if $method.method == 'tl.aggregate_cells'
@@ -278,7 +244,6 @@ sa.tl.aggregate_cells(
 		<conditional name="method">
 			<param name="method" type="select" label="Tool">
 				<option value="tl.spectral">Perform dimension reduction using Laplacian Eigenmap, using tl.spectral</option>
-				<option value="tl.multi_spectral">Compute Laplacian Eigenmaps simultaneously on multiple modalities, using tl.multi_spectral</option>
 				<option value="tl.umap">Compute Umap, using tl.umap</option>
 				<option value="tl.leiden">Cluster cells into subgroups [Traag18], using tl.leiden</option>
 				<option value="tl.kmeans">Cluster cells into subgroups using the K-means algorithm, a classical algorithm in data mining, using tl.kmeans</option>
@@ -289,240 +254,173 @@ sa.tl.aggregate_cells(
 				<option value="tl.marker_regions">A quick-and-dirty way to get marker regions, using tl.marker_regions</option>
 				<option value="tl.diff_test">Identify differentially accessible regions,using tl.diff_test</option>
 				<option value="tl.motif_enrichment">Identify enriched transcription factor motifs, using tl.motif_enrichment</option>
-				<option value="tl.init_network_from_annotation">Build CRE-gene network from gene annotations, using tl.init_network_from_annotation</option>
-				<option value="tl.add_cor_scores">Compute correlation scores for any two connected nodes in the network, using tl.add_cor_scores</option>
-				<option value="tl.add_regr_scores">Perform regression analysis for nodes and their parents in the network, using tl.add_regr_scores</option>
-				<option value="tl.add_tf_binding">Add TF motif binding information, using tl.add_tf_binding</option>
-				<option value="tl.link_tf_to_gene">Contruct a genetic network by linking TFs to target genes, using tl.link_tf_to_gene</option>
-				<option value="tl.prune_network">Prune the network, using tl.prune_network</option>
 				<option value="tl.aggregate_X">Aggregate values in adata.X in a row-wise fashion, using tl.aggregate_X</option>
 				<option value="tl.aggregate_cells">Aggregate cells into pseudo-cells, using tl.aggregate_cells</option>
 			</param>
 			<when value="tl.spectral">
 				<expand macro="inputs_anndata"/>
-				<expand macro="n_comps"/>
-				<param name="features" type="text" value="selected" optional="true" label="Boolean index mask" help="True means that the feature is kept. False means the feature is removed"/>
-				<expand macro="random_state"/>
-				<param name="sample_size" type="float" optional="true" label="Approximate the embedding using the Nystrom algorithm by selecting a subset of cells"/>
-				<param name="chunk_size" type="integer" value="20000" label="chunk size"/>
-				<param name="distance_metric" type="select" label="distance metric: “jaccard”, “cosine“">
+				<expand macro="param_n_comps"/>
+				<param argument="features" type="data" format="txt" optional="true" label="Text file indicating features to keep. Each line contains only word (True/False)." help="True means that the feature is kept. False means the feature is removed"/>
+				<expand macro="param_random_state"/>
+				<param argument="sample_size" type="float" optional="true" min="0" max="1" label="Approximate the embedding using the Nystrom algorithm by selecting a subset of cells"
+					help="Using this only when the number of cells is too large, e.g. > 10,000,000, or the `distance_metric` is “jaccard”"/>
+				<param argument="chunk_size" type="integer" value="20000" label="chunk size"/>
+				<param argument="distance_metric" type="select" label="distance metric: “jaccard”, “cosine“">
 					<option value="jaccard">jaccard</option>
 					<option value="cosine">cosine</option>
 				</param>
-				<expand macro="weighted_by_sd"/>
-				<param name="feature_weights" type="text" value="" optional="true" label="Feature weights used in the distance metric">
-					<expand macro="sanitize_query"/>
-				</param>
-			</when>
-			<when value="tl.multi_spectral">
-				<expand macro="inputs_anndata"/>
-				<expand macro="n_comps"/>
-				<param name="features" type="text" optional="true" label="Boolean index mask" help="Boolean index mask. True means that the feature is kept.">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="weights" type="text" optional="true" label="Weights for each modality">
-					<expand macro="sanitize_query"/>
-				</param>
-				<expand macro="random_state"/>
-				<expand macro="weighted_by_sd"/>
+				<param argument="weighted_by_sd" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to weight the result eigenvectors by the square root of eigenvalues"/>
 			</when>
 			<when value="tl.umap">
 				<expand macro="inputs_anndata"/>
-				<param name="n_comps" type="integer" value="2" label="Number of dimensions to keep"/>
-				<param name="use_rep" type="text" value="X_spectral" label="The key for the matrix"/>
-				<param name="use_dims" type="text" optional="true" label="The dimensions used for computation">
+				<param argument="n_comps" type="integer" value="2" label="Number of dimensions of embedding"/>
+				<param argument="use_dims" type="text" optional="true" label="Use these dimensions in `use_rep`"
+					help="comma separated list of dimensions">
 					<expand macro="sanitize_query"/>
 				</param>
-				<param name="key_added" type="text" value="umap" optional="false" label="adata.obs key under which to add the cluster labels"/>
-				<expand macro="random_state"/>
+				<expand macro="param_use_rep"/>
+				<expand macro="param_key_added" key_added="umap"/>
+				<expand macro="param_random_state"/>
 			</when>
 			<when value="tl.leiden">
 				<expand macro="inputs_anndata"/>
-				<param name="resolution" type="float" value="1" label="resolution" help="parameter value controlling the coarseness of the clustering"/>
-				<param name="objective_function" type="select" label=" whether to use the Constant Potts Model (CPM) or modularity. Must be either “CPM”, “modularity” or “RBConfiguration”">
+				<param argument="resolution" type="float" value="1" label="Parameter value controlling the coarseness of the clustering"
+					help="Higher values lead to more clusters"/>
+				<param argument="objective_function" type="select" label="Whether to use the Constant Potts Model (CPM) or modularity">
 					<option value="CPM">CPM</option>
 					<option value="modularity">modularity</option>
 					<option value="RBConfiguration">RBConfiguration</option>
 				</param>
-				<param name="min_cluster_size" type="integer" value="5" label="The minimum size of clusters"/>
-				<param name="n_iterations" type="integer" value="-1" label="How many iterations of the Leiden clustering algorithm to perform"/>
-				<expand macro="random_state"/>
-				<param name="key_added" type="text" value="leiden" optional="false" label="adata.obs key under which to add the cluster labels"/>
-				<param name="use_leidenalg" type="boolean" truevalue="True" falsevalue="False" label="If True, leidenalg package is used"/>
-				<param name="weighted" type="boolean" truevalue="True" falsevalue="False" label="Whether to use the edge weights in the graph"/>
+				<param argument="min_cluster_size" type="integer" value="5" label="The minimum size of clusters"/>
+				<expand macro="param_n_iterations"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_key_added" key_added="leiden"/>
+				<param argument="weighted" type="boolean" truevalue="True" falsevalue="False" label="Whether to use the edge weights in the graph"/>
 			</when>
 			<when value="tl.kmeans">
 				<expand macro="inputs_anndata"/>
-				<param name="n_clusters" type="integer" value="5" label="Number of clusters to return"/>
-				<param name="n_iterations" type="integer" value="-1" label="How many iterations of the kmeans clustering algorithm to perform"/>
-				<expand macro="random_state"/>
-				<expand macro="use_rep"/>
-				<param name="key_added" type="text" value="kmeans" optional="false" label="adata.obs key under which to add the cluster labels"/>
+				<param argument="n_clusters" type="integer" value="5" label="Number of clusters to return"/>
+				<expand macro="param_n_iterations"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_use_rep"/>
+				<expand macro="param_key_added" key_added="kmeans"/>
 			</when>
 			<when value="tl.dbscan">
 				<expand macro="inputs_anndata"/>
-				<param name="eps" type="float" value="0.5" label=" The maximum distance between two samples for one to be considered as in the neighborhood of the other"/>
-				<param name="min_samples" type="integer" value="5" label="The number of samples (or total weight) in a neighborhood for a point to be considered as a core point."/>
-				<param name="leaf_size" type="integer" value="30" label="Leaf size passed to BallTree or cKDTree"/>
-				<expand macro="use_rep"/>
-				<param name="key_added" type="text" value="dbscan" optional="false" label="adata.obs key under which to add the cluster labels"/>
+				<param argument="eps" type="float" value="0.5" label=" The maximum distance between two samples for one to be considered as in the neighborhood of the other"
+					help="This is not a maximum bound on the distances of points within a cluster. This is the most important DBSCAN parameter to choose appropriately for your data set and distance function."/>
+				<param argument="min_samples" type="integer" value="5" label="The number of samples (or total weight) in a neighborhood for a point to be considered as a core point."/>
+				<param argument="leaf_size" type="integer" value="30" label="Leaf size passed to BallTree or cKDTree"
+					help="This can affect the speed of the construction and query, as well as the memory required to store the tree."/>
+				<expand macro="param_use_rep"/>
+				<expand macro="param_key_added" key_added="dbscan"/>
 			</when>
 			<when value="tl.hdbscan">
 				<expand macro="inputs_anndata"/>
-				<param name="min_cluster_size" type="integer" value="5" label="The minimum size of clusters"/>
-				<param name="min_samples" type="integer" optional="true" label="The number of samples in a neighbourhood for a point to be considered a core point"/>
-				<param name="cluster_selection_epsilon" type="float" value="0.0" label="A distance threshold. Clusters below this value will be merged"/>
-				<param name="alpha" type="float" value="1.0" label="A distance scaling parameter as used in robust single linkage"/>
-				<param name="cluster_selection_method" type="select" label="The method used to select clusters from the condensed tree">
-					<option value="eom">eom</option>
-					<option value="leaf">leaf</option>
+				<param argument="min_cluster_size" type="integer" value="5" label="The minimum size of clusters"/>
+				<param argument="min_samples" type="integer" value="" optional="true" label="The number of samples in a neighbourhood for a point to be considered a core point"/>
+				<param argument="cluster_selection_epsilon" type="float" value="0.0" label="A distance threshold. Clusters below this value will be merged"/>
+				<param argument="alpha" type="float" value="1.0" label="A distance scaling parameter as used in robust single linkage"/>
+				<param argument="cluster_selection_method" type="select" label="The method used to select clusters from the condensed tree">
+					<option value="eom">Excess of Mass algorithm to find the most persistent clusters</option>
+					<option value="leaf">Select the clusters at the leaves of the tree - this provides the most fine grained and homogeneous clusters</option>
 				</param>
-				<expand macro="random_state"/>
-				<expand macro="use_rep"/>
-				<param name="key_added" type="text" value="hdbscan" optional="false" label="adata.obs key under which to add the cluster labels"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_use_rep"/>
+				<expand macro="param_key_added" key_added="hdbscan"/>
 			</when>
 			<when value="tl.macs3">
 				<expand macro="inputs_anndata"/>
-				<expand macro="param_groupby"/>
-				<param name="qvalue" type="float" value="0.05" label="qvalue cutoff used in MACS3"/>
-				<param name="replicate" type="text" optional="true" label="Replicate information.">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="replicate_qvalue" type="float" optional="true" label="qvalue cutoff used in MACS3 for calling peaks in replicates"/>
-				<param name="max_frag_size" type="integer" optional="true" label="Maximum fragment size"/>
-				<param name="selections" type="text" optional="true" label="Call peaks for the selected groups only">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="nolambda" type="boolean" truevalue="True" falsevalue="False" label="If True, macs3 will use the background lambda as local lambda"/>
-				<param name="shift" type="integer" value="-100" label="The shift size in MACS"/>
-				<param name="extsize" type="integer" value="200" label="The extension size in MACS"/>
-				<param name="blacklist" type="text" optional="true" label="Path to the blacklist file in BED format"/>
-				<param name="key_added" type="text" value="macs3" optional="false" label="adata.obs key under which to add the cluster labels"/>
+				<param argument="groupby" type="text" value="" optional="true" label="Group cells before peak calling based on key in `.obs`"/>
+				<param argument="qvalue" type="float" value="0.05" label="qvalue cutoff used in MACS3"/>
+				<param argument="replicate" type="text" value="" optional="true" label="Replicate information based on key in `.obs`"/>
+				<param argument="replicate_qvalue" type="float" value="" optional="true" label="qvalue cutoff used in MACS3 for calling peaks in replicates"/>
+				<param argument="max_frag_size" type="integer" value="" optional="true" label="Maximum fragment size"
+					help="This is used to remove fragments that are not from nucleosome-free regions."/>
+				<param argument="nolambda" type="boolean" checked="false" truevalue="True" falsevalue="False" label="If True, macs3 will use the background lambda as local lambda"/>
+				<param argument="shift" type="integer" value="-100" label="The shift size in MACS"/>
+				<param argument="extsize" type="integer" value="200" label="The extension size in MACS"/>
+				<param argument="blacklist" type="data" format="bed" optional="true" label="Blacklist file in BED format"
+					help="If provided, regions in the blacklist will be removed."/>
+				<param argument="key_added" type="text" value="macs3"  label="`.uns` key under which to add peak information"/>
 			</when>
 			<when value="tl.merge_peaks">
-				<param name="peaks" type="text" optional="false" label="Peak information from different groups"/>
-				<param name="chrom_sizes" type="data" format="tabular" optional="false" label="Chromosome sizes"/>
-				<param name="half_width" type="integer" value="250" label="Half width of the merged peaks"/>
+				<expand macro="inputs_anndata"/>
+				<param name="macs_key" type="text" value="macs3" label="`.uns` key under which peak information was added while peak calling"/>
+				<param argument="chrom_sizes" type="data" format="tabular" label="Chromosome sizes"/>
+				<param argument="half_width" type="integer" value="250" label="Half width of the merged peaks"/>
 			</when>
 			<when value="tl.marker_regions">
 				<expand macro="inputs_anndata"/>
 				<expand macro="param_groupby"/>
-				<param name="pvalue" type="float" value="0.01" label="P-value threshold"/>
+				<param argument="pvalue" type="float" value="0.01" label="P-value threshold"/>
 			</when>
 			<when value="tl.diff_test">
 				<expand macro="inputs_anndata"/>
-				<param name="cell_group1" type="text" optional="false" label="cells belonging to group 1">
-					<expand macro="sanitize_query"/>
+				<param name="macs_key" type="text" value="macs3" label="`.uns` key under which peak information was added while peak calling"/>
+				<param name="group_key" type="text" value="cell_type" label="key in `.obs` to select cell groups"
+					help="for eg. cell_type"/>
+				<conditional name="compare">
+					<param name="with" type="select" label="Test for differential accessibility in a group of cells compared to" help="TODO">
+						<option value="single_group">Another group of cells</option>
+						<option value="background_group">Background cell group built from random selection of cells from all other the groups</option>
+					</param>
+					<when value="single_group">
+						<param name="group1_value" type="text" value="Naive B" label="name of the group 1 stored in .obs"/>
+						<param name="group2_value" type="text" value="Memory B" label="name of the group 2 stored in .obs"/>
+					</when>
+					<when value="background_group">
+						<param name="group1_value" type="text" value="Naive B" label="name of the group 1 stored in .obs"/>
+						<param name="number_of_cells" type="integer" min="1" value="30" label="Number of cells to subsample from ther other groups"/>
+					</when>
+				</conditional>
+				<param argument="direction" type="select" label="“positive”: return features that are enriched in group 1. “negative”: return features that are enriched in group 2">
+					<option value="positive">“positive”: return features that are enriched in group 1</option>
+					<option value="negative"> “negative”: return features that are enriched in group 2</option>
+					<option value="both" selected="true">“both”: return features that are enriched in group 1 or group 2</option>
 				</param>
-				<param name="cell_group2" type="text" optional="false" label="cells belonging to group 2">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="features" type="text" optional="true" label="Features/peaks to test">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="covariates" type="text" optional="true" label="covariates"/>
-				<param name="direction" type="select" label="“positive”: return features that are enriched in group 1. “negative”: return features that are enriched in group 2">
-					<option value="positive">positive</option>
-					<option value="negative">negative</option>
-					<option value="both" selected="true">both</option>
-				</param>
-				<param name="min_log_fc" type="float" value="0.25" label="Limit testing to features which show, on average, at least X-fold difference (log2-scale) between the two groups of cells"/>
-				<param name="min_pct" type="float" value="0.05" label="Only test features that are detected in a minimum fraction of min_pct cells in either of the two population"/>
+				<param argument="min_log_fc" type="float" value="0.25" label="Limit testing to features which show, on average, at least this difference (log2-scale) between the two groups of cells"/>
+				<param argument="min_pct" type="float" value="0.05" label="Only test features that are detected in a minimum fraction of min_pct cells in either of the two population"/>
 			</when>
 			<when value="tl.motif_enrichment">
-				<param name="motifs" type="text" optional="false" label="A list of transcription factor motifs">
+				<param name="motifs" type="text" label="A list of transcription factor motifs">
 					<expand macro="sanitize_query"/>
 				</param>
-				<param name="regions" type="text" optional="false" label="Groups of regions"/>
+				<param name="regions" type="text" label="Groups of regions"/>
 				<expand macro="genome_fasta"/>
 				<expand macro="background"/>
-				<param name="test_method" type="select" optional="true" label="Statistical testing method: “binomial” or “hypergeometric">
+				<param argument="test_method" type="select" optional="true" label="Statistical testing method: “binomial” or “hypergeometric">
 					<option value="binomial">binomial</option>
 					<option value="hypergeometric">hypergeometric</option>
 				</param>
 			</when>
-			<when value="tl.init_network_from_annotation">
-				<param name="regions" type="text" optional="false" label="A list of peaks/regions">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="anno_file" type="text" optional="false" label="The GFF file containing the transcript level annotations"/>
-				<param name="upstream" type="integer" value="250000" label=" Upstream extension to the transcription start site"/>
-				<param name="downstream" type="integer" value="250000" label="Downstream extension to the transcription start site"/>
-				<param name="id_type" type="select" label="“gene_name”, “gene_id” or “transcript_id”">
-					<option value="gene_name">gene_name</option>
-					<option value="gene_id">gene_id</option>
-					<option value="transcript_id">transcript_id</option>
-				</param>
-				<param name="coding_gene_only" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Retain only coding genes in the network"/>
-			</when>
-			<when value="tl.add_cor_scores">
-				<expand macro="network"/>
-				<expand macro="mat"/>
-				<param name="select_genes" type="text" optional="true" label="Run this for selected genes only">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="overwrite" type="boolean" truevalue="True" falsevalue="False" label="Whether to overwrite existing records"/>
-			</when>
-			<when value="tl.add_regr_scores">
-				<expand macro="network"/>
-				<expand macro="mat"/>
-				<param name="select_genes" type="text" optional="true" label="Run this for selected genes only">
-					<expand macro="sanitize_query"/>
-				</param>
-				<param name="regresson_model" type="select" optional="false" label="Regresson model">
-					<option value="gb_tree">gb_tree</option>
-					<option value="elastic_net" selected="true">elastic_net</option>
-				</param>
-				<param name="scale_X" type="boolean" truevalue="True" falsevalue="False" label="Whether to scale the features"/>
-				<param name="scale_Y" type="boolean" truevalue="True" falsevalue="False" label="Whether to scale the response variable"/>
-				<param name="alpha" type="float" value="1.0" label="Constant that multiplies the penalty terms in ‘elastic_net’"/>
-				<param name="l1_ratio" type="float" value="0.5" label="ElasticNet mixing parameter"/>
-				<param name="use_gpu" type="boolean" truevalue="True" falsevalue="False" label="Whether to use gpu"/>
-				<param name="overwrite" type="boolean" truevalue="True" falsevalue="False" label="Whether to overwrite existing records"/>
-			</when>
-			<when value="tl.add_tf_binding">
-				<expand macro="network"/>
-				<param name="motifs" type="text" optional="false" label="TF motifs">
-					<expand macro="sanitize_query"/>
-				</param>
-				<expand macro="genome_fasta"/>
-				<param name="pvalue" type="float" value="1e-05" label="P-value threshold for motif binding"/>
-			</when>
-			<when value="tl.link_tf_to_gene">
-				<expand macro="network"/>
-			</when>
-			<when value="tl.prune_network">
-				<expand macro="network"/>
-				<param name="node_filter" type="text" optional="false" label="Node filter function"/>
-				<param name="edge_filter" type="text" optional="false" label="Edge filter function"/>
-				<param name="remove_isolates" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to remove isolated nodes"/>
-			</when>
 			<when value="tl.aggregate_X">
 				<expand macro="inputs_anndata"/>
-				<param argument="groupby" type="text" value="" optional="true" label="The key of the observation grouping to consider" help="If it is given, the plot is ordered by the respective group. It is expected that to be a categorical. If it is not a categorical observation, it would be subdivided into 'num_categories'.">
-					<expand macro="sanitize_query" />
-				</param>
-				<param name="normalize" type="select" optional="true" label="normalization method: “RPM” or “RPKM”">
+				<expand macro="param_groupby"/>
+				<param argument="normalize" type="select" optional="true" label="normalization method">
 					<option value="RPM">RPM</option>
 					<option value="RPKM">RPKM</option>
 				</param>
-				<param name="file" type="text" optional="true" label="Path: if provided, the results will be saved to a new h5ad file."/>
 			</when>
 			<when value="tl.aggregate_cells">
 				<expand macro="inputs_anndata"/>
-				<expand macro="use_rep"/>
-				<param name="target_num_cells" type="integer" optional="true" label="target_num_cells"/>
-				<param name="min_cluster_size" type="integer" value="50" label="The minimum size of clusters"/>
-				<expand macro="random_state"/>
-				<param name="key_added" type="text" value="pseudo_cell" optional="false" label="adata.obs key under which to add the cluster labels"/>
+				<expand macro="param_use_rep"/>
+				<param argument="target_num_cells" type="integer" value="" optional="true" label="target_num_cells"
+				help="If None, `target_num_cells = num_cells / min_cluster_size`"/>
+				<param argument="min_cluster_size" type="integer" value="50" label="The minimum size of clusters"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_key_added" key_added="pseudo_cell"/>
 			</when>
 		</conditional>
 		<expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
 		<data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix"/>
-            <data name="hidden_output" format="txt" label="Log file" >
+		<data name="hidden_output" format="txt" label="Log file" >
             <filter>advanced_common['show_log']</filter>
+        </data>
+		<data name="diff_peaks" format="tabular" from_work_dir="differential_peaks.tsv" label="${tool.name} on ${on_string}: Differential peaks" >
+			<filter>method['method'] and 'tl.diff_test' in method['method']</filter>
         </data>
     </outputs>
     <tests>
@@ -530,10 +428,11 @@ sa.tl.aggregate_cells(
 		<!-- test 1: tl.spectral -->
 		    <conditional name="method">
 		        <param name="method" value="tl.spectral"/>
-		        <param name="adata" value="pp.filter_doublets.pbmc_500_chr21.h5ad"/>
+		        <param name="adata" value="pp.select_features.pbmc_500_chr21.h5ad"/>
+				<param name="n_comps" value="30"/>
 		        <param name="random_state" value="0"/>
 		        <param name="chunk_size" value="20000"/>
-		        <param name="distance_metric" value="cosine"/>
+		        <param name="distance_metric" value="jaccard"/>
 		        <param name="weighted_by_sd" value="True"/>
 	  		</conditional>
 		    <section name="advanced_common">
@@ -543,20 +442,19 @@ sa.tl.aggregate_cells(
                 <assert_contents>
                     <has_text_matching expression="sa.tl.spectral"/>
                     <has_text_matching expression="random_state = 0"/>
+					<has_text_matching expression="n_comps = 30"/>
                     <has_text_matching expression="chunk_size = 20000"/>
-                    <has_text_matching expression="distance_metric = 'cosine'"/>
+                    <has_text_matching expression="distance_metric = 'jaccard'"/>
                     <has_text_matching expression="weighted_by_sd = True"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/10731644/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.spectral.pbmc_500_chr21.h5ad"/>
 		</test>
-		<!-- tl.multi_spectral -->
 		<test expect_num_outputs="2">
 		<!-- test 2: tl.umap -->
 		    <conditional name="method">
 		        <param name="method" value="tl.umap"/>
-		        <param name="adata"
-					location="https://zenodo.org/records/10731644/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+		        <param name="adata" value="large_files/tl.spectral.pbmc_500_chr21.h5ad"/>
 		        <param name="n_comps" value="2"/>
 		        <param name="use_rep" value="X_spectral"/>
 		        <param name="key_added" value="umap"/>
@@ -574,20 +472,19 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="random_state = 0"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/10731644/files/tl.umap.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.umap.pbmc_500_chr21.h5ad"/>
 		</test>
 		<test expect_num_outputs="2">
 		<!-- test 3: tl.leiden -->
 		    <conditional name="method">
 		        <param name="method" value="tl.leiden"/>
-		        <param name="adata" location="https://zenodo.org/records/10731644/files/pp.knn.pbmc_500_chr21.h5ad"/>
-		        <param name="resolution" value="1"/>
+		        <param name="adata" value="pp.knn.pbmc_500_chr21.h5ad"/>
+		        <param name="resolution" value="2"/>
 		        <param name="objective_function" value="modularity"/>
-		        <param name="min_cluster_size" value="5"/>
+		        <param name="min_cluster_size" value="3"/>
 		        <param name="n_iterations" value="-1"/>
 		        <param name="random_state" value="0"/>
 		        <param name="key_added" value="leiden"/>
-		        <param name="use_leidenalg" value="False"/>
 		        <param name="weighted" value="False"/>
 	  		</conditional>
 		    <section name="advanced_common">
@@ -596,18 +493,139 @@ sa.tl.aggregate_cells(
 		    <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="sa.tl.leiden"/>
-                    <has_text_matching expression="resolution = 1"/>
+                    <has_text_matching expression="resolution = 2"/>
                     <has_text_matching expression="objective_function = 'modularity'"/>
-                    <has_text_matching expression="min_cluster_size = 5"/>
+                    <has_text_matching expression="min_cluster_size = 3"/>
                     <has_text_matching expression="n_iterations = -1"/>
                     <has_text_matching expression="random_state = 0"/>
                     <has_text_matching expression="key_added = 'leiden'"/>
-                    <has_text_matching expression="use_leidenalg = False"/>
                     <has_text_matching expression="weighted = False"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/10731644/files/tl.leiden.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.leiden.pbmc_500_chr21.h5ad"/>
 		</test>
+		<test expect_num_outputs="2">
+			<!-- test 3: tl.kmeans -->
+				<conditional name="method">
+					<param name="method" value="tl.kmeans"/>
+					<param name="adata" value="large_files/tl.spectral.pbmc_500_chr21.h5ad"/>
+					<param name="n_iterations" value="-1"/>
+					<param name="random_state" value="0"/>
+					<param name="use_rep" value="X_spectral"/>
+					<param name="key_added" value="kmeans"/>
+				  </conditional>
+				<section name="advanced_common">
+					<param name="show_log" value="true"/>
+				</section>
+				<output name="hidden_output">
+					<assert_contents>
+						<has_text_matching expression="sa.tl.kmeans"/>
+						<has_text_matching expression="n_iterations = -1"/>
+						<has_text_matching expression="random_state = 0"/>
+						<has_text_matching expression="use_rep = 'X_spectral'"/>
+						<has_text_matching expression="key_added = 'kmeans'"/>
+					</assert_contents>
+				</output>
+				<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.kmeans.pbmc_500_chr21.h5ad"/>
+			</test>
+			<test expect_num_outputs="2">
+				<!-- test 3: tl.dbscan -->
+				<conditional name="method">
+					<param name="method" value="tl.dbscan"/>
+					<param name="adata" value="large_files/tl.spectral.pbmc_500_chr21.h5ad"/>
+					<param name="eps" value="0.5"/>
+					<param name="min_samples" value="3"/>
+					<param name="leaf_size" value="5"/>
+					<param name="use_rep" value="X_spectral"/>
+					<param name="key_added" value="dbscan"/>
+					</conditional>
+				<section name="advanced_common">
+					<param name="show_log" value="true"/>
+				</section>
+				<output name="hidden_output">
+					<assert_contents>
+						<has_text_matching expression="sa.tl.dbscan"/>
+						<has_text_matching expression="eps = 0.5"/>
+						<has_text_matching expression="min_samples = 3"/>
+						<has_text_matching expression="leaf_size = 5"/>
+						<has_text_matching expression="use_rep = 'X_spectral'"/>
+						<has_text_matching expression="key_added = 'dbscan'"/>
+					</assert_contents>
+				</output>
+				<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.dbscan.pbmc_500_chr21.h5ad"/>
+			</test>
+			<test expect_num_outputs="2">
+				<!-- test 3: tl.hdbscan -->
+				<conditional name="method">
+					<param name="method" value="tl.hdbscan"/>
+					<param name="adata" value="large_files/tl.spectral.pbmc_500_chr21.h5ad"/>
+					<param name="min_cluster_size" value="3"/>
+					<param name="min_samples" value="3"/>
+					<param name="cluster_selection_method" value="eom"/>
+					<param name="random_state" value="0"/>
+					<param name="use_rep" value="X_spectral"/>
+					<param name="key_added" value="hdbscan"/>
+					</conditional>
+				<section name="advanced_common">
+					<param name="show_log" value="true"/>
+				</section>
+				<output name="hidden_output">
+					<assert_contents>
+						<has_text_matching expression="sa.tl.hdbscan"/>
+						<has_text_matching expression="min_cluster_size = 3"/>
+						<has_text_matching expression="min_samples = 3"/>
+						<has_text_matching expression="cluster_selection_method = 'eom'"/>
+						<has_text_matching expression="random_state = 0"/>
+						<has_text_matching expression="use_rep = 'X_spectral'"/>
+						<has_text_matching expression="key_added = 'hdbscan'"/>
+					</assert_contents>
+				</output>
+				<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.dbscan.pbmc_500_chr21.h5ad"/>
+			</test>
+			<test expect_num_outputs="2">
+				<!-- test 3: tl.aggregate_X -->
+				<conditional name="method">
+					<param name="method" value="tl.aggregate_X"/>
+					<param name="adata" value="large_files/tl.spectral.pbmc_500_chr21.h5ad"/>
+					<param name="normalize" value="RPKM"/>
+					</conditional>
+				<section name="advanced_common">
+					<param name="show_log" value="true"/>
+				</section>
+				<output name="hidden_output">
+					<assert_contents>
+						<has_text_matching expression="sa.tl.aggregate_X"/>
+						<has_text_matching expression="normalize = 'RPKM'"/>
+					</assert_contents>
+				</output>
+				<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.aggregate_X.pbmc_500_chr21.h5ad"/>
+			</test>
+			<test expect_num_outputs="2">
+				<!-- test 3: tl.aggregate_cells -->
+				<conditional name="method">
+					<param name="method" value="tl.aggregate_cells"/>
+					<param name="adata" value="large_files/tl.spectral.pbmc_500_chr21.h5ad"/>
+					<param name="use_rep" value="X_spectral"/>
+					<param name="target_num_cells" value="5"/>
+					<param name="min_cluster_size" value="3"/>
+					<param name="random_state" value="0"/>
+					<param name="key_added" value="pseudo_cell"/>
+					</conditional>
+				<section name="advanced_common">
+					<param name="show_log" value="true"/>
+				</section>
+				<output name="hidden_output">
+					<assert_contents>
+						<has_text_matching expression="sa.tl.aggregate_cells"/>
+						<has_text_matching expression="use_rep = 'X_spectral'"/>
+						<has_text_matching expression="target_num_cells = 5"/>
+						<has_text_matching expression="min_cluster_size = 3"/>
+						<has_text_matching expression="random_state = 0"/>
+						<has_text_matching expression="key_added = 'pseudo_cell'"/>
+					</assert_contents>
+				</output>
+				<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.aggregate_cells.pbmc_500_chr21.h5ad"/>
+			</test>
 	</tests>
     <help><![CDATA[
     SnapATAC2 tools functions
