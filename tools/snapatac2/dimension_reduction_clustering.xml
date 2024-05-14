@@ -1,0 +1,347 @@
+<tool id="snapatac2_clustering" name="SnapATAC2 Clustering" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>and dimension reduction</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+    	<expand macro="requirements"/>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+export NUMBA_CACHE_DIR="\${TEMP:-/tmp}";
+@PREP_ADATA@
+@CMD@
+    ]]></command>
+	<configfiles>
+        <configfile name="script_file"><![CDATA[
+
+@CMD_imports@
+@CMD_read_inputs@
+
+#if $method.method == 'tl.spectral'
+	#if $method.features
+with open('$method.features') as f:
+	features_mask = [x.lower().capitalize() == "True" for x in f.read().splitlines()]
+	#end if
+sa.tl.spectral(
+	adata,
+	n_comps = $method.n_comps,
+	#if $method.features
+	features = features_mask,
+	#end if
+	random_state = $method.random_state,
+	#if $method.sample_size
+	sample_size = $method.sample_size,
+	#end if
+	chunk_size = $method.chunk_size,
+	distance_metric = '$method.distance_metric',
+	weighted_by_sd = $method.weighted_by_sd,
+	inplace = True
+)
+
+#else if $method.method == 'tl.umap'
+sa.tl.umap(
+	adata,
+	n_comps = $method.n_comps,
+	#if $method.use_dims != ''
+	    #set $dims = ([x.strip() for x in str($method.use_dims).split(',')])
+	use_dims=$dims,
+	#end if
+	use_rep = '$method.use_rep',
+	key_added = '$method.key_added',
+	random_state = $method.random_state,
+	inplace = True
+)
+
+#else if $method.method == 'tl.leiden'
+sa.tl.leiden(
+	adata,
+	resolution = $method.resolution,
+	objective_function = '$method.objective_function',
+	min_cluster_size = $method.min_cluster_size,
+	n_iterations = $method.n_iterations,
+	random_state = $method.random_state,
+	key_added = '$method.key_added',
+	weighted = $method.weighted,
+	inplace = True
+)
+
+#else if $method.method == 'tl.kmeans'
+sa.tl.kmeans(
+	adata,
+	n_clusters = $method.n_clusters,
+	n_iterations = $method.n_iterations,
+	random_state = $method.random_state,
+	use_rep = '$method.use_rep',
+	key_added = '$method.key_added'
+)
+
+#else if $method.method == 'tl.aggregate_X'
+sa.tl.aggregate_X(
+	adata,
+	#if $method.groupby != ''
+	groupby = '$method.groupby',
+	#end if
+	normalize = '$method.normalize'
+)
+
+#else if $method.method == 'tl.aggregate_cells'
+sa.tl.aggregate_cells(
+	adata,
+	use_rep = '$method.use_rep',
+	#if $method.target_num_cells
+	target_num_cells = $method.target_num_cells,
+	#end if
+	min_cluster_size = $method.min_cluster_size,
+	random_state = $method.random_state,
+	key_added = '$method.key_added',
+	inplace = True
+)
+#end if
+
+adata.close()
+
+	]]></configfile>
+	</configfiles>
+    <inputs>
+		<conditional name="method">
+			<param name="method" type="select" label="Dimension reduction and Clustering">
+				<option value="tl.spectral">Perform dimension reduction using Laplacian Eigenmap, using tl.spectral</option>
+				<option value="tl.umap">Compute Umap, using tl.umap</option>
+				<option value="tl.leiden">Cluster cells into subgroups [Traag18], using tl.leiden</option>
+				<option value="tl.kmeans">Cluster cells into subgroups using the K-means algorithm, a classical algorithm in data mining, using tl.kmeans</option>
+				<option value="tl.aggregate_X">Aggregate values in adata.X in a row-wise fashion, using tl.aggregate_X</option>
+				<option value="tl.aggregate_cells">Aggregate cells into pseudo-cells, using tl.aggregate_cells</option>
+			</param>
+			<when value="tl.spectral">
+				<expand macro="inputs_anndata"/>
+				<expand macro="param_n_comps"/>
+				<param argument="features" type="data" format="txt" optional="true" label="Text file indicating features to keep. Each line contains only word (True/False)." help="True means that the feature is kept. False means the feature is removed"/>
+				<expand macro="param_random_state"/>
+				<param argument="sample_size" type="float" optional="true" min="0" max="1" label="Approximate the embedding using the Nystrom algorithm by selecting a subset of cells"
+					help="Using this only when the number of cells is too large, e.g. > 10,000,000, or the `distance_metric` is “jaccard”"/>
+				<param argument="chunk_size" type="integer" value="20000" label="chunk size"/>
+				<param argument="distance_metric" type="select" label="distance metric: “jaccard”, “cosine“">
+					<option value="jaccard">jaccard</option>
+					<option value="cosine">cosine</option>
+				</param>
+				<param argument="weighted_by_sd" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to weight the result eigenvectors by the square root of eigenvalues"/>
+			</when>
+			<when value="tl.umap">
+				<expand macro="inputs_anndata"/>
+				<param argument="n_comps" type="integer" value="2" label="Number of dimensions of embedding"/>
+				<param argument="use_dims" type="text" optional="true" label="Use these dimensions in `use_rep`"
+					help="comma separated list of dimensions">
+					<expand macro="sanitize_query"/>
+				</param>
+				<expand macro="param_use_rep"/>
+				<expand macro="param_key_added" key_added="umap"/>
+				<expand macro="param_random_state"/>
+			</when>
+			<when value="tl.leiden">
+				<expand macro="inputs_anndata"/>
+				<param argument="resolution" type="float" value="1" label="Parameter value controlling the coarseness of the clustering"
+					help="Higher values lead to more clusters"/>
+				<param argument="objective_function" type="select" label="Whether to use the Constant Potts Model (CPM) or modularity">
+					<option value="CPM">CPM</option>
+					<option value="modularity">modularity</option>
+					<option value="RBConfiguration">RBConfiguration</option>
+				</param>
+				<param argument="min_cluster_size" type="integer" value="5" label="The minimum size of clusters"/>
+				<expand macro="param_n_iterations"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_key_added" key_added="leiden"/>
+				<param argument="weighted" type="boolean" truevalue="True" falsevalue="False" label="Whether to use the edge weights in the graph"/>
+			</when>
+			<when value="tl.kmeans">
+				<expand macro="inputs_anndata"/>
+				<param argument="n_clusters" type="integer" value="5" label="Number of clusters to return"/>
+				<expand macro="param_n_iterations"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_use_rep"/>
+				<expand macro="param_key_added" key_added="kmeans"/>
+			</when>
+			<when value="tl.aggregate_X">
+				<expand macro="inputs_anndata"/>
+				<expand macro="param_groupby"/>
+				<param argument="normalize" type="select" optional="true" label="normalization method">
+					<option value="RPM">RPM</option>
+					<option value="RPKM">RPKM</option>
+				</param>
+			</when>
+			<when value="tl.aggregate_cells">
+				<expand macro="inputs_anndata"/>
+				<expand macro="param_use_rep"/>
+				<param argument="target_num_cells" type="integer" value="" optional="true" label="target_num_cells"
+				help="If None, `target_num_cells = num_cells / min_cluster_size`"/>
+				<param argument="min_cluster_size" type="integer" value="50" label="The minimum size of clusters"/>
+				<expand macro="param_random_state"/>
+				<expand macro="param_key_added" key_added="pseudo_cell"/>
+			</when>
+		</conditional>
+		<expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+		<data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix"/>
+		<data name="hidden_output" format="txt" label="Log file" >
+            <filter>advanced_common['show_log']</filter>
+        </data>
+		<data name="diff_peaks" format="tabular" from_work_dir="differential_peaks.tsv" label="${tool.name} on ${on_string}: Differential peaks" >
+			<filter>method['method'] and 'tl.diff_test' in method['method']</filter>
+        </data>
+    </outputs>
+    <tests>
+    	<test expect_num_outputs="2">
+		<!-- test 1: tl.spectral -->
+		    <conditional name="method">
+		        <param name="method" value="tl.spectral"/>
+		        <param name="adata" value="pp.select_features.pbmc_500_chr21.h5ad"/>
+				<param name="n_comps" value="30"/>
+		        <param name="random_state" value="0"/>
+		        <param name="chunk_size" value="20000"/>
+		        <param name="distance_metric" value="jaccard"/>
+		        <param name="weighted_by_sd" value="True"/>
+	  		</conditional>
+		    <section name="advanced_common">
+		        <param name="show_log" value="true" />
+		    </section>
+		    <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sa.tl.spectral"/>
+                    <has_text_matching expression="random_state = 0"/>
+					<has_text_matching expression="n_comps = 30"/>
+                    <has_text_matching expression="chunk_size = 20000"/>
+                    <has_text_matching expression="distance_metric = 'jaccard'"/>
+                    <has_text_matching expression="weighted_by_sd = True"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.spectral.pbmc_500_chr21.h5ad"/>
+		</test>
+		<test expect_num_outputs="2">
+		<!-- test 2: tl.umap -->
+		    <conditional name="method">
+		        <param name="method" value="tl.umap"/>
+		        <param name="adata" value="tl.spectral.pbmc_500_chr21.h5ad"/>
+		        <param name="n_comps" value="2"/>
+		        <param name="use_rep" value="X_spectral"/>
+		        <param name="key_added" value="umap"/>
+		        <param name="random_state" value="0"/>
+	  		</conditional>
+		    <section name="advanced_common">
+		        <param name="show_log" value="true" />
+		    </section>
+		    <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sa.tl.umap"/>
+                    <has_text_matching expression="n_comps = 2"/>
+                    <has_text_matching expression="use_rep = 'X_spectral'"/>
+                    <has_text_matching expression="key_added = 'umap'"/>
+                    <has_text_matching expression="random_state = 0"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.umap.pbmc_500_chr21.h5ad"/>
+		</test>
+		<test expect_num_outputs="2">
+		<!-- test 3: tl.leiden -->
+		    <conditional name="method">
+		        <param name="method" value="tl.leiden"/>
+		        <param name="adata" value="pp.knn.pbmc_500_chr21.h5ad"/>
+		        <param name="resolution" value="2"/>
+		        <param name="objective_function" value="modularity"/>
+		        <param name="min_cluster_size" value="3"/>
+		        <param name="n_iterations" value="-1"/>
+		        <param name="random_state" value="0"/>
+		        <param name="key_added" value="leiden"/>
+		        <param name="weighted" value="False"/>
+	  		</conditional>
+		    <section name="advanced_common">
+		        <param name="show_log" value="true" />
+		    </section>
+		    <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sa.tl.leiden"/>
+                    <has_text_matching expression="resolution = 2"/>
+                    <has_text_matching expression="objective_function = 'modularity'"/>
+                    <has_text_matching expression="min_cluster_size = 3"/>
+                    <has_text_matching expression="n_iterations = -1"/>
+                    <has_text_matching expression="random_state = 0"/>
+                    <has_text_matching expression="key_added = 'leiden'"/>
+                    <has_text_matching expression="weighted = False"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.leiden.pbmc_500_chr21.h5ad"/>
+		</test>
+		<test expect_num_outputs="2">
+			<!-- test 4: tl.kmeans -->
+			<conditional name="method">
+				<param name="method" value="tl.kmeans"/>
+				<param name="adata" value="tl.spectral.pbmc_500_chr21.h5ad"/>
+				<param name="n_iterations" value="-1"/>
+				<param name="random_state" value="0"/>
+				<param name="use_rep" value="X_spectral"/>
+				<param name="key_added" value="kmeans"/>
+				</conditional>
+			<section name="advanced_common">
+				<param name="show_log" value="true"/>
+			</section>
+			<output name="hidden_output">
+				<assert_contents>
+					<has_text_matching expression="sa.tl.kmeans"/>
+					<has_text_matching expression="n_iterations = -1"/>
+					<has_text_matching expression="random_state = 0"/>
+					<has_text_matching expression="use_rep = 'X_spectral'"/>
+					<has_text_matching expression="key_added = 'kmeans'"/>
+				</assert_contents>
+			</output>
+			<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.kmeans.pbmc_500_chr21.h5ad"/>
+		</test>
+		<test expect_num_outputs="2">
+			<!-- test 5: tl.aggregate_X -->
+			<conditional name="method">
+				<param name="method" value="tl.aggregate_X"/>
+				<param name="adata" value="tl.spectral.pbmc_500_chr21.h5ad"/>
+				<param name="normalize" value="RPKM"/>
+				</conditional>
+			<section name="advanced_common">
+				<param name="show_log" value="true"/>
+			</section>
+			<output name="hidden_output">
+				<assert_contents>
+					<has_text_matching expression="sa.tl.aggregate_X"/>
+					<has_text_matching expression="normalize = 'RPKM'"/>
+				</assert_contents>
+			</output>
+			<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.aggregate_X.pbmc_500_chr21.h5ad"/>
+		</test>
+		<test expect_num_outputs="2">
+			<!-- test 6: tl.aggregate_cells -->
+			<conditional name="method">
+				<param name="method" value="tl.aggregate_cells"/>
+				<param name="adata" value="tl.spectral.pbmc_500_chr21.h5ad"/>
+				<param name="use_rep" value="X_spectral"/>
+				<param name="target_num_cells" value="5"/>
+				<param name="min_cluster_size" value="3"/>
+				<param name="random_state" value="0"/>
+				<param name="key_added" value="pseudo_cell"/>
+				</conditional>
+			<section name="advanced_common">
+				<param name="show_log" value="true"/>
+			</section>
+			<output name="hidden_output">
+				<assert_contents>
+					<has_text_matching expression="sa.tl.aggregate_cells"/>
+					<has_text_matching expression="use_rep = 'X_spectral'"/>
+					<has_text_matching expression="target_num_cells = 5"/>
+					<has_text_matching expression="min_cluster_size = 3"/>
+					<has_text_matching expression="random_state = 0"/>
+					<has_text_matching expression="key_added = 'pseudo_cell'"/>
+				</assert_contents>
+			</output>
+			<output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" file="tl.aggregate_cells.pbmc_500_chr21.h5ad"/>
+		</test>
+	</tests>
+    <help><![CDATA[
+    SnapATAC2 tools functions
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
+
