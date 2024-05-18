@@ -1,7 +1,5 @@
 <tool id="das_tool" name="DAS Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>
-        for genome resolved metagenomics
-    </description>
+    <description>for genome-resolved metagenomics</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -9,18 +7,25 @@
     <expand macro="requirements"/>
     <expand macro="version"/>
     <command detect_errors="exit_code"><![CDATA[
-#set $bins = ""
-#set $labels = ""
-#set $sep = ""
+#import re
+
+#set $bins = []
+#set $labels = []
 #for $i, $s in enumerate($binning)
-    #set $bins += "%s%s" %($sep, $s.bins)
-    #set $labels += "%s%s" %($sep, $s.labels)
-    #set $sep = ","
+    #silent $bins.append(str($s.bins))
+    #if $s.labels != ''
+        #silent $labels.append(str($s.labels))
+    #else
+        #silent $labels.append(re.sub('[^\w\-_\.]', '_', $s.bins.element_identifier))
+    #end if
 #end for
 
 #if $adv.proteins
-ln -s $adv.proteins 'proteins' &&
+    ln -s '$adv.proteins' 'proteins' &&
 #end if
+
+#set $bins = ','.join($bins)
+#set $labels = ','.join($labels)
 
 DAS_Tool
     --contigs '$contigs'
@@ -28,17 +33,19 @@ DAS_Tool
     --bins '$bins'
     --labels '$labels'
     --search_engine '$adv.search_engine'
-#if $adv.proteins
-    --proteins 'proteins'
-#end if
+    #if $adv.proteins
+        --proteins 'proteins'
+    #end if
     --score_threshold $adv.score_threshold
     --duplicate_penalty $adv.duplicate_penalty
     --megabin_penalty $adv.megabin_penalty
+    --max_iter_post_threshold $adv.max_iter_post_threshold
+
     $output.write_bin_evals
     $output.write_bins.write_bins
-#if str($output.write_bins.write_bins) != ''
-    $output.write_bins.write_unbinned
-#end if
+    #if str($output.write_bins.write_bins) != ''
+        $output.write_bins.write_unbinned
+    #end if
     $output.debug
     --threads \${GALAXY_SLOTS:-1}
     ]]></command>
@@ -46,7 +53,15 @@ DAS_Tool
         <param argument="--contigs" type="data" format="fasta" label="Contig sequences"/>
         <repeat name="binning" title="Bins" min="1">
             <param argument="--bins" type="data" format="tabular" label="Contigs-to-bin table" help="Tabular with two columns: contig-IDs and bin-IDs. Fasta_to_Contigs2Bin can be used to  Converts genome bins in fasta format to Contigs-to-bin table"/>
-            <param argument="--labels" type="text" value="" label="Name of binning prediction tool used to generate the table"/>
+            <param argument="--labels" type="text" value="" label="Name of binning prediction name" help="If left empty the identifier of the contig-to-bin table is used. Only alphanumeric characters, dash, underscore and dor are allowed. Other characters are replaced by underscore.">
+                <sanitizer invalid_char="_">
+                    <valid initial="string.ascii_letters,string.digits">
+                        <add value="-" />
+                        <add value="_" />
+                        <add value="." />
+                    </valid>
+                </sanitizer>
+            </param>
         </repeat>
         <section name="adv" title="Advanced options">
             <param argument="--search_engine" type="select" label="Engine used for single copy gene identification">
@@ -57,6 +72,7 @@ DAS_Tool
             <param argument="--score_threshold" type="float" min="0" max="1" value="0.5" label="Score threshold until selection algorithm will keep selecting bins"/>
             <param argument="--duplicate_penalty" type="float" min="0" max="3" value="0.6" label="Penalty for duplicate single copy genes per bin (weight b)" help="Only change if you know what you are doing"/>
             <param argument="--megabin_penalty" type="float" min="0" max="3" value="0.5" label="Penalty for megabins (weight c)" help="Only change if you know what you are doing"/>
+            <param argument="--max_iter_post_threshold" type="integer" min="1" value="10" label="Maximum number of iterations after reaching score threshold"/>
         </section>
         <section name="output" title="Outputs">
             <param name="proteins" type="boolean" checked="false" label="Output predicted proteins?"/>
@@ -98,6 +114,52 @@ DAS_Tool
             <repeat name="binning">
                 <param name="bins" value="metabat.tabular"/>
                 <param name="labels" value="metabat"/>
+            </repeat>
+            <section name="adv">
+                <param name="search_engine" value="diamond"/>
+                <param name="proteins" value="proteins.fasta"/>
+                <param name="score_threshold" value="0.5"/>
+                <param name="duplicate_penalty" value="0.6"/>
+                <param name="megabin_penalty" value="0.5" />
+            </section>
+            <section name="output">
+                <param name="write_bin_evals" value="true"/>
+                <conditional name="write_bins">
+                    <param name="write_bins" value=""/>
+                </conditional>
+                <param name="debug" value="true"/>
+            </section>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_text text="unique_SCGs"/>
+                    <has_text text="metabat.8"/>
+                    <has_text text="bacteria"/>
+                </assert_contents>
+            </output>
+            <output name="contigs2bin" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Ley3_66761_scaffold_6"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="Skipping gene prediction"/>
+                    <has_text text="#Target sequences to report alignments for: 1"/>
+                </assert_contents>
+            </output>
+            <output name="eval" ftype="tabular">
+                <assert_contents>
+                    <has_text text="unique_SCGs"/>
+                    <has_text text="metabat.8"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- like the first test, but with empty label  -->
+        <test expect_num_outputs="4">
+            <param name="contigs" value="contigs.fasta"/>
+            <repeat name="binning">
+                <param name="bins" value="metabat.tabular"/>
+                <!-- <param name="labels" value="metabat"/> -->
             </repeat>
             <section name="adv">
                 <param name="search_engine" value="diamond"/>
@@ -202,7 +264,7 @@ DAS_Tool
 Inputs
 ======
 
-- Bins: Tab separated files of contig-IDs and bin-IDs. Contigs to bin file example: ::
+- Bins: Tab-separated files of contig-IDs and bin-IDs. Contigs to bin file example: ::
 
     Contig_1	bin.01
     Contig_8	bin.01
@@ -216,7 +278,7 @@ Inputs
     >Contig_2
     GATCGTCACGCAGGCTATCGGAGCCTCGACCCGCAAGCTCTGCGCCTTGGAGCAGG...
 
-- [Optional] Proteins: Predicted proteins in prodigal fasta format. Header contains contig-ID and gene number: ::
+- [Optional] Proteins: Predicted proteins in prodigal fasta format. The header contains contig-ID and gene number: ::
 
     >Contig_1_1
     MPRKNKKLPRHLLVIRTSAMGDVAMLPHALRALKEAYPEVKVTVATKSLFHPFFEG...
