@@ -648,17 +648,23 @@ class JbrowseConnector(object):
 
         """
         tId = trackData["label"]
+        wasCool = trackData["wasCool"]
         # can be served - if public.
         # dsId = trackData["metadata"]["dataset_id"]
         # url = "%s/api/datasets/%s/display?to_ext=hic " % (self.giURL, dsId)
         useuri = trackData["useuri"].lower() == "yes"
+        logging.debug("wasCool=%s, data=%s, tId=%s" % (wasCool, data, tId))
         if useuri:
             uri = data
         else:
-            uri = f"{trackData['label']}.hic"
-            # slashes in names cause path trouble
-            dest = os.path.join(self.outdir, uri)
-            shutil.copyfile(data, dest)
+            uri = tId + ".hic"
+            if not wasCool:
+                dest = os.path.join(self.outdir, uri)
+                if not os.path.exists(dest):
+                    cmd = ["cp", data, dest]
+                    self.subprocess_check_call(cmd)
+                else:
+                    logging.error("not wasCool but %s exists" % dest)
         categ = trackData["category"]
         trackDict = {
             "type": "HicTrack",
@@ -709,10 +715,11 @@ class JbrowseConnector(object):
         sampu = list(dict.fromkeys(samp))
         samples = [x.split(".")[0] for x in sampu]
         samples.sort()
-        logging.debug(
-            "$$$$ cmd=%s, mafss=%s samp=%s samples=%s"
-            % (" ".join(cmd), mafss, samp, samples)
-        )
+        if logCommands:
+            logging.debug(
+                "$$$$ cmd=%s, mafss=%s samp=%s samples=%s"
+                % (" ".join(cmd), mafss, samp, samples)
+            )
         trackDict = {
             "type": "MafTrack",
             "trackId": tId,
