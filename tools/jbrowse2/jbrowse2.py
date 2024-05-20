@@ -1236,21 +1236,27 @@ class JbrowseConnector(object):
 
             outputTrackConfig["metadata"] = extra_metadata
             outputTrackConfig["name"] = track_human_label
-
+            if track["label"] in self.trackIdlist:
+                logging.error(
+                    "### not adding %s already in %s"
+                    % (track["label"], self.trackIdlist)
+                )
+                yield None
             if dataset_ext in ("gff", "gff3"):
                 self.add_gff(
                     dataset_path,
-                    dataset_ext,
                     outputTrackConfig,
                 )
             elif dataset_ext in ("hic", "juicebox_hic"):
+                outputTrackConfig["wasCool"] = False
                 self.add_hic(
                     dataset_path,
                     outputTrackConfig,
                 )
             elif dataset_ext in ("cool", "mcool", "scool"):
-                hic_url = "%s_%d.hic" % (track_human_label, i)
-                hic_path = os.path.join(self.outdir, hic_url)
+                hic_url = outputTrackConfig["label"]
+                hic_path = os.path.join(self.outdir, hic_url) + ".hic"
+                outputTrackConfig["wasCool"] = True
                 self.subprocess_check_call(
                     [
                         "hictk",
@@ -1263,7 +1269,7 @@ class JbrowseConnector(object):
                     ]
                 )
                 self.add_hic(
-                    hic_url,
+                    hic_path,
                     outputTrackConfig,
                 )
             elif dataset_ext in ("bed",):
@@ -1287,14 +1293,14 @@ class JbrowseConnector(object):
                 self.add_bam(
                     dataset_path,
                     outputTrackConfig,
-                    bam_index=real_indexes,
+                    bam_indexes=real_indexes,
                 )
             elif dataset_ext == "cram":
                 real_indexes = track["conf"]["options"]["cram"]["cram_index"]
                 self.add_cram(
                     dataset_path,
                     outputTrackConfig,
-                    cram_index=real_indexes,
+                    cram_indexes=real_indexes,
                 )
             elif dataset_ext == "blastxml":
                 self.add_blastxml(
@@ -1329,46 +1335,56 @@ class JbrowseConnector(object):
             config_json.update(self.config_json)
         if "defaultSession" in config_json:
             session_json = config_json["defaultSession"]
+            session_views = []
         else:
             session_json = {}
             session_views = []
-        for gnome in self.genome_names:
+        for gnome in self.assmeta.keys():  # assemblies have their own tracks
             tracks_data = []
             for track_conf in self.tracksToAdd[gnome]:
                 tId = track_conf["trackId"]
-                track_types[tId] = track_conf["type"]
-                style_data = default_data["style"].get(tId, None)
-                if not style_data:
-                    logging.debug(
-                        "### No style data in default data %s for %s"
-                        % (default_data, tId)
+                if tId in default_data[gnome]["visibility"]["default_on"]:
+                    track_types[tId] = track_conf["type"]
+                    style_data = default_data[gnome]["style"].get(tId, None)
+                    if not style_data:
+                        logging.debug(
+                            "### No style data for %s in available default data %s"
+                            % (tId, default_data)
+                        )
+                        style_data = {"type": "LinearBasicDisplay"}
+                        if "displays" in track_conf:
+                            disp = track_conf["displays"][0]["type"]
+                            style_data["type"] = disp
+                    if track_conf.get("style_labels", None):
+                        # TODO fix this: it should probably go in a renderer block (SvgFeatureRenderer) but still does not work
+                        # TODO move this to per track displays?
+                        style_data["labels"] = track_conf["style_labels"]
+                    tracks_data.append(
+                        {
+                            "type": track_types[tId],
+                            "configuration": tId,
+                            "displays": [style_data],
+                        }
                     )
-                    style_data = {"type": "LinearBasicDisplay"}
-                if "displays" in track_conf:
-                    disp = track_conf["displays"][0]["type"]
-                    style_data["type"] = disp
-                if track_conf.get("style_labels", None):
-                    # TODO fix this: it should probably go in a renderer block (SvgFeatureRenderer) but still does not work
-                    # TODO move this to per track displays?
-                    style_data["labels"] = track_conf["style_labels"]
-                tracks_data.append(
-                    {
-                        "type": track_types[tId],
-                        "configuration": tId,
-                        "displays": [style_data],
-                    }
-                )
-            # paf genomes have no tracks associated so nothing for the view
-            if len(tracks_data) > 0:
-                view_json = {"type": "LinearGenomeView", "tracks": tracks_data}
-                refName = self.assmeta[gnome][0].get("genome_firstcontig", None)
+            view_json = {
+                "type": "LinearGenomeView",
+                "offsetPx": 0,
+                "minimized": False,
+                "tracks": tracks_data,
+            }
+            first = [x for x in self.ass_first_contigs if x[0] == gnome]
+            if len(first) > 0:
+                [gnome, refName, end] = first[0]
+                start = 0
+                end = int(end)
                 drdict = {
+                    "refName": refName,
+                    "start": start,
+                    "end": end,
                     "reversed": False,
                     "assemblyName": gnome,
-                    "start": 0,
-                    "end": 100000,
-                    "refName": refName,
                 }
+            else:
                 ddl = default_data.get("defaultLocation", None)
                 if ddl:
                     loc_match = re.search(r"^([^:]+):([\d,]*)\.*([\d,]*)$", ddl)
@@ -1385,17 +1401,17 @@ class JbrowseConnector(object):
                             "@@@ regexp could not match contig:start..end in the supplied location %s - please fix"
                             % ddl
                         )
-                if drdict.get("refName", None):
-                    # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
-                    view_json["displayedRegions"] = [
-                        drdict,
-                    ]
-                    logging.info("@@@ defaultlocation %s for default session" % drdict)
-                else:
-                    logging.info(
-                        "@@@ no contig name found for default session - please add one!"
-                    )
-                session_views.append(view_json)
+            if drdict.get("refName", None):
+                # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
+                view_json["displayedRegions"] = [
+                    drdict,
+                ]
+                logging.info("@@@ defaultlocation %s for default session" % drdict)
+            else:
+                logging.info(
+                    "@@@ no track location for default session - please add one!"
+                )
+            session_views.append(view_json)
         session_name = default_data.get("session_name", "New session")
         for key, value in mapped_chars.items():
             session_name = session_name.replace(value, key)
@@ -1409,7 +1425,6 @@ class JbrowseConnector(object):
         pp = json.dumps(session_views, indent=2)
         config_json["defaultSession"] = session_json
         self.config_json.update(config_json)
-
         logging.debug("defaultSession=%s" % (pp))
         with open(self.config_json_file, "w") as config_file:
             json.dump(self.config_json, config_file, indent=2)
@@ -1521,17 +1536,13 @@ class JbrowseConnector(object):
             )
         else:
             shutil.copytree(self.jbrowse2path, dest, dirs_exist_ok=True)
-        # cleanup files/dirs that are not needed
-        try:
-            shutil.rmtree(os.path.join(dest, 'test_data'))
-        except OSError as e:
-            log.error("Error: %s - %s." % (e.filename, e.strerror))
         for fn in [
             "asset-manifest.json",
             "favicon.ico",
             "robots.txt",
             "umd_plugin.js",
             "version.txt",
+            "test_data",
         ]:
             try:
                 os.unlink(os.path.join(dest, fn))
@@ -1569,32 +1580,33 @@ if __name__ == "__main__":
 
     jc = JbrowseConnector(outdir=args.outdir, jbrowse2path=args.jbrowse2path)
 
-    default_session_data = {
-        "visibility": {
-            "default_on": [],
-            "default_off": [],
-        },
-        "style": {},
-        "style_labels": {},
-    }
-
+    default_session_data = {}
+    trackI = 0
     for ass in root.findall("assembly"):
         genomes = [
             {
                 "path": x.attrib["path"],
-                "label": x.attrib["label"],
+                "label": x.attrib["label"].split(" ")[0].replace(",", ""),
                 "useuri": x.attrib["useuri"],
                 "meta": metadata_from_node(x.find("metadata")),
             }
             for x in ass.findall("metadata/genomes/genome")
         ]
-        assref_name = jc.process_genomes(genomes)
-
-        for track_num, track in enumerate(ass.find("tracks")):
+        primaryGenome = jc.process_genomes(genomes)
+        if not default_session_data.get(primaryGenome, None):
+            default_session_data[primaryGenome] = {
+                "tracks": [],
+                "style": {},
+                "style_labels": {},
+                "visibility": {
+                    "default_on": [],
+                    "default_off": [],
+                },
+            }
+        for track in ass.find("tracks"):
             track_conf = {}
             track_conf["trackfiles"] = []
-            track_conf["assemblyNames"] = assref_name
-            track_conf["track_num"] = track_num
+            track_conf["assemblyNames"] = primaryGenome
             is_multi_bigwig = False
             try:
                 if track.find("options/wiggle/multibigwig") and (
@@ -1607,15 +1619,18 @@ if __name__ == "__main__":
 
             trackfiles = track.findall("files/trackFile")
             if trackfiles:
-                for x in track.findall("files/trackFile"):
-                    track_conf["label"] = x.attrib["label"]
-                    trackkey = track_conf["label"]
+                for x in trackfiles:
+                    track_conf["label"] = "%s_%d" % (
+                        x.attrib["label"].replace(" ", "_").replace(",", ""),
+                        trackI,
+                    )
+                    trackI += 1
                     track_conf["useuri"] = x.attrib["useuri"]
                     if is_multi_bigwig:
                         multi_bigwig_paths.append(
                             (
-                                x.attrib["label"],
-                                x.attrib["useuri"],
+                                track_conf["label"],
+                                track_conf["useuri"],
                                 os.path.realpath(x.attrib["path"]),
                             )
                         )
@@ -1630,7 +1645,7 @@ if __name__ == "__main__":
                                     x.attrib["path"],
                                     x.attrib["ext"],
                                     x.attrib["useuri"],
-                                    x.attrib["label"],
+                                    track_conf["label"],
                                     metadata,
                                 )
                             else:
@@ -1638,7 +1653,7 @@ if __name__ == "__main__":
                                     os.path.realpath(x.attrib["path"]),
                                     x.attrib["ext"],
                                     x.attrib["useuri"],
-                                    x.attrib["label"],
+                                    track_conf["label"],
                                     metadata,
                                 )
                             track_conf["trackfiles"].append(tfa)
@@ -1655,38 +1670,41 @@ if __name__ == "__main__":
                         )
                     )
 
-            track_conf["conf"] = etree_to_dict(track.find("options"))
             track_conf["category"] = track.attrib["cat"]
             track_conf["format"] = track.attrib["format"]
+            track_conf["conf"] = etree_to_dict(track.find("options"))
             keys = jc.process_annotations(track_conf)
-
             if keys:
                 for key in keys:
                     vis = track.attrib.get("visibility", "default_off")
                     if not vis:
                         vis = "default_off"
-                    default_session_data["visibility"][vis].append(key)
-                if track.find("options/style"):
-                    default_session_data["style"][key] = {
-                        item.tag: parse_style_conf(item)
-                        for item in track.find("options/style")
-                    }
-                else:
-                    default_session_data["style"][key] = {}
-                    logging.debug("@@@@ no options/style found for %s" % (key))
-
-                if track.find("options/style_labels"):
-                    default_session_data["style_labels"][key] = {
-                        item.tag: parse_style_conf(item)
-                        for item in track.find("options/style_labels")
-                    }
+                    default_session_data[primaryGenome]["visibility"][vis].append(key)
+                    trakdat = jc.tracksToAdd[primaryGenome]
+                    stile = {}
+                    for trak in trakdat:
+                        if trak["trackId"] == key:
+                            stile = trak.get("style", {})
+                    if track.find("options/style"):
+                        supdate = {
+                            item.tag: parse_style_conf(item)
+                            for item in track.find("options/style")
+                        }
+                        stile.update(supdate)
+                    default_session_data[primaryGenome]["style"][key] = stile
+                    if track.find("options/style_labels"):
+                        default_session_data[primaryGenome]["style_labels"][key] = {
+                            item.tag: parse_style_conf(item)
+                            for item in track.find("options/style_labels")
+                        }
+                    default_session_data[primaryGenome]["tracks"].append(key)
     default_session_data["defaultLocation"] = root.find(
         "metadata/general/defaultLocation"
     ).text
     default_session_data["session_name"] = root.find(
         "metadata/general/session_name"
     ).text
-    logging.debug("default_session=%s" % (default_session_data))
+    logging.debug("default_session=%s" % (json.dumps(default_session_data, indent=2)))
     jc.zipOut = root.find("metadata/general/zipOut").text == "true"
     general_data = {
         "analytics": root.find("metadata/general/analytics").text,
@@ -1699,11 +1717,30 @@ if __name__ == "__main__":
     jc.add_general_configuration(general_data)
     trackconf = jc.config_json.get("tracks", [])
     for gnome in jc.genome_names:
-        trackconf += jc.tracksToAdd[gnome]
+        gtracks = jc.tracksToAdd[gnome]
+        if len(gtracks) > 0:
+            logging.debug(
+                "for genome %s adding gtracks %s"
+                % (gnome, json.dumps(gtracks, indent=2))
+            )
+            trackconf += gtracks
     jc.config_json["tracks"] = trackconf
     assconf = jc.config_json.get("assemblies", [])
     assconf += jc.assemblies
     jc.config_json["assemblies"] = assconf
-    logging.debug("assemblies=%s, gnames=%s" % (assconf, jc.genome_names))
+    logging.debug(
+        "assmeta=%s, first_contigs=%s, assemblies=%s, gnames=%s, trackidlist=%s, tracks=%s"
+        % (
+            jc.assmeta,
+            jc.ass_first_contigs,
+            json.dumps(assconf, indent=2),
+            jc.genome_names,
+            jc.trackIdlist,
+            json.dumps(trackconf, indent=2),
+        )
+    )
     jc.write_config()
     jc.add_default_session(default_session_data)
+    # note that this can be left in the config.json but has NO EFFECT if add_defsess_to_index is called.
+    # jc.add_defsess_to_index(default_session_data)
+    # jc.text_index() not sure what broke here.
