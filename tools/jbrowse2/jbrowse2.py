@@ -957,9 +957,9 @@ class JbrowseConnector(object):
         if useuri:
             url = data
         else:
-            url = f"{tId}.vcf.gz"
+            url = tId
             dest = os.path.join(self.outdir, url)
-            cmd = f"bgzip -c {data}  > {dest}"
+            cmd = "bgzip -c %s  > %s" % (data, dest)
             self.subprocess_popen(cmd)
             cmd = ["tabix", "-f", "-p", "vcf", dest]
             self.subprocess_check_call(cmd)
@@ -1006,7 +1006,7 @@ class JbrowseConnector(object):
             cmd = "jbrowse sort-gff '%s' | bgzip -c > '%s'" % (
                 data,
                 dest,
-            )  # "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'"
+            )
             self.subprocess_popen(cmd)
             self.subprocess_check_call(["tabix", "-f", "-p", "gff", dest])
 
@@ -1018,15 +1018,15 @@ class JbrowseConnector(object):
             cmd = ["tabix", "-f", "-p", "bed", dest]
             self.subprocess_check_call(cmd)
 
-    def add_gff(self, data, ext, trackData):
+    def add_gff(self, data, trackData):
+        tId = trackData["label"]
         useuri = trackData["useuri"].lower() == "yes"
         if useuri:
             url = trackData["path"]
         else:
-            url = f"{trackData['label']}.{ext}.gz"
+            url = tId + ".gz"
             dest = os.path.join(self.outdir, url)
             self._sort_gff(data, dest)
-        tId = trackData["label"]
         categ = trackData["category"]
         trackDict = {
             "type": "FeatureTrack",
@@ -1070,7 +1070,7 @@ class JbrowseConnector(object):
         if useuri:
             url = data
         else:
-            url = f"{trackData['label']}.{ext}.gz"
+            url = tId + ".gz"
             dest = os.path.join(self.outdir, url)
             self._sort_bed(data, dest)
         trackDict = {
@@ -1115,39 +1115,39 @@ class JbrowseConnector(object):
     def add_paf(self, data, trackData, pafOpts, **kwargs):
         tname = trackData["name"]
         tId = trackData["label"]
-        url = f"{tId}.paf"
+        url = tId
         useuri = data.startswith("http://") or data.startswith("https://")
         if not useuri:
             dest = os.path.join(self.outdir, url)
             self.symlink_or_copy(os.path.realpath(data), dest)
+            nrow = self.getNrow(dest)
         else:
             url = data
+            nrow = self.getNrow(url)
         categ = trackData["category"]
-        pgnames = [
-            x.strip() for x in pafOpts["genome_label"].split(",") if len(x.strip()) > 0
-        ]
-        pgpaths = [
-            x.strip() for x in pafOpts["genome"].split(",") if len(x.strip()) > 0
-        ]
+        pg = pafOpts["genome"].split(",")
+        pgc = [x.strip() for x in pg if x.strip() > ""]
+        gnomes = [x.split(" ~ ") for x in pgc]
+        logging.debug("pg=%s, gnomes=%s" % (pg, gnomes))
         passnames = [trackData["assemblyNames"]]  # always first
-        logging.debug(
-            "### add_paf got pafOpts=%s, pgnames=%s, pgpaths=%s for %s"
-            % (pafOpts, pgnames, pgpaths, tId)
-        )
-        for i, gname in enumerate(pgnames):
+        for i, (gpath, gname) in enumerate(gnomes):
+            # may have been forgotten by user for uri
+            if len(gname) == 0:
+                gn = os.path.basename(gpath)
+                gname = os.path.splitext(gn)[0]
+            # trouble from spacey names in command lines avoidance
             if len(gname.split()) > 1:
                 gname = gname.split()[0]
-            passnames.append(gname)
-            # trouble from spacey names in command lines avoidance
-            useuri = pgpaths[i].startswith("http://") or pgpaths[i].startswith(
-                "https://"
-            )
+            if gname not in passnames:
+                passnames.append(gname)
+            useuri = pafOpts["useuri"] == "true"
             if gname not in self.genome_names:
                 # ignore if already there - eg for duplicates among pafs.
-                asstrack = self.make_assembly(pgpaths[i], gname, useuri)
+                asstrack, first_contig = self.make_assembly(gpath, gname, useuri)
                 self.genome_names.append(gname)
                 self.tracksToAdd[gname] = []
                 self.assemblies.append(asstrack)
+                self.ass_first_contigs.append(first_contig)
         trackDict = {
             "type": "SyntenyTrack",
             "trackId": tId,
