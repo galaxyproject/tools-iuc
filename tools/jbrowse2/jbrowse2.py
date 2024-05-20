@@ -1175,26 +1175,28 @@ class JbrowseConnector(object):
                     "displayId": "%s-LinearComparativeDisplay" % tId,
                 },
                 {
-                    "type": "LinearSyntenyDisplay",
+                    "type": "LinearBasicDisplay",
                     "displayId": "%s-LinearSyntenyDisplay" % tId,
                 },
             ],
         }
-        style_json = {
-            "displays": [
-                {
-                    "type": "LGVSyntenyDisplay",
-                    "displayId": "%s-LGVSyntenyDisplay" % tId,
-                }
-            ]
-        }
+        if nrow > 10000:
+            style_json = {
+                "type": "LGVSyntenyDisplay",
+                "displayId": "%s-LGVSyntenyDisplay" % tId,
+            }
+        else:
+            style_json = {
+                "type": "LinearBasicDisplay",
+                "displayId": "%s-LinearBasicDisplay" % tId,
+            }
         trackDict["style"] = style_json
         self.tracksToAdd[trackData["assemblyNames"]].append(trackDict)
         self.trackIdlist.append(tId)
 
     def process_annotations(self, track):
         category = track["category"].replace("__pd__date__pd__", TODAY)
-        for i, (
+        for trackIndex, (
             dataset_path,
             dataset_ext,
             useuri,
