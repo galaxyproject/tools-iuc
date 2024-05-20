@@ -3,9 +3,9 @@
 import argparse
 import binascii
 import datetime
+# import hashlib
 import json
 import logging
-import hashlib
 import os
 import re
 import shutil
@@ -1215,13 +1215,13 @@ class JbrowseConnector(object):
                 "style": {},
             }
 
-            hashData = [
-                str(dataset_path),
-                track_human_label,
-                track["category"],
-            ]
-            hashData = "|".join(hashData).encode("utf-8")
-            hash_string = hashlib.md5(hashData).hexdigest()
+            # hashData = [
+            #    str(dataset_path),
+            #    track_human_label,
+            #    track["category"],
+            # ]
+            # hashData = "|".join(hashData).encode("utf-8")
+            # hash_string = hashlib.md5(hashData).hexdigest()
 
             outputTrackConfig["assemblyNames"] = track["assemblyNames"]
             outputTrackConfig["key"] = track_human_label
@@ -1229,12 +1229,13 @@ class JbrowseConnector(object):
             outputTrackConfig["path"] = dataset_path
             outputTrackConfig["ext"] = dataset_ext
             outputTrackConfig["trackset"] = track.get("trackset", {})
-            outputTrackConfig["label"] = "%s_%i_%s_%s" % (
-                dataset_ext,
-                trackIndex,
-                track_human_label,
-                hash_string,
-            )
+            outputTrackConfig["label"] = track["label"]
+            # outputTrackConfig["label"] = "%s_%i_%s_%s" % (
+            #    dataset_ext,
+            #    trackIndex,
+            #    track_human_label,
+            #    hash_string,
+            # )
 
             outputTrackConfig["metadata"] = extra_metadata
             outputTrackConfig["name"] = track_human_label

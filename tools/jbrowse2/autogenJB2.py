@@ -142,7 +142,7 @@ if __name__ == "__main__":
                         sys.stdout.write("#### calling %s" % " ".join(cmd))
                         jc.subprocess_check_call(cmd)
                     track_conf.update(
-                        {"conf": {"options": {"bam": {"bam_index": " %s ~ %s," % (tpath,ipath)}}}}
+                        {"conf": {"options": {"bam": {"bam_index": " %s ~ %s," % (tpath, ipath)}}}}
                     )
                 elif trext == "cram":
                     ipath = track[3]
