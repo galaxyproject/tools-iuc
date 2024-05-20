@@ -491,7 +491,7 @@ class JbrowseConnector(object):
             nrow = len(fl)
         else:
             try:
-                scontext = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                scontext = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 scontext.verify_mode = ssl.VerifyMode.CERT_NONE
                 with urllib.request.urlopen(url, context=scontext) as f:
                     fl = f.readlines()
@@ -894,7 +894,7 @@ class JbrowseConnector(object):
             genseqad = gsa[0]["genome_sequence_adapter"]
         else:
             genseqad = "Not found"
-            logging.warn("No adapter found for cram %s in gsa=%s" % (tId, gsa))
+            logging.warning("No adapter found for cram %s in gsa=%s" % (tId, gsa))
         if useuri:
             url = data
         else:
@@ -1229,7 +1229,7 @@ class JbrowseConnector(object):
             outputTrackConfig["trackset"] = track.get("trackset", {})
             outputTrackConfig["label"] = "%s_%i_%s_%s" % (
                 dataset_ext,
-                i,
+                trackIndex,
                 track_human_label,
                 hash_string,
             )
@@ -1317,7 +1317,7 @@ class JbrowseConnector(object):
                     track["conf"]["options"]["paf"],
                 )
             else:
-                logging.warn("Do not know how to handle %s", dataset_ext)
+                logging.warning("Do not know how to handle %s", dataset_ext)
             # Return non-human label for use in other fields
             yield outputTrackConfig["label"]
 
