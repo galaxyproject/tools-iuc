@@ -9,6 +9,7 @@ import hashlib
 import os
 import re
 import shutil
+import ssl
 import struct
 import subprocess
 import tempfile
@@ -19,9 +20,10 @@ from collections import defaultdict
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("jbrowse")
 
-JB2VER = "v2.10.3"
-# version pinned for cloning
-
+JB2VER = "v2.11.0"
+# version pinned if cloning - but not used until now
+logCommands = True
+# useful for seeing what's being written but not for production setups
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 SELF_LOCATION = os.path.dirname(os.path.realpath(__file__))
 GALAXY_INFRASTRUCTURE_URL = None
@@ -38,6 +40,32 @@ mapped_chars = {
     "#": "__pd__",
     "": "__cn__",
 }
+
+
+INDEX_TEMPLATE = """<!doctype html>
+<html lang="en" style="height:100%">
+<head>
+<meta charset="utf-8"/>
+<link rel="shortcut icon" href="./favicon.ico"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="theme-color" content="#000000"/>
+<meta name="description" content="A fast and flexible genome browser"/>
+<link rel="manifest" href="./manifest.json"/>
+<title>JBrowse</title>
+</script>
+</head>
+<body style="overscroll-behavior:none; height:100%; margin: 0;">
+<iframe
+  id="jbframe"
+  title="JBrowse2"
+  frameborder="0"
+  width="100%"
+  height="100%"
+  src='index_noview.html?config=config.json__SESSION_SPEC__'>
+</iframe>
+</body>
+</html>
+"""
 
 
 class ColorScaling(object):
@@ -1396,6 +1424,64 @@ class JbrowseConnector(object):
         logging.debug("defaultSession=%s" % (pp))
         with open(self.config_json_file, "w") as config_file:
             json.dump(self.config_json, config_file, indent=2)
+
+    def add_defsess_to_index(self, data):
+        """
+        ----------------------------------------------------------
+        Add some default session settings: set some assemblies/tracks on/off
+
+        This allows to select a default view:
+        - jb type (Linear, Circular, etc)
+        - default location on an assembly
+        - default tracks
+        - ...
+
+        Different methods to do that were tested/discussed:
+        - using a defaultSession item in config.json: this proved to be difficult:
+          forced to write a full session block, including hard-coded/hard-to-guess items,
+          no good way to let Jbrowse2 display a scaffold without knowing its size
+        - using JBrowse2 as an embedded React component in a tool-generated html file:
+          it works but it requires generating js code to actually do what we want = chosing default view, assembly, tracks, ...
+        - writing a session-spec inside the config.json file: this is not yet supported as of 2.10.2 (see PR 4148 below)
+          a session-spec is a kind of simplified defaultSession where you don't need to specify every aspect of the session
+        - passing a session-spec through URL params by embedding the JBrowse2 index.html inside an iframe
+          we selected this option
+
+        Xrefs to understand the choices:
+        https://github.com/GMOD/jbrowse-components/issues/2708
+        https://github.com/GMOD/jbrowse-components/discussions/3568
+        https://github.com/GMOD/jbrowse-components/pull/4148
+        """
+        new_index = "Nothing written"
+        session_spec = {"views": []}
+        logging.debug("def ass_first=%s\ndata=%s" % (self.ass_first_contigs, data))
+        for first_contig in self.ass_first_contigs:
+            logging.debug("first contig=%s" % self.ass_first_contigs)
+            [gnome, refName, end] = first_contig
+            start = 0
+            aview = {
+                "assembly": gnome,
+                "loc": "{}:{}..{}".format(refName, start, end),
+                "type": "LinearGenomeView",
+                "tracks": data[gnome]["tracks"],
+            }
+            session_spec["views"].append(aview)
+        sess = json.dumps(session_spec, sort_keys=True, indent=2)
+        new_index = INDEX_TEMPLATE.replace(
+            "__SESSION_SPEC__", "&session=spec-{}".format(sess)
+        )
+
+        os.rename(
+            os.path.join(self.outdir, "index.html"),
+            os.path.join(self.outdir, "index_noview.html"),
+        )
+
+        with open(os.path.join(self.outdir, "index.html"), "w") as nind:
+            nind.write(new_index)
+        logging.debug(
+            "#### add_defsession gnome=%s refname=%s\nsession_spec=%s\nnew_index=%s"
+            % (gnome, refName, sess, new_index)
+        )
 
     def add_general_configuration(self, data):
         """
