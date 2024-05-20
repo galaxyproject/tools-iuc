@@ -403,8 +403,12 @@ def metadata_from_node(node):
 
 class JbrowseConnector(object):
     def __init__(self, outdir, jbrowse2path):
+        self.trackCounter = 0  # to avoid name clashes
         self.assemblies = []  # these require more than a few line diff.
         self.assmeta = {}
+        self.ass_first_contigs = (
+            []
+        )  # for default session - these are read as first line of the assembly .fai
         self.giURL = GALAXY_INFRASTRUCTURE_URL
         self.outdir = outdir
         self.jbrowse2path = jbrowse2path
@@ -424,14 +428,19 @@ class JbrowseConnector(object):
 
     def subprocess_check_call(self, command, output=None, cwd=True):
         if output:
-            log.debug("cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output)
+            if logCommands:
+                log.debug(
+                    "cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output
+                )
             subprocess.check_call(command, cwd=self.get_cwd(cwd), stdout=output)
         else:
-            log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
+            if logCommands:
+                log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
             subprocess.check_call(command, cwd=self.get_cwd(cwd))
 
     def subprocess_popen(self, command, cwd=True):
-        log.debug(command)
+        if logCommands:
+            log.debug(command)
         p = subprocess.Popen(
             command,
             cwd=self.get_cwd(cwd),
@@ -443,12 +452,14 @@ class JbrowseConnector(object):
         output, err = p.communicate()
         retcode = p.returncode
         if retcode != 0:
+            log.error(command)
             log.error(output)
             log.error(err)
             raise RuntimeError(f"Command ( {command} ) failed with exit code {retcode}")
 
     def subprocess_check_output(self, command):
-        log.debug(" ".join(command))
+        if logCommands:
+            log.debug(" ".join(command))
         return subprocess.check_output(command, cwd=self.outdir)
 
     def symlink_or_copy(self, src, dest):
@@ -471,76 +482,71 @@ class JbrowseConnector(object):
         if trackDict.get("displays", None):  # use first if multiple like bed
             style_data["type"] = trackDict["displays"][0]["type"]
             style_data["displayId"] = trackDict["displays"][0]["displayId"]
-        wstyle = {
-            "displays": [
-                style_data,
-            ]
-        }
-        return wstyle
+        return style_data
+
+    def getNrow(self, url):
+        useuri = url.startswith("https://") or url.startswith("http://")
+        if not useuri:
+            fl = open(url, "r").readlines()
+            nrow = len(fl)
+        else:
+            try:
+                scontext = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                scontext.verify_mode = ssl.VerifyMode.CERT_NONE
+                with urllib.request.urlopen(url, context=scontext) as f:
+                    fl = f.readlines()
+                nrow = len(fl)
+            except Exception:
+                nrow = 0
+        logging.debug("getNrow %s returning %d" % (url, nrow))
+        return nrow
 
     def process_genomes(self, genomes):
         assembly = []
         assmeta = []
         useuri = False
-        genome_names = []
-        for genome_node in genomes:
+        primaryGenome = None
+        for i, genome_node in enumerate(genomes):
             this_genome = {}
             if genome_node["useuri"] == "yes":
                 useuri = True
             genome_name = genome_node["label"].strip()
+            if len(genome_name) == 0:
+                genome_name = os.path.splitext(os.path.basename(genome_node["path"]))[0]
             if len(genome_name.split()) > 1:
                 genome_name = genome_name.split()[0]
                 # spaces and cruft break scripts when substituted
-            if genome_name not in genome_names:
-                # pafs with shared references
+            if not primaryGenome:
+                primaryGenome = genome_name
+            if genome_name not in self.genome_names:
+                self.genome_names.append(genome_name)
                 fapath = genome_node["path"]
                 if not useuri:
                     fapath = os.path.realpath(fapath)
-                assem = self.make_assembly(fapath, genome_name, useuri)
+                assem, first_contig = self.make_assembly(fapath, genome_name, useuri)
                 assembly.append(assem)
-                if len(genome_names) == 0:
+                self.ass_first_contigs.append(first_contig)
+                if genome_name == primaryGenome:  # first one
                     this_genome["genome_name"] = genome_name  # first one for all tracks
-                    genome_names.append(genome_name)
                     this_genome["genome_sequence_adapter"] = assem["sequence"][
                         "adapter"
                     ]
-                    this_genome["genome_firstcontig"] = None
-                    if not useuri:
-                        fl = open(fapath, "r").readline()
-                        fls = fl.strip().split(">")
-                        if len(fls) > 1:
-                            fl = fls[1]
-                            if len(fl.split()) > 1:
-                                this_genome["genome_firstcontig"] = fl.split()[
-                                    0
-                                ].strip()
-                            else:
-                                this_genome["genome_firstcontig"] = fl
-                    else:
-                        try:
-                            fl = urllib.request.urlopen(fapath + ".fai").readline()
-                        except Exception:
-                            fl = None
-                        if fl:  # is first row of the text fai so the first contig name
-                            this_genome["genome_firstcontig"] = (
-                                fl.decode("utf8").strip().split()[0]
-                            )
+                    this_genome["genome_firstcontig"] = first_contig
                 assmeta.append(this_genome)
         self.assemblies += assembly
-        self.assmeta[genome_names[0]] = assmeta
-        self.tracksToAdd[genome_names[0]] = []
-        self.genome_names += genome_names
-        return this_genome["genome_name"]
+        self.assmeta[primaryGenome] = assmeta
+        self.tracksToAdd[primaryGenome] = []
+        return primaryGenome
 
     def make_assembly(self, fapath, gname, useuri):
         if useuri:
             faname = fapath
-            adapter = {
-                "type": "BgzipFastaAdapter",
-                "fastaLocation": {"uri": faname, "locationType": "UriLocation"},
-                "faiLocation": {"uri": faname + ".fai", "locationType": "UriLocation"},
-                "gziLocation": {"uri": faname + ".gzi", "locationType": "UriLocation"},
-            }
+            scontext = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            scontext.verify_mode = ssl.VerifyMode.CERT_NONE
+            with urllib.request.urlopen(url=faname + ".fai", context=scontext) as f:
+                fl = f.readline()
+            contig = fl.decode("utf8").strip()
+            # Merlin  172788  8       60      61
         else:
             faname = gname + ".fa.gz"
             fadest = os.path.realpath(os.path.join(self.outdir, faname))
@@ -551,20 +557,21 @@ class JbrowseConnector(object):
                 fadest,
             )
             self.subprocess_popen(cmd)
-
-            adapter = {
-                "type": "BgzipFastaAdapter",
-                "fastaLocation": {
-                    "uri": faname,
-                },
-                "faiLocation": {
-                    "uri": faname + ".fai",
-                },
-                "gziLocation": {
-                    "uri": faname + ".gzi",
-                },
-            }
-
+            contig = open(fadest + ".fai", "r").readline().strip()
+        adapter = {
+            "type": "BgzipFastaAdapter",
+            "fastaLocation": {
+                "uri": faname,
+            },
+            "faiLocation": {
+                "uri": faname + ".fai",
+            },
+            "gziLocation": {
+                "uri": faname + ".gzi",
+            },
+        }
+        first_contig = contig.split()[:2]
+        first_contig.insert(0, gname)
         trackDict = {
             "name": gname,
             "sequence": {
@@ -583,7 +590,7 @@ class JbrowseConnector(object):
                 },
             ],
         }
-        return trackDict
+        return (trackDict, first_contig)
 
     def add_default_view(self):
         cmd = [
