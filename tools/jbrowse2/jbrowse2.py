@@ -492,6 +492,7 @@ class JbrowseConnector(object):
         else:
             try:
                 scontext = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                scontext.check_hostname = False
                 scontext.verify_mode = ssl.VerifyMode.CERT_NONE
                 with urllib.request.urlopen(url, context=scontext) as f:
                     fl = f.readlines()
@@ -541,7 +542,8 @@ class JbrowseConnector(object):
     def make_assembly(self, fapath, gname, useuri):
         if useuri:
             faname = fapath
-            scontext = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            scontext = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            scontext.check_hostname = False
             scontext.verify_mode = ssl.VerifyMode.CERT_NONE
             with urllib.request.urlopen(url=faname + ".fai", context=scontext) as f:
                 fl = f.readline()
@@ -1545,7 +1547,11 @@ class JbrowseConnector(object):
             "test_data",
         ]:
             try:
-                os.unlink(os.path.join(dest, fn))
+                path = os.path.join(dest, fn)
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
             except OSError as e:
                 log.error("Error: %s - %s." % (e.filename, e.strerror))
         shutil.copyfile(os.path.join(INSTALLED_TO, "jb2_webserver.py"), os.path.join(dest, "jb2_webserver.py"))
