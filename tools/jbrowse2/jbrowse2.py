@@ -1229,12 +1229,13 @@ class JbrowseConnector(object):
             outputTrackConfig["path"] = dataset_path
             outputTrackConfig["ext"] = dataset_ext
             outputTrackConfig["trackset"] = track.get("trackset", {})
-            outputTrackConfig["label"] = "%s_%i_%s_%s" % (
-                dataset_ext,
-                trackIndex,
-                track_human_label,
-                hash_string,
-            )
+            outputTrackConfig["label"] = track["label"]
+            #outputTrackConfig["label"] = "%s_%i_%s_%s" % (
+            #    dataset_ext,
+            #    trackIndex,
+            #    track_human_label,
+            #    hash_string,
+            #)
 
             outputTrackConfig["metadata"] = extra_metadata
             outputTrackConfig["name"] = track_human_label
