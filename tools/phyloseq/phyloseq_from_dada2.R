@@ -28,11 +28,9 @@ tax_table_matrix <- as.matrix(read.table(opt$taxonomy_table, header = T, sep = "
 # tax_tab must match the OTU names (taxa_names)
 # of the otu_table defined below.
 tax_tab <- tax_table(tax_table_matrix)
-print(paste("Taxa Table:", ntaxa(tax_tab), "taxa"))
 
 # Construct an otu_table object.
 otu_tab <- otu_table(seq_table_numeric_matrix, taxa_are_rows = TRUE)
-print(paste("OTU Table:", nsamples(otu_tab), "samples", ntaxa(otu_tab), "taxa"))
 
 # Construct a phyloseq object.
 phyloseq_obj <- phyloseq(otu_tab, tax_tab)
@@ -40,7 +38,6 @@ if (!is.null(opt$sample_table)) {
     sample_tab <- sample_data(
         read.table(opt$sample_table, header = T, sep = "\t", row.names = 1, check.names = FALSE)
     )
-    print(paste("Sample Table:", nsamples(sample_tab), "samples,", "sample variables", sample_variables(sample_tab)))
     phyloseq_obj <- merge_phyloseq(phyloseq_obj, sample_tab)
 }
 
@@ -51,6 +48,8 @@ dna <- Biostrings::DNAStringSet(taxa_names(phyloseq_obj))
 names(dna) <- taxa_names(phyloseq_obj)
 phyloseq_obj <- merge_phyloseq(phyloseq_obj, dna)
 taxa_names(phyloseq_obj) <- paste0("ASV", seq(ntaxa(phyloseq_obj)))
+
+print(phyloseq_obj)
 
 # save R object to file
 saveRDS(phyloseq_obj, file = opt$output, compress = TRUE)

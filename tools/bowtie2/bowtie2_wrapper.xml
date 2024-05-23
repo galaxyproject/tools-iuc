@@ -113,12 +113,22 @@ set -o | grep -q pipefail && set -o pipefail;
     ln -f -s '${library.input_1}' ${read1} &&
 #end if
 
+
+## compute number of threads to be used for bowtie2
+## the bowtie parameter -p specifies the number of alignment threads to use (in
+## addition to a control thread) # just using GALAXY_SLOTS will lead to
+## overcommiting ressources (in particular because there may be a samtools sort or view
+## running in parallel). 
+## for now we use one thread less than GALAXY_SLOTS
+THREADS=\${GALAXY_SLOTS:-4} &&
+if [ "\$THREADS" -gt 1 ]; then (( THREADS-- )); fi &&
+
 ## execute bowtie2
 
 bowtie2
 
 ## number of threads
--p \${GALAXY_SLOTS:-4}
+-p "\$THREADS"
 
 ## index file path
 -x '$index_path'
@@ -303,14 +313,23 @@ bowtie2
 
 ## mapping stats (i.e. stderr from bowtie2)
 #if $save_mapping_stats
-    2> '$mapping_stats'
+    2> >(tee '$mapping_stats' >&2) 
 #end if
 
 ## output file
 #if str( $sam_options.sam_options_selector ) == "no" or (str( $sam_options.sam_opt ) == "false" and str($sam_options.reorder) == ''):
-    | samtools sort --no-PG -@\${GALAXY_SLOTS:-2} -T "\${TMPDIR:-.}" -O bam -o '$output'
+    ## Convert SAM output to sorted BAM
+    ## using the two pipe stages has the following effect
+    ## - mapping and sorting run in parallel, during this time sort produces
+    ##   presorted temporary files but does not produce output (hence
+    ##   view does not run)
+    ## - once mapping is finished sort will start to merge the temporary
+    ##   files (which should be fast also on a single thread) gives the
+    ##   sorted output to view which only compresses the files (now
+    ##   using full parallelism again)
+    | samtools sort -l 0 -T "\${TMPDIR:-.}" -O bam | samtools view --no-PG -O bam -@ \${GALAXY_SLOTS:-1} -o '$output'
 #else if $sam_options.reorder:
-    | samtools view --no-PG -bS - -o '$output'
+    | samtools view --no-PG -b -o '$output' 
 #else:
     > '$output'
 #end if
