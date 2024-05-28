@@ -15,7 +15,7 @@ class GetAmrFinderPlusDataManager:
     """
 
     def __init__(self,
-                 amrfinderplus_database="amrfinderplus_new_database",
+                 amrfinderplus_database="amrfinderplus_versioned_database",
                  db_name="amrfinderplus-db",
                  amrfinderplus_version="latest",
                  date_version=None):
