@@ -62,7 +62,6 @@ class GetBaktaDatabaseInfo:
             self.DB_VERSIONS_URL = self.DB_TEST_URL
         try:
             with requests.get(self.DB_VERSIONS_URL) as resp:
-                print(resp.content)
                 versions = json.loads(resp.content)
         except IOError as e:
             print(e, file=sys.stderr)
