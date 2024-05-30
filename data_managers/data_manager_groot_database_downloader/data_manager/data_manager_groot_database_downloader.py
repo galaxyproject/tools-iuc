@@ -79,8 +79,8 @@ def add_data_table_entry(d, table, entry):
         raise Exception("add_data_table_entry: no table '%s'" % table)
 
 
-def download_groot_db(data_tables, index, table_name, target_dp):
-    """Download Groot database
+def download_groot_db(data_tables, name, table_name, target_dp, identity, groot_version):
+    """Download GROOT database
 
     Creates references to the specified file(s) on the Galaxy
     server in the appropriate data table (determined from the
@@ -91,31 +91,44 @@ def download_groot_db(data_tables, index, table_name, target_dp):
 
     Arguments:
       data_tables: a dictionary containing the data table info
-      index: version
+      name: name of the database to download
       table_name: name of the table
       target_dp: directory to put copy or link to the data file
+      identity: identity threshold for GROOT
+      groot_version: version of GROOT to use
 
     """
-    db_dp = target_dp / Path(index)
-    cmd = "metaphlan --install --index %s --bowtie2db %s" % (index, db_dp)
+    # Define the target directory path
+    db_dp = target_dp / Path(name)
+
+    # Build the command string
+    cmd = f"groot get -d %s -o %s --identity %s" % (name, db_dp, identity)
+
+    # Execute the command
     subprocess.check_call(cmd, shell=True)
+
+    # Add the data table entry
     add_data_table_entry(
         data_tables,
         table_name,
         dict(
-            dbkey=index,
-            value='%s-%s' % (index, date.today().strftime("%d%m%Y")),
-            name="MetaPhlAn clade-specific marker genes (%s)" % index,
+            value='%s.%s-v%s' % (name, identity, groot_version),
+            name='%s (%s percent identity)' % (name, identity),
+            dbkey='%s-v%s' % (date.today().strftime("%d%m%Y"), groot_version),
             path=str(db_dp),
-            db_version='SGB' if 'SGB' in index else 'legacy'))
+            db_version=groot_version
+        )
+    )
 
 
 if __name__ == "__main__":
     print("Starting...")
 
     # Read command line
-    parser = argparse.ArgumentParser(description='Download and build MetaPhlan database')
-    parser.add_argument('--index', help="Version of the database")
+    parser = argparse.ArgumentParser(description='Download and build Groot database')
+    parser.add_argument('--Database', help="Name of the database")
+    parser.add_argument('--PercentIdentity', help="The identity threshold at which the database was clustered")
+    parser.add_argument('--GrootVersion', help="Version of the Database")
     parser.add_argument('--json', help="Path to JSON file")
     args = parser.parse_args()
     print("args   : %s" % args)
@@ -131,15 +144,17 @@ if __name__ == "__main__":
     # Set up data tables dictionary
     
     data_tables = create_data_tables_dict()
-    add_data_table(data_tables, "metaphlan_database_versioned")
+    add_data_table(data_tables, "groot_database_downloader")
 
     # Fetch data from specified data sources
     print("Download and build database")
-    download_metaphlan_db(
+    download_groot_db(
         data_tables,
-        args.index,
-        "metaphlan_database_versioned",
-        target_dp)
+        args.Database,
+        "groot_database_downloader",
+        target_dp,
+        args.PercentIdentity,
+        args.GrootVersion)
 
     # Write output JSON
     print("Outputting JSON")
