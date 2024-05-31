@@ -126,9 +126,9 @@ if __name__ == "__main__":
 
     # Read command line
     parser = argparse.ArgumentParser(description='Download and build Groot database')
-    parser.add_argument('--Database', help="Name of the database")
-    parser.add_argument('--PercentIdentity', help="The identity threshold at which the database was clustered")
-    parser.add_argument('--GrootVersion', help="Version of the Database")
+    parser.add_argument('--database', help="Name of the database")
+    parser.add_argument('--percentidentity', help="The identity threshold at which the database was clustered")
+    parser.add_argument('--grootversion', help="Version of the Database")
     parser.add_argument('--json', help="Path to JSON file")
     args = parser.parse_args()
     print("args   : %s" % args)
@@ -150,11 +150,11 @@ if __name__ == "__main__":
     print("Download and build database")
     download_groot_db(
         data_tables,
-        args.Database,
+        args.database,
         "groot_database_downloader",
         target_dp,
-        args.PercentIdentity,
-        args.GrootVersion)
+        args.percentidentity,
+        args.grootversion)
 
     # Write output JSON
     print("Outputting JSON")
