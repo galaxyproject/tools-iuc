@@ -102,7 +102,7 @@ def download_groot_db(data_tables, name, table_name, target_dp, identity, groot_
     db_dp = target_dp / Path(name)
 
     # Build the command string
-    cmd = f"groot get -d %s -o %s --identity %s" % (name, db_dp, identity)
+    cmd = "groot get -d %s -o %s --identity %s" % (name, db_dp, identity)
 
     # Execute the command
     subprocess.check_call(cmd, shell=True)
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     target_dp.mkdir(parents=True, exist_ok=True)
 
     # Set up data tables dictionary
-    
+
     data_tables = create_data_tables_dict()
     add_data_table(data_tables, "groot_database_downloader")
 
