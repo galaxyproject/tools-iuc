@@ -78,8 +78,10 @@ if (!is.null(opt$filter_unstranded)) {
         # Check if they overlap genes from input with different strands
         # First compute the overlap
         ov <- suppressWarnings(
-            as.data.frame(findOverlaps(input_gr_template[unstranded.intervals],
-                                       input_gr_to_extend))
+            as.data.frame(findOverlaps(
+                input_gr_template[unstranded.intervals],
+                input_gr_to_extend
+            ))
         )
         # Add the strand information
         ov$strand <- as.factor(strand(input_gr_to_extend))[ov$subjectHits]
