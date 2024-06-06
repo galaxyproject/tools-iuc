@@ -1,19 +1,22 @@
-import sys
+
 import argparse
+import glob
 import logging
-import re
-import yaml
+import math
 import os
+import re
+import sys
+from datetime import datetime
+
 import pytz
 import requests
-import glob
-import math
-from datetime import datetime
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import yaml
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
 
 # make_EAR_glxy.py
 # CAUTION: This is for the Galaxy version!
