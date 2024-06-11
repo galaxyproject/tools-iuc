@@ -4,6 +4,7 @@ import sys
 
 assert sys.version_info[:2] >= (2, 6)
 
+
 def __main__():
     skipped_lines = 0
     first_skipped_line = None
@@ -17,9 +18,6 @@ def __main__():
                 endoff = str(int(elems[4]) - 1)
                 # GFF format: chrom, source, name, chromStart, chromEnd, score, strand
                 # bedtools puts out only 4 fields: chrom, chromStart, chromEnd, score
-                #
-                # Replace any spaces in the name with underscores so UCSC will not complain
-                name = elems[2].replace(" ", "_")
                 sys.stdout.write(f"{elems[0]}\t{start}\t{endoff}\t0\n")
             except Exception:
                 skipped_lines += 1
