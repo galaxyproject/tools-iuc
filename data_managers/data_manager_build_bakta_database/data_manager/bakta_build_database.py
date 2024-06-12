@@ -135,13 +135,9 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         try:
             with bakta_path.open("wb") as fh_out, requests.get(
                     self.db_url, stream=True) as resp:
-                total_length = resp.headers.get("content-length")
-                if total_length is None:  # no content length header
-                    for data in resp.iter_content(chunk_size=1024 * 1024):
-                        fh_out.write(data)
-                else:
-                    for data in resp.iter_content(chunk_size=1024 * 1024):
-                        fh_out.write(data)
+                # total_length = resp.headers.get("content-length")
+                for data in resp.iter_content(chunk_size=1024 * 1024):
+                    fh_out.write(data)
             print(f"Download bakta database {self.db_version}")
             self.tarball_path = bakta_path
         except IOError:
@@ -173,9 +169,8 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         output_dir = db_path
         for file in input_dir.iterdir():
             if file.is_file():  # to avoid moving amrfinder-plus folder
-                input = input_dir.joinpath(file)
-                output = output_dir.joinpath(file)
-                input.rename(output)
+                output = output_dir.joinpath(file.name)
+                file.rename(output)
 
     def calc_md5_sum(self, buffer_size=1048576):
         tarball_path = Path(self.db_dir).joinpath(self.tar_name)
