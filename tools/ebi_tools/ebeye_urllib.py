@@ -11,6 +11,7 @@ from __future__ import print_function
 import os
 import platform
 import re
+import sys
 from gzip import GzipFile
 from io import BytesIO
 from optparse import OptionParser
@@ -81,6 +82,8 @@ def restRequest(url):
             raise Exception('Unsupported Content-Encoding')
         resp.close()
     except HTTPError as ex:
+        print("Error with REST request: %s" % url, file=sys.stderr)
+        print("Response: %s" % ex.read(), file=sys.stderr)
         raise ex
     printDebugMessage('restRequest', 'result: %s' % result, 11)
     printDebugMessage('restRequest', 'End', 11)
