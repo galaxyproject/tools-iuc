@@ -154,12 +154,19 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             ) as tar_file:
                 tar_file.extractall(path=db_path)
                 print(f"Untar the database in {db_path}")
-
-            if not self.test_mode:
-                self.move_files(db_path=db_path)
-
         except OSError:
             sys.exit(f"ERROR: Could not extract {self.tar_name} " f"to {db_path}")
+        if not self.test_mode:
+            self.move_files(db_path=db_path)
+        self.db_dir = db_path.resolve()
+
+    def delete_folder(self, path):
+        for sub in path.iterdir():
+            if sub.is_dir() and sub.name != "latest":
+                self.delete_folder(sub)
+            else:
+                sub.unlink()
+        path.rmdir()
 
     def move_files(self, db_path):
         if db_path.joinpath("db-light").is_dir():
@@ -171,6 +178,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             if file.is_file():  # to avoid moving amrfinder-plus folder
                 output = output_dir.joinpath(file.name)
                 file.rename(output)
+        self.delete_folder(input_dir)
 
     def calc_md5_sum(self, buffer_size=1048576):
         tarball_path = Path(self.db_dir).joinpath(self.tar_name)
