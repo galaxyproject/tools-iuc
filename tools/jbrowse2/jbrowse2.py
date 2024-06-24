@@ -43,7 +43,6 @@ INDEX_TEMPLATE = """<!doctype html>
 <meta name="description" content="A fast and flexible genome browser"/>
 <link rel="manifest" href="./manifest.json"/>
 <title>JBrowse</title>
-</script>
 </head>
 <body style="overscroll-behavior:none; height:100%; margin: 0;">
 <iframe
