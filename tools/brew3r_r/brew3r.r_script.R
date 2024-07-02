@@ -91,17 +91,23 @@ if (!is.null(opt$filter_unstranded)) {
         multi.strand.query <- ov.simple$queryHits[duplicated(ov.simple$queryHits)]
         to.remove <- unstranded.intervals[multi.strand.query]
         # Remove these potentially error-prone intervals from the template
-        input_gr_template <- input_gr_template[-to.remove]
+        if (length(to.remove) > 0) {
+            input_gr_template <- input_gr_template[-to.remove]
+        }
     }
 }
 
 # Run BREW3R.r main function
-new_gr_exons <- extend_granges(
-    input_gr_to_extend = input_gr_to_extend,
-    input_gr_to_overlap = input_gr_template,
-    add_new_exons = is.null(opt$no_add),
-    overlap_resolution_fn = opt$sup_output
-)
+if (length(input_gr_template) > 0) {
+    new_gr_exons <- extend_granges(
+        input_gr_to_extend = input_gr_to_extend,
+        input_gr_to_overlap = input_gr_template,
+        add_new_exons = is.null(opt$no_add),
+        overlap_resolution_fn = opt$sup_output
+    )
+} else {
+    new_gr_exons <- subset(input_gr_to_extend, type == "exon")
+}
 # Prevent extension using pattern
 if (!is.null(opt$exclude_pattern)) {
     input_gr_pattern <- subset(
