@@ -1,0 +1,275 @@
+<tool name="bigwig_outlier_bed" id="bigwig_outlier_bed" version="0.01" profile="22.05">
+  <description>Writes high and low bigwig runs as features in a bed file</description>
+  <requirements>
+    <requirement type="package" version="3.12.3">python</requirement>
+    <requirement type="package" version="2.0.0">numpy</requirement>
+    <requirement type="package" version="0.1.4">pybigtools</requirement>
+  </requirements>
+  <version_command><![CDATA[echo "0.01"]]></version_command>
+  <command><![CDATA[python
+'$runme'
+--bigwig 
+#for bw in $bigwig: 
+ '$bw' 
+#end for
+--bigwiglabels
+#for bwl in $bigwiglabels.split(','):
+  '$bwl'
+#end for
+#if $outhilo:
+--bedouthilo '$bedouthilo'
+#end if
+#if $outhi:
+--bedouthi '$bedouthi'
+#end if
+#if $outlo:
+--bedoutlo '$bedoutlo'
+#end if
+--minwin
+'$minwin'
+#if $qhi:
+--qhi '$qhi'
+#end if
+#if $qlo:
+--qlo '$qlo'
+#end if
+#if $tableout == "create":
+ --tableoutfile '$tableoutfile'
+#end if
+]]></command>
+  <configfiles>
+    <configfile name="runme"><![CDATA[#raw
+"""
+Ross Lazarus June 2024 for VGP 
+Bigwigs are great, but hard to reliably "see" small low coverage or small very high coverage regions.
+Colouring in JB2 tracks will need a new plugin, so this code will find bigwig regions above and below a chosen percentile point.
+0.99 and 0.01 work well in testing with a minimum span of 10 bp.
+Multiple bigwigs **with the same reference** can be combined - bed segments will be named appropriately
+Combining multiple references works but is silly because only display will rely on one reference so others will not be shown...
+Tricksy numpy method from http://gregoryzynda.com/python/numpy/contiguous/interval/2019/11/29/contiguous-regions.html
+takes about 95 seconds for a 17MB test wiggle
+JBrowse2 bed normally displays ignore the score, so could provide separate low/high bed file outputs as an option.
+Update june 30 2024: wrote a 'no-build' plugin for beds to display red/blue if >0/<0 so those are used for scores
+Bed interval naming must be short for JB2 but needs input bigwig name and (lo or hi).
+"""
+import argparse
+import numpy as np
+import os
+import pybigtools
+import sys
+from pathlib import Path
+
+class findOut():
+
+    def __init__(self, args):
+        self.bwnames=args.bigwig
+        self.bwlabels=args.bigwiglabels
+        self.bedwin=args.minwin
+        self.qlo=args.qlo
+        self.qhi=args.qhi
+        self.bedouthilo=args.bedouthilo
+        self.bedouthi=args.bedouthi
+        self.bedoutlo=args.bedoutlo
+        self.tableoutfile = args.tableoutfile
+        self.bedwin = args.minwin
+        self.qhi = args.qhi
+        self.qlo = args.qlo
+        self.makeBed()
+
+    def processVals(self, bw, isTop):
+        # http://gregoryzynda.com/python/numpy/contiguous/interval/2019/11/29/contiguous-regions.html
+        if isTop:
+            bwex = np.r_[False, bw >= self.bwtop, False] # extend with 0s
+        else:
+            bwex = np.r_[False, bw <= self.bwbot, False]
+        bwexd = np.diff(bwex)
+        bwexdnz = bwexd.nonzero()[0]
+        bwregions = np.reshape(bwexdnz, (-1,2))
+        return bwregions
+
+    def writeBed(self, bed, bedfname):
+        """
+        potentially multiple
+        """
+        bed.sort()
+        beds = ['%s\t%d\t%d\t%s\t%d' % x for x in bed]
+        with open(bedfname, "w") as bedf:
+            bedf.write('\n'.join(beds))
+            bedf.write('\n')
+        print('Wrote %d bed regions to %s' % (len(bed), bedfname))
+
+    def makeBed(self):
+        bedhi = []
+        bedlo = []
+        bwlabels = self.bwlabels
+        bwnames = self.bwnames
+        print('bwnames=', bwnames, "bwlabs=", bwlabels)
+        restab = ["bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"]
+        for i, bwname in enumerate(bwnames):
+            bwlabel = bwlabels[i].replace(" ",'')
+            fakepath = 'in%d.bw' % i
+            if os.path.isfile(fakepath):
+              os.remove(fakepath)
+            p = Path(fakepath)
+            p.symlink_to( bwname ) # required by pybigtools (!)
+            bwf = pybigtools.open(fakepath)
+            chrlist = bwf.chroms()
+            chrs = list(chrlist.keys())
+            chrs.sort()
+            for chr in chrs:
+                bw = bwf.values(chr)
+                bw = bw[~np.isnan(bw)] # some have NaN if parts of a contig not covered
+                if self.qhi is not None:
+                    self.bwtop = np.quantile(bw, self.qhi)
+                    bwhi = self.processVals(bw, isTop=True)
+                    for i, seg in enumerate(bwhi):
+                        if seg[1] - seg[0] >= self.bedwin:
+                            bedhi.append((chr, seg[0], seg[1], '%s_hi' % (bwlabel), 1))
+                if self.qlo is not None:
+                    self.bwbot = np.quantile(bw, self.qlo)
+                    bwlo = self.processVals(bw, isTop=False)            
+                    for i, seg in enumerate(bwlo):
+                        if seg[1] - seg[0] >= self.bedwin:
+                            bedlo.append((chr, seg[0], seg[1], '%s_lo' % (bwlabel), -1))
+                bwmean = np.mean(bw)
+                bwstd = np.std(bw)
+                bwmax = np.max(bw)
+                nrow = np.size(bw)
+                bwmin = np.min(bw)
+                restab.append('%s\t%s\t%d\t%f\t%f\t%f\t%f\t%f\t%f' % (bwlabel,chr,nrow,bwmean,bwstd,bwmin,bwmax,self.bwtop,self.bwbot))  
+        stable = '\n'.join(restab)      
+        print(stable)
+        if self.tableoutfile:
+            with open(self.tableoutfile, 'w') as t:
+                t.write(stable)
+                t.write('\n')
+        if self.bedoutlo:
+            if self.qlo:
+                self.writeBed(bedlo, self.bedoutlo)
+        if self.bedouthi:
+            if self.qhi:
+                self.writeBed(bedhi, self.bedouthi)
+        if self.bedouthilo:
+            allbed = bedlo + bedhi
+            self.writeBed(allbed, self.bedouthilo)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    a = parser.add_argument
+    a('-m', '--minwin',default=10, type=int)
+    a('-l', '--qlo',default=None, type=float)
+    a('-i', '--qhi',default=None, type=float)
+    a('-w', '--bigwig', nargs='+')
+    a('-n', '--bigwiglabels', nargs='+')
+    a('-o', '--bedouthilo', default=None, help="optional high and low combined bed")
+    a('-u', '--bedouthi', default=None, help="optional high only bed")
+    a('-b', '--bedoutlo', default=None, help="optional low only bed")
+    a('-t', '--tableoutfile', default=None)
+    args = parser.parse_args()
+    print('args=', args)
+    if not (args.bedouthilo or args.bedouthi or args.bedoutlo):
+        sys.stderr.write("bigwig_outlier_bed.py cannot usefully run - need a bed output choice - must be one of low only, high only or both combined")
+        sys.exit(2)
+    if not (args.qlo or args.qhi):
+        sys.stderr.write("bigwig_outlier_bed.py cannot usefully run - need one or both of quantile cutpoints qhi and qlo")
+        sys.exit(2)
+    findOut(args)
+#end raw]]></configfile>
+  </configfiles>
+  <inputs>
+    <param name="bigwig" type="data" optional="false" label="Bigwig file(s) to process" help="If more than one, MUST all use the same reference sequence to be displayable. Feature names will include the bigwig label." format="bigwig" multiple="true"/>
+    <param name="minwin" type="integer" value="10" label="Minimum continuous bases to count as a high or low bed feature" help="Actual run length will be found and used for continuous features as long or longer."/>
+    <param name="qhi" type="float" value="0.99" label="Quantile cutoff for a high region - 0.99 will cut off at or above the 99th percentile" help="" optional="true"/>
+    <param name="qlo" type="float" value="0.01" label="Quantile cutoff for a low region - 0.01 will cut off at or below the 1st percentile." help="" optional="true"/>
+    <param name="outhilo" type="boolean" truevalue="true" falsevalue="false"  checked="true" label="Output both high and low regions to a bed file" help="At least one up to 3 outputs. This one is best for JBrowse2"/>
+    <param name="outhi" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output only high regions to a bed file" help="Choose if you only care about high regions"/>
+    <param name="outlo" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output only low regions to a bed file" help="Choose if you only care about low regions"/>
+    <param name="tableout" type="select" label="Write a table showing contig statistics for each bigwig input" help="">
+      <option value="donotmake">Do not create this report</option>
+      <option value="create" selected="true">Create this report</option>
+    </param>
+    <param name="bigwiglabels" type="text" value="outbed" label="Label(s) in bed features for each input bigwig - such as *coverage*. Commas must separate multiple labels" help=""/>
+  </inputs>
+  <outputs>
+    <data name="bedouthilo" format="bed" label="High_and_low_bed" hidden="false">
+      <filter>outhilo</filter>
+    </data>
+    <data name="bedouthi" format="bed" label="High bed" hidden="false">
+      <filter>outhi</filter>
+    </data>
+    <data name="bedoutlo" format="bed" label="Low bed" hidden="false">
+      <filter>outlo</filter>
+    </data>
+    <data name="tableoutfile" format="tabular" label="Contig statistics" hidden="false">
+      <filter>options['tableout'] == "create"</filter>
+    </data>
+  </outputs>
+  <tests>
+    <test expect_num_outputs="2">
+      <output name="bedouthilo" value="bedouthilo_sample" compare="diff" lines_diff="0"/>
+      <param name="outhilo" value="true"/>
+      <param name="bigwig" value="bigwig_sample"/>
+      <param name="minwin" value="10"/>
+      <param name="qhi" value="0.99"/>
+      <param name="qlo" value="0.01"/>
+      <param name="tableout" value="donotmake"/>
+      <param name="bigwiglabels" value="outbed"/>
+    </test>
+    <test expect_num_outputs="2">
+      <output name="bedouthilo" value="bedouthilo_sample" compare="diff" lines_diff="0"/>
+      <output name="tableoutfile" value="table_sample" compare="diff" lines_diff="0"/>
+      <param name="outhilo" value="true"/>
+      <param name="bigwig" value="bigwig_sample"/>
+      <param name="minwin" value="10"/>
+      <param name="qhi" value="0.99"/>
+      <param name="qlo" value="0.01"/>
+      <param name="tableout" value="create"/>
+      <param name="bigwiglabels" value="outbed"/>
+    </test>
+    <test expect_num_outputs="3">
+      <output name="bedouthilo" value="bedouthilo_sample" compare="diff" lines_diff="0"/>
+      <output name="tableoutfile" value="table_sample" compare="diff" lines_diff="0"/>
+      <output name="bedouthi" value="bedouthi_sample" compare="diff" lines_diff="0"/>
+      <param name="outhilo" value="true"/>
+      <param name="outhi" value="true"/>
+      <param name="bigwig" value="bigwig_sample"/>
+      <param name="minwin" value="10"/>
+      <param name="qhi" value="0.99"/>
+      <param name="qlo" value="0.01"/>
+      <param name="tableout" value="create"/>
+      <param name="bigwiglabels" value="outbed"/>
+    </test>
+    <test expect_num_outputs="4">
+      <output name="bedouthilo" value="bedouthilo2_sample" compare="diff" lines_diff="0"/>
+      <output name="bedoutlo" value="bedoutlo2_sample" compare="diff" lines_diff="0"/>
+      <output name="bedouthi" value="bedouthi2_sample" compare="diff" lines_diff="0"/>
+      <output name="tableoutfile" value="table2_sample" compare="diff" lines_diff="0"/>
+      <param name="outhilo" value="true"/>
+      <param name="outhi" value="true"/>
+      <param name="outlo" value="true"/>
+      <param name="bigwig" value="bigwig_sample,test.bw"/>
+      <param name="minwin" value="10"/>
+      <param name="qhi" value="0.99"/>
+      <param name="qlo" value="0.01"/>
+      <param name="tableout" value="create"/>
+      <param name="bigwiglabels" value="merlin,hg002test"/>
+    </test>
+  </tests>
+  <help><![CDATA[
+ **What it Does**
+ 
+ Takes one or more bigwigs mapped to the same reference and finds all the minimum window sized or greater contiguous regions above or below an upper and lower quantile cutoff.
+ A window size of 10 works well, and quantiles set at 0.01 and 0.99 will generally work well.
+
+ For JBrowse2 bed tracks, putting both the extreme regions in one bed file is usually best since they can now appear coloured red/blue.
+
+ If you only need to see either the consistently high or low regions, use one of those as the output.
+
+ At least one bed output must be selected or the tool will fail.
+ 
+  ]]></help>
+  <citations>
+    <citation type="doi">10.1093/bioinformatics/bts573</citation>
+  </citations>
+</tool>
+
