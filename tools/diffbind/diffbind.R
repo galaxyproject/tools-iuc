@@ -155,7 +155,7 @@ write.table(res_sorted, file = opt$outfile, sep = "\t", quote = FALSE, row.names
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
-    bmat <- dba.peakset(sample_count, bRetrieve = TRUE, DataType = DBA_DATA_FRAME)
+    bmat <- dba.peakset(sample_count, bRetrieve = TRUE, DataType = DBA_DATA_FRAME, minOverlap = opt$minoverlap)
     # Output as 0-based tabular
     bmat <- data.frame(
         Chrom = bmat[, 1],
