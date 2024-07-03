@@ -14,11 +14,12 @@ Bed interval naming must be short for JB2 but needs input bigwig name and (lo or
 
 import argparse
 import copy
-import numpy as np
 import os
-import pybigtools
 import sys
 from pathlib import Path
+
+import numpy as np
+import pybigtools
 
 
 class findOut:
