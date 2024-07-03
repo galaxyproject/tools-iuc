@@ -76,11 +76,7 @@ if (length(ctrls) != 0) {
     )
 }
 
-print("Before")
-
 sample <- dba(sampleSheet = sample_table, peakFormat = "bed", scoreCol = opt$scorecol, bLowerScoreBetter = opt$lowerbetter, minOverlap = opt$minoverlap)
-
-print("After")
 
 if (!is.null(opt$use_blacklist)) {
     sample <- dba.blacklist(sample, blacklist=TRUE)
@@ -93,8 +89,6 @@ if (!is.null(opt$summits)) {
 }
 
 sample_contrast <- dba.contrast(sample_count, categories = DBA_CONDITION, minMembers = 2)
-
-print(sample_contrast)
 
 if (opt$method == "DBA_DESEQ2") {
     method <- DBA_DESEQ2
