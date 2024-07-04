@@ -70,7 +70,8 @@ class findOut:
         bedlo = []
         bwlabels = self.bwlabels
         bwnames = self.bwnames
-        restab = ["bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"]
+        if self.tableoutfile:
+            restab = ["bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"]
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
             fakepath = "in%d.bw" % i
@@ -102,24 +103,25 @@ class findOut:
                 bwmax = np.max(bw)
                 nrow = np.size(bw)
                 bwmin = np.min(bw)
-                row = "%s\t%s\t%d\t%f\t%f\t%f\t%f" % (
-                    bwlabel,
-                    chr,
-                    nrow,
-                    bwmean,
-                    bwstd,
-                    bwmin,
-                    bwmax,
-                )
-                if self.qhi is not None:
-                    row += "\t%f" % self.bwtop
-                else:
-                    row += "\t"
-                if self.qlo is not None:
-                    row += "\t%f" % self.bwbot
-                else:
-                    row += "\t"
-                restab.append(copy.copy(row))
+                if self.tableoutfile:
+                    row = "%s\t%s\t%d\t%f\t%f\t%f\t%f" % (
+                        bwlabel,
+                        chr,
+                        nrow,
+                        bwmean,
+                        bwstd,
+                        bwmin,
+                        bwmax,
+                    )
+                    if self.qhi is not None:
+                        row += "\t%f" % self.bwtop
+                    else:
+                        row += "\t"
+                    if self.qlo is not None:
+                        row += "\t%f" % self.bwbot
+                    else:
+                        row += "\t"
+                    restab.append(copy.copy(row))
         if self.tableoutfile:
             stable = "\n".join(restab)
             with open(self.tableoutfile, "w") as t:
