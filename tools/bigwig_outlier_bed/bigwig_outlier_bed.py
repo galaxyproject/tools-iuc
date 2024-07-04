@@ -46,12 +46,11 @@ class findOut:
 
     def processVals(self, bw, isTop):
         """
-        warning: understanding how this code works may make your brain explode
         idea from http://gregoryzynda.com/python/numpy/contiguous/interval/2019/11/29/contiguous-regions.html
         Fast segmentation into regions by taking np.diff on the boolean array of over (under) cutpoint indicators in bwex.
-        This only gives non-zero values at the segment boundaries where there's a change, so those are all removed leaving
-        an array of segment start/end positions. That's twisted around into an array of start/end coordinates.
-        Magical. Fast. 
+        This only gives non-zero values at the segment boundaries where there's a change, so those zeros are all removed in bwexdnz
+        leaving an array of segment start/end positions. That's twisted around into an array of start/end coordinates.
+        Magical. Fast.
         """
         if isTop:
             bwex = np.r_[False, bw >= self.bwtop, False]  # extend with 0s
@@ -72,7 +71,7 @@ class findOut:
             bedf.write("\n".join(beds))
             bedf.write("\n")
 
-    def addTableRow(self, bw, bwlabel, chr):
+    def makeTableRow(self, bw, bwlabel, chr):
         """
         called for every contig, but messy inline
         """
@@ -134,7 +133,7 @@ class findOut:
                         if seg[1] - seg[0] >= self.bedwin:
                             bedlo.append((chr, seg[0], seg[1], "%s_lo" % (bwlabel), -1))
                 if self.tableoutfile:
-                    row = self.addTableRow(bw, bwlabel, chr)
+                    row = self.makeTableRow(bw, bwlabel, chr)
                     restab.append(copy.copy(row))
         if self.tableoutfile:
             stable = "\n".join(restab)
