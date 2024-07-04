@@ -45,7 +45,14 @@ class findOut:
         self.makeBed()
 
     def processVals(self, bw, isTop):
-        # http://gregoryzynda.com/python/numpy/contiguous/interval/2019/11/29/contiguous-regions.html
+        """
+        warning: understanding how this code works may make your brain explode
+        idea from http://gregoryzynda.com/python/numpy/contiguous/interval/2019/11/29/contiguous-regions.html
+        Fast segmentation into regions by taking np.diff on the boolean array of over (under) cutpoint indicators in bwex.
+        This only gives non-zero values at the segment boundaries where there's a change, so those are all removed leaving
+        an array of segment start/end positions. That's twisted around into an array of start/end coordinates.
+        Magical. Fast. 
+        """
         if isTop:
             bwex = np.r_[False, bw >= self.bwtop, False]  # extend with 0s
         else:
@@ -64,6 +71,34 @@ class findOut:
         with open(bedfname, "w") as bedf:
             bedf.write("\n".join(beds))
             bedf.write("\n")
+
+    def addTableRow(self, bw, bwlabel, chr):
+        """
+        called for every contig, but messy inline
+        """
+        bwmean = np.mean(bw)
+        bwstd = np.std(bw)
+        bwmax = np.max(bw)
+        nrow = np.size(bw)
+        bwmin = np.min(bw)
+        row = "%s\t%s\t%d\t%f\t%f\t%f\t%f" % (
+            bwlabel,
+            chr,
+            nrow,
+            bwmean,
+            bwstd,
+            bwmin,
+            bwmax,
+        )
+        if self.qhi is not None:
+            row += "\t%f" % self.bwtop
+        else:
+            row += "\t"
+        if self.qlo is not None:
+            row += "\t%f" % self.bwbot
+        else:
+            row += "\t"
+        return row
 
     def makeBed(self):
         bedhi = []
@@ -98,29 +133,8 @@ class findOut:
                     for j, seg in enumerate(bwlo):
                         if seg[1] - seg[0] >= self.bedwin:
                             bedlo.append((chr, seg[0], seg[1], "%s_lo" % (bwlabel), -1))
-                bwmean = np.mean(bw)
-                bwstd = np.std(bw)
-                bwmax = np.max(bw)
-                nrow = np.size(bw)
-                bwmin = np.min(bw)
                 if self.tableoutfile:
-                    row = "%s\t%s\t%d\t%f\t%f\t%f\t%f" % (
-                        bwlabel,
-                        chr,
-                        nrow,
-                        bwmean,
-                        bwstd,
-                        bwmin,
-                        bwmax,
-                    )
-                    if self.qhi is not None:
-                        row += "\t%f" % self.bwtop
-                    else:
-                        row += "\t"
-                    if self.qlo is not None:
-                        row += "\t%f" % self.bwbot
-                    else:
-                        row += "\t"
+                    row = self.addTableRow(bw, bwlabel, chr)
                     restab.append(copy.copy(row))
         if self.tableoutfile:
             stable = "\n".join(restab)
