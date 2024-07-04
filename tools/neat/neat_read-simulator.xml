@@ -1,10 +1,20 @@
 <tool id="neat_read_simulator" name="NEAT Read-simulator" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Generate a Dataset of simulated NGS reads</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
-        neat --log-name neat read-simulator -c $neat_config -o neat
+        #if $produce_fraglen_model:
+            neat --log-name neat_fraglen model-fraglen -i $input_fraglen --min_reads $min_reads -o neat_fraglen 
+        #end if
+        #if $trinuc:
+            neat --log-name neat_mut gen-mut-model '${reference}' '$mutations' --b $bed $human_sample $skip_common --save-trinuc -o neat_mut
+            neat --log-name neat_mut gen-mut-model '${reference}' '$mutations' $skip_common --outcounts 'neat_mut.trinuc.pickle.gz' --overwrite -o neat_mut
+        #else if $produce_mutation_model:
+            neat --log-name neat_mut gen-mut-model '${reference}' '$mutations' --b $bed $human_sample $skip_common -o neat_mut
+        #end if
+            neat --log-name neat read-simulator -c $neat_config -o neat
     ]]></command>
     <configfiles>
         <configfile name="neat_config">
@@ -96,8 +106,8 @@
             <!-- # Absolute path to the mutation model pickle file. Omitting this value will cause -->
             <!-- # NEAT to use the default model, with some standard parameters, and generally uniform biases. -->
             <!-- # type: string | required = no -->
-            #if $mutation_model:
-            mutation_model: '${mutation_model}'
+            #if $produce_mutation_model == "true":
+            mutation_model: 'neat_mut.pickle.gz'
             #else:
             mutation_model: .
             #end if
@@ -131,8 +141,8 @@
             <!-- # Absolute path to a pickle file containing the fragment length model output -->
             <!-- # from runner.py. -->
             <!-- # type: string | required = no | default: <NEAT_DIR>/neat/models/defaults/default_fraglen_model.pickle.gz -->
-            #if $fragment_model:
-            fragment_model: '${fragment_model}'
+            #if $produce_fraglen_model == "true":
+            fragment_model: 'neat_fraglen.pickle.gz'
             #else:
             fragment_model: .
             #end if
@@ -224,10 +234,29 @@
             <param name="min_mutations" type="integer" label="Min mutation" optional="true" help="Set an absolute minimum number of mutations. The program always adds at least 1 mutation."/>
         </section>
         <section name="utility" title="Neat utilities">
-            <!-- <param name="produce_error_model" type="boolean" label="Produce error model" checked="false" help="Produce an error model for the sequencing machine?"/> -->
-            <param name="produce_fraglen_model" type="boolean" label="model-fraglen" checked="false" help="Produce a fragment length distribution model?"/>
-            <param name="produce_mutation_model" type="boolean" label="gen-mut-model" checked="false" help="Produce a mutation model for the genome?"/>
-
+            <conditional name="models">
+                <param name="gen_model" type="select" label="Generating models">
+                    <option value="">No model</option>
+                    <option value="produce_fraglen_model">model-fraglen</option>
+                    <option value="produce_mutation_model">gen-mut-model</option>
+                    <!-- <option value="produce_error_model">model-seq-err</option> -->
+                </param>
+                <when value="">
+                </when>
+                <when value="produce_fraglen_model">
+                    <param name="input_fraglen" type="data" format="bam,sam" label="input" help="BAM or SAM input file"/>
+                    <param argument="--min_reads" type="integer" optional="true" min="0" max="100" value="2" label="Minimum number of reads" help="Minimum number of reads for a fragment length to consider it in the model." />
+                </when>
+                <when value="produce_mutation_model">
+                    <param name="mutations" type="data" format="vcf" label="Mutation" help="Mutation file for organism in VCF format" />
+                    <param argument="--bed" type="data" format="bed" label="Regions" optional="true" help="Bed file with regions to use in the model" />
+                    <param name="trinuc" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Calculate trinucleotide counts?" help="Note, this file will not be used if a bed file is also used." />
+                    <param argument="--human_sample" type="boolean" truevalue="--human_sample" falsevalue="" checked="false" optional="true" label="Human sample" help="When checked true onle numbered chromosomes, X ,Y, and MT is used" />
+                    <param argument="--skip_common" type="boolean" truevalue="--skip_common" falsevalue="" checked="false" optional="true" label="Include common variants?" help="Includes a list of common variants, if you want to visualize common variants with `plot_mut_model.py`" />
+                </when>
+                <!-- <when value="produce_error_model"> -->
+                <!-- </when> -->
+            </conditional>
         </section>
         <section name="output" title="Output options">
             <param name="produce_bam" type="boolean" label="Produce BAM" checked="false" help="Produce the golden bam file containing the reads aligned with the exact region of the genome?"/>
@@ -254,6 +283,12 @@
         </data>
         <data format="txt" name="log" from_work_dir="neat.log" label="${tool.name} on ${on_string}: log file">
             <filter>output['output_log']</filter>
+        </data>
+        <data format="txt" name="log_fraglen" from_work_dir="neat_fraglen.log" label="${tool.name} on ${on_string}: model-fraglen log file">
+            <filter>output['output_log'] and utility['produce_fraglen_model']</filter>
+        </data>
+        <data format="txt" name="log_mut" from_work_dir="neat_mut.log" label="${tool.name} on ${on_string}: gen-mut-model log file">
+            <filter>output['output_log'] and utility['produce_mutation_model']</filter>
         </data>
     </outputs>
     <tests>
@@ -289,6 +324,11 @@
     <help>
 NEAT produces simulated sequencing datasets. It creates FASTQ files with reads sampled from a provided reference genome, using sequencing error rates and mutation rates learned from real sequencing data. The strength of NEAT lies in the ability for the user to customize many sequencing parameters, produce 'golden,' true positive datasets. We are working on expanding the functionality even further to model more species, generate larger variants, model tumor/normal data and more!
 
+Optional outputs include:
+        * a golden vcf showing all inserted true variants (i.e., not the simulated errors),
+        * a golden BAM showing a fast alignment against the region where the read came from,
+        * a fasta file containing the inserted variants only (no errors).
+
 .. image:: https://github.com/ncsa/NEAT/raw/f33455695d57146852017a7eef7cded1ea6cc58e/docs/NEATNEAT.png
     :width: 800
     :height: 320
@@ -318,6 +358,10 @@ The 'RNG seed' is useful for debugging. Runs using identical RNG values should p
 .. class:: infomark
 
 The 'Min mutation' is useful for very small datasets. The program always adds at least 1 mutation.
+
+.. class:: infomark
+
+When using model-fraglen, The defaulf `--min_reads` is set to 2, to handle smaller datasets. Set it to 0 to turn off filtering. For a larger dataset, try 100 and adjust from there.
     </help>
     <expand macro="citations" />
 </tool>
