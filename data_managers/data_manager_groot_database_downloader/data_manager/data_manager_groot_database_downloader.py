@@ -3,6 +3,7 @@
 # Data manager for reference data for the MetaPhlAn Galaxy tools
 import argparse
 import json
+import shutil
 import subprocess
 from datetime import date
 from pathlib import Path
@@ -98,14 +99,16 @@ def download_groot_db(data_tables, name, table_name, target_dp, identity, groot_
       groot_version: version of GROOT to use
 
     """
-    # Define the target directory path
-    db_dp = target_dp / Path(name)
-
     # Build the command string
-    cmd = "groot get -d %s -o %s --identity %s" % (name, db_dp, identity)
+    cmd = "groot get -d %s -o %s --identity %s" % (name, Path.cwd(), identity)
 
     # Execute the command
     subprocess.check_call(cmd, shell=True)
+
+    # Define the target directory path
+    current_db_dp = Path(f"{Path.cwd()}/{name}.{identity}")
+    new_db_dp = Path(f"{target_dp}/{name}.{identity}")
+    shutil.copytree(current_db_dp, new_db_dp)
 
     # Add the data table entry
     add_data_table_entry(
@@ -115,7 +118,7 @@ def download_groot_db(data_tables, name, table_name, target_dp, identity, groot_
             value='%s.%s-v%s' % (name, identity, groot_version),
             name='%s (%s percent identity)' % (name, identity),
             dbkey='%s-v%s' % (date.today().strftime("%d%m%Y"), groot_version),
-            path=str(db_dp),
+            path=str(new_db_dp),
             db_version=groot_version
         )
     )
@@ -142,7 +145,6 @@ if __name__ == "__main__":
     target_dp.mkdir(parents=True, exist_ok=True)
 
     # Set up data tables dictionary
-
     data_tables = create_data_tables_dict()
     add_data_table(data_tables, "groot_database_downloader")
 
