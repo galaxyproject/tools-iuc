@@ -174,9 +174,4 @@ if __name__ == "__main__":
     a("-o", "--outbeds", default="outhilo", help="optional high and low combined bed")
     a("-t", "--tableoutfile", default=None)
     args = parser.parse_args()
-    if not (args.qlo or args.qhi):
-        sys.stderr.write(
-            "bigwig_outlier_bed.py cannot usefully run - need one or both of quantile cutpoints qhi and qlo"
-        )
-        sys.exit(2)
     findOut(args)
