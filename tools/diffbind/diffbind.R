@@ -79,7 +79,7 @@ if (length(ctrls) != 0) {
 sample <- dba(sampleSheet = sample_table, peakFormat = "bed", scoreCol = opt$scorecol, bLowerScoreBetter = opt$lowerbetter, minOverlap = opt$minoverlap)
 
 if (!is.null(opt$use_blacklist)) {
-    sample <- dba.blacklist(sample, blacklist=TRUE)
+    sample <- dba.blacklist(sample, blacklist = TRUE)
 }
 
 if (!is.null(opt$summits)) {
