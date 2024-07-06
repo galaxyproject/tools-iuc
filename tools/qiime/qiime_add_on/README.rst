@@ -1,1 +1,0 @@
-../qiime_core/README.rst
