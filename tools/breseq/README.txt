@@ -1,1 +1,0 @@
-In order to properly view breseq's html output in Galaxy, breseq needs to be whitelisted.  Otherwise, the results will not be displayed properly and interactive controls will not function.
