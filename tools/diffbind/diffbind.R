@@ -96,7 +96,7 @@ if (opt$method == "DBA_DESEQ2") {
     method <- DBA_EDGER
 }
 
-sample_analyze <- dba.analyze(sample_contrast, method = method, bBlacklist=FALSE, bGreylist=FALSE)
+sample_analyze <- dba.analyze(sample_contrast, method = method, bBlacklist = FALSE, bGreylist = FALSE)
 
 diff_bind <- dba.report(sample_analyze, th = opt$th, method = method)
 
