@@ -144,7 +144,7 @@ def write_results_file(**kwargs):
     run.write_results_file(**kwargs)
 
 
-@click.group(name="pyclone-vi-vi")
+@click.group(name="pyclone_vi-vi")
 def main():
     pass
 
