@@ -10,7 +10,8 @@ All motifs of selected lengths can be reported as individual features in the out
 others will be ignored. In all cases, a minimum required number of repeats can be specified. 
 
 For example, requiring 2 or more repeats of the trimer *ACG* will report every sequence of *ACGACG* or *ACGACGACG* or *ACGACGACGACG* and so on, as individual bed features.
-Similarly, requiring 3 repeats of any trimer will report every distinct 3 nucleotide pattern, including *ACGACGACG* as well as every other unique 3 nucleotide pattern with 3 
+Similarly, requiring 3 repeats of any trimer will report every distinct 3 nucleotide pattern, including *ACGACGACG* as well as every other unique 3 nucleotide pattern with 3 repeats in a row.
+
 A fasta file must be supplied for processing. A built in genome can be selected, or a fasta file of any kind can be selected from the current history. Note that all 
 symbols are treated as valid nucleotides by pytrf, so extraneous characters such as *-* or *N* in the input fasta may appear as unexpected bed features. Lower case fasta symbols will be converted
 to uppercase, to prevent them being reported as distinct motifs.
