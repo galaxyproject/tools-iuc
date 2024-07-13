@@ -1,7 +1,6 @@
 import argparse
 
 import pytrf  # 1.3.0
-
 from pyfastx import Fastx  # 0.5.2
 
 """
