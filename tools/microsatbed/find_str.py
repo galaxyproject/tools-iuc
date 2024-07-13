@@ -40,7 +40,8 @@ def write_ssrs(args):
                 ssr.motif,
                 ssr.repeat,
                 ssr.length,
-            )  # pytrf reports
+            )
+            # pytrf reports a 1 based start position so start-1 fixes the bed interval lengths
             if args.specific and ssr.motif in specific:
                 bed.append(row)
             elif args.mono and len(ssr.motif) == 1:
@@ -56,7 +57,7 @@ def write_ssrs(args):
             elif args.hexa and len(ssr.motif) == 6:
                 bed.append(row)
     bedtosort = [(x[0], x[1], x[2], x) for x in bed]
-    bedtosort.sort()
+    bedtosort.sort() # need to decorate and undecorate to avoid bogus alphanumeric ordering
     sbed = [x[3] for x in bedtosort]
     obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in sbed]
     with open(args.bed, "w") as outbed:
