@@ -96,5 +96,4 @@ if __name__ == "__main__":
     a("--specific", default=None)
     a("--minreps", default=2, type=int)
     args = parser.parse_args()
-    print(args)
     write_ssrs(args)
