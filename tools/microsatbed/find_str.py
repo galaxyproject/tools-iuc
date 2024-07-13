@@ -23,16 +23,29 @@ def write_ssrs(args):
         specific = args.specific.upper().split(",")
     fa = Fastx(args.fasta, uppercase=True)
     for name, seq in fa:
-        for ssr in pytrf.STRFinder(
-            name,
-            seq,
-            args.monomin,
-            args.dimin,
-            args.trimin,
-            args.tetramin,
-            args.pentamin,
-            args.hexamin,
-        ):
+        if args.specific:
+            ssrs = pytrf.STRFinder(
+                name,
+                seq,
+                args.minreps,
+                args.minreps,
+                args.minreps,
+                args.minreps,
+                args.minreps,
+                args.minreps,
+            )
+        else:
+            ssrs = pytrf.STRFinder(
+                name,
+                seq,
+                args.monomin,
+                args.dimin,
+                args.trimin,
+                args.tetramin,
+                args.pentamin,
+                args.hexamin,
+            )
+        for ssr in ssrs:
             row = (
                 ssr.chrom,
                 ssr.start - 1,
@@ -56,11 +69,8 @@ def write_ssrs(args):
                 bed.append(row)
             elif args.hexa and len(ssr.motif) == 6:
                 bed.append(row)
-    bedtosort = [(x[0], x[1], x[2], x) for x in bed]
-    bedtosort.sort()
-    # decorate and undecorate to avoid bogus alphanumeric ordering
-    sbed = [x[3] for x in bedtosort]
-    obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in sbed]
+    bed.sort()
+    obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in bed]
     with open(args.bed, "w") as outbed:
         outbed.write("\n".join(obed))
         outbed.write("\n")
@@ -86,4 +96,5 @@ if __name__ == "__main__":
     a("--specific", default=None)
     a("--minreps", default=2, type=int)
     args = parser.parse_args()
+    print(args)
     write_ssrs(args)
