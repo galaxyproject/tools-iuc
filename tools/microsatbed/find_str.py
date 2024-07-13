@@ -1,9 +1,8 @@
 import argparse
 
-from pyfastx import Fastx  # 0.5.2
-
 import pytrf  # 1.3.0
 
+from pyfastx import Fastx  # 0.5.2
 
 """
 Allows all STR or those for a subset of motifs to be written to a bed file
@@ -22,7 +21,7 @@ def write_ssrs(args):
     bed = []
     specific = None
     if args.specific:
-        specific = args.specific.upper().split(',')
+        specific = args.specific.upper().split(",")
     fa = Fastx(args.fasta, uppercase=True)
     for name, seq in fa:
         for ssr in pytrf.STRFinder(
@@ -37,12 +36,12 @@ def write_ssrs(args):
         ):
             row = (
                 ssr.chrom,
-                ssr.start-1,
+                ssr.start - 1,
                 ssr.end,
                 ssr.motif,
                 ssr.repeat,
                 ssr.length,
-            ) # pytrf reports 
+            )  # pytrf reports
             if args.specific and ssr.motif in specific:
                 bed.append(row)
             elif args.mono and len(ssr.motif) == 1:
