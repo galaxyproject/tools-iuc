@@ -57,7 +57,8 @@ def write_ssrs(args):
             elif args.hexa and len(ssr.motif) == 6:
                 bed.append(row)
     bedtosort = [(x[0], x[1], x[2], x) for x in bed]
-    bedtosort.sort() # need to decorate and undecorate to avoid bogus alphanumeric ordering
+    bedtosort.sort() 
+    # decorate and undecorate to avoid bogus alphanumeric ordering
     sbed = [x[3] for x in bedtosort]
     obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in sbed]
     with open(args.bed, "w") as outbed:
