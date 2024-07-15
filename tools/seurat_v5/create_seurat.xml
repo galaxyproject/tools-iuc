@@ -1,0 +1,279 @@
+<tool id="seurat_create" name="Seurat Create and Filter" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>- Prepare data for the pipeline</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+@CMD_read_inputs@
+
+#if $method.method == 'CreateSeuratObject'
+    #if $method.meta_data
+    meta_data<-read.table(
+        "$method.meta_data",
+        header = TRUE,
+        row.names = 1,
+        sep = "\t"
+    )
+    for (name in colnames(meta_data)) {
+    meta_data[[name]]<-gsub("^$", "N/A", trimws(meta_data[[name]]))
+    meta_data[[name]][is.na(meta_data[[name]])]<-"N/A"
+    }
+    #end if
+
+seurat_obj<-CreateSeuratObject(
+    seurat_obj,
+    assay = '$method.assay',
+    names.field = $method.names_field,
+    #if $method.names_delim != ''
+    names.delim = '$method.names_delim',
+    #end if
+    min.cells = $method.min_cells,
+    min.features = $method.min_features,
+    #if $method.meta_data
+    meta.data = meta_data
+    #end if
+)
+
+    #if $method.percent_mt == 'true'
+    seurat_obj[["percent.mt"]]<-PercentageFeatureSet(
+    seurat_obj,
+    pattern = "^MT-"
+    )
+    #end if
+
+#else if $method.method == 'Add_QC_Metrics'
+seurat_obj[["$method.col_name"]]<-PercentageFeatureSet(
+    seurat_obj,
+    pattern = "$method.pattern"
+)
+
+#else if $method.method == 'FilterCells'
+    #if $method.select_metric.select_metric == 'other'
+        #if $method.select_metric.minimum
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = $method.select_metric.other_variable > $method.select_metric.minimum
+    )
+        #end if
+        #if $method.select_metric.maximum
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = $method.select_metric.other_variable < $method.select_metric.maximum
+    )
+        #end if
+    #else
+        #if $method.select_metric.minimum
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = $method.select_metric.select_metric > $method.select_metric.minimum
+    )
+        #end if
+        #if $method.select_metric.maximum
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = $method.select_metric.select_metric < $method.select_metric.maximum
+    )
+        #end if
+    #end if
+#end if
+
+@CMD_rds_write_outputs@
+
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="input_rds"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method used">
+                <option value="CreateSeuratObject">Create Seurat Object</option>
+                <option value="Add_QC_Metrics">Add QC Metrics</option>
+                <option value="FilterCells">Filter cells by QC metrics</option>
+            </param>
+            <when value="CreateSeuratObject">
+                <param name="meta_data" type="data" format="tsv,tabular" optional="true" label="Additional cell metadata to add" help="table with cell names in first column(--meta.data)"/>
+                <expand macro="select_assay"/>
+                <param name="min_cells" type="integer" optional="true" value="3" label="Include features detected in at least this many cells" help="(--min.cells)"/>
+                <param name="min_features" type="integer" optional="true" value="200" label="Include cells where at least this many features are detected" help="(--min.features)"/>
+                <param name="percent_mt" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Calculate percentage of mito genes in each cell"/>
+                <param name="names_field" type="integer" value="1" label="Field of cell names to use as cell identity" help="(--names.field)"/>
+                <param name="names_delim" type="text" optional="true" value="_" label="Delimiter for cell names" help="(--names.delim)"/>
+            </when>
+            <when value="Add_QC_Metrics">
+                <param name="pattern" type="text" value="^MT-" label="Calculate percentage of genes matching this naming pattern" help="regex pattern to match (--pattern)"/>
+                <param name="col_name" type="text" value="percent.mt" label="Name to store the variable as"/>
+                <expand macro="select_assay"/>
+            </when>
+            <when value="FilterCells">
+                <conditional name="select_metric">
+                    <param name="select_metric" type="select" label="Cell metric to filter">
+                        <option value="nFeature_RNA">nFeature_RNA, unique genes per cell</option>
+                        <option value="nCount_RNA">nCount_RNA, total molecules per cell</option>
+                        <option value="percent_mt">percent.mt, percentage mito genes</option>
+                        <option value="other">other</option>
+                    </param>
+                    <when value="nFeature_RNA">
+                        <param name="minimum" type="integer" optional="true" value="" label="Minimum"/>
+                        <param name="maximum" type="integer" optional="true" value="" label="Maximum"/>
+                    </when>
+                    <when value="nCount_RNA">
+                        <param name="minimum" type="integer" optional="true" value="" label="Minimum"/>
+                        <param name="maximum" type="integer" optional="true" value="" label="Maximum"/>
+                    </when>
+                    <when value="percent_mt">
+                        <param name="minimum" type="float" optional="true" value="" label="Minimum"/>
+                        <param name="maximum" type="float" optional="true" value="" label="Maximum"/>
+                    </when>
+                    <when value="other">
+                        <param name="other_variable" type="text" value="" label="Enter cell metric to filter"/>
+                        <param name="minimum" type="float" optional="true" value="" label="Minimum"/>
+                        <param name="maximum" type="float" optional="true" value="" label="Maximum"/>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <expand macro="seurat_outputs"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <!-- test1: CreateSeuratObject -->
+            <param name="seurat_rds" location="https://zenodo.org/records/12743815/files/counts.rds"/>
+            <conditional name="method">
+                <param name="method" value="CreateSeuratObject"/>
+                <param name="assay" value="RNA"/>
+                <param name="percent_mt" value="TRUE"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="CreateSeuratObject"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/12743815/files/rawdata.rds" ftype="rds" compare="sim_size">
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test2: Add_QC_Metrics -->
+            <param name="seurat_rds" location="https://zenodo.org/records/12743815/files/rawdata.rds"/>
+            <conditional name="method">
+                <param name="method" value="Add_QC_Metrics"/>
+                <param name="pattern" value="^RP[LS]"/>
+                <param name="col_name" value="percent.ribo"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="PercentageFeatureSet"/>
+                    <has_text_matching expression="percent.ribo"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/12743815/files/ribodata.rds" ftype="rds" compare="sim_size">
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test3: FilterCells -->
+            <param name="seurat_rds" location="https://zenodo.org/records/12743815/files/ribodata.rds"/>
+            <conditional name="method">
+                <param name="method" value="FilterCells"/>
+                <conditional name="select_metric">
+                    <param name="select_metric" value="nCount_RNA"/>
+                    <param name="minimum" value="1"/>
+                    <param name="maximum" value="20000000"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="subset"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/12743815/files/filtered.rds" ftype="rds" compare="sim_size">
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Seurat
+======
+
+Seurat is an R package designed for QC, analysis, and exploration of single-cell RNA-seq data. 
+
+Seurat aims to enable users to identify and interpret sources of heterogeneity from single-cell transcriptomic measurements, and to integrate diverse types of single-cell data.
+
+
+CreateSeuratObject
+==================
+
+Create a Seurat Object from raw data in RDS format - a single cell matrix with cells as rows and genes as columns. 
+
+names.field
+
+For the initial identity class for each cell, choose this field from the cell's name. 
+E.g. If your cells are named as BARCODE_CLUSTER_CELLTYPE in the input matrix, set names.field to 3 to set the initial identities to CELLTYPE.
+
+names.delim
+
+For the initial identity class for each cell, choose this delimiter from the cell's column name. 
+E.g. If your cells are named as BARCODE-CLUSTER-CELLTYPE, set this to “-” to separate the cell name into its component parts for picking the relevant field.
+
+meta.data
+
+Additional cell-level metadata to add to the Seurat object. Should be a data.frame where the rows are cell names and the columns are additional metadata fields. 
+Row names in the metadata need to match the column names of the counts matrix.
+
+Filtering can also be performed on:
+
+min.cells = only include features/genes detected in at least this many cells 
+
+min.features = only include cells where at least this many features are detected 
+
+Some QC metrics are added when creating a Seurat Object (nCount_RNA and nFeature_RNA).
+Mito percentage can optionally be calculated - it will be based on gene names starting with "MT-"
+
+More details on the `seurat documentation
+<https://satijalab.github.io/seurat-object/reference/CreateSeuratObject.html>`__
+
+Calculate QC Metrics
+====================
+
+The percentage of mito genes (or other genes sharing the same naming pattern) can also be calculated after creation of a Seurat object. 
+
+This function enables you to easily calculate the percentage of all the counts belonging to a subset of the possible features for each cell. 
+This is useful when trying to compute the percentage of transcripts that map to mitochondrial "^MT-" or ribosomal "^RP[LS]" genes for example. 
+The calculation here is simply the column sum of the matrix present in the counts slot for features belonging to the set divided by the column sum for all features times 100.
+
+More details on the `seurat documentation
+<https://satijalab.org/seurat/reference/percentagefeatureset>`__
+
+Filter Cells
+============
+
+Filter cells based on QC metrics. 
+
+nFeature_RNA = number of unique genes identified in the cell
+
+ncounts_RNA = total number of RNAs found in the cell
+
+percent.mt = percentage of mitochondrial genes in the cell
+
+More details on the `R documentation
+<https://rdrr.io/r/base/subset.html>`__
+
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
