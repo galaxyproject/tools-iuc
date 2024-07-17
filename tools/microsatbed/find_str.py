@@ -27,12 +27,12 @@ def write_ssrs(args):
             ssrs = pytrf.STRFinder(
                 name,
                 seq,
-                args.minreps,
-                args.minreps,
-                args.minreps,
-                args.minreps,
-                args.minreps,
-                args.minreps,
+                args.monomin,
+                args.dimin,
+                args.trimin,
+                args.tetramin,
+                args.pentamin,
+                args.hexamin,
             )
         else:
             ssrs = pytrf.STRFinder(

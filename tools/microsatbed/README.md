@@ -1,7 +1,5 @@
 ## microsatellites to bed features
 
-A Galaxy tool for building some of the [NIH MARBL T2T assembly polishing](https://github.com/marbl/training) tools as Galaxy workflows.
-
  **Convert short repetitive sequences to bed features**
 
  Microsatellites are usually defined as repeated short DNA patterns in an unbroken sequence.
