@@ -2,8 +2,8 @@ import argparse
 import shutil
 
 import pybigtools
-
 import pytrf  # 1.3.0
+
 from pyfastx import Fastx  # 0.5.2
 
 """
@@ -11,15 +11,21 @@ Allows all STR or those for a subset of motifs to be written to a bed file
 Designed to build some of the microsatellite tracks from https://github.com/arangrhie/T2T-Polish/tree/master/pattern for the VGP.
 """
 
-def getDensity(name, bed, len, winwidth):
-    nwin = int(len / winwidth)
-    d = [0.0 for x in range(nwin+1)]
+
+def getDensity(name, bed, chrlen, winwidth):
+    nwin = int(chrlen / winwidth)
+    d = [0.0 for x in range(nwin + 1)]
     for b in bed:
         nt = b[5]
-        bin = int(b[1]/winwidth)
+        bin = int(b[1] / winwidth)
         d[bin] += nt
-    dw = [(name,x*winwidth,(x+1)*winwidth,float(d[x])) for x in range(nwin+1) if (x+1)*winwidth <= len]
+    dw = [
+        (name, x * winwidth, (x + 1) * winwidth, float(d[x]))
+        for x in range(nwin + 1)
+        if (x + 1) * winwidth <= chrlen
+    ]
     return dw
+
 
 def write_ssrs(args):
     """
@@ -39,15 +45,15 @@ def write_ssrs(args):
     for name, seq in fa:
         cbed = []
         for ssr in pytrf.STRFinder(
-                name,
-                seq,
-                args.monomin,
-                args.dimin,
-                args.trimin,
-                args.tetramin,
-                args.pentamin,
-                args.hexamin,
-            ):
+            name,
+            seq,
+            args.monomin,
+            args.dimin,
+            args.trimin,
+            args.tetramin,
+            args.pentamin,
+            args.hexamin,
+        ):
             row = (
                 ssr.chrom,
                 ssr.start,
@@ -73,13 +79,15 @@ def write_ssrs(args):
                 cbed.append(row)
         bed += cbed
         if args.bigwig:
-            chrlens[name] = len(seq)
-            w = getDensity(name, cbed, len(seq), args.winwidth)
+            chrlen = len(seq)
+            chrlens[name] = chrlen
+            w = getDensity(name, cbed, chrlen, args.winwidth)
             wig += w
     if args.bigwig:
         wig.sort()
-        bw = pybigtools.open("temp.bw", 'w')
-        bw.write(chrlens,wig)
+        bw = pybigtools.open("temp.bw", "w")
+        bw.write(chrlens, wig)
+        bw.close()
         shutil.move("temp.bw", args.bed)
     else:
         bed.sort()
