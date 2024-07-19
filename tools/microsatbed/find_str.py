@@ -1,7 +1,7 @@
 import argparse
 import shutil
+import subprocess
 
-import pybigtools
 import pytrf  # 1.3.0
 from pyfastx import Fastx  # 0.5.2
 
@@ -12,18 +12,22 @@ Designed to build some of the microsatellite tracks from https://github.com/aran
 
 
 def getDensity(name, bed, chrlen, winwidth):
+    """
+    pybigtools can write bigwigs and they are processed by other ucsc tools - but jb2 will not read them.
+    Swapped the conversion to use a bedgraph file processed by bedGraphToBigWig
+    """
     nwin = int(chrlen / winwidth)
     d = [0.0 for x in range(nwin + 1)]
     for b in bed:
         nt = b[5]
         bin = int(b[1] / winwidth)
         d[bin] += nt
-    dw = [
-        (name, x * winwidth, (x + 1) * winwidth, float(d[x]))
+    bedg = [
+        (name, (x * winwidth), ((x + 1) * winwidth) - 1, float(d[x]))
         for x in range(nwin + 1)
         if (x + 1) * winwidth <= chrlen
     ]
-    return dw
+    return bedg
 
 
 def write_ssrs(args):
@@ -42,6 +46,8 @@ def write_ssrs(args):
         specific = args.specific.upper().split(",")
     fa = Fastx(args.fasta, uppercase=True)
     for name, seq in fa:
+        chrlen = len(seq)
+        chrlens[name] = chrlen
         cbed = []
         for ssr in pytrf.STRFinder(
             name,
@@ -76,17 +82,20 @@ def write_ssrs(args):
                 cbed.append(row)
             elif args.hexa and len(ssr.motif) == 6:
                 cbed.append(row)
-        bed += cbed
         if args.bigwig:
-            chrlen = len(seq)
-            chrlens[name] = chrlen
             w = getDensity(name, cbed, chrlen, args.winwidth)
             wig += w
+        bed += cbed
     if args.bigwig:
         wig.sort()
-        bw = pybigtools.open("temp.bw", "w")
-        bw.write(chrlens, wig)
-        bw.close()
+        bedg = ["%s %d %d %.3f" % x for x in wig]
+        with open("temp.bedg", "w") as bw:
+            bw.write("\n".join(bedg))
+        chroms = ["%s\t%s" % (x, chrlens[x]) for x in chrlens.keys()]
+        with open("temp.chromlen", "w") as cl:
+            cl.write("\n".join(chroms))
+        cmd = ["bedGraphToBigWig", "temp.bedg", "temp.chromlen", "temp.bw"]
+        subprocess.run(cmd)
         shutil.move("temp.bw", args.bed)
     else:
         bed.sort()
