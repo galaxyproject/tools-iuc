@@ -1,5 +1,4 @@
 import argparse
-import shutil
 import subprocess
 
 import pytrf  # 1.3.0
@@ -67,7 +66,6 @@ def write_ssrs(args):
                 ssr.repeat,
                 ssr.length,
             )
-            # pytrf reports a 1 based start position so start-1 fixes the bed interval lengths
             if args.specific and ssr.motif in specific:
                 cbed.append(row)
             elif args.mono and len(ssr.motif) == 1:
@@ -88,15 +86,14 @@ def write_ssrs(args):
         bed += cbed
     if args.bigwig:
         wig.sort()
-        bedg = ["%s %d %d %.3f" % x for x in wig]
+        bedg = ["%s %d %d %.2f" % x for x in wig]
         with open("temp.bedg", "w") as bw:
             bw.write("\n".join(bedg))
         chroms = ["%s\t%s" % (x, chrlens[x]) for x in chrlens.keys()]
         with open("temp.chromlen", "w") as cl:
             cl.write("\n".join(chroms))
-        cmd = ["bedGraphToBigWig", "temp.bedg", "temp.chromlen", "temp.bw"]
+        cmd = ["bedGraphToBigWig", "temp.bedg", "temp.chromlen", args.bed]
         subprocess.run(cmd)
-        shutil.move("temp.bw", args.bed)
     else:
         bed.sort()
         obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in bed]
