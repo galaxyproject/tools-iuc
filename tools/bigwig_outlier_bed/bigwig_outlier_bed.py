@@ -39,8 +39,9 @@ class findOut:
         try:
             f = float(args.qlo)
             self.qlo = f
-        except:
-            print('qlo=',args.qlo)
+        except Exception as e:
+            s = str(e)
+            print(s, ' qlo=', args.qlo)
         nbw = len(args.bigwig)
         nlab = len(args.bigwiglabels)
         if nlab < nbw:
