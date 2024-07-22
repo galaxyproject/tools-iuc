@@ -28,8 +28,6 @@ class findOut:
         self.bwnames = args.bigwig
         self.bwlabels = args.bigwiglabels
         self.bedwin = args.minwin
-        self.qlo = args.qlo
-        self.qhi = args.qhi
         self.outbeds = args.outbeds
         self.bedouthi = args.bedouthi
         self.bedoutlo = args.bedoutlo
@@ -37,7 +35,13 @@ class findOut:
         self.tableoutfile = args.tableoutfile
         self.bedwin = args.minwin
         self.qhi = args.qhi
-        self.qlo = args.qlo
+        self.qlo = None
+        try:
+            f = float(args.qlo)
+            self.qlo = f
+        except Exception as e:
+            s = str(e)
+            print(s, ' qlo=', args.qlo)
         nbw = len(args.bigwig)
         nlab = len(args.bigwiglabels)
         if nlab < nbw:
@@ -90,13 +94,13 @@ class findOut:
             bwmax,
         )
         if self.qhi is not None:
-            row += "\t%f" % self.bwtop
+            row += "\t%.2f" % self.bwtop
         else:
-            row += "\t"
+            row += "\tnoqhi"
         if self.qlo is not None:
-            row += "\t%f" % self.bwbot
+            row += "\t%.2f" % self.bwbot
         else:
-            row += "\t"
+            row += "\tnoqlo"
         return row
 
     def makeBed(self):
@@ -125,13 +129,31 @@ class findOut:
                     bwhi = self.processVals(bw, isTop=True)
                     for j, seg in enumerate(bwhi):
                         if seg[1] - seg[0] >= self.bedwin:
-                            bedhi.append((chr, seg[0], seg[1], "%s_hi" % (bwlabel), 1))
+                            score = np.sum(bw[seg[0]:seg[1]])
+                            bedhi.append(
+                                (
+                                    chr,
+                                    seg[0],
+                                    seg[1],
+                                    "%s_%d" % (bwlabel, score),
+                                    score,
+                                )
+                            )
                 if self.qlo is not None:
                     self.bwbot = np.quantile(bw, self.qlo)
                     bwlo = self.processVals(bw, isTop=False)
                     for j, seg in enumerate(bwlo):
                         if seg[1] - seg[0] >= self.bedwin:
-                            bedlo.append((chr, seg[0], seg[1], "%s_lo" % (bwlabel), -1))
+                            score = -1 * np.sum(bw[seg[0]:seg[1]])
+                            bedlo.append(
+                                (
+                                    chr,
+                                    seg[0],
+                                    seg[1],
+                                    "%s_%d" % (bwlabel, score),
+                                    score,
+                                )
+                            )
                 if self.tableoutfile:
                     row = self.makeTableRow(bw, bwlabel, chr)
                     restab.append(copy.copy(row))
@@ -164,7 +186,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     a = parser.add_argument
     a("-m", "--minwin", default=10, type=int)
-    a("-l", "--qlo", default=None, type=float)
+    a("-l", "--qlo", default=None)
     a("-i", "--qhi", default=None, type=float)
     a("--bedouthi", default=None)
     a("--bedoutlo", default=None)
