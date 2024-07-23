@@ -13,7 +13,6 @@ Bed interval naming must be short for JB2 but needs input bigwig name and (lo or
 """
 
 import argparse
-import copy
 import os
 import sys
 from pathlib import Path
@@ -70,7 +69,7 @@ class asciihist:
             if self.str_tag:
                 self.str_tag = "%s " % self.str_tag
             else:
-                str_tag = ""
+                self.str_tag = ""
             if self.scale_output is not None:
                 scaled_counts = counts.astype(float) / counts.sum() * self.scale_output
             else:
@@ -120,7 +119,7 @@ class findOut:
             try:
                 f = float(args.qlo)
                 self.qlo = f
-            except Exception as e:
+            except Exception:
                 print('qlo not provided')
         nbw = len(args.bigwig)
         nlab = len(args.bigwiglabels)
@@ -186,11 +185,10 @@ class findOut:
     def makeBed(self):
         bedhi = []
         bedlo = []
+        restab = []
         bwlabels = self.bwlabels
         bwnames = self.bwnames
         reshead =  "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
-        if self.tableoutfile:
-            restab = [reshead, ]
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
             fakepath = "in%d.bw" % i
@@ -250,13 +248,13 @@ class findOut:
                             )
                 if self.tableoutfile:
                     row = self.makeTableRow(bw, bwlabel, chr)
-                    restab.append(copy.copy(row))
-                    restab.append(histo)
                     resheadl = reshead.split('\t')
                     rowl = row.split()
                     desc = ['%s\t%s' % (resheadl[x], rowl[x]) for x in range(len(rowl))]
                     desc.insert(0, 'Descriptive measures')
                     descn = '\n'.join(desc)
+                    restab.append(descn)
+                    restab.append(histo)
         if os.path.isfile(fakepath):
             os.remove(fakepath)
         if self.tableoutfile:
