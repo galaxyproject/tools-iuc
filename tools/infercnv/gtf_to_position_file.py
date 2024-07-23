@@ -86,7 +86,7 @@ def convert_to_positional_file(input_gtf, output_positional, attribute_key):
             if attribute_key in attributes:
                 gene_name = attributes[attribute_key]
             else:
-                print("Could not find an attribute in the GTF with the name '"+attribute_key+"'. Line="+"\t".join(gtf_line))
+                print("Could not find an attribute in the GTF with the name '" + attribute_key + "'. Line=" + "\t".join(gtf_line))
                 exit(99)
             if not gene_name == previous_gene:
                 if len(gene_positions) > 1 and previous_gene not in all_genes_found:
@@ -121,6 +121,7 @@ def convert_to_positional_file(input_gtf, output_positional, attribute_key):
     print("Number of entries: " + str(i_accepted_entries))
     print("Number of duplicate entries: " + str(i_duplicate_entries))
     print("Number of entries written: " + str(i_written_lines))
+
 
 if __name__ == "__main__":
 
