@@ -252,12 +252,11 @@ class findOut:
                     row = self.makeTableRow(bw, bwlabel, chr)
                     restab.append(copy.copy(row))
                     restab.append(histo)
-                resheadl = reshead.split('\t')
-                rowl = row.split()
-                desc = ['%s\t%s' % (resheadl[x], rowl[x]) for x in range(len(rowl))]
-                desc.insert(0, 'Descriptive measures')
-                descn = '\n'.join(desc)
-                print('\n'.join((descn, '', histo)))
+                    resheadl = reshead.split('\t')
+                    rowl = row.split()
+                    desc = ['%s\t%s' % (resheadl[x], rowl[x]) for x in range(len(rowl))]
+                    desc.insert(0, 'Descriptive measures')
+                    descn = '\n'.join(desc)
         if os.path.isfile(fakepath):
             os.remove(fakepath)
         if self.tableoutfile:
