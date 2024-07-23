@@ -1,9 +1,7 @@
 import argparse
 import hashlib
 import json
-import os
 import re
-import shutil
 import sys
 import tarfile
 from datetime import datetime
@@ -34,7 +32,7 @@ class GetBaktaDatabaseInfo:
         self.tar_name = tarball_name
         self.db_version = db_version
         self.DB_VERSIONS_URL = "https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json"
-        self.DB_TEST_URL = "https://zenodo.org/record/8021032/files/db-versions.json"
+        self.DB_TEST_URL = "https://zenodo.org/record/11381156/files/db-versions.json"
         self.test_mode = test_mode
 
     def get_database_type(self):
@@ -137,13 +135,9 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         try:
             with bakta_path.open("wb") as fh_out, requests.get(
                     self.db_url, stream=True) as resp:
-                total_length = resp.headers.get("content-length")
-                if total_length is None:  # no content length header
-                    for data in resp.iter_content(chunk_size=1024 * 1024):
-                        fh_out.write(data)
-                else:
-                    for data in resp.iter_content(chunk_size=1024 * 1024):
-                        fh_out.write(data)
+                # total_length = resp.headers.get("content-length")
+                for data in resp.iter_content(chunk_size=1024 * 1024):
+                    fh_out.write(data)
             print(f"Download bakta database {self.db_version}")
             self.tarball_path = bakta_path
         except IOError:
@@ -160,24 +154,31 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             ) as tar_file:
                 tar_file.extractall(path=db_path)
                 print(f"Untar the database in {db_path}")
-
-            if not self.test_mode:
-                self.moove_files(db_path=db_path)
-
         except OSError:
             sys.exit(f"ERROR: Could not extract {self.tar_name} " f"to {db_path}")
+        if not self.test_mode:
+            self.move_files(db_path=db_path)
+        self.db_dir = db_path.resolve()
 
-    def moove_files(self, db_path):
-        if os.path.isdir(db_path.joinpath("db-light")):
+    def delete_folder(self, path):
+        for sub in path.iterdir():
+            if sub.is_dir() and sub.name != "latest":
+                self.delete_folder(sub)
+            else:
+                sub.unlink()
+        path.rmdir()
+
+    def move_files(self, db_path):
+        if db_path.joinpath("db-light").is_dir():
             input_dir = db_path.joinpath("db-light")
-        elif os.path.isdir(db_path.joinpath("db")):
+        elif db_path.joinpath("db").is_dir():
             input_dir = db_path.joinpath("db")
-        file_list = os.listdir(input_dir)
         output_dir = db_path
-        for file in file_list:
-            input = input_dir.joinpath(file)
-            output = output_dir.joinpath(file)
-            shutil.move(input, output)
+        for file in input_dir.iterdir():
+            if file.is_file():  # to avoid moving amrfinder-plus folder
+                output = output_dir.joinpath(file.name)
+                file.rename(output)
+        self.delete_folder(input_dir)
 
     def calc_md5_sum(self, buffer_size=1048576):
         tarball_path = Path(self.db_dir).joinpath(self.tar_name)
@@ -223,15 +224,15 @@ def main():
     all_args = parse_arguments()
     with open(all_args.data_manager_json) as fh:
         params = json.load(fh)
-    target_dir = params["output_data"][0]["extra_files_path"]
-    os.makedirs(target_dir)
+    target_dir = Path(params["output_data"][0]["extra_files_path"])
+    target_dir.mkdir(parents=True, exist_ok=True)
     # init the class to download bakta db
     bakta_upload = InstallBaktaDatabase(
         test_mode=all_args.test, db_version=all_args.database_version
     )
     bakta_db = bakta_upload.fetch_db_versions()
     # update the path for galaxy
-    bakta_upload.db_dir = target_dir
+    bakta_upload.db_dir = target_dir.absolute()
     # download the database
     bakta_upload.download()
     # check md5 sum

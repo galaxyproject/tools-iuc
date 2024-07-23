@@ -15,7 +15,7 @@ class GetAmrFinderPlusDataManager:
     """
 
     def __init__(self,
-                 amrfinderplus_database="amrfinderplus_database",
+                 amrfinderplus_database="amrfinderplus_versioned_database",
                  db_name="amrfinderplus-db",
                  amrfinderplus_version="latest",
                  date_version=None):
@@ -50,6 +50,7 @@ class GetAmrFinderPlusDataManager:
                              f"-{self._amrfinderplus_date_version}"
         data_info = dict(value=amrfinderplus_value,
                          name=amrfinderplus_name,
+                         db_version=self._amrfinderplus_version,
                          path=self._db_name)
         self.amrfinderplus_table_list["data_tables"][self.data_table_name] = [data_info]
         return self.amrfinderplus_table_list
@@ -110,8 +111,6 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         """
         self.amrfinderplus_db_path = f'{self._output_dir}/{self._db_name}'
         os.makedirs(self.amrfinderplus_db_path)
-        if self._amrfinderplus_version == 'latest':
-            self.get_amrfinderplus_version()
 
         amrfinderplus_ftp_path = f"ftp://{self._login}:" \
                                  f"{self._password}@{self._ncbi_ftp_url}/" \
