@@ -9,8 +9,9 @@ Converts GTF files to proprietary formats.
 # Import statements
 import argparse
 import csv
-import os
 import gzip
+import os
+
 
 __author__ = 'Timothy Tickle, Itay Tirosh, Brian Haas'
 __copyright__ = 'Copyright 2016'
@@ -19,6 +20,7 @@ __license__ = 'BSD-3'
 __maintainer__ = 'Timothy Tickle'
 __email__ = 'ttickle@bbroadinstitute.org'
 __status__ = 'Development'
+
 
 def open_file(file_path):
     """ Open a file, handling gzip if necessary.
@@ -32,6 +34,7 @@ def open_file(file_path):
         return gzip.open(file_path, 'rt')
     else:
         return open(file_path, 'r')
+
 
 def convert_to_positional_file(input_gtf, output_positional, attribute_key):
     """ Convert input GTF file to positional file.
@@ -68,7 +71,7 @@ def convert_to_positional_file(input_gtf, output_positional, attribute_key):
     i_written_lines = 0
 
     with open_file(input_gtf) as gtf:
-        gtf_file = csv.reader(gtf,delimiter="\t")
+        gtf_file = csv.reader(gtf, delimiter="\t")
         for gtf_line in gtf_file:
             if gtf_line[0][0] == "#":
                 i_comments += 1
@@ -78,8 +81,8 @@ def convert_to_positional_file(input_gtf, output_positional, attribute_key):
             attributes = gtf_line[8].split(";")
             attributes = [entry.strip(" ") for entry in attributes]
             attributes = [entry.split(" ") for entry in attributes if entry]
-            attributes = [[entry[0].strip('"'),entry[1].strip('"')] for entry in attributes]
-            attributes = dict([[entry[0].split("|")[0],entry[1]] for entry in attributes])
+            attributes = [[entry[0].strip('"'), entry[1].strip('"')] for entry in attributes]
+            attributes = dict([[entry[0].split("|")[0], entry[1]] for entry in attributes])
             if attribute_key in attributes:
                 gene_name = attributes[attribute_key]
             else:
