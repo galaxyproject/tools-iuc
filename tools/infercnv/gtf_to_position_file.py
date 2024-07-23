@@ -10,6 +10,7 @@ Converts GTF files to proprietary formats.
 import argparse
 import csv
 import os
+import gzip
 
 __author__ = 'Timothy Tickle, Itay Tirosh, Brian Haas'
 __copyright__ = 'Copyright 2016'
@@ -19,6 +20,18 @@ __maintainer__ = 'Timothy Tickle'
 __email__ = 'ttickle@bbroadinstitute.org'
 __status__ = 'Development'
 
+def open_file(file_path):
+    """ Open a file, handling gzip if necessary.
+
+    :param file_path: Path to input file
+    :type file_path: String
+
+    :returns: File object
+    """
+    if file_path.endswith('.gz'):
+        return gzip.open(file_path, 'rt')
+    else:
+        return open(file_path, 'r')
 
 def convert_to_positional_file(input_gtf, output_positional, attribute_key):
     """ Convert input GTF file to positional file.
@@ -37,6 +50,7 @@ def convert_to_positional_file(input_gtf, output_positional, attribute_key):
     if not input_gtf or not os.path.exists(input_gtf):
         print("".join(["gtf_to_position_file.py:: ",
                        "Could not find input file : " + input_gtf]))
+        return False
 
     all_genes_found = set()
 
@@ -53,7 +67,7 @@ def convert_to_positional_file(input_gtf, output_positional, attribute_key):
     i_accepted_entries = 0
     i_written_lines = 0
 
-    with open(input_gtf, "r") as gtf:
+    with open_file(input_gtf) as gtf:
         gtf_file = csv.reader(gtf,delimiter="\t")
         for gtf_line in gtf_file:
             if gtf_line[0][0] == "#":
