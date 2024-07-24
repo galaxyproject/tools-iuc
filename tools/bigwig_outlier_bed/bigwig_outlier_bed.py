@@ -74,7 +74,11 @@ class asciihist:
                 scaled_counts = counts.astype(float) / counts.sum() * self.scale_output
             else:
                 scaled_counts = counts
-            footerbar =  "{:s}{:s} |{:s} |".format(self.str_tag, "-" * 12, "-" * 12,)
+            footerbar = "{:s}{:s} |{:s} |".format(
+                self.str_tag,
+                "-" * 12,
+                "-" * 12,
+            )
             if self.minmax is not None:
                 ret.append(
                     "Trimmed to range (%s - %s)"
@@ -91,7 +95,7 @@ class asciihist:
             ret.append(footerbar)
             ret.append("{:s}{:>12s} |{:>12,d} |".format(self.str_tag, "N=", total))
             ret.append(footerbar)
-            ret.append('')
+            ret.append("")
         else:
             ret = []
         if not self.generate_only:
@@ -122,7 +126,7 @@ class findOut:
                     f = float(args.qlo)
                     self.qlo = f
                 except Exception:
-                    print('qlo not provided')
+                    print("qlo not provided")
         nbw = len(args.bigwig)
         nlab = len(args.bigwiglabels)
         if nlab < nbw:
@@ -191,7 +195,7 @@ class findOut:
         bwlabels = self.bwlabels
         bwnames = self.bwnames
         bwnames.sort()
-        reshead =  "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
+        reshead = "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
             fakepath = "in%d.bw" % i
@@ -208,15 +212,24 @@ class findOut:
                 values, counts = np.unique(bw, return_counts=True)
                 nvalues = len(values)
                 if nvalues <= 20:
-                    histo = '\n'.join(['%s: %f occurs %d times' % (chr, values[x], counts[x]) for x in range(len(values))])
+                    histo = "\n".join(
+                        [
+                            "%s: %f occurs %d times" % (chr, values[x], counts[x])
+                            for x in range(len(values))
+                        ]
+                    )
                 else:
-                    last10 = range(nvalues-10, nvalues)
-                    first_few = ['%.2f\t%d' % (values[x],counts[x]) for x in range(10)]
-                    first_few += ['%.2f\t%d' % (values[x],counts[x]) for x in last10]
-                    first_few.insert(0,'First/Last 10 value counts\nValue\tCount')
-                    ha = asciihist(data=bw, bins=20, str_tag='%s_%s' % (bwlabel,chr))
+                    last10 = range(nvalues - 10, nvalues)
+                    first_few = ["%.2f\t%d" % (values[x], counts[x]) for x in range(10)]
+                    first_few += ["%.2f\t%d" % (values[x], counts[x]) for x in last10]
+                    first_few.insert(0, "First/Last 10 value counts\nValue\tCount")
+                    ha = asciihist(data=bw, bins=20, str_tag="%s_%s" % (bwlabel, chr))
                     histo = ha.draw()
-                    histo = '\n'.join(first_few) + '\nHistogram of %s bigwig values\n' % bwlabel + histo
+                    histo = (
+                        "\n".join(first_few)
+                        + "\nHistogram of %s bigwig values\n" % bwlabel
+                        + histo
+                    )
                 bw = bw[~np.isnan(bw)]  # some have NaN if parts of a contig not covered
                 if self.qhi is not None:
                     self.bwtop = np.quantile(bw, self.qhi)
@@ -224,7 +237,7 @@ class findOut:
                     for j, seg in enumerate(bwhi):
                         seglen = seg[1] - seg[0]
                         if seglen >= self.bedwin:
-                            score = np.sum(bw[seg[0]:seg[1]])/float(seglen)
+                            score = np.sum(bw[seg[0]:seg[1]]) / float(seglen)
                             bedhi.append(
                                 (
                                     chr,
@@ -239,7 +252,7 @@ class findOut:
                     bwlo = self.processVals(bw, isTop=False)
                     for j, seg in enumerate(bwlo):
                         if seg[1] - seg[0] >= self.bedwin:
-                            score = -1 * np.sum(bw[seg[0]:seg[1]])/float(seglen)
+                            score = -1 * np.sum(bw[seg[0]:seg[1]]) / float(seglen)
                             bedlo.append(
                                 (
                                     chr,
@@ -251,11 +264,11 @@ class findOut:
                             )
                 if self.tableoutfile:
                     row = self.makeTableRow(bw, bwlabel, chr)
-                    resheadl = reshead.split('\t')
+                    resheadl = reshead.split("\t")
                     rowl = row.split()
-                    desc = ['%s\t%s' % (resheadl[x], rowl[x]) for x in range(len(rowl))]
-                    desc.insert(0, 'Descriptive measures')
-                    descn = '\n'.join(desc)
+                    desc = ["%s\t%s" % (resheadl[x], rowl[x]) for x in range(len(rowl))]
+                    desc.insert(0, "Descriptive measures")
+                    descn = "\n".join(desc)
                     restab.append(descn)
                     restab.append(histo)
         if os.path.isfile(fakepath):
@@ -278,7 +291,7 @@ class findOut:
             allbed = bedlo + bedhi
             self.writeBed(allbed, self.bedouthilo)
             some = True
-        if not ((self.outbeds == 'outtab') or some):
+        if not ((self.outbeds == "outtab") or some):
             sys.stderr.write(
                 "Invalid configuration - no output could be created. Was qlo missing and only low output requested for example?"
             )
