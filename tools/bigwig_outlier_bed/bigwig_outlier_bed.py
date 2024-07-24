@@ -113,14 +113,16 @@ class findOut:
         self.bedouthilo = args.bedouthilo
         self.tableoutfile = args.tableoutfile
         self.bedwin = args.minwin
-        self.qhi = args.qhi
         self.qlo = None
-        if args.qlo:
-            try:
-                f = float(args.qlo)
-                self.qlo = f
-            except Exception:
-                print('qlo not provided')
+        self.qhi = None
+        if args.outbeds != "outtab":
+            self.qhi = args.qhi
+            if args.qlo:
+                try:
+                    f = float(args.qlo)
+                    self.qlo = f
+                except Exception:
+                    print('qlo not provided')
         nbw = len(args.bigwig)
         nlab = len(args.bigwiglabels)
         if nlab < nbw:
@@ -188,6 +190,7 @@ class findOut:
         restab = []
         bwlabels = self.bwlabels
         bwnames = self.bwnames
+        bwnames.sort()
         reshead =  "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
@@ -211,9 +214,9 @@ class findOut:
                     first_few = ['%.2f\t%d' % (values[x],counts[x]) for x in range(10)]
                     first_few += ['%.2f\t%d' % (values[x],counts[x]) for x in last10]
                     first_few.insert(0,'First/Last 10 value counts\nValue\tCount')
-                    ha = asciihist(data=bw, bins=20, str_tag=chr)
+                    ha = asciihist(data=bw, bins=20, str_tag='%s_%s' % (bwlabel,chr))
                     histo = ha.draw()
-                    histo = '\n'.join(first_few) + '\nHistogram of bigwig values\n' + histo
+                    histo = '\n'.join(first_few) + '\nHistogram of %s bigwig values\n' % bwlabel + histo
                 bw = bw[~np.isnan(bw)]  # some have NaN if parts of a contig not covered
                 if self.qhi is not None:
                     self.bwtop = np.quantile(bw, self.qhi)
@@ -275,7 +278,7 @@ class findOut:
             allbed = bedlo + bedhi
             self.writeBed(allbed, self.bedouthilo)
             some = True
-        if not some:
+        if not ((self.outbeds == 'outtab') or some):
             sys.stderr.write(
                 "Invalid configuration - no output could be created. Was qlo missing and only low output requested for example?"
             )
