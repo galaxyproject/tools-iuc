@@ -4,7 +4,7 @@
 
 This is a Galaxy tool, for building some of the [NIH MARBL T2T assembly polishing](https://github.com/marbl/training) tools as Galaxy workflows.
 
-JBrowse2 2.12.3 update will include a plugin for optional colours to distinguish bed features, shown being tested in the screenshots below.
+JBrowse2 now includes a plugin for optional colours to distinguish bed features, shown being tested in the screenshots below.
 
 ### Find and mark BigWig peaks to a bed file for display
 
