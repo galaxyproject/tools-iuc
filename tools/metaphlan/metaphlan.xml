@@ -68,7 +68,7 @@ bzcat '$f' > '$fp'
             #else
                 #set fp=$f
             #end if
-            #set $file_path+="%s%s" % ($sep, $fp)
+            #set $file_path+="'%s%s'" % ($sep, $fp)
             #set $sep=","
         #end for
     #else if $inputs.in.raw_in.selector == "paired"
@@ -83,15 +83,15 @@ zcat '$inputs.in.raw_in.in_f' > 'in_f'
 &&
 zcat '$inputs.in.raw_in.in_r' > 'in_r'
 &&
-            #set file_path="in_f,in_r"
+            #set file_path="-1 in_f -2 in_r"
         #else if $full_ext.endswith("bz2")
 bzcat '$inputs.in.raw_in.in_f' > 'in_f'
 &&
 bzcat '$inputs.in.raw_in.in_r' > 'in_r'
 &&
-            #set file_path="in_f,in_r"
+            #set file_path="-1 in_f -2 in_r"
         #else
-            #set file_path="%s,%s" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
+            #set file_path="-1 '%s' -2 '%s'" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
         #end if
     #end if
 
@@ -118,7 +118,7 @@ python '$__tool_directory__/customizemetadata.py'
 
 metaphlan
 #if $inputs.in.selector == "raw"
-    '$file_path'
+    $file_path
     --input_type '$ext'
     --read_min_len $inputs.in.read_min_len
     --bt2_ps '$inputs.in.mapping.bt2_ps'
@@ -191,11 +191,23 @@ metaphlan
     --vsc_out '$vcs_breath_coverage'
     --vsc_breadth $viral_analysis.vsc_breadth
 #end if
+
+#if $subsample.selector != "no"
+    #if $subsample.selector == "single"
+        --subsampling $subsample.subsampling
+    #else
+        --subsampling_paired $subsample.subsampling_paired
+    #end if
+    $subsample.mapping_subsampling
+    #if $subsample.subsampling_seed
+        --subsampling_seed $subsample.subsampling_seed
+    #end if
+    --subsampling_output subsampled.out
+#end if
+
 #if $test == "false"
     --offline
 #end if
-
-
 
 #if $inputs.in.selector == "raw"
 &&
@@ -348,6 +360,22 @@ python '$__tool_directory__/formatoutput.py'
                 label="Deactivate the procedure of disambiguating the quasi-markers based on the marker abundance pattern found in the sample?"
                 help="It is generally recommended to keep the disambiguation procedure in order to minimize false positives"/>
         </section>
+        <conditional name="subsample">
+            <param name="selector" type="select" label="Subsample" help="Subsampling only works for fastq input">
+                <option value="no">No</option>
+                <option value="single">Yes: specify number of reads</option>
+                <option value="paired">Yes: specify number of paired reads</option>
+            </param>
+            <when value="no"/>
+            <when value="single">
+                <param argument="--subsampling" type="integer" value="" min="1" label="Sumbsample reads" help="Specify the number of reads to be considered"/>
+                <expand macro="subsample_common"/>
+            </when>
+            <when value="paired">
+                <param argument="--subsampling_paired" type="integer" value="" min="1" label="Sumbsample reads" help="Specify the number of paired reads to be considered. For N there will be floor(N/2) reads selected from the forward and reverse reads each."/>
+                <expand macro="subsample_common"/>
+            </when>
+        </conditional>
         <conditional name="viral_analysis">
             <param argument="--profile_vsc" type="select" label="Profile Viruses with VSCs approach">
                 <option value="--profile_vsc">Yes (requires FASTQ input and reference data with VSG fasta)</option>
@@ -390,9 +418,17 @@ python '$__tool_directory__/formatoutput.py'
         <data name="krona_output_file" format="tabular" label="${tool.name} on ${on_string}: Predicted taxon relative abundances for Krona">
             <filter>out['krona_output']</filter>
         </data>
-        <data name="vcs_breath_coverage" format="tabular" label="${tool.name} on ${on_string}:  VSCs breadth-of-coverage">
+        <data name="vcs_breath_coverage" format="tabular" label="${tool.name} on ${on_string}: VSCs breadth-of-coverage">
             <filter>viral_analysis['profile_vsc']</filter>
         </data>
+        <data name="subsample_single" format="fastqsanger" from_work_dir="subsampled.out" label="${tool.name} on ${on_string}: Subsampled reads">
+            <filter>subsample['selector'] == 'single'</filter>
+        </data>
+        <collection name="subsample_paired" type="paired" label="${tool.name} on ${on_string}: Subsampled paired reads">
+            <data name="forward" format="fastqsanger" from_work_dir="subsampled.R1.out"/>
+            <data name="reverse" format="fastqsanger" from_work_dir="subsampled.R2.out"/>
+            <filter>subsample['selector'] == 'paired'</filter>
+        </collection>
     </outputs>
     <tests>
         <!-- Single GZ file, Cached db -->
@@ -764,15 +800,15 @@ python '$__tool_directory__/formatoutput.py'
                 <has_text text="Downloading" negate="true"/>
             </assert_stderr>
         </test>
-        <!-- Paired GZ file, Cached db -->
-        <test expect_num_outputs="4">
+        <!-- Paired GZ file, Cached db (note sumsample_paired and the included forward and reverse reads are counted separatelym because they are all statically defined) -->
+        <test expect_num_outputs="7">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
                         <param name="selector" value="paired"/>
-                        <param name="in_f" value="SRS014464-Anterior_nares.fasta.gz"/>
-                        <param name="in_r" value="SRS014464-Anterior_nares.fasta.gz"/>
+                        <param name="in_f" value="SRS014464-Anterior_nares.fastq.gz"/>
+                        <param name="in_r" value="SRS014464-Anterior_nares.fastq.gz"/>
                     </conditional>
                     <param name="read_min_len" value="70"/>
                     <section name="mapping">
@@ -800,6 +836,11 @@ python '$__tool_directory__/formatoutput.py'
                 <param name="perc_nonzero" value="0.33"/>
                 <param name="avoid_disqm" value="true"/>
             </section>
+            <conditional name="subsample">
+                <param name="selector" value="paired"/>
+                <param name="subsampling_paired" value="20257"/>
+                <param name="subsampling_seed" value="42"/>
+            </conditional>
             <section name="out">
                 <param name="sample_id_key" value="SampleID"/>
                 <param name="sample_id" value="Metaphlan_Analysis"/>
@@ -819,20 +860,34 @@ python '$__tool_directory__/formatoutput.py'
             </output>
             <output name="bowtie2out" ftype="tabular" file="SRS014464-Anterior_nares-two-inputs-bowtie2out.tabular" compare="sim_size">
                 <assert_contents>
-                    <has_text text="HWI-EAS109_102883399:3:104:7342:14360/1"/>
-                    <has_text text="37637__U2I1U8__N579_01580"/>
+                    <has_text text="HWI-EAS109_102883399:3:107:9938:7093/1"/>
+                    <has_text text="90240__A0A378QWM4__NCTC12877_00123"/>
                 </assert_contents>
             </output>
-            <output name="sam_output_file" ftype="sam" file="SRS014464-Anterior_nares-two-inputs.sam" compare="sim_size">
+            <output name="sam_output_file" ftype="sam">
                 <assert_contents>
+                    <has_size value="52504"/>
                     <has_text text="SN:13076__A0A2I1PE66__CYJ72_10760"/>
                 </assert_contents>
             </output>
             <output name="biom_output_file" ftype="biom1" file="SRS014464-Anterior_nares.biom" compare="sim_size">
                 <assert_contents>
-                    <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
+                    <has_text text="k__Bacteria|p__Actinobacteria|c__Actinobacteria|o__Corynebacteriales|f__Corynebacteriaceae|g__Corynebacterium|s__Corynebacterium_accolens"/>
                 </assert_contents>
             </output>
+            <output_collection name="subsample_paired" type="paired">
+                <element name="forward">
+                    <assert_contents>
+                        <has_line_matching expression="^@.*" n="10128"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                        <has_line_matching expression="^@.*" n="10128"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+
             <assert_stderr>
                 <has_text text="Downloading" negate="true"/>
             </assert_stderr>
@@ -1096,7 +1151,7 @@ python '$__tool_directory__/formatoutput.py'
         </test>
         <!-- Check a non-default analysis mode 
              and viral analysis -->
-        <test expect_num_outputs="5">
+        <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
@@ -1119,12 +1174,22 @@ python '$__tool_directory__/formatoutput.py'
                 <param name="profile_vsc" value="--profile_vsc"/>
                 <param name="vsc_out" value="true"/>
             </conditional>
+            <conditional name="subsample">
+                <param name="selector" value="single"/>
+                <param name="subsampling" value="10000"/>
+                <param name="subsampling_seed" value="42"/>
+            </conditional>
             <param name="test" value="true"/>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-legacy-abundances.tabular" compare="sim_size">
                 <assert_contents>
-                    <has_text text="SGB7017__OCPMLBPB_01555"/>
+                    <has_text text="SGB7017__MKDPKOFL_00679"/>
                     <has_text text="SampleID"/>
                     <has_text text="Metaphlan_Analysis"/>
+                </assert_contents>
+            </output>
+            <output name="subsample_single">
+                <assert_contents>
+                    <has_text text="@" n="10000"/>
                 </assert_contents>
             </output>
             <!-- reference data empty -> empty output -->
@@ -1139,7 +1204,7 @@ python '$__tool_directory__/formatoutput.py'
                 <has_text text="--vsc_out"/>
             </assert_command>
             <assert_stderr>
-                <has_text text="Downloading"/> <!-- doe to test=true and the absence of the TOY reference DB Metaphlan will download to ~10MB-->
+                <has_text text="Downloading"/> <!-- due to test=true and the absence of the TOY reference DB Metaphlan will download to ~10MB-->
                 <has_text text="No reads aligning to VSC markers"/>
             </assert_stderr>
         </test>
