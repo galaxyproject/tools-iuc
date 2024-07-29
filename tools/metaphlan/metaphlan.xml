@@ -38,14 +38,12 @@
         #set full_ext=$inputs.in.raw_in.in.datatype.file_ext
         #if $full_ext.endswith("gz")
             #set $file_path="in"     
-zcat '$inputs.in.raw_in.in' > '$file_path'
-&&
+            zcat '$inputs.in.raw_in.in' > '$file_path' &&
         #else if $full_ext.endswith("bz2")
             #set $file_path="in"
-bzcat '$inputs.in.raw_in.in' > '$file_path'
-&&
+            bzcat '$inputs.in.raw_in.in' > '$file_path' &&
         #else
-            #set $file_path=$inputs.in.raw_in.in
+            #set $file_path="'%s'" % $inputs.in.raw_in.in
         #end if
     #else if $inputs.in.raw_in.selector == "multiple"
         #set full_ext=$inputs.in.raw_in.in[0].datatype.file_ext
@@ -53,45 +51,54 @@ bzcat '$inputs.in.raw_in.in' > '$file_path'
         #set sep=""
         #for $i, $f in enumerate($inputs.in.raw_in.in)
             #if $f.datatype.file_ext != $full_ext
-echo "Different datatypes for input files"
-&&
-exit 1
+            echo "Different datatypes for input files" &&
+            exit 1
             #end if          
             #if $full_ext.endswith("gz")
                 #set fp="input_%s" % ($i)
-zcat '$f' > '$fp'
-&&
+                zcat '$f' > '$fp' &&
             #else if $full_ext.endswith("bz2")
                 #set fp="input_%s" % ($i)
-bzcat '$f' > '$fp'
-&&
+                bzcat '$f' > '$fp' &&
             #else
                 #set fp=$f
             #end if
-            #set $file_path+="%s%s" % ($sep, $fp)
+            #set $file_path+="'%s%s'" % ($sep, $fp)
             #set $sep=","
         #end for
     #else if $inputs.in.raw_in.selector == "paired"
         #set full_ext=$inputs.in.raw_in.in_f.datatype.file_ext
         #if $full_ext != $inputs.in.raw_in.in_r.datatype.file_ext
-echo "Different datatypes for input paired-end files"
-&&
-exit 1
+            echo "Different datatypes for input paired-end files" &&
+            exit 1
         #end if
         #if $full_ext.endswith("gz")
-zcat '$inputs.in.raw_in.in_f' > 'in_f'
-&&
-zcat '$inputs.in.raw_in.in_r' > 'in_r'
-&&
-            #set file_path="in_f,in_r"
+            zcat '$inputs.in.raw_in.in_f' > 'in_f' &&
+            zcat '$inputs.in.raw_in.in_r' > 'in_r' &&
+            #set file_path="-1 in_f -2 in_r"
         #else if $full_ext.endswith("bz2")
-bzcat '$inputs.in.raw_in.in_f' > 'in_f'
-&&
-bzcat '$inputs.in.raw_in.in_r' > 'in_r'
-&&
-            #set file_path="in_f,in_r"
+            bzcat '$inputs.in.raw_in.in_f' > 'in_f' && 
+            bzcat '$inputs.in.raw_in.in_r' > 'in_r' &&
+            #set file_path="-1 in_f -2 in_r"
         #else
-            #set file_path="%s,%s" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
+            #set file_path="-1 '%s' -2 '%s'" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
+        #end if
+    #else if $inputs.in.raw_in.selector == "paired_collection"
+        #set full_ext=$inputs.in.raw_in.in.forward.ext
+        #if $full_ext != $inputs.in.raw_in.in.reverse.ext
+            echo "Different datatypes for input paired-end files" &&
+            exit 1
+        #end if
+        #if $full_ext.endswith("gz")
+            zcat '$inputs.in.raw_in.in.forward' > 'in_f' &&
+            zcat '$inputs.in.raw_in.in.reverse' > 'in_r' &&
+            #set file_path="-1 in_f -2 in_r"
+        #else if $full_ext.endswith("bz2")
+            bzcat '$inputs.in.raw_in.in.forward' > 'in_f' && 
+            bzcat '$inputs.in.raw_in.in.reverse' > 'in_r' &&
+            #set file_path="-1 in_f -2 in_r"
+        #else
+            #set file_path="-1 '%s' -2 '%s'" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
         #end if
     #end if
 
@@ -105,20 +112,18 @@ bzcat '$inputs.in.raw_in.in_r' > 'in_r'
 #end if
 
 #if $inputs.db.db_selector == "history"
-mkdir 'ref_db'
-&&
-bowtie2-build --large-index '$inputs.db.bowtie2db' 'ref_db/custom_db'
-&&
-python '$__tool_directory__/customizemetadata.py'
+mkdir 'ref_db' &&
+bowtie2-build --large-index '$inputs.db.bowtie2db' 'ref_db/custom_db' &&
+python
+    '$__tool_directory__/customizemetadata.py'
     transform_json_to_pkl
     --json '$inputs.db.mpa_pkl'
-    --pkl 'ref_db/custom_db.pkl'
-&&
+    --pkl 'ref_db/custom_db.pkl' &&
 #end if
 
 metaphlan
 #if $inputs.in.selector == "raw"
-    '$file_path'
+    $file_path
     --input_type '$ext'
     --read_min_len $inputs.in.read_min_len
     --bt2_ps '$inputs.in.mapping.bt2_ps'
@@ -186,6 +191,28 @@ metaphlan
     -s '$sam_output_file'
     --biom '$biom_output_file'
     --nproc \${GALAXY_SLOTS:-4}
+#if $viral_analysis.profile_vsc
+    $viral_analysis.profile_vsc
+    --vsc_out '$vcs_breath_coverage'
+    --vsc_breadth $viral_analysis.vsc_breadth
+#end if
+
+#if $subsample.selector != "no"
+    #if $subsample.selector == "single"
+        --subsampling $subsample.subsampling
+    #else
+        --subsampling_paired $subsample.subsampling_paired
+    #end if
+    $subsample.mapping_subsampling
+    #if $subsample.subsampling_seed
+        --subsampling_seed $subsample.subsampling_seed
+    #end if
+    --subsampling_output subsampled.out
+#end if
+
+#if $test == "false"
+    --offline
+#end if
 
 #if $inputs.in.selector == "raw"
 &&
@@ -227,6 +254,7 @@ python '$__tool_directory__/formatoutput.py'
                         <param name="selector" type="select" label="Fasta/FastQ file(s) with microbiota reads">
                             <option value="single" selected="true">One single-end file</option>
                             <option value="multiple">Multiple single-end files</option>
+                            <option value="paired_collection">Paired-end collection</option>
                             <option value="paired">Paired-end files</option>
                         </param>
                         <when value="single">
@@ -234,6 +262,9 @@ python '$__tool_directory__/formatoutput.py'
                         </when>
                         <when value="multiple">
                             <param name="in" type="data" format="@FILE_FORMATS@" multiple="true" label="Single-end Fasta/FastQ files with microbiota reads"/>
+                        </when>
+                        <when value="paired_collection">
+                            <param name="in" type="data_collection" format="@FILE_FORMATS@" label="Paired-end Fasta/FastQ file with microbiota reads"/>
                         </when>
                         <when value="paired">
                             <param name="in_f" type="data" format="@FILE_FORMATS@" label="Forward paired-end Fasta/FastQ file with microbiota reads"/>
@@ -338,6 +369,32 @@ python '$__tool_directory__/formatoutput.py'
                 label="Deactivate the procedure of disambiguating the quasi-markers based on the marker abundance pattern found in the sample?"
                 help="It is generally recommended to keep the disambiguation procedure in order to minimize false positives"/>
         </section>
+        <conditional name="subsample">
+            <param name="selector" type="select" label="Subsample" help="Subsampling only works for fastq input">
+                <option value="no">No</option>
+                <option value="single">Yes: specify number of reads</option>
+                <option value="paired">Yes: specify number of paired reads</option>
+            </param>
+            <when value="no"/>
+            <when value="single">
+                <param argument="--subsampling" type="integer" value="" min="1" label="Sumbsample reads" help="Specify the number of reads to be considered"/>
+                <expand macro="subsample_common"/>
+            </when>
+            <when value="paired">
+                <param argument="--subsampling_paired" type="integer" value="" min="1" label="Sumbsample reads" help="Specify the number of paired reads to be considered. For N there will be floor(N/2) reads selected from the forward and reverse reads each."/>
+                <expand macro="subsample_common"/>
+            </when>
+        </conditional>
+        <conditional name="viral_analysis">
+            <param argument="--profile_vsc" type="select" label="Profile Viruses with VSCs approach">
+                <option value="--profile_vsc">Yes (requires FASTQ input and reference data with VSG fasta)</option>
+                <option value="" selected="true">No</option>
+            </param>
+            <when value="--profile_vsc">
+                <param argument="--vsc_breadth" type="float" min="0" max="1" value="0.75" label="Minimum Breadth of Coverage" help="Minimum coverage (fraction) for a Viral Group to be reported."/>
+            </when>
+            <when value=""/>
+        </conditional>
         <section name="out" title="Outputs" expanded="true">
             <param argument="--sample_id_key" type="text" value="SampleID" label="Sample ID key for this analysis"/>
             <param argument="--sample_id" type="text" value="Metaphlan_Analysis" label="Sample ID for this analysis"/>
@@ -351,6 +408,8 @@ python '$__tool_directory__/formatoutput.py'
                 label="Scale relative abundances to the number of reads mapping to known clades in order to estimate unknowness?"/>
             <param name="krona_output" type='boolean' checked="false" truevalue='true' falsevalue='false' label="Output for Krona?"/>
         </section>
+        <!-- enabling this in tests will allow metaphlan to download reference data (we do this only with the smallish TOY DB) -->
+        <param name="test" type="hidden" value="false"/>
     </inputs>
     <outputs>
         <data name="output_file" format="tabular" label="${tool.name} on ${on_string}: Predicted taxon relative abundances" />
@@ -368,14 +427,25 @@ python '$__tool_directory__/formatoutput.py'
         <data name="krona_output_file" format="tabular" label="${tool.name} on ${on_string}: Predicted taxon relative abundances for Krona">
             <filter>out['krona_output']</filter>
         </data>
+        <data name="vcs_breath_coverage" format="tabular" label="${tool.name} on ${on_string}: VSCs breadth-of-coverage">
+            <filter>viral_analysis['profile_vsc']</filter>
+        </data>
+        <data name="subsample_single" format="fastqsanger" from_work_dir="subsampled.out" label="${tool.name} on ${on_string}: Subsampled reads">
+            <filter>subsample['selector'] == 'single'</filter>
+        </data>
+        <collection name="subsample_paired" type="paired" label="${tool.name} on ${on_string}: Subsampled paired reads">
+            <data name="forward" format="fastqsanger" from_work_dir="subsampled.R1.out"/>
+            <data name="reverse" format="fastqsanger" from_work_dir="subsampled.R2.out"/>
+            <filter>subsample['selector'] == 'paired'</filter>
+        </collection>
     </outputs>
     <tests>
+        <!-- Single GZ file, Cached db -->
         <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
-                        <!-- Single GZ file -->
                         <param name="selector" value="single"/>
                         <param name="in" value="no_taxon_input.fasta"/>
                     </conditional>
@@ -386,7 +456,6 @@ python '$__tool_directory__/formatoutput.py'
                     </section>
                 </conditional>
                 <conditional name="db">
-                    <!-- Cached db -->
                     <param name="db_selector" value="cached"/>
                     <param name="cached_db" value="test-db-20210409"/>
                 </conditional>
@@ -516,13 +585,16 @@ python '$__tool_directory__/formatoutput.py'
                     <has_size value="1" delta="1"/>
                 </assert_contents>
             </output>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
+        <!-- Single GZ file, Cached db -->
         <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
-                        <!-- Single GZ file -->
                         <param name="selector" value="single"/>
                         <param name="in" value="SRS014464-Anterior_nares.fasta.gz"/>
                     </conditional>
@@ -533,7 +605,6 @@ python '$__tool_directory__/formatoutput.py'
                     </section>
                 </conditional>
                 <conditional name="db">
-                    <!-- Cached db -->
                     <param name="db_selector" value="cached"/>
                     <param name="cached_db" value="test-db-20210409"/>
                 </conditional>
@@ -661,13 +732,16 @@ python '$__tool_directory__/formatoutput.py'
                     <has_n_columns n="9"/>
                 </assert_contents>
             </output>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
+        <!-- Multiple GZ file, Local db-->
         <test expect_num_outputs="4">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
-                        <!-- Multiple GZ file -->
                         <param name="selector" value="multiple"/>
                         <param name="in" value="SRS014464-Anterior_nares.fasta.gz,SRS014464-Anterior_nares.fasta.gz"/>
                     </conditional>
@@ -678,7 +752,6 @@ python '$__tool_directory__/formatoutput.py'
                     </section>
                 </conditional>
                 <conditional name="db">
-                    <!-- Local db -->
                     <param name="db_selector" value="history"/>
                     <param name="bowtie2db" value="test-db.fasta"/>
                     <param name="mpa_pkl" value="test-db.json"/>
@@ -732,16 +805,19 @@ python '$__tool_directory__/formatoutput.py'
                     <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
                 </assert_contents>
             </output>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
-        <test expect_num_outputs="4">
+        <!-- Paired GZ file, Cached db (note sumsample_paired and the included forward and reverse reads are counted separatelym because they are all statically defined) -->
+        <test expect_num_outputs="7">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
-                        <!-- Paired GZ file -->
                         <param name="selector" value="paired"/>
-                        <param name="in_f" value="SRS014464-Anterior_nares.fasta.gz"/>
-                        <param name="in_r" value="SRS014464-Anterior_nares.fasta.gz"/>
+                        <param name="in_f" value="SRS014464-Anterior_nares.fastq.gz"/>
+                        <param name="in_r" value="SRS014464-Anterior_nares.fastq.gz"/>
                     </conditional>
                     <param name="read_min_len" value="70"/>
                     <section name="mapping">
@@ -750,7 +826,6 @@ python '$__tool_directory__/formatoutput.py'
                     </section>
                 </conditional>
                 <conditional name="db">
-                    <!-- Cached db -->
                     <param name="db_selector" value="cached"/>
                     <param name="cached_db" value="test-db-20210409"/>
                 </conditional>
@@ -770,6 +845,11 @@ python '$__tool_directory__/formatoutput.py'
                 <param name="perc_nonzero" value="0.33"/>
                 <param name="avoid_disqm" value="true"/>
             </section>
+            <conditional name="subsample">
+                <param name="selector" value="paired"/>
+                <param name="subsampling_paired" value="20257"/>
+                <param name="subsampling_seed" value="42"/>
+            </conditional>
             <section name="out">
                 <param name="sample_id_key" value="SampleID"/>
                 <param name="sample_id" value="Metaphlan_Analysis"/>
@@ -789,30 +869,142 @@ python '$__tool_directory__/formatoutput.py'
             </output>
             <output name="bowtie2out" ftype="tabular" file="SRS014464-Anterior_nares-two-inputs-bowtie2out.tabular" compare="sim_size">
                 <assert_contents>
-                    <has_text text="HWI-EAS109_102883399:3:104:7342:14360/1"/>
-                    <has_text text="37637__U2I1U8__N579_01580"/>
+                    <has_text text="HWI-EAS109_102883399:3:107:9938:7093/1"/>
+                    <has_text text="90240__A0A378QWM4__NCTC12877_00123"/>
                 </assert_contents>
             </output>
-            <output name="sam_output_file" ftype="sam" file="SRS014464-Anterior_nares-two-inputs.sam" compare="sim_size">
+            <output name="sam_output_file" ftype="sam">
                 <assert_contents>
+                    <has_size min="52400" max="52600"/>
                     <has_text text="SN:13076__A0A2I1PE66__CYJ72_10760"/>
                 </assert_contents>
             </output>
             <output name="biom_output_file" ftype="biom1" file="SRS014464-Anterior_nares.biom" compare="sim_size">
                 <assert_contents>
-                    <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
+                    <has_text text="k__Bacteria|p__Actinobacteria|c__Actinobacteria|o__Corynebacteriales|f__Corynebacteriaceae|g__Corynebacterium|s__Corynebacterium_accolens"/>
                 </assert_contents>
             </output>
+            <output_collection name="subsample_paired" type="paired">
+                <element name="forward">
+                    <assert_contents>
+                        <has_line_matching expression="^@.*" n="10128"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                        <has_line_matching expression="^@.*" n="10128"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
+        <!-- Paired GZ file as collection, Cached db (note sumsample_paired and the included forward and reverse reads are counted separatelym because they are all statically defined) -->
+        <test expect_num_outputs="7">
+            <section name="inputs">
+                <conditional name="in">
+                    <param name="selector" value="raw"/>
+                    <conditional name="raw_in">
+                        <param name="selector" value="paired_collection"/>
+                        <param name="in">
+                            <collection type="paired" name="pair">
+                                <element name="forward" value="SRS014464-Anterior_nares.fastq.gz"/>
+                                <element name="reverse" value="SRS014464-Anterior_nares.fastq.gz"/>
+                            </collection>
+                        </param>
+                    </conditional>
+                    <param name="read_min_len" value="70"/>
+                    <section name="mapping">
+                        <param name="bt2_ps" value="sensitive"/>
+                        <param name="min_mapq_val" value="5"/>
+                    </section>
+                </conditional>
+                <conditional name="db">
+                    <param name="db_selector" value="cached"/>
+                    <param name="cached_db" value="test-db-20210409"/>
+                </conditional>
+            </section>
+            <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="false"/>
+                    </conditional>
+                </conditional>
+                <param name="min_cu_len" value="2000"/>
+                <param name="organism_profiling" value="add_viruses"/>
+                <param name="stat" value="avg_g"/>
+                <param name="stat_q" value="0.2"/>
+                <param name="perc_nonzero" value="0.33"/>
+                <param name="avoid_disqm" value="true"/>
+            </section>
+            <conditional name="subsample">
+                <param name="selector" value="paired"/>
+                <param name="subsampling_paired" value="20257"/>
+                <param name="subsampling_seed" value="42"/>
+            </conditional>
+            <section name="out">
+                <param name="sample_id_key" value="SampleID"/>
+                <param name="sample_id" value="Metaphlan_Analysis"/>
+                <param name="use_group_representative" value="false"/>
+                <param name="legacy_output" value="false"/>
+                <param name="CAMI_format_output" value="false"/>
+                <param name="unclassified_estimation" value="false"/>
+                <param name="krona_output" value="false"/>
+            </section>
+            <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
+                <assert_contents>
+                    <has_text text="k__Bacteria|p__Actinobacteria|c__Actinobacteria|o__Corynebacteriales|f__Corynebacteriaceae|g__Corynebacterium|s__Corynebacterium_accolens"/>
+                    <has_text text="relative_abundance"/>
+                    <has_text text="NCBI_tax_id"/>
+                    <has_text text="clade_name"/>
+                </assert_contents>
+            </output>
+            <output name="bowtie2out" ftype="tabular" file="SRS014464-Anterior_nares-two-inputs-bowtie2out.tabular" compare="sim_size">
+                <assert_contents>
+                    <has_text text="HWI-EAS109_102883399:3:107:9938:7093/1"/>
+                    <has_text text="90240__A0A378QWM4__NCTC12877_00123"/>
+                </assert_contents>
+            </output>
+            <output name="sam_output_file" ftype="sam">
+                <assert_contents>
+                    <has_size min="52400" max="52600"/>
+                    <has_text text="SN:13076__A0A2I1PE66__CYJ72_10760"/>
+                </assert_contents>
+            </output>
+            <output name="biom_output_file" ftype="biom1" file="SRS014464-Anterior_nares.biom" compare="sim_size">
+                <assert_contents>
+                    <has_text text="k__Bacteria|p__Actinobacteria|c__Actinobacteria|o__Corynebacteriales|f__Corynebacteriaceae|g__Corynebacterium|s__Corynebacterium_accolens"/>
+                </assert_contents>
+            </output>
+            <output_collection name="subsample_paired" type="paired">
+                <element name="forward">
+                    <assert_contents>
+                        <has_line_matching expression="^@.*" n="10128"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                        <has_line_matching expression="^@.*" n="10128"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
+        </test>
+        <!-- SAM, cached DB -->
         <test expect_num_outputs="2">
             <section name="inputs">
                 <conditional name="in">
-                    <!-- SAM -->
                     <param name="selector" value="sam"/>
                     <param name="in" value="SRS014464-Anterior_nares.sam"/>
                 </conditional>
                 <conditional name="db">
-                    <!-- Cached db -->
                     <param name="db_selector" value="cached"/>
                     <param name="cached_db" value="test-db-20210409"/>
                 </conditional>
@@ -854,16 +1046,18 @@ python '$__tool_directory__/formatoutput.py'
                     <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
                 </assert_contents>
             </output>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
+        <!-- bowtie2out, cached DB -->
         <test expect_num_outputs="2">
             <section name="inputs">
                 <conditional name="in">
-                    <!-- bowtie2out -->
                     <param name="selector" value="bowtie2out"/>
                     <param name="in" value="SRS014464-Anterior_nares-bowtie2out.tabular"/>
                 </conditional>
                 <conditional name="db">
-                    <!-- Cached db -->
                     <param name="db_selector" value="cached"/>
                     <param name="cached_db" value="test-db-20210409"/>
                 </conditional>
@@ -913,13 +1107,16 @@ python '$__tool_directory__/formatoutput.py'
                     <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
                 </assert_contents>
             </output>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
+        <!-- Single FASTA file, Cached db -->
         <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
-                        <!-- Single FASTA file -->
                         <param name="selector" value="single"/>
                         <param name="in" value="SRS014464-Anterior_nares.fasta"/>
                     </conditional>
@@ -930,7 +1127,6 @@ python '$__tool_directory__/formatoutput.py'
                     </section>
                 </conditional>
                 <conditional name="db">
-                    <!-- Cached db -->
                     <param name="db_selector" value="cached"/>
                     <param name="cached_db" value="test-db-20210409"/>
                 </conditional>
@@ -1054,20 +1250,24 @@ python '$__tool_directory__/formatoutput.py'
                     <has_n_columns n="9"/>
                 </assert_contents>
             </output>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
         </test>
-        <!-- Check a non-default analysis mode -->
-        <test expect_num_outputs="4">
+        <!-- Check a non-default analysis mode 
+             and viral analysis -->
+        <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
                     <conditional name="raw_in">
                         <param name="selector" value="single"/>
-                        <param name="in" value="SRS014464-Anterior_nares.fasta"/>
+                        <param name="in" value="SRS014464-Anterior_nares.fastq.gz"/>
                     </conditional>
                 </conditional>
                 <conditional name="db">
                     <param name="db_selector" value="cached"/>
-                    <param name="cached_db" value="test-db-20210409"/>
+                    <param name="cached_db" value="mpa_vJan21_TOY_CHOCOPhlAnSGB"/>
                 </conditional>
             </section>
             <section name="analysis">
@@ -1075,13 +1275,43 @@ python '$__tool_directory__/formatoutput.py'
                     <param name="t" value="marker_ab_table"/>
                 </conditional>
             </section>
+            <conditional name="viral_analysis">
+                <param name="profile_vsc" value="--profile_vsc"/>
+                <param name="vsc_out" value="true"/>
+            </conditional>
+            <conditional name="subsample">
+                <param name="selector" value="single"/>
+                <param name="subsampling" value="10000"/>
+                <param name="subsampling_seed" value="42"/>
+            </conditional>
+            <param name="test" value="true"/>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-legacy-abundances.tabular" compare="sim_size">
                 <assert_contents>
-                    <has_text text="29394__H3NC06__B8A41_08715"/>
+                    <has_text text="SGB7017__MKDPKOFL_00679"/>
                     <has_text text="SampleID"/>
                     <has_text text="Metaphlan_Analysis"/>
                 </assert_contents>
             </output>
+            <output name="subsample_single">
+                <assert_contents>
+                    <has_text text="@" n="10000"/>
+                </assert_contents>
+            </output>
+            <!-- reference data empty -> empty output -->
+            <output name="vcs_breath_coverage" ftype="tabular">
+                <assert_contents>
+                    <has_size size="0"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--profile_vsc"/>
+                <has_text text="--vsc_breadth 0.75"/>
+                <has_text text="--vsc_out"/>
+            </assert_command>
+            <assert_stderr>
+                <has_text text="Downloading"/> <!-- due to test=true and the absence of the TOY reference DB Metaphlan will download to ~10MB-->
+                <has_text text="No reads aligning to VSC markers"/>
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
