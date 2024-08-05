@@ -1,17 +1,18 @@
-<tool id="fastq_dump" name="Download and Extract Reads in FASTA/Q" version="@VERSION@+galaxy0" profile="18.01">
+<tool id="fastq_dump" name="Download and Extract Reads in FASTQ" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>format from NCBI SRA</description>
-    <expand macro="bio_tools"/>
     <macros>
-        <import>sra_macros.xml</import>
+        <import>macros.xml</import>
     </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="bio_tools"/>
     <expand macro="requirements"/>
-    <version_command>fastq-dump --version</version_command>
+    <version_command>fastq-dump --version | tr -d $'\n'</version_command>
     <command detect_errors="exit_code"><![CDATA[
     @COPY_CONFIGFILE@
     @SET_ACCESSIONS@
 
-    #if $input.input_select == "file":
-        fastq-dump --log-level fatal --accession '${input.file.name}'
+    #if $input.input_select == "sra_file":
+        fastq-dump --log-level fatal --accession "\$acc"
     #else:
         ## Do not use prefetch if region is specified, to avoid downloading
         ## the complete sra file.
@@ -19,9 +20,9 @@
             prefetch -X 200000000 "\$acc" &&
         #end if
         fastq-dump --accession "\$acc"
-        --split-files
     #end if
-    --defline-seq '@\$sn[_\$rn]/\$ri'
+    --split-files
+    --defline-seq '$adv.defline_seq'
     --defline-qual '+'
 
     $adv.split
@@ -64,38 +65,21 @@
     #if str($adv.table) != "":
         --table $adv.table
     #end if
-
-
-    #if $input.input_select=="file":
-        --stdout
-        "$input.file" > "$output_file"
+    ;
     
-    #elif $input.input_select=="accession_number":
-        --stdout
-        "\$acc" > "$output_accession" )
+    mkdir -p output &&
+    data=(\$(ls ./*.fast*));
+    if [ \${\#data[@]} -eq 2 ]; then
+        mv "\${data[0]}" output/"\${data[0]}"_forward.$outputformat;
+        mv "\${data[1]}" output/"\${data[1]}"_reverse.$outputformat;
+    elif [ \${\#data[@]} -eq 1 ]; then
+        mv "\${data[0]}" output/"\${data[0]}"__single.$outputformat;
+    fi;
+    
+    #if $input.input_select != "sra_file":
+        ); done;
     #end if
-
-    #if $input.input_select=="file_list":
-        "\$acc"
-        ) ; done
-
-        ;
-
-        for i in `ls *.fast* | cut -f 1 -d '_' | uniq` ; do
-            count=`ls \$i* | wc -l` ;
-            data=(\$(ls -d \$i*));
-      
-            if [ "\$count" -eq 2 ]; then
-                mv "\${data[0]}" "\${data[0]}"_forward.$outputformat;  mv "\${data[1]}" "\${data[1]}"_reverse.$outputformat ;
-            elif [ "\$count" -eq 1 ]; then
-                 mv "\${data[0]}" "\${data[0]}"__single.$outputformat ;
-            fi;
-        done
-
-
-    #end if
-
-
+    echo "Done with all accessions."
     ]]>
     </command>
     <expand macro="configfile_hack"/>
@@ -107,6 +91,7 @@
             <option value="fastqsanger.bz2">bzip2 compressed fastq</option>
         </param>
         <section name="adv" title="Advanced Options" expanded="False">
+            <expand macro="defline" defline_param="--defline-seq" defline_default="@$sn[_$rn]/$ri"/>
             <param name="minID" type="integer" label="Minimum spot ID" optional="true" help="Minimum spot id to be dumped." argument="--minSpotId"/>
             <param name="maxID" type="integer" label="Maximum spot ID" optional="true" help="Maximum spot id to be dumped." argument="--maxSpotId"/>
             <param name="minlen" type="integer" label="Minimum read length" optional="true" help="Filter by sequence length. Will dump only reads longer or equal to this value." argument="--minReadLen"/>
@@ -122,227 +107,223 @@
                 <option value="redacted">redacted</option>
             </param>
             <param name="spotgroups" type="text" label="Filter by spot-groups" optional="true" argument="--spot-groups"/>
-            <param name="clip" type="boolean" truevalue="--clip" falsevalue="" argument="--clip" label="Apply left and right clips" />
-            <param name="skip_technical" type="boolean" truevalue="--skip-technical" falsevalue="" checked="False" label="Dump only biological reads" argument="--skip-technical"/>
-            <param name="table" label="Table name within cSRA object" type="text" value="" optional="true" help="For SRA of noisy long-reads put SEQUENCE" argument="--table"/>
+            <param type="boolean" truevalue="--clip" falsevalue="" argument="--clip" label="Apply left and right clips" />
+            <param type="boolean" truevalue="--skip-technical" falsevalue="" checked="False" label="Dump only biological reads" argument="--skip-technical"/>
+            <param label="Table name within cSRA object" type="text" value="" optional="true" help="For SRA of noisy long-reads put SEQUENCE" argument="--table"/>
         </section>
     </inputs>
     <outputs>
-        <collection name="list_paired" type="list:paired" label="Pair-end data (fastq-dump)">
-            <filter>input['input_select'] == "file_list"</filter>
-
+        <collection name="list_paired" type="list:paired" label="Paired-end data (fastq-dump)">
         <!-- Use named regex group to grab pattern
              <identifier_0>_<identifier_1>.fq. Here identifier_0 is the list
              identifier in the nested collection and identifier_1 is either
              forward or reverse (for instance samp1_forward.fq).
         -->
-        
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger" ext="fastqsanger" />
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq.gz_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger.gz" ext="fastqsanger.gz" />
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq.bz2_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger.bz2" ext="fastqsanger.bz2" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger" ext="fastqsanger" directory="output"/>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq.gz_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger.gz" ext="fastqsanger.gz" directory="output"/>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq.bz2_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger.bz2" ext="fastqsanger.bz2" directory="output"/>
         </collection>
-        <collection name="output_collection" type='list' label="Single-end data (fastq-dump)">
-            <filter>input['input_select'] == "file_list"</filter>
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq__single\.fastqsanger" directory="." ext='fastqsanger'/>
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq.gz__single\.fastqsanger.gz" directory="." ext='fastqsanger.gz'/>
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq.bz2__single\.fastqsanger.bz2" directory="." ext='fastqsanger.bz2'/>
+        <collection name="list_single" type='list' label="Single-end data (fastq-dump)">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq__single\.fastqsanger" directory="output" ext='fastqsanger'/>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq.gz__single\.fastqsanger.gz" directory="output" ext='fastqsanger.gz'/>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq.bz2__single\.fastqsanger.bz2" directory="output" ext='fastqsanger.bz2'/>
         </collection>
-        <data format="fastqsanger" name="output_accession" label="${input.accession} (fastq-dump)">
-            <filter>input['input_select'] == "accession_number"</filter>
-            <change_format>
-                <when input="outputformat" value="fastqsanger.gz" format="fastqsanger.gz"/>
-                <when input="outputformat" value="fastqsanger.bz2" format="fastqsanger.bz2"/>
-            </change_format>
-        </data>
-        <data format="fastqsanger" name="output_file" label="${input.file.name} (fastq-dump)">
-            <filter>input['input_select'] == "file"</filter>
-            <change_format>
-                <when input="outputformat" value="fastqsanger.gz" format="fastqsanger.gz"/>
-                <when input="outputformat" value="fastqsanger.bz2" format="fastqsanger.bz2"/>
-            </change_format>
-        </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="accession_number"/>
             <param name="outputformat" value="fastqsanger"/>
             <param name="accession" value="SRR044777"/>
             <param name="skip_technical" value="True"/>
-            <output name="output_accession">
-                <assert_contents>
-                    <not_has_text text="rRNA_primer"/>
-                    <has_text text="F47USSH02GNP1D" />
-                </assert_contents>
-            </output>
+            <output_collection name="list_single" type="list" count="1">
+                <element name="SRR044777">
+                    <assert_contents>
+                        <not_has_text text="rRNA_primer"/>
+                        <has_text text="F47USSH02GNP1D"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="accession_number"/>
             <param name="outputformat" value="fastqsanger.gz"/>
             <param name="accession" value="SRR925743"/>
             <param name="maxID" value="5"/>
-            <output name="output_accession" file="fastq_dump_result.fastq.gz" decompress="True"/>
+            <output_collection name="list_paired" type="list:paired" count="1">
+                <element name="SRR925743">
+                    <element name="forward" file="SRR925743_forward.fastqsanger" decompress="True"/>
+                    <element name="reverse" file="SRR925743_reverse.fastqsanger" decompress="True"/>
+                </element>
+            </output_collection>
         </test>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="accession_number"/>
             <param name="outputformat" value="fastqsanger"/>
             <param name="accession" value="SRR925743"/>
             <param name="maxID" value="5"/>
-            <output name="output_accession" file="fastq_dump_result.fastq" ftype="fastqsanger"/>
+            <output_collection name="list_paired" type="list:paired" count="1">
+                <element name="SRR925743">
+                    <element name="forward" file="SRR925743_forward.fastqsanger"/>
+                    <element name="reverse" file="SRR925743_reverse.fastqsanger"/>
+                </element>
+            </output_collection>
         </test>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="file_list"/>
             <param name="outputformat" value="fastqsanger"/>
             <param name="file_list" value="list_pe"/>
             <param name="maxID" value="5"/>
-            <output_collection name="list_paired" type="list:paired">
+            <output_collection name="list_paired" type="list:paired" count="1">
                 <element name="DRR015708">
-                    <element name="forward" file="DRR015708_forward.fastqsanger">
-                    </element>
-                    <element name="reverse" file="DRR015708_reverse.fastqsanger">
-                    </element>
+                    <element name="forward" file="DRR015708_forward.fastqsanger"/>
+                    <element name="reverse" file="DRR015708_reverse.fastqsanger"/>
                 </element>
             </output_collection>
         </test>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="file_list"/>
             <param name="outputformat" value="fastqsanger"/>
             <param name="file_list" value="list_pe2"/>
             <param name="maxID" value="5"/>
-            <output_collection name="list_paired" type="list:paired">
+            <output_collection name="list_paired" type="list:paired" count="1">
                 <element name="ERR027433">
-                    <element name="forward" file="ERR027433_forward.fastqsanger">
-                    </element>
-                    <element name="reverse" file="ERR027433_reverse.fastqsanger">
-                    </element>
+                    <element name="forward" file="ERR027433_forward.fastqsanger"/>
+                    <element name="reverse" file="ERR027433_reverse.fastqsanger"/>
                 </element>
             </output_collection>
         </test>      
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="file_list"/>
             <param name="outputformat" value="fastqsanger"/>
             <param name="file_list" value="list_se"/>
             <param name="maxID" value="5"/>
-            <output_collection name="output_collection" type="list">
+            <output_collection name="list_single" type="list" count="1">
                 <element name="SRR1993644" file="SRR1993644.fastqsanger"/>
             </output_collection>
         </test>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_select" value="accession_number"/>
             <param name="outputformat" value="fastqsanger.gz"/>
             <param name="accession" value="SRR6982805"/>
             <param name="maxID" value="2"/>
             <param name="table" value="SEQUENCE"/>
-            <output name="output_accession" file="SRR6982805.fastqsanger.gz" ftype="fastqsanger.gz" decompress="True"/>
-        </test>  
+            <output_collection name="list_single" type="list" count="1">
+                <element name="SRR6982805" file="SRR6982805.fastqsanger.gz" ftype="fastqsanger.gz" decompress="True"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_select" value="accession_number"/>
+            <param name="outputformat" value="fastqsanger.gz"/>
+            <param name="accession" value="ERR086330, SRR11953971"/>
+            <output_collection name="list_paired" type="list:paired" count="2">
+                <element name="ERR086330">
+                    <element name="forward" file="ERR086330_1.fastq.gz" ftype="fastqsanger.gz" decompress="True"/>
+                    <element name="reverse" file="ERR086330_2.fastq.gz" ftype="fastqsanger.gz" decompress="True"/>
+                </element>
+                <element name="SRR11953971">
+                    <element name="forward" file="SRR11953971_1.fastq.gz" ftype="fastqsanger.gz" decompress="True"/>
+                    <element name="reverse" file="SRR11953971_2.fastq.gz" ftype="fastqsanger.gz" decompress="True"/>
+                </element>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_select" value="accession_number"/>
+            <param name="outputformat" value="fastqsanger.gz"/>
+            <param name="accession" value="ERR086330, SRR11953971"/>
+            <section name="adv">
+                <param name="defline_seq" value="@$ac.$si/$ri $sn length=$rl"/>
+            </section>
+            <output_collection name="list_paired" type="list:paired" count="2">
+                <element name="ERR086330">
+                    <element name="forward" ftype="fastqsanger.gz" decompress="True">
+                        <assert_contents>
+                            <!-- decompressed content assertions only work from 23.1
+                                 therefore we test for size being at least one byte
+                                 larger than the results of the previous test which
+                                 uses the shorter default deflines
+                                 TODO replace has_size by has_line-->
+                            <has_size min="147"/>
+                            <!-- <has_line line="@ERR086330.1/1 1 length=76"/> -->
+                        </assert_contents>
+                    </element>
+                    <element name="reverse" ftype="fastqsanger.gz" decompress="True">
+                        <assert_contents>
+                            <has_size min="141"/>
+                            <!-- <has_line line="@ERR086330.1/2 1 length=76"/> -->
+                        </assert_contents>
+                    </element>
+                </element>
+                <element name="SRR11953971">
+                    <element name="forward" ftype="fastqsanger.gz" decompress="True">
+                        <assert_contents>
+                            <has_size min="56206"/>
+                            <!-- <has_line line="@SRR11953971.1/1 1 length=101"/> -->
+                        </assert_contents>
+                    </element>
+                    <element name="reverse" ftype="fastqsanger.gz" decompress="True">
+                        <assert_contents>
+                            <has_size min="59843"/>
+                            <!-- <has_line line="@SRR11953971.1/2 1 length=101"/> -->
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_select" value="sra_file"/>
+            <param name="sra_file" value="SRR522874.sra"/>
+            <param name="split" value="True"/>
+            <param name="skip_technical" value="True"/>
+            <section name="adv">
+                <param name="defline_seq" value="@$sn/$ri"/>
+            </section>
+            <output_collection name="list_paired" type="list:paired" count="1">
+                <element name="SRR522874.sra">
+                    <element name="forward" file="SRR522874.sra_2.fastq.gz" ftype="fastqsanger.gz" decompress="True"/>
+                    <element name="reverse" file="SRR522874.sra_4.fastq.gz" ftype="fastqsanger.gz" decompress="True"/>
+                </element>
+            </output_collection>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does?**
 
-This tool extracts data (in fastq_ format) from the Short Read Archive (SRA) at the National Center for Biotechnology Information (NCBI). It is based on the fastq-dump_ utility of the SRA Toolkit.
+This tool extracts data (in fastq_ format) from the Short Read Archive (SRA) at the National Center for Biotechnology Information (NCBI). It is based on the fasterq-dump_ utility of the SRA Toolkit.  The following applies:
 
-**How to use it?**
+ - if data is paired-ended (or mate-pair) the tool will generate a collection of file pairs, in which each element will be a pair of fastq_ files containing forward and reverse mates.
+ - if data is single ended, each element of the collection will be a single fastq_ dataset.
 
-There are three ways in which you can download data:
 
- 1. Data for single accession
- 2. Multiple datasets using a list of accessions
- 3. Extract data from already uploaded SRA dataset
-
-Below we discuss each in detail.
-
-------
-
-**Uploading data for a single accession**
-
-When you type a single accession number (e.g., `SRR1582967`) into **Accession** box and click **Execute** the tool will fetch data for you. It is important to keep the following in mind:
-
- - if data is paired-ended (or mate-paired) the tool will generate a single *interleaved* dataset, in which forward and reverse mates are alternating (see an example dataset below)
- - if data is single ended, a standard single fastq dataset will be produced
+@HOW_TO_USE_IT@
 
 -----
 
-**Uploading multiple datasets using a list of accessions**
+**Output**
 
-A more realistic scenario is when you want to upload a number of datasets at once. To do this you need a list of accession, where there is only one accession per line (see below for information on how to generate such a file). Once you have this file:
-
- 1. Upload it into your history using Galaxy's upload tool
- 2. Once the list of accessions is uploaded choose *List of SRA accessions, one per line* from **select input type** dropdown
- 3. Choose uploaded file within the **sra accession list** field
- 4. Click **Execute**
+In every case, fastq datasets produced will be saved in Galaxy's history as a collection_ - a single history element containing multiple datasets. In fact, regardless of the experimental design, three collections will be produced: one containing paired-end data, another containing single-end data, and a third one which contains reads which could not be classified.
+Some collections may be empty if the accessions provided in the list do not contain one of the type of data.
 
 .. class:: warningmark
 
-Fastq datasets produced by this option will be saved in Galaxy's history as a collection_ - a single history element containing multiple datasets. In fact, two collections will be produced: one containing paired-end data and another containing single-end data. Single-end or pair-end collections may be empty if the accessions provided in the list contain only SINGLE or PAIRED data, respectively.
+When you decide to dump technical reads (in Advanced Options Dump only biological reads is set to No), you will probably find your PAIRED data in the other data collection as it is impossible to determine if it was 2 biological reads or one biological and one technical.
 
------
+.. class:: warningmark
 
-**Extract data from already uploaded SRA dataset**
-
-If a SRA dataset is present in the history, it can be converted into fastq dataset by setting **select input type** drop-down to *SRA archive in current history*. Just like in the case of extracting data for single accession number the following applies:
-
- - if data is paired-ended (or mate-pair) the tool will generate a single *interleaved* dataset, in which forward and reverse mates are alternating (see example below).
- - if data is single ended, a standard fastq dataset will be produced
+By default, only biological reads are dumped and in case of PAIRED dataset only the spots which have both reads will be in the paired-end collection. The remaining single reads will be in the other colletion.
+To keep all reads, and potentially not have the same number of reads in forward and reverse use the --split-files option in Advanced Options, Select how to split the spots.
 
 @ACCESSION_LIST_HOWTO@
 
 -----
 
-**Paired-end (and mate-pair) data in fastq format**
-
-Paired end datasets can be represented as two individual datasets:
-
-First dataset::
-
- @1/1
- AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
- +
- EGGEGGGDFGEEEAEECGDEGGFEEGEFGBEEDDECFEFDD@CDD<ED
- @2/1
- AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
- +
- HHHHHHEGFHEEFEEHEEHHGGEGGGGEFGFGGGGHHHHFBEEEEEFG
-
-Second dataset::
-
- @1/2
- CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
- +
- GHHHDFDFGFGEGFBGEGGEGEGGGHGFGHFHFHHHHHHHEF?EFEFF
- @2/2
- CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
- +
- HHHHHHHHHHHHHGHHHHHHGHHHHHHHHHHHFHHHFHHHHHHHHHHH
-
-Or a single *interleaved* dataset::
-
- @1/1
- AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
- +
- EGGEGGGDFGEEEAEECGDEGGFEEGEFGBEEDDECFEFDD@CDD<ED
- @1/2
- CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
- +
- GHHHDFDFGFGEGFBGEGGEGEGGGHGFGHFHFHHHHHHHEF?EFEFF
- @2/1
- AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
- +
- HHHHHHEGFHEEFEEHEEHHGGEGGGGEFGFGGGGHHHHFBEEEEEFG
- @2/2
- CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
- +
- HHHHHHHHHHHHHGHHHHHHGHHHHHHHHHHHFHHHFHHHHHHHHHHH
-
-----
-
 
 .. _fastq: https://en.wikipedia.org/wiki/FASTQ_format
-.. _fastq-dump: https://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?view=toolkit_doc&f=fastq-dump
+.. _fasterq-dump: https://github.com/ncbi/sra-tools/wiki/HowTo:-fasterq-dump
 .. _collection: https://galaxyproject.org/tutorials/collections/
-.. _link: https://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?view=studies
+.. _link: https://trace.ncbi.nlm.nih.gov/Traces/index.html?view=run_browser&display=reads
 
 @SRATOOLS_ATTRRIBUTION@
-
 ]]>
     </help>
     <expand macro="citation"/>
-  </tool>
+</tool>

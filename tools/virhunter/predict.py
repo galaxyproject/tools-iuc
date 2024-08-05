@@ -104,7 +104,7 @@ def predict_contigs(df):
         df.groupby(["id", "length", 'RF_decision'], sort=False).size().unstack(fill_value=0)
     )
     df = df.reset_index()
-    df = df.reindex(['length', 'id', 'virus', 'plant', 'bacteria'], axis=1)
+    df = df.reindex(['length', 'id', 'virus', 'plant', 'bacteria'], axis=1).fillna(value=0)
     conditions = [
         (df['virus'] > df['plant']) & (df['virus'] > df['bacteria']),
         (df['plant'] > df['virus']) & (df['plant'] > df['bacteria']),
@@ -153,7 +153,6 @@ def predict(test_ds, weights, out_path, return_viral, limit):
                 length=l_,
                 use_10=use_10
             )
-            print(df)
             df = predict_rf(
                 df=df,
                 rf_weights_path=weights,
@@ -168,14 +167,14 @@ def predict(test_ds, weights, out_path, return_viral, limit):
         df_500 = dfs_fr[0][(dfs_fr[0]['length'] >= limit) & (dfs_fr[0]['length'] < 1500)]
         df_1000 = dfs_fr[1][(dfs_fr[1]['length'] >= 1500)]
         df = pd.concat([df_1000, df_500], ignore_index=True)
-        pred_fr = Path(out_path, 'predicted_fragments.csv')
-        df.to_csv(pred_fr)
+        pred_fr = Path(out_path, 'predicted_fragments.tsv')
+        df.to_csv(pred_fr, sep='\t')
 
         df_500 = dfs_cont[0][(dfs_cont[0]['length'] >= limit) & (dfs_cont[0]['length'] < 1500)]
         df_1000 = dfs_cont[1][(dfs_cont[1]['length'] >= 1500)]
         df = pd.concat([df_1000, df_500], ignore_index=True)
-        pred_contigs = Path(out_path, 'predicted.csv')
-        df.to_csv(pred_contigs)
+        pred_contigs = Path(out_path, 'predicted.tsv')
+        df.to_csv(pred_contigs, sep='\t')
 
         if return_viral:
             viral_ids = list(df[df["decision"] == "virus"]["id"])
