@@ -49,8 +49,7 @@ Scanpy
     --- | ---
     `tl.louvain` | Cluster cells into subgroups
     `tl.leiden` | Cluster cells into subgroups
-    `tl.pca` | Principal component analysis
-    `pp.pca` | Principal component analysis (appears to be the same func...)
+    `pp.pca` | Principal component analysis
     `tl.diffmap` | Diffusion Maps
     `tl.tsne` | t-SNE
     `tl.umap` | Embed the neighborhood graph using UMAP
@@ -71,7 +70,7 @@ Scanpy
         `pl.stacked_violin` | Stacked violin plots
         `pl.matrixplot` | Heatmap of the mean expression values per cluster
         `pl.clustermap` | Hierarchically-clustered heatmap
-    
+
     2. Preprocessing
 
         Methods | Description
