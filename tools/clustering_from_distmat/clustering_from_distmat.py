@@ -6,7 +6,7 @@ import scipy
 
 def linkage_as_newick(linkage, tip_names):
     newick_parts = tip_names[::]
-    within_cluster_distances = [0]*len(tip_names)
+    within_cluster_distances = [0] * len(tip_names)
     for step in linkage:
         n1 = int(step[0])
         n2 = int(step[1])
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument
     parser.add_argument(
         '-m', '--method', default="average",
-        choices = [
+        choices=[
             "single",
             "complete",
             "average",
