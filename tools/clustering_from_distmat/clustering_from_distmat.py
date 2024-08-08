@@ -117,7 +117,17 @@ if __name__ == "__main__":
     with open(args.out_prefix + '.tree.newick', 'w') as o:
         o.write(linkage_as_newick(linkage, col_names))
 
+    # cut the tree as specified and report sample to cluster assignments
     if args.n_clusters or args.height:
+        if args.n_clusters:
+            cut_values = args.n_clusters
+            colname_template = "cluster_id_n{}"
+        else:
+            cut_values = args.height
+            colname_template = "cluster_id_h{}"
+        header_cols = ["sample"] + [
+            colname_template.format(x) for x in cut_values
+        ]
         cluster_assignments = []
         for name, cluster_ids in zip(
             col_names,
@@ -132,5 +142,6 @@ if __name__ == "__main__":
                 + [str(c + 1) for c in cluster_ids]
             )
         with open(args.out_prefix + '.cluster_assignments.tsv', 'w') as o:
+            print("\t".join(header_cols), file=o)
             for ass in cluster_assignments:
                 print("\t".join(ass), file=o)
