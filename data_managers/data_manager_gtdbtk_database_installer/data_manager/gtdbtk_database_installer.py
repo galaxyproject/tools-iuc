@@ -15,28 +15,28 @@ from urllib.request import Request, urlopen
 urls = {
     "202": {
         "full": "https://data.gtdb.ecogenomic.org/releases/release202/202.0/auxillary_files/gtdbtk_r202_data.tar.gz",
-        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release202/202.0/ar122_taxonomy_r202.tsv.gz",
-        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release202/202.0/bac120_taxonomy_r202.tsv.gz",
+        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release202/202.0/ar122_metadata_r202.tar.gz",
+        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release202/202.0/bac120_metadata_r202.tar.gz",
     },
     "207": {
         "full": "https://data.gtdb.ecogenomic.org/releases/release207/207.0/auxillary_files/gtdbtk_r207_data.tar.gz",
-        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release207/207.0/ar53_taxonomy_r207.tsv.gz",
-        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release207/207.0/bac120_taxonomy_r207.tsv.gz",
+        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release207/207.0/ar53_metadata_r207.tar.gz",
+        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release207/207.0/bac120_metadata_r207.tar.gz",
     },
     "214": {
         "full": "https://data.gtdb.ecogenomic.org/releases/release214/214.0/auxillary_files/gtdbtk_r214_data.tar.gz",
-        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release214/214.0/ar53_taxonomy_r214.tsv.gz",
-        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release214/214.0/bac120_taxonomy_r214.tsv.gz",
+        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release214/214.1/ar53_metadata_r214.tsv.gz",
+        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release214/214.1/bac120_metadata_r214.tsv.gz",
     },
     "220": {
         "full": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r220_data.tar.gz",
-        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/ar53_taxonomy_r220.tsv.gz",
-        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/bac120_taxonomy_r220.tsv.gz",
+        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/ar53_metadata_r220.tsv.gz",
+        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/bac120_metadata_r220.tsv.gz",
     },
     "test": {  # using VERSION to check if files are there
         "full": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/VERSION.txt",
-        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/ar53_taxonomy_r220.tsv.gz",
-        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/bac120_taxonomy_r220.tsv.gz",
+        "meta_ar": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/ar53_metadata_r220.tsv.gz",
+        "meta_bac": "https://data.gtdb.ecogenomic.org/releases/release220/220.0/bac120_metadata_r220.tsv.gz",
     },
 }
 
