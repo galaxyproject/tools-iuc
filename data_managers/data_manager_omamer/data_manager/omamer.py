@@ -15,7 +15,7 @@ OMAMER_DATASETS = {
     "Primates": "Primates-v2.0.0.h5",
     "Viridiplantae": "Viridiplantae-v2.0.0.h5",
     "Metazoa": "Metazoa-v2.0.0.h5",
-    "LUCA": "LUCA-v0.2.5.h5",
+    "LUCA": "LUCA-v2.0.0.h5",
 }
 
 DEFAULT_OUTPUT_DIR = "database_omamer"
