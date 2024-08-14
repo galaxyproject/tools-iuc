@@ -12,13 +12,9 @@ OMAMER_DATASETS_URL = "https://omabrowser.org/All/{dataset}"
 
 # List of OMAmer data sets with versions
 OMAMER_DATASETS = {
-    "Primates": "Primates.h5",
     "Primates_v2.0.0": "Primates-v2.0.0.h5",
-    "Viridiplantae": "Viridiplantae.h5",
     "Viridiplantae_v2.0.0": "Viridiplantae-v2.0.0.h5",
-    "Metazoa": "Metazoa.h5",
     "Metazoa_v2.0.0": "Metazoa-v2.0.0.h5",
-    "LUCA": "LUCA.h5",
     "LUCA_v0.2.5": "LUCA-v0.2.5.h5",
     "LUCA_v2.0.0": "LUCA-v2.0.0.h5",
     "Saccharomyceta": "Saccharomyceta.h5",
