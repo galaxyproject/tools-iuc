@@ -34,10 +34,10 @@ def _guess_database(accession):
         database_mappings_refseq = {'AC': 'nuccore', 'NC': 'nuccore', 'NG': 'nuccore',
                                     'NT': 'nuccore', 'NW': 'nuccore', 'NZ': 'nuccore',
                                     'AP': 'protein', 'NP': 'protein', 'YP': 'protein',
-                                    'XP': 'protein', 'WP': 'protein', 'OX' : 'nuccore'}
+                                    'XP': 'protein', 'WP': 'protein', 'OX': 'nuccore'}
         try:
             db = database_mappings_refseq[accession[0:2]]
-        except:
+        except KeyError:
             db = 'nuccore'
             log.warning("DB not found for " + accession + ". Set to nuccore.")
     return db
@@ -110,11 +110,11 @@ def _read_xml(options):
                 hsp["taxonomy"] = ""
                 hsp["organism"] = ""
                 log.warning("RuntimeError - Taxid not found for " + hsp["accession"])
-            except:
+            except Exception as err:
                 hsp["tax_id"] = ""
                 hsp["taxonomy"] = ""
                 hsp["organism"] = ""
-                log.warning("Taxid not found for " + hsp["accession"])
+                log.warning("Taxid not found for " + hsp["accession"] + ". The error is " + err)
             if hsp["evalue"] <= options.max_evalue and hsp["queryOverlap"] >= options.min_qov and \
                     hsp["hitOverlap"] >= options.min_hov and hsp["score"] >= options.min_score:
                 xml_results[hsp["query_id"]] = hsp
