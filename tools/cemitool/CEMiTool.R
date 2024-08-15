@@ -47,7 +47,8 @@ spec <- matrix(
         "gsea_scale", "l", 1, "logical",
         "gsea_min_size", "w", 1, "integer",
         "gsea_max_size", "z", 1, "integer",
-        "sample_column_name", "v", 1, "character"
+        "sample_column_name", "v", 1, "character",
+        "set_beta", "b", 1, "integer"
     ),
     byrow = TRUE, ncol = 4
 )
@@ -82,7 +83,8 @@ if (is.null(opt$sampleAnnotation)) {
         diss_thresh = opt$diss_thresh,
         center_func = opt$center_func,
         verbose = TRUE,
-        ora_pval = opt$ora_pval
+        ora_pval = opt$ora_pval,
+        set_beta = opt$set_beta
     )
 } else {
     annotation <- read.table(
