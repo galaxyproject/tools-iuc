@@ -29,6 +29,7 @@ spec <- matrix(
         "sampleAnnotation", "A", 2, "character",
         "pathwayList", "P", 2, "character",
         "interactions", "I", 2, "character",
+        "set_beta", "B", 1, "integer",
         "filter", "f", 1, "logical",
         "filter_pval", "i", 1, "numeric",
         "apply_vst", "a", 1, "logical",
@@ -47,8 +48,7 @@ spec <- matrix(
         "gsea_scale", "l", 1, "logical",
         "gsea_min_size", "w", 1, "integer",
         "gsea_max_size", "z", 1, "integer",
-        "sample_column_name", "v", 1, "character",
-        "set_beta", "b", 1, "integer"
+        "sample_column_name", "v", 1, "character"
     ),
     byrow = TRUE, ncol = 4
 )
