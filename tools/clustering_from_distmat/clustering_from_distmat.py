@@ -46,6 +46,15 @@ if __name__ == "__main__":
         ],
         help="Clustering method to use"
     )
+    missing_names = parser.add_mutually_exclusive_group()
+    missing_names.add_argument(
+        "--nc", "--no-colnames", action="store_true",
+        help="Indicate that the distance matrix input does not feature column names"
+    )
+    missing_names.add_argument(
+        "--nr", "--no-rownames", action="store_true",
+        help="Indicate that the distance matrix input does not feature row names"
+    )
     cut_mode = parser.add_mutually_exclusive_group()
     cut_mode.add_argument(
         "-n", "--n-clusters", nargs="*", type=int
@@ -59,31 +68,61 @@ if __name__ == "__main__":
     # read from input and check that
     # we have been passed a symmetric distance matrix
     with open(args.infile) as i:
-        col_names = next(i).rstrip("\n\r").split("\t")[1:]
-        col_count = len(col_names)
-        if not col_count:
-            sys.exit(
-                'No data columns found. '
-                'This tool expects tabular input with column names on the first line '
-                'and a row name in the first column of each row followed by data columns.'
-            )
+        col_count = None
         row_count = 0
         matrix = []
+        if args.nc:
+            col_names = col_count = None
+        else:
+            while True:
+                # skip leading empty lines
+                line = next(i).strip("\n\r")
+                if line:
+                    break
+            if args.nr:
+                col_names = line.split("\t")
+            else:
+                # first column is for row names, rest are column names
+                col_names = line.split("\t")[1:]
+            col_count = len(col_names)
+            if not col_count:
+                sys.exit(
+                    'No data columns found. '
+                    'By default, this tool expects tabular input with column names on the first line '
+                    'and a row name in the first column of each row followed by data columns. '
+                    'Use --no-colnames or --no-rownames to modify the expected format.'
+                )
         for line in i:
             if not line.strip():
                 # skip empty lines
                 continue
             row_count += 1
-            if row_count > col_count:
+            if col_count is not None and row_count > col_count:
                 sys.exit(
                     'This tool expects a symmetric distance matrix with an equal number of rows and columns, '
                     'but got more rows than columns.'
                 )
-            row_name, *row_data = line.strip(" \n\r").split("\t")
+            if args.nr:
+                row_name = None
+                row_data = line.strip("\n\r").split("\t")
+            else:
+                row_name, *row_data = line.strip("\n\r").split("\t")
+            if col_count is None:
+                col_count = len(row_data)
+                col_names = [None] * col_count
             col_name = col_names[row_count - 1]
-            if not row_name:
+            if not row_name and col_name:
                 # tolerate omitted row names, use col name instead
                 row_name = col_name
+            elif row_name and not col_name:
+                # likewise for column names
+                # plus update list of col names with row name
+                col_name = col_names[row_count - 1] = row_name
+            elif not row_name and not col_name:
+                sys.exit(
+                    'Each sample in the distance matrix must have its name specified via a row name, a column name, or both, '
+                    f'but found no name for sample number {row_count}'
+                )
             if row_name != col_name:
                 sys.exit(
                     'This tool expects a symmetric distance matrix with identical names for rows and columns, '
@@ -97,7 +136,10 @@ if __name__ == "__main__":
             try:
                 matrix.append([float(x) for x in row_data])
             except ValueError as e:
-                sys.exit(str(e) + f' on row {row_count} ("{row_name}")')
+                if args.nr:
+                    sys.exit(str(e) + f' on row {row_count}')
+                else:
+                    sys.exit(str(e) + f' on row {row_count} ("{row_name}")')
     if row_count < col_count:
         sys.exit(
             'This tool expects a symmetric distance matrix with an equal number of rows and columns, '
