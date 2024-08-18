@@ -1,5 +1,6 @@
 import argparse
 import sys
+from collections import Counter
 
 import scipy
 
@@ -52,10 +53,8 @@ if __name__ == "__main__":
     cut_mode.add_argument(
         "--height", nargs="*", type=float
     )
+    parser.add_argument("-s", "--min-cluster-size", type=int, default=2)
     args = parser.parse_args()
-
-    # TO DO:
-    # - parse outputs to generate
 
     # read from input and check that
     # we have been passed a symmetric distance matrix
@@ -128,18 +127,47 @@ if __name__ == "__main__":
         header_cols = ["sample"] + [
             colname_template.format(x) for x in cut_values
         ]
+        cut_result = scipy.cluster.hierarchy.cut_tree(
+            linkage,
+            args.n_clusters,
+            args.height
+        )
+
+        # Go through the cut results once to determine cluster sizes
+
+        # In the final report, the ids of clusters with fewer members than
+        # args.min_cluster_size will be masked with "-".
+        # The remaining cluster ids will be renumbered to start fom 1.
+        # This has to be done for each clustering resulting from the
+        # user-specified cut_values.
+        cluster_member_counts = [Counter() for _ in cut_values]
+        effective_cluster_ids = [{} for _ in cut_values]
+        for cluster_ids in cut_result:
+            for cl_count, cl_id, eff_id in zip(cluster_member_counts, cluster_ids, effective_cluster_ids):
+                cl_count[cl_id] += 1
+        for counter, eff_ids in zip(cluster_member_counts, effective_cluster_ids):
+            eff_id = 1
+            for item, count in counter.items():
+                # Since Python 3.7, Counter objects (like dicts) preserve
+                # insertion order so we can be sure that in the mapping
+                # constructed below, clusters will get renumbered in
+                # the order they will be reported later.
+                if count >= args.min_cluster_size:
+                    eff_ids[item] = str(eff_id)
+                    eff_id += 1
+                else:
+                    eff_ids[item] = "-"
+
+        # build and write the cluster assignment report
+        # with remapped cluster ids
         cluster_assignments = []
-        for name, cluster_ids in zip(
-            col_names,
-            scipy.cluster.hierarchy.cut_tree(
-                linkage,
-                args.n_clusters,
-                args.height
-            )
-        ):
+        for name, cluster_ids in zip(col_names, cut_result):
             cluster_assignments.append(
                 [name]
-                + [str(c + 1) for c in cluster_ids]
+                + [
+                    eff_ids[c]
+                    for c, eff_ids in zip(cluster_ids, effective_cluster_ids)
+                ]
             )
         with open(args.out_prefix + '.cluster_assignments.tsv', 'w') as o:
             print("\t".join(header_cols), file=o)
