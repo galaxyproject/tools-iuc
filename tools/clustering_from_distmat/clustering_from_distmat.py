@@ -76,7 +76,7 @@ if __name__ == "__main__":
         else:
             while True:
                 # skip leading empty lines
-                line = next(i).strip("\n\r")
+                line = next(i).rstrip("\n\r")
                 if line:
                     break
             if args.nr:
@@ -104,9 +104,9 @@ if __name__ == "__main__":
                 )
             if args.nr:
                 row_name = None
-                row_data = line.strip("\n\r").split("\t")
+                row_data = line.rstrip("\n\r").split("\t")
             else:
-                row_name, *row_data = line.strip("\n\r").split("\t")
+                row_name, *row_data = line.rstrip("\n\r").split("\t")
             if col_count is None:
                 col_count = len(row_data)
                 col_names = [None] * col_count
