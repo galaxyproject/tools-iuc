@@ -109,12 +109,12 @@ def _read_xml(options):
                 hsp["tax_id"] = ""
                 hsp["taxonomy"] = ""
                 hsp["organism"] = ""
-                log.warning("RuntimeError - Taxid not found for " + hsp["accession"])
+                log.warning(f"RuntimeError - Taxid not found for {hsp['accession']}")
             except Exception as err:
                 hsp["tax_id"] = ""
                 hsp["taxonomy"] = ""
                 hsp["organism"] = ""
-                log.warning("Taxid not found for " + hsp["accession"] + ". The error is " + err)
+                log.warning(f"Taxid not found for {hsp['accession']}. The error is {err}")
             if hsp["evalue"] <= options.max_evalue and hsp["queryOverlap"] >= options.min_qov and \
                     hsp["hitOverlap"] >= options.min_hov and hsp["score"] >= options.min_score:
                 xml_results[hsp["query_id"]] = hsp
