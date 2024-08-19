@@ -29,6 +29,7 @@ spec <- matrix(
         "sampleAnnotation", "A", 2, "character",
         "pathwayList", "P", 2, "character",
         "interactions", "I", 2, "character",
+        "set_beta", "B", 1, "integer",
         "filter", "f", 1, "logical",
         "filter_pval", "i", 1, "numeric",
         "apply_vst", "a", 1, "logical",
@@ -82,7 +83,8 @@ if (is.null(opt$sampleAnnotation)) {
         diss_thresh = opt$diss_thresh,
         center_func = opt$center_func,
         verbose = TRUE,
-        ora_pval = opt$ora_pval
+        ora_pval = opt$ora_pval,
+        set_beta = opt$set_beta
     )
 } else {
     annotation <- read.table(
