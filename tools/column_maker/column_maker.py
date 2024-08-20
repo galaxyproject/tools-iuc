@@ -171,10 +171,10 @@ try:
         'lambda fields: [from_str(s, t) for s, t in zip(fields, [%s])]'
         % args.column_types
     )
-except Exception as e:
+except Exception as err:
     sys.exit(
         'While parsing column types, the following problem occured: "%s"'
-        % e
+        % err
     )
 
 # Get and parse actions
