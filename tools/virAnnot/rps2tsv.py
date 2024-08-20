@@ -69,10 +69,8 @@ def _read_xml(options):
                 decoded_response = encoded_response.decode()
                 payload = json.loads(decoded_response)
                 kingdoms = []
-                result = 0
-                result_max = 4
                 for item in payload["results"][:6]:
-                    if item["metadata"]["parent"]!= None:
+                    if item["metadata"]["parent"] is not None:
                         lineage_parent = item["metadata"]["parent"]
                         translation = ncbi.get_taxid_translator([int(lineage_parent)])
                         names = list(translation.values())
