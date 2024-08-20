@@ -28,12 +28,13 @@ from math import (  # noqa: F401
     cosh,
     degrees,
     dist,
-    efabs,
+    e,
     erf,
     erfc,
     exp,
     exp2,
     expm1,
+    fabs,
     factorial,
     floor,
     fmod,
@@ -42,7 +43,7 @@ from math import (  # noqa: F401
     gamma,
     gcd,
     hypot,
-    inflcm,
+    inf,
     isclose,
     isfinite,
     isinf,
@@ -55,10 +56,9 @@ from math import (  # noqa: F401
     log1p,
     log2,
     modf,
-    nanradians,
     nextafter,
     perm,
-    pisinh,
+    pi,
     pow,
     prod,
     remainder,
@@ -207,9 +207,9 @@ builtin_functions = (
 
 math_functions = (
     'acos|acosh|asin|asinh|atan|atan2|atanh|cbrt|ceil|comb|copysign|cos|cosh|degrees|'
-    'dist|efabs|erf|erfc|exp|exp2|expm1|factorial|floor|fmod|frexp|fsum|gamma|gcd|'
-    'hypot|inflcm|isclose|isfinite|isinf|isnan|isqrt|ldexp|lgamma|log|log10|log1p|'
-    'log2|modf|nanradians|nextafter|perm|pisinh|pow|prod|remainder|sin|'
+    'dist|e|erf|erfc|exp|exp2|expm1|fabs|factorial|floor|fmod|frexp|fsum|gamma|gcd|'
+    'hypot|inf|isclose|isfinite|isinf|isnan|isqrt|ldexp|lgamma|log|log10|log1p|'
+    'log2|modf|nextafter|perm|pi|pow|prod|remainder|sin|'
     'sqrt|tan|tanh|tau|trunc|ulp'
 )
 builtin_and_math_functions = builtin_functions + '|' + math_functions
@@ -229,6 +229,7 @@ num_cols = in_columns
 for ac in actions:
     try:
         expr_string, col_add_spec, new_col_name = ac.split(';')
+        print(expr_string)
     except ValueError:
         sys.exit(
             'Invalid Action: "%s".  '
