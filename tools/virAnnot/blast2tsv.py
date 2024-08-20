@@ -77,7 +77,7 @@ def _read_xml(options):
             elif hit_count > 1:
                 final_hit_count = hit_count - 1
             hsp["evalue"] = cumul_hit_evalue / final_hit_count  # The smaller the E-value, the better the match
-            hsp["query_id"] = blast_record.query_id
+            hsp["query_id"] = blast_record.query  # or query_id
             hsp["query_length"] = blast_record.query_length  # length of the query
             hsp["accession"] = aln.accession.replace("ref|", "")
             hsp["description"] = aln.hit_def
