@@ -28,7 +28,6 @@ from math import (  # noqa: F401
     cosh,
     degrees,
     dist,
-    e,
     erf,
     erfc,
     exp,
@@ -207,7 +206,7 @@ builtin_functions = (
 
 math_functions = (
     'acos|acosh|asin|asinh|atan|atan2|atanh|cbrt|ceil|comb|copysign|cos|cosh|degrees|'
-    'dist|e|erf|erfc|exp|exp2|expm1|fabs|factorial|floor|fmod|frexp|fsum|gamma|gcd|'
+    'dist|erf|erfc|exp|exp2|expm1|fabs|factorial|floor|fmod|frexp|fsum|gamma|gcd|'
     'hypot|inf|isclose|isfinite|isinf|isnan|isqrt|ldexp|lgamma|log|log10|log1p|'
     'log2|modf|nextafter|perm|pi|pow|prod|remainder|sin|'
     'sqrt|tan|tanh|tau|trunc|ulp'
