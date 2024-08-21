@@ -28,11 +28,19 @@ def main():
 
 def _guess_database(accession):
     """Guess the correct database for querying based off the format of the accession"""
-    database_mappings_refseq = {'AC_': 'nuccore', 'NC_': 'nuccore', 'NG_': 'nuccore',
-                                'NT_': 'nuccore', 'NW_': 'nuccore', 'NZ_': 'nuccore',
-                                'AP_': 'protein', 'NP_': 'protein', 'YP_': 'protein',
-                                'XP_': 'protein', 'WP_': 'protein'}
-    return database_mappings_refseq[accession[0:3]]
+    if accession.isdigit():
+        db = 'taxonomy'
+    else:
+        database_mappings_refseq = {'AC': 'nuccore', 'NC': 'nuccore', 'NG': 'nuccore',
+                                    'NT': 'nuccore', 'NW': 'nuccore', 'NZ': 'nuccore',
+                                    'AP': 'protein', 'NP': 'protein', 'YP': 'protein',
+                                    'XP': 'protein', 'WP': 'protein', 'OX': 'nuccore'}
+        try:
+            db = database_mappings_refseq[accession[0:2]]
+        except KeyError:
+            db = 'nuccore'
+            log.warning("DB not found for " + accession + ". Set to nuccore.")
+    return db
 
 
 def _read_xml(options):
@@ -69,7 +77,7 @@ def _read_xml(options):
             elif hit_count > 1:
                 final_hit_count = hit_count - 1
             hsp["evalue"] = cumul_hit_evalue / final_hit_count  # The smaller the E-value, the better the match
-            hsp["query_id"] = blast_record.query_id
+            hsp["query_id"] = blast_record.query  # or query_id
             hsp["query_length"] = blast_record.query_length  # length of the query
             hsp["accession"] = aln.accession.replace("ref|", "")
             hsp["description"] = aln.hit_def
@@ -101,7 +109,12 @@ def _read_xml(options):
                 hsp["tax_id"] = ""
                 hsp["taxonomy"] = ""
                 hsp["organism"] = ""
-                log.warning("RuntimeError - Taxid not found for " + hsp["accession"])
+                log.warning(f"RuntimeError - Taxid not found for {hsp['accession']}")
+            except Exception as err:
+                hsp["tax_id"] = ""
+                hsp["taxonomy"] = ""
+                hsp["organism"] = ""
+                log.warning(f"Taxid not found for {hsp['accession']}. The error is {err}")
             if hsp["evalue"] <= options.max_evalue and hsp["queryOverlap"] >= options.min_qov and \
                     hsp["hitOverlap"] >= options.min_hov and hsp["score"] >= options.min_score:
                 xml_results[hsp["query_id"]] = hsp
