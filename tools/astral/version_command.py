@@ -1,27 +1,28 @@
 #!/usr/bin/env python
-"""Modules to execute shell commands (through child process) and regex, respectively."""
-import subprocess
+"""Modules to execute shell commands (through child process) and regex"""
 import re
+import subprocess
+
 
 def get_astral_version():
-    """Function that will parse the Astral version from Astral's --help flag."""
+    """Function that will parse the Astral version from `astral --help`."""
     try:
-        #run the `astral --help` command
+        # run the `astral --help` command
         result = subprocess.run(
             ['astral', '--help'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             check=False
-            )
-        #save the output
+        )
+        # save the output
         output = result.stdout + result.stderr
-        #define the regex pattern to match the version string from the help message
+        # Regex pattern that matches the version string from the help message
         version_pattern = re.compile(r'This is ASTRAL version (\d+\.\d+\.\d+)')
-        #search for the version pattern in the output
+        # search for the version pattern in the output
         match = version_pattern.search(output)
         if match:
-            # Extract and return the version string
+            # extract and return the version string
             return match.group(1)
         print("Version information not found in `astral --help` output.")
         return None
@@ -35,7 +36,8 @@ def get_astral_version():
         print(f"An error occurred: {e}")
         return None
 
-# Call the function and print the version
+
+# call the function and print the version
 version = get_astral_version()
 if version:
     print(version)
