@@ -9,6 +9,12 @@
             ## extract gene order from gtf file
             python '$__tool_directory__/gtf_to_position_file.py' --attribute_name $attribute '$gtf_file' 'gene_order.tabular' &&
         #end if
+        #if $input_mat.mtx and $input_mat.mtx_genes and $input_mat.mtx_barcodes:
+            mkdir matrix_10x &&
+            ln -s '$input_mat.mtx' matrix_10x/matrix.mtx &&
+            ln -s '$input_mat.mtx_genes' matrix_10x/genes.tsv &&
+            ln -s '$input_mat.mtx_barcodes' matrix_10x/barcodes.tsv &&
+        #end if
         Rscript '$infercnv_script'
     ]]></command>
     <configfiles>
@@ -19,9 +25,16 @@
             # load library
             library('infercnv')
 
+            #if $input_mat.mtx and $input_mat.mtx_genes and $input_mat.mtx_barcodes:
+            library(Seurat)
+            mtx = Read10x("matrix_10x/")
+            #else:
+            mtx = '$input_mat.raw_mtx'
+            #end if
+
             # create the infercnv object
             infercnv_obj = CreateInfercnvObject(
-                                                raw_counts_matrix='$raw_mtx', # the matrix of genes (rows) vs. cells (columns) containing the raw counts
+                                                raw_counts_matrix=mtx, # the matrix of genes (rows) vs. cells (columns) containing the raw counts
                                                 #if $annotation.gene_annotation == "gtf":
                                                     gene_order_file='gene_order.tabular', # tabular file containing the positions of each gene along each chromosome in the genome.
                                                 #end if
@@ -177,7 +190,20 @@
         </configfile>
     </configfiles>
     <inputs>
-        <param name="raw_mtx" type="data" format="tabular" label="Raw counts matrix" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+        <conditional name="input_mat">
+            <param name="format" type="select" label="Matrix format">
+                <option value="tsv">Tabular (non-sparse matrix)</option>
+                <option value="mtx" selected="true">10x sparse matrix</option>
+            </param>
+            <when value="tsv">
+                <param name="raw_mtx" type="data" format="tabular" label="Raw counts matrix" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+            </when>
+            <when value="mtx">
+                <param name="mtx" type="data" format="mtx" label="Raw counts matrix (matrix market)" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+                <param name="mtx_genes" type="data" format="tsv" label="Genes file" help="The genes file for matrix market matrix, a two column symbol - symbol or gene_id - symbol tab separated file" />
+                <param name="mtx_barcodes" type="data" format="tsv" label="Barcodes file" help="The barcodes file for matrix market matrix, a single column file with the cell/barcode identifiers"/>
+            </when>
+        </conditional>
         <conditional name="annotation">
             <param name="gene_annotation" type="select" label="Gene annotation">
                 <option value="local">Use a gene order file: </option>
@@ -311,7 +337,9 @@
     </outputs>
     <tests>
         <test expect_num_outputs="2">
-            <param name="raw_mtx" value="raw_counts_matrix.tabular"/>
+            <conditional name="input_mat">
+                <param name="raw_mtx" value="raw_counts_matrix.tabular"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="local"/>
                 <param name="gene_order" value="gene_order_file.tabular"/>
@@ -358,7 +386,60 @@
             </output_collection>
         </test>
         <test expect_num_outputs="2">
-            <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            <conditional name="input_mat">
+                <param name="mtx" value="matrix.mtx"/>
+                <param name="mtx_genes" value="genes.tsv"/>
+                <param name="mtx_barcodes" value="barcodes.tsv"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="local"/>
+                <param name="gene_order" value="gene_order_file.tabular"/>
+            </conditional>
+            <param name="cell_annotations" value="annotations_file.tabular" />
+            <param name="ref_group" value="&quot;normal&quot;" />
+            <param name="cutoff" value="1" />
+            <param name="cluster_by_groups" value="TRUE" />
+            <param name="HMM" value="TRUE" />
+            <param name="denoise" value="TRUE" />
+            <param name="analysis_mode" value="subclusters" />
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test1_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.576008315090849"/>
+                        <has_text text="0.902155765020965"/>
+                        <has_text text="1.16307372496506"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv.observation_groupings" file="output/test1_infercnv.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="&quot;Dendrogram Group&quot; &quot;Dendrogram Color&quot; &quot;Annotation Group&quot; &quot;Annotation Color&quot;"/>
+                        <has_text text="tumor_grp_1_cell_5"/>
+                        <has_text text="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.heatmap_thresholds" file="output/test1_infercnv_subclusters.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="0.792686678669785"/>
+                        <has_text_matching expression="0.919329314347129"/>
+                        <has_text_matching expression="1.29925722137916"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.observation_groupings" file="output/test1_infercnv_subclusters.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="tumor_grp_1_cell_7"/>
+                        <has_text_matching expression="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="infercnv_plots" type="list">
+                <element name="infercnv" file="output/test1_infercnv.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv_subclusters" file="output/test1_infercnv_subclusters.png" ftype="png" compare="sim_size"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input_mat">
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="local"/>
                 <param name="gene_order" value="gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt"/>
@@ -405,7 +486,9 @@
             </output_collection>
         </test>
         <test expect_num_outputs="2">
-            <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            <conditional name="input_mat">
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="local"/>
                 <param name="gene_order" value="gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt"/>
@@ -453,7 +536,9 @@
             </output_collection>
         </test>
         <test expect_num_outputs="3">
-            <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            <conditional name="input_mat">
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="gtf"/>
                 <param name="gtf_file" value="test.gtf.gz"/>
