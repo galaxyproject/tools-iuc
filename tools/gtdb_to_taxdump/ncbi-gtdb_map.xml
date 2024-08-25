@@ -1,0 +1,180 @@
+<tool id="ncbi_gtdb_map" name="NCBI-GTDB map" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Map taxonomic classifications between the NCBI and GTDB taxonomies</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code">
+        <![CDATA[
+
+        mkdir output &&
+
+        #if $data.is_select == 'history':
+            #for $f in $files:
+                ln -s '$f' '$f.element_identifier' &&
+            #end for
+        #else:
+            ln -s '$metadata.fields.path/bac'* 'bac_meta.tsv' &&
+            ln -s '$metadata.fields.path/ar'* 'ar_meta.tsv' &&
+        #end if 
+
+        ncbi-gtdb_map.py
+        #if $mode == 'gtdb':
+            -q gtdb_taxonomy
+        #end if
+        '${names}'
+        #if $data.is_select == 'history':
+            #for $f in $files:
+                '$f.element_identifier'
+            #end for
+        #else:  
+            'bac_meta.tsv'
+            'ar_meta.tsv'
+        #end if
+        --completeness ${completeness}
+        --contamination ${contamination}
+        --fraction ${fraction}
+        --max-tips ${max_tips}
+        --column ${column}
+        ${header}
+        #if $add_prefix.is_select == 'y':
+            -p '${prefix}'
+        #end if
+        ${no_prefix}
+        -o output
+        --procs \${GALAXY_SLOTS:-8}
+
+        ]]>
+    </command>
+    <inputs>
+        <param name="names" type="data" format="tabular" label="File with the names" help="You can either have a file the NCBI names or the GTDB names"/>
+        <conditional name="data">
+            <param name="is_select" type="select" label="Use either a cached ncbi database or upload from history">
+                <option value="cached">Cached database</option>
+                <option value="history">History</option>
+            </param>
+            <when value="cached">
+                <param name="metadata" type="select" label="Metadata version" help="Choose metadata version">
+                    <options from_data_table="gtdbtk_database_metadata_versioned">
+                        <validator message="No gtdb metadata is available" type="no_options"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="files" format="tabular" type="data" multiple="true" label="Input bacteria and archaea meatdata files here" help="When using this please input the metadata files uncompressed!"/>
+            </when>
+        </conditional>
+        <param name="mode" type="select" label="Select the type of mapping" help="Choose if you want to map NCBI agaisnt GTDB or the other way around">
+            <option value="ncbi">NCBI to GTDB</option>
+            <option value="gtdb">GTDB to NCBI</option>
+        </param>
+        <param argument="--completeness" type="float" value="50.0" label="Completeness filter" help="Only include GTDB genomes who have bigger or equal CheckM completeness"/>
+        <param argument="--contamination" type="float" value="5.0" label="Contamination filter" help="Only include GTDB genomes who have a smaller CheckM contamination"/>
+        <param argument="--fraction" type="float" min="0.0" max="1.0" value="0.9" label="Homogeneity of LCA" help="Change the homogeneity of LCA in order to be used"/>
+        <param argument="--max-tips" type="integer" value="100" min="1" label="Max. number of tips" help="Select the number of tips used for LCA determination"/>
+        <param argument="--column" type="data_column" data_ref="names" label="Select the column with the names"/>
+        <param argument="--header" type="boolean" truevalue="--header" falsevalue="" checked="false" label="Header row in the input" help="Check if the input file has a header to so the program will skip it"/>
+        <conditional name="add_prefix">
+            <param name="is_select" type="select" label="Add prefix to the names?" help="Select yes if you want to add a prefix to the names">
+                <option value="y">Yes</option>
+                <option value="n" selected="true">No</option>
+            </param>
+            <when value="y">
+                <param argument="--prefix" type="select" label="Include a prefix" help="Add the selected prefix to all names. NOTE: This option should be used only if you have names without prefixes and then some names doesnt work with the selected prefix so it could be that you have to run the tool with multiple different prefixes! For more help look at the Help section!">
+                    <option value="d__">d__</option>
+                    <option value="p__">p__</option>
+                    <option value="c__">c__</option>
+                    <option value="o__">o__</option>
+                    <option value="f__">f__</option>
+                    <option value="g__">g__</option>
+                    <option value="s__">s__</option>
+                </param>
+            </when>
+            <when value="n"/>
+        </conditional>
+        <param argument="--no-prefix" type="boolean" truevalue="--no-prefix" falsevalue="" checked="false" label="No prefix" help="Check here if the names doesn't have a prefix like 's__xyz'. NOTE: Only names without prefix will be used then when a name still have it it will be mapped to unclassified!"/>
+    </inputs>
+    <outputs>
+        <data name="output_gtdb" format="tabular" label="${tool.name}: GTDB_to_NCBI" from_work_dir="output/taxonomy_map_summary.tsv">
+            <filter>mode and 'gtdb' in mode </filter>
+        </data>
+        <data name="output_ncbi" format="tabular" label="${tool.name}: NCBI_to_GTDB" from_work_dir="output/taxonomy_map_summary.tsv">
+            <filter>mode and 'ncbi' in mode </filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="mode" value="gtdb"/>
+            <param name="names" value="gtdb_test.tsv"/>
+            <conditional name="data">
+                <param name="is_select" value="history"/>
+                <param name="files" value="test-db/ar53_metadata_r214.tsv,test-db/bac120_metadata_r214.tsv"/>
+            </conditional>
+            <param name="completeness" value="1.0"/>
+            <param name="contamination" value="1.0"/>
+            <param name="fraction" value="0.2"/>
+            <param name="max_tips" value="10"/>
+            <param name="column" value="2"/>
+            <output name="output_gtdb">
+                <assert_contents>
+                    <has_n_lines n="6" delta="1"/>
+                    <has_text text="unclassified" n="3"/>
+                    <not_has_text text="test1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="mode" value="ncbi"/>
+            <param name="names" value="ncbi_test.tsv"/>
+            <conditional name="data">
+                <param name="is_select" value="history"/>
+                <param name="files" value="test-db/ar53_metadata_r214.tsv,test-db/bac120_metadata_r214.tsv"/>
+            </conditional>
+            <param name="no_prefix" value="true"/>
+            <param name="column" value="1"/>
+            <output name="output_ncbi">
+                <assert_contents>
+                    <has_n_lines n="4" delta="1"/>
+                    <has_text text="Bacteroides thetaiotaomicron" n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="mode" value="ncbi"/>
+            <param name="names" value="ncbi_test_prefix.tsv"/>
+            <conditional name="data">
+                <param name="is_select" value="cached"/>
+                <param name="metadata" value="test-gtdb"/>
+            </conditional>
+            <param name="header" value="true"/>
+            <param name="column" value="1"/>
+            <output name="output_ncbi">
+                <assert_contents>
+                    <has_n_lines n="4" delta="1"/>
+                    <has_text text="s__Bacteroides thetaiotaomicron"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+        .. class:: infomark
+
+            **Where to download the metadata**
+
+            The metadata can be download from `GTDB <https://data.gtdb.ecogenomic.org/releases/>`_. If you want to use this tool to convert gtdb naming from a GTDB tool such as `gtdbtk classify_wf` use the corresponding GTDB release of the metadata. After download it dont forget to uncompressed it!
+
+            **What does this tool**
+
+            This tool was desinged to map the GTDB taxonomy to the NCBI taxonomy since both are using different ID systems.
+            This means this tool map either GTDB names to the NCBI names or the other way around. If the names contain prefixes like *s__* the mapped name also will contain there corresponded prefix. If you use the names without prefix then the mapped names also don't contain the prefixes.
+
+            **Prefixes**
+
+            The prefixes stand for the taxonomic rank for example s__Bacteroides thetaiotaomicron. If you use them directly with in the file where you list the names which should be queried then you dont need the prefix option but if you use names without them you can either manully include them with the prefix option (read the help section there too) or you can use the tool without them but then you have to check the no-prefix option! This means when you use the no-prefix option s__Bacteroides thetaiotaomicron will not be used in this tool but Bacteroides thetaiotaomicron will work fine!
+            
+        ]]>
+    </help>
+    <expand macro="citations"/>
+</tool>
