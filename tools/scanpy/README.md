@@ -25,6 +25,7 @@ Scanpy
     `pp.highly_variable_genes` | Extract highly variable genes
     `pp.subsample` | Subsample to a fraction of the number of observations
     `pp.downsample_counts` | Downsample counts so that each cell has no more than target_counts
+    `pp.scrublet` | Predict doublets
 
 3. Normalize (`normalize.xml`)
 
@@ -34,14 +35,18 @@ Scanpy
     `pp.recipe_zheng17` | Normalization and filtering as of [Zheng17]
     `pp.recipe_weinreb17` | Normalization and filtering as of [Weinreb17]
     `pp.recipe_seurat` | Normalization and filtering as of Seurat [Satija15]
+    `external.pp.magic` | Denoising using Markov Affinity-based Graph Imputation of Cells (MAGIC) API
 
 4. Remove confounders (`remove_confounder.xml`)
 
     Methods | Description
     --- | ---
    `pp.regress_out` | Regress out unwanted sources of variation
-   `pp.mnn_correct` | Correct batch effects by matching mutual nearest neighbors
+   <!-- `pp.mnn_correct` | Correct batch effects by matching mutual nearest neighbors -->
    `pp.combat` | ComBat function for batch effect correction
+    `external.pp.bbknn` | Batch effect removal with Batch balanced KNN (BBKNN)
+    `external.pp.harmony_integrate` | Integrate multiple single-cell experiments with Harmony
+    `external.pp.scanorama_integrate` | Integrate multiple single-cell experiments with Scanorama
 
 5. Clustering, embedding and trajectory inference (`cluster_reduce_dimension.xml`)
 
@@ -56,6 +61,7 @@ Scanpy
     `tl.draw_graph` | Force-directed graph drawing
     `tl.dpt` | Infer progression of cells through geodesic distance along the graph
     `tl.paga` | Mapping out the coarse-grained connectivity structures of complex manifolds
+    `tl.embedding_density` | Calculate the density of cells in an embedding (per condition)
 
 6. Plot (`plot.xml`)
 
@@ -65,6 +71,7 @@ Scanpy
         --- | ---
         `pl.scatter` | Scatter plot along observations or variables axes
         `pl.heatmap` | Heatmap of the expression values of set of genes
+        `pl.tracksplot` | Tracks plot of the expression values per cell
         `pl.dotplot` | Makes a dot plot of the expression values
         `pl.violin` | Violin plot
         `pl.stacked_violin` | Stacked violin plots
@@ -77,6 +84,7 @@ Scanpy
         --- | ---
         `pl.highest_expr_genes` | Plot the fraction of counts assigned to each gene over all cells
         `pl.highly_variable_genes` | Plot dispersions versus means for genes
+        `pl.scrublet_score_distribution` | Histogram of doublet scores
 
     3. PCA
 
@@ -95,12 +103,13 @@ Scanpy
         `pl.umap` | Scatter plot in UMAP basis
         `pl.diffmap` | Scatter plot in Diffusion Map basis
         `pl.draw_graph` | Scatter plot in graph-drawing basis
+        `pl.embedding_density` | Density of cells in an embedding (per condition)
 
     5. Branching trajectories and pseudotime, clustering
 
         Methods | Description
         --- | ---
-        `pl.dpt_groups_pseudotime` | Plot groups and pseudotime
+        <!-- `pl.dpt_groups_pseudotime` | Plot groups and pseudotime -->
         `pl.dpt_timeseries` | Heatmap of pseudotime series
         `pl.paga` | Plot the abstracted graph through thresholding low-connectivity edges
         `pl.paga_compare` | Scatter and PAGA graph side-by-side
@@ -112,3 +121,8 @@ Scanpy
         --- | ---
         `pl.rank_genes_groups` | Plot ranking of genes using dotplot plot
         `pl.rank_genes_groups_violin` | Plot ranking of genes for all tested comparisons
+        `pl.rank_genes_groups_stacked_violin` | Plot ranking of genes as stacked violin plot
+        `pl.rank_genes_groups_heatmap` | Plot ranking of genes as heatmap plot
+        `pl.rank_genes_groups_dotplot` | Plot ranking of genes as dotplot plot
+        `pl.rank_genes_groups_matrixplot` | Plot ranking of genes as matrixplot plot
+        `pl.rank_genes_groups_tracksplot` | Plot ranking of genes as tracksplot plot
