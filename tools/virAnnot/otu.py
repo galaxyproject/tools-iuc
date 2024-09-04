@@ -186,6 +186,8 @@ def _align_sequences(options, hits_collection):
             os.mkdir(cdd_output)
         if os.path.exists(cdd_output + "/seq_to_align.fasta"):
             os.remove(cdd_output + "/seq_to_align.fasta")
+        if os.path.exists(cdd_output + "/seq_nucc.fasta"):
+            os.remove(cdd_output + "/seq_nucc.fasta")
         file_seq_to_align = cdd_output + "/seq_to_align.fasta"
         file_color_config = cdd_output + "/color_config.txt"
         f = open(file_seq_to_align, "a")
@@ -298,6 +300,7 @@ def _get_stats(options, hits_collection):
         cdd_output = options.output + "/" + hits_collection[cdd_id]["short_description"].replace(" ", "_")
         worksheet = workbook.add_worksheet(hits_collection[cdd_id]["short_description"])  # add a worksheet
         file_cluster = cdd_output + '/otu_cluster.csv'
+        file_fasta_nucc = cdd_output + '/representative_nucc.fasta'
         with open(file_cluster, 'r') as clust:
             otu_reader = csv.reader(clust, delimiter=',')
             samples_list = []
@@ -342,6 +345,8 @@ def _get_stats(options, hits_collection):
                 if sample not in ['contigs_list', 'global_taxonomy']:
                     total_nb_read = 0
                     for contig in otu_collection[otu][sample]:
+                        if otu_collection[otu][sample][contig]['nb'] == '':
+                            otu_collection[otu][sample][contig]['nb'] = 0
                         total_nb_read += int(otu_collection[otu][sample][contig]['nb'])
                     otu_collection[otu][sample]['total_nb_read'] = total_nb_read
         row = 0
@@ -355,7 +360,9 @@ def _get_stats(options, hits_collection):
         worksheet.write(row, column + 2, 'contigs_list')
         row = 1
         # column = 0
+        f_nucc = open(file_fasta_nucc, "w+")
         for otu in otu_collection:
+            log.info(otu)
             if isinstance(otu_collection[otu], dict):
                 column = 0
                 worksheet.write(row, column, otu)
@@ -375,6 +382,9 @@ def _get_stats(options, hits_collection):
                 worksheet.write(row, len(samples_list) + 1, otu_collection[otu]['global_taxonomy'].replace(';', ' '))
                 worksheet.write(row, len(samples_list) + 2, ",".join(otu_collection[otu]['contigs_list']))
                 row += 1
+                f_nucc.write(">" + cdd_id + "_" + otu + "_" + otu_collection[otu]['contigs_list'][0] + "\n")
+                f_nucc.write(str(hits_collection[cdd_id][otu_collection[otu]['contigs_list'][0]]['nuccleotide']) + "\n")
+        f_nucc.close()
     workbook.close()
     read_file = pd.ExcelFile(file_xlsx)
     for sheet in read_file.sheet_names:
