@@ -14,7 +14,6 @@ def main() -> None:
         "data_tables": {
             "ncbi_fcs_gx_databases": sync_files(opts),
             "ncbi_fcs_gx_divisions": get_divisions(opts),
-            "ncbi_fcs_gx_config": get_config(opts),
         }
     }
 
@@ -59,8 +58,13 @@ def sync_files(opts: argparse.Namespace) -> typing.Dict[str, typing.List[typing.
         "add": [
             {
                 "value": opts.tag,
+                "description": opts.description,
                 "source_manifest": opts.source_manifest,
-                "name": opts.output_dir,
+                "use_source_manifest": "1" if opts.use_source_manifest else "0",
+                "phone_home": "1" if opts.phone_home else "0",
+                "phone_home_label": opts.phone_home_label,
+                "node_cache_dir": opts.node_cache_dir,
+                "local_manifest": opts.output_dir,
             }
         ]
     }
@@ -110,24 +114,7 @@ def get_divisions(opts: argparse.Namespace) -> typing.Dict[str, typing.List[typi
     entries_dict: typing.Dict[str, typing.List[typing.Dict[str, str]]] = {"add": []}
 
     for name, gx_div in sorted(elements):
-        entries_dict["add"].append({"tag": opts.tag, "value": gx_div, "name": name})
-
-    return entries_dict
-
-
-def get_config(opts: argparse.Namespace) -> typing.Dict[str, typing.List[typing.Dict[str, str]]]:
-    entries_dict = {
-        "add": [
-            {
-                "value": opts.tag,
-                "name": opts.description,
-                "use_source_manifest": '1' if opts.use_source_manifest else '0',
-                "phone_home": '1' if opts.phone_home else '0',
-                "phone_home_label": opts.phone_home_label,
-                "node_cache_dir": opts.node_cache_dir,
-            }
-        ]
-    }
+        entries_dict["add"].append({"value": gx_div, "tag": opts.tag, "description": name})
 
     return entries_dict
 
