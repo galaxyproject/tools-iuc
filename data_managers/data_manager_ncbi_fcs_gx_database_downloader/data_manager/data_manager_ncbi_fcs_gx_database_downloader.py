@@ -12,7 +12,7 @@ def main() -> None:
 
     output_dict = {
         "data_tables": {
-            "ncbi_fcs_gx_databases": sync_files(opts),
+            "ncbi_fcs_gx_databases_ext": sync_files(opts),
             "ncbi_fcs_gx_divisions": get_divisions(opts),
         }
     }
