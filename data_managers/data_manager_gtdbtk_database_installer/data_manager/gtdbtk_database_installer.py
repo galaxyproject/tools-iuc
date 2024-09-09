@@ -104,9 +104,6 @@ def url_download(url, target_directory, meta):
             # handle the test case for the DB
             return tarball
 
-        fh.extractall(target_directory)
-        fh.close()
-        os.remove(tarball)
         # The tarball extraction will create a directory named
         # something like release202 in the target_directory, so
         # we need to move the items in that directory to the
@@ -133,7 +130,7 @@ def download(database_name, release, meta, test, out_file):
         # switch the DB to use the test case
         urls[release][
             "full"
-        ] = "https://data.gtdb.ecogenomic.org/releases/release220/220.0/VERSION.txt"
+        ] = "https://zenodo.org/records/13734217/files/release220-test.tar.gz"
 
         # make use of the test to check if all urls exists
         for _version, items in urls.items():
