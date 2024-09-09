@@ -1,4 +1,4 @@
-<tool id="metaphlan" name="MetaPhlAn" version="@TOOL_VERSION@+galaxy1" profile="@PROFILE@">
+<tool id="metaphlan" name="MetaPhlAn" version="@TOOL_VERSION@+galaxy2" profile="@PROFILE@">
     <description>to profile the composition of microbial communities</description>
     <macros>
         <import>macros.xml</import>
@@ -26,7 +26,7 @@
                 <when value="s"/>
             </conditional>
         </xml>
-        <token name="@FILE_FORMATS@">fastq,fastq.gz,fastq.bz2,fasta,fasta.gz,fasta.bz2</token>
+        <token name="@FILE_FORMATS@">fastq,fastq.gz,fastq.bz2,fasta,fasta.gz</token>
     </macros>
     <expand macro="edam_ontology"/>
     <expand macro="requirements"/>
@@ -74,13 +74,19 @@
         #if $full_ext.endswith("gz")
             zcat '$inputs.in.raw_in.in_f' > 'in_f' &&
             zcat '$inputs.in.raw_in.in_r' > 'in_r' &&
-            #set file_path="-1 in_f -2 in_r"
         #else if $full_ext.endswith("bz2")
             bzcat '$inputs.in.raw_in.in_f' > 'in_f' && 
             bzcat '$inputs.in.raw_in.in_r' > 'in_r' &&
             #set file_path="-1 in_f -2 in_r"
+            ln -s '$inputs.in.raw_in.in_f' 'in_f' &&
+            ln -s '$inputs.in.raw_in.in_r' 'in_r' &&
+        #end if
+        ## paired data has by default no special treatment, i.e. it is given as comma separated list
+        ## except iff paired subsampling where -1 and -2 must be used
+        #if $subsample.selector == 'paired'
+            #set file_path="-1 in_f -2 in_r"
         #else
-            #set file_path="-1 '%s' -2 '%s'" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
+            #set file_path="in_f,in_r"
         #end if
     #else if $inputs.in.raw_in.selector == "paired_collection"
         #set full_ext=$inputs.in.raw_in.in.forward.ext
@@ -91,13 +97,17 @@
         #if $full_ext.endswith("gz")
             zcat '$inputs.in.raw_in.in.forward' > 'in_f' &&
             zcat '$inputs.in.raw_in.in.reverse' > 'in_r' &&
-            #set file_path="-1 in_f -2 in_r"
         #else if $full_ext.endswith("bz2")
             bzcat '$inputs.in.raw_in.in.forward' > 'in_f' && 
             bzcat '$inputs.in.raw_in.in.reverse' > 'in_r' &&
+        #else
+            ln -s '$inputs.in.raw_in.in.forward' 'in_f' &&
+            ln -s '$inputs.in.raw_in.in.reverse' 'in_r' &&
+        #end if
+        #if $subsample.selector == 'paired'
             #set file_path="-1 in_f -2 in_r"
         #else
-            #set file_path="-1 '%s' -2 '%s'" % ($inputs.in.raw_in.in_f,$inputs.in.raw_in.in_r)
+            #set file_path="in_f,in_r"
         #end if
     #end if
 
@@ -979,6 +989,87 @@ python '$__tool_directory__/formatoutput.py'
                     </assert_contents>
                 </element>
             </output_collection>
+            <assert_stderr>
+                <has_text text="Downloading" negate="true"/>
+            </assert_stderr>
+        </test>
+        <!-- Paired fastq file as collection, Cached db -->
+        <test expect_num_outputs="4">
+            <section name="inputs">
+                <conditional name="in">
+                    <param name="selector" value="raw"/>
+                    <conditional name="raw_in">
+                        <param name="selector" value="paired_collection"/>
+                        <param name="in">
+                            <collection type="paired" name="pair">
+                                <element name="forward" value="SRS014464-Anterior_nares_mini.fastq" />
+                                <element name="reverse" value="SRS014464-Anterior_nares_mini.fastq" />
+                            </collection>
+                        </param>
+                    </conditional>
+                    <param name="read_min_len" value="70"/>
+                    <section name="mapping">
+                        <param name="bt2_ps" value="sensitive"/>
+                        <param name="min_mapq_val" value="5"/>
+                    </section>
+                </conditional>
+                <conditional name="db">
+                    <param name="db_selector" value="cached"/>
+                    <param name="cached_db" value="test-db-20210409"/>
+                </conditional>
+            </section>
+            <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="false"/>
+                    </conditional>
+                </conditional>
+                <param name="min_cu_len" value="2000"/>
+                <param name="organism_profiling" value="add_viruses"/>
+                <param name="stat" value="avg_g"/>
+                <param name="stat_q" value="0.2"/>
+                <param name="perc_nonzero" value="0.33"/>
+                <param name="avoid_disqm" value="true"/>
+            </section>
+            <conditional name="subsample">
+                <param name="selector" value="no"/>
+            </conditional>
+            <section name="out">
+                <param name="sample_id_key" value="SampleID"/>
+                <param name="sample_id" value="Metaphlan_Analysis"/>
+                <param name="use_group_representative" value="false"/>
+                <param name="legacy_output" value="false"/>
+                <param name="CAMI_format_output" value="false"/>
+                <param name="unclassified_estimation" value="false"/>
+                <param name="krona_output" value="false"/>
+            </section>
+            <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
+                <assert_contents>
+                    <has_text text="k__Bacteria|p__Actinobacteria|c__Actinobacteria|o__Corynebacteriales|f__Corynebacteriaceae|g__Corynebacterium|s__Corynebacterium_accolens"/>
+                    <has_text text="relative_abundance"/>
+                    <has_text text="NCBI_tax_id"/>
+                    <has_text text="clade_name"/>
+                </assert_contents>
+            </output>
+            <output name="bowtie2out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="HWI-EAS109_102883399:3:107:9938:7093/1"/>
+                    <has_text text="90240__A0A378QWM4__NCTC12877_00123"/>
+                </assert_contents>
+            </output>
+            <output name="sam_output_file" ftype="sam">
+                <assert_contents>
+                    <has_size min="8450" max="8550"/>
+                    <has_text text="SN:13076__A0A2I1PE66__CYJ72_10760"/>
+                </assert_contents>
+            </output>
+            <output name="biom_output_file" ftype="biom1" file="SRS014464-Anterior_nares.biom" compare="sim_size">
+                <assert_contents>
+                    <has_text text="k__Bacteria|p__Actinobacteria|c__Actinobacteria|o__Corynebacteriales|f__Corynebacteriaceae|g__Corynebacterium|s__Corynebacterium_accolens"/>
+                </assert_contents>
+            </output>
             <assert_stderr>
                 <has_text text="Downloading" negate="true"/>
             </assert_stderr>
