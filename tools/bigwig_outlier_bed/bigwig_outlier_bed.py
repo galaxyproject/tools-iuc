@@ -237,7 +237,7 @@ class findOut:
                     for j, seg in enumerate(bwhi):
                         seglen = seg[1] - seg[0]
                         if seglen >= self.bedwin:
-                            score = np.sum(bw[seg[0]:(seg[1]+1)]) / float(seglen)
+                            score = np.sum(bw[seg[0]:(seg[1] + 1)]) / float(seglen)
                             bedhi.append(
                                 (
                                     chr,
@@ -252,7 +252,9 @@ class findOut:
                     bwlo = self.processVals(bw, isTop=False)
                     for j, seg in enumerate(bwlo):
                         if seg[1] - seg[0] >= self.bedwin:
-                            score = -1 * np.sum(bw[seg[0]:(seg[1]+1)]) / float(seglen)
+                            score = (
+                                -1 * np.sum(bw[seg[0]:(seg[1] + 1)]) / float(seglen)
+                            )
                             bedlo.append(
                                 (
                                     chr,
