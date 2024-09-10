@@ -48,7 +48,7 @@ def _read_xml(options):
             hsp["evalue"] = hit_evalue
             hsp["startQ"] = hit_startQ
             hsp["endQ"] = hit_endQ
-            hsp["query_id"] = blast_record.query_id
+            hsp["query_id"] = blast_record.query
             hsp["cdd_id"] = aln.hit_def.split(",")[0]
             hsp["hit_id"] = aln.hit_id
             hsp["query_length"] = blast_record.query_length  # length of the query
@@ -56,7 +56,7 @@ def _read_xml(options):
             hsp["accession"] = aln.accession
             hsp["pfam_id"] = hsp["description"].split(",")[0].replace("pfam", "PF")
             log.info("Requeting Interpro for " + hsp["pfam_id"])
-            url = "https://www.ebi.ac.uk/interpro/api/entry/pfam/" + hsp["pfam_id"] + "/taxonomy/uniprot/"
+            url = "https://www.ebi.ac.uk/interpro/api/taxonomy/uniprot/entry/pfam/" + hsp["pfam_id"]
             req = request.Request(url)
             try:
                 response = request.urlopen(req)
@@ -69,13 +69,20 @@ def _read_xml(options):
                 decoded_response = encoded_response.decode()
                 payload = json.loads(decoded_response)
                 kingdoms = []
-                for item in payload["taxonomy_subset"]:
-                    lineage_string = item["lineage"]
-                    lineage = [int(i) for i in lineage_string]
-                    translation = ncbi.get_taxid_translator(lineage)
-                    names = list(translation.values())
-                    taxonomy = names[1:]  # remove 'root' at the begining
-                    kingdoms.append(taxonomy[0])
+                for item in payload["results"][:6]:
+                    if item["metadata"]["parent"] is not None:
+                        lineage_parent = item["metadata"]["parent"]
+                        translation = ncbi.get_taxid_translator([int(lineage_parent)])
+                        names = list(translation.values())
+                        if len(names) > 0:
+                            if names[0] == "root":
+                                taxonomy = names[1:]  # remove 'root' at the begining
+                            else:
+                                taxonomy = names
+                        else:
+                            taxonomy = names
+                        if len(taxonomy) != 0:
+                            kingdoms.append(taxonomy[0])
                 frequency = {kingdom: kingdoms.count(kingdom) for kingdom in kingdoms}  # {'Pseudomonadota': 9, 'cellular organisms': 4}
                 sorted_freq = dict(sorted(frequency.items(), key=lambda x: x[1], reverse=True))
                 concat_freq = ";".join("{}({})".format(k, v) for k, v in sorted_freq.items())
