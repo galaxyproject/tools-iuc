@@ -140,7 +140,6 @@ class findOut:
         This only gives non-zero values at the segment boundaries where there's a change, so those zeros are all removed in bwexdnz
         leaving an array of segment start/end positions. That's twisted around into an array of start/end coordinates.
         Magical. Fast. Could do the same for means or medians over windows for sparse bigwigs like repeat regions.
-        
         """
         if isTop:
             bwex = np.r_[False, bw >= self.bwtop, False]  # extend with 0s
