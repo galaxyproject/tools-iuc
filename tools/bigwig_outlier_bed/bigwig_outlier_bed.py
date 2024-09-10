@@ -140,16 +140,14 @@ class findOut:
         This only gives non-zero values at the segment boundaries where there's a change, so those zeros are all removed in bwexdnz
         leaving an array of segment start/end positions. That's twisted around into an array of start/end coordinates.
         Magical. Fast. Could do the same for means or medians over windows for sparse bigwigs like repeat regions.
-        The first possible interval correctly starts at 0 but all others start 1 short of where they should be for zero open.
-        All interval ends need to be padded because to comply with UCSC half closed end positions that are not included.
-
+        
         """
         if isTop:
             bwex = np.r_[False, bw >= self.bwtop, False]  # extend with 0s
         else:
             bwex = np.r_[False, bw <= self.bwbot, False]
         bwexd = np.diff(bwex)
-        bwexdnz = bwexd.nonzero()[0]  # returns the indices of the start and end transitions of each segment - nice!
+        bwexdnz = bwexd.nonzero()[0]  # start and end transition of each segment - nice!
         bwregions = np.reshape(bwexdnz, (-1, 2))
         return bwregions
 
@@ -197,7 +195,6 @@ class findOut:
         restab = []
         bwlabels = self.bwlabels
         bwnames = self.bwnames
-        bwnames.sort()
         reshead = "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
