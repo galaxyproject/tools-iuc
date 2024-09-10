@@ -149,7 +149,7 @@ class findOut:
         else:
             bwex = np.r_[False, bw <= self.bwbot, False]
         bwexd = np.diff(bwex)
-        bwexdnz = bwexd.nonzero()[0] # returns the indices of the start and end transitions of each segment - nice!
+        bwexdnz = bwexd.nonzero()[0]  # returns the indices of the start and end transitions of each segment - nice!
         bwregions = np.reshape(bwexdnz, (-1, 2))
         return bwregions
 
