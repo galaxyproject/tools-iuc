@@ -48,7 +48,7 @@ def _read_xml(options):
             hsp["evalue"] = hit_evalue
             hsp["startQ"] = hit_startQ
             hsp["endQ"] = hit_endQ
-            hsp["query_id"] = blast_record.query_id
+            hsp["query_id"] = blast_record.query
             hsp["cdd_id"] = aln.hit_def.split(",")[0]
             hsp["hit_id"] = aln.hit_id
             hsp["query_length"] = blast_record.query_length  # length of the query
