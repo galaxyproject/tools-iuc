@@ -96,10 +96,10 @@ def write_ssrs(args):
         subprocess.run(cmd)
     else:
         bed.sort()
-        obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in bed]
         with open(args.bed, "w") as outbed:
-            outbed.write("\n".join(obed))
-            outbed.write("\n")
+            for row in bed:
+                srow = "%s\t%d\t%d\t%s_%d\t%d\n" % row
+                outbed.write(srow)
 
 
 if __name__ == "__main__":
