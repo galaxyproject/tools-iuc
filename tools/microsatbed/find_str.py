@@ -7,6 +7,7 @@ from pyfastx import Fastx  # 0.5.2
 """
 Allows all STR or those for a subset of motifs to be written to a bed file
 Designed to build some of the microsatellite tracks from https://github.com/arangrhie/T2T-Polish/tree/master/pattern for the VGP.
+Note that there are only four possible types of dinucleotide repeat, because CA = AC = GT = TG, GA = AG = CT = TC, AT = TA, and GC = CG.
 """
 
 
@@ -22,7 +23,7 @@ def getDensity(name, bed, chrlen, winwidth):
         bin = int(b[1] / winwidth)
         d[bin] += nt
     bedg = [
-        (name, (x * winwidth), ((x + 1) * winwidth) - 1, float(d[x]))
+        (name, (x * winwidth), ((x + 1) * winwidth), float(d[x]))
         for x in range(nwin + 1)
         if (x + 1) * winwidth <= chrlen
     ]
@@ -82,8 +83,8 @@ def write_ssrs(args):
                 cbed.append(row)
         if args.bigwig:
             w = getDensity(name, cbed, chrlen, args.winwidth)
-            wig += w
-        bed += cbed
+            wig.extend(w)
+        bed.extend(cbed)
     if args.bigwig:
         wig.sort()
         with open("temp.bedg", "w") as bw:
@@ -98,7 +99,7 @@ def write_ssrs(args):
         bed.sort()
         with open(args.bed, "w") as outbed:
             for row in bed:
-               outbed.write("%s\t%d\t%d\t%s_%d\t%d\n" % row)
+                outbed.write("%s\t%d\t%d\t%s_%d\t%d\n" % row)
 
 
 if __name__ == "__main__":
