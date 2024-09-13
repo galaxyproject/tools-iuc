@@ -1,0 +1,114 @@
+---
+title: "decontam_docs"
+output: html_document
+date: "2024-09-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install
+
+```{bash install}
+mamba create --name decontam bioconductor-decontam
+mamba activate decontam
+mamba install bioconda::bioconductor-phyloseq
+mamba install r-tidyverse
+rstudio
+```
+
+### Check correct R home
+
+```{r home}
+R.home()
+```
+
+## Get test data
+
+Create test data for wrapper, it should be able to use a matrix and vector as well as phyloseq object as input.
+
+```{r store test data}
+R.home()
+library(phyloseq); packageVersion("phyloseq")
+library(ggplot2); packageVersion("ggplot2")
+library(decontam); packageVersion("decontam")
+
+ps <- readRDS(system.file("extdata", "MUClite.rds", package="decontam"))
+
+# get otu table
+otu <- as(otu_table(ps), "matrix")
+head(otu[,1:10], 10)
+
+# add control column to sample data
+sample_data(ps)$control <- sample_data(ps)$Sample_or_Control == "Control Sample"
+# store as 0 and 1
+sample_data(ps)$control <- as.integer(sample_data(ps)$control)
+head(sample_data(ps), 1000)
+
+metadata <- as(sample_data(ps), "matrix")
+head(metadata, 1000)
+
+# store test data
+
+write.table(data.frame("SampleID"=rownames(otu),otu), # stores the row names as column, see https://stackoverflow.com/questions/2478352/write-table-writes-unwanted-leading-empty-column-to-header-when-has-rownames
+            file=file.path(getwd(), "otu.csv"), 
+            sep = "\t", 
+            row.names=FALSE)
+write.table(data.frame("SampleID"=rownames(metadata),metadata),
+            file=file.path(getwd(), "metadata.csv"), 
+            sep = "\t",
+            row.names=FALSE)
+
+```
+
+## Load test data
+
+```{r load test data}
+library(tidyverse)
+#heights <- read_csv("data/heights.csv")
+
+# get OTU table (first column is the OTU/ASV ID)
+otu <- read_tsv(file.path(getwd(), "otu.csv"))
+otu2 <- otu %>% tibble::column_to_rownames(colnames(otu)[1]) #use first column as colname
+OTU <- otu_table(otu2,  taxa_are_rows = FALSE)
+
+# get metadata table must have matching OTU/ASV ID in first column
+meta <- read_tsv(file.path(getwd(), "metadata.csv"))
+meta2 <- meta %>% tibble::column_to_rownames(colnames(meta)[1]) #use first column as colname
+
+control_column = "control"
+
+# convert 0/1 to bool for the control column and store in control column
+meta2$control <- as.logical(meta2[[control_column]])
+sampledata <- sample_data(meta2)
+
+# create dummy tax table (actually not needed, but nice to learn how to load phyloseq objects)
+taxmat <- as.data.frame(matrix(sample(letters, 10, replace = TRUE), nrow = ncol(otu2), ncol = 7))
+rownames(taxmat) <- colnames(otu2)
+TAX <- tax_table(as.matrix(taxmat))
+
+ps <- phyloseq(OTU, TAX, sampledata)
+```
+
+```{r plot library size vs control}
+df <- as.data.frame(sample_data(ps)) # Put sample_data into a ggplot-friendly data.frame
+df$LibrarySize <- sample_sums(ps)
+df <- df[order(df$LibrarySize),]
+df$Index <- seq(nrow(df))
+ggplot(data=df, aes(x=Index, y=LibrarySize, color=control)) + geom_point()
+```
+
+```{r plot prevalence}
+contamdf.prev <- isContaminant(ps, method="prevalence", neg="control", threshold=0.5)
+table(contamdf.prev$contaminant)
+
+ps.pa <- transform_sample_counts(ps, function(abund) 1*(abund>0))
+ps.pa.neg <- prune_samples(sample_data(ps.pa)$control == TRUE, ps.pa)
+ps.pa.pos <- prune_samples(sample_data(ps.pa)$control == FALSE, ps.pa)
+# Make data.frame of prevalence in positive and negative samples
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg),
+                      contaminant=contamdf.prev$contaminant)
+ggplot(data=df.pa, aes(x=pa.neg, y=pa.pos, color=contaminant)) + geom_point() +
+  xlab("Prevalence (Negative Controls)") + ylab("Prevalence (True Samples)")
+```
