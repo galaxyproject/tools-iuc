@@ -86,9 +86,9 @@ def write_ssrs(args):
         bed += cbed
     if args.bigwig:
         wig.sort()
-        bedg = ["%s %d %d %.2f" % x for x in wig]
         with open("temp.bedg", "w") as bw:
-            bw.write("\n".join(bedg))
+            for row in wig:
+                bw.write("%s %d %d %.2f\n" % row)
         chroms = ["%s\t%s" % (x, chrlens[x]) for x in chrlens.keys()]
         with open("temp.chromlen", "w") as cl:
             cl.write("\n".join(chroms))
@@ -98,8 +98,7 @@ def write_ssrs(args):
         bed.sort()
         with open(args.bed, "w") as outbed:
             for row in bed:
-                srow = "%s\t%d\t%d\t%s_%d\t%d\n" % row
-                outbed.write(srow)
+               outbed.write("%s\t%d\t%d\t%s_%d\t%d\n" % row)
 
 
 if __name__ == "__main__":
