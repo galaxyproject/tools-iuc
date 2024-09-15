@@ -155,10 +155,9 @@ class findOut:
         potentially multiple
         """
         bed.sort()
-        beds = ["%s\t%d\t%d\t%s\t%d" % x for x in bed]
         with open(bedfname, "w") as bedf:
-            bedf.write("\n".join(beds))
-            bedf.write("\n")
+            for b in bed:
+                bedf.write("%s\t%d\t%d\t%s\t%d\n" % b)
 
     def makeTableRow(self, bw, bwlabel, chr):
         """
