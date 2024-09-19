@@ -1,0 +1,617 @@
+<tool id="staramr_search" name="staramr" version="@VERSION@+galaxy1" profile="16.04">
+    <description>Scans genome assemblies against the ResFinder, PlasmidFinder, and PointFinder databases searching for AMR genes.</description>
+    <macros>
+        <token name="@VERSION@">0.10.0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@VERSION@">staramr</requirement>
+	<!-- The staramr conda package includes the mlst software, but the list of schemes 
+	     changes depending on the version. I specify the exact version here to make sure
+             the list of schemes provided is consistent -->
+	<requirement type="package" version="2.23.0">mlst</requirement>
+    </requirements>
+    <version_command>staramr --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+
+        #set $named_genomes = ''
+        #for $genome in $genomes
+            #set $_named_genome = re.sub(r'(\s|\(|\)|\/)', '_', '"{}.fasta"'.format($genome.element_identifier))
+            ln -s '$genome' $_named_genome &&
+            #set $named_genomes = $named_genomes + ' ' + $_named_genome
+        #end for
+
+        #set $excel_proper_extension = 'results.xlsx'
+        ln -s '$excel' $excel_proper_extension &&
+
+        staramr search
+
+        --nprocs "\${GALAXY_SLOTS:-1}"
+
+        --genome-size-lower-bound $advanced.genome_size_lower_bound
+        --genome-size-upper-bound $advanced.genome_size_upper_bound
+        --minimum-N50-value $advanced.minimum_N50_value
+        --minimum-contig-length $advanced.minimum_contig_length
+        --unacceptable-number-contigs $advanced.unacceptable_number_contigs
+
+        --pid-threshold $advanced.pid_threshold
+        --percent-length-overlap-resfinder $advanced.plength_resfinder
+        --percent-length-overlap-plasmidfinder $advanced.plength_plasmidfinder
+        --percent-length-overlap-pointfinder $advanced.plength_pointfinder
+
+        #if str($advanced.mlst_scheme) != 'auto':
+            --mlst-scheme '${advanced.mlst_scheme}'
+        #end if
+
+        $advanced.report_all_blast
+        $advanced.exclude_negatives
+        $advanced.exclude_resistance_phenotypes
+
+        #if str($advanced.exclude_genes.exclude_genes_condition) == 'custom'
+            --exclude-genes-file '${advanced.exclude_genes.exclude_genes_file}'
+        #elif str($advanced.exclude_genes.exclude_genes_condition) == 'none'
+            --no-exclude-genes
+        #end if
+
+
+        #if str($advanced.complex_mutations.complex_mutations_condition) == 'custom'
+	    --complex-mutations-file '${advanced.complex_mutations.complex_mutations_file}'
+	#end if
+
+        #if str($advanced.plasmidfinder_type) != 'include_all'
+            --plasmidfinder-database-type '${advanced.plasmidfinder_type}'
+        #end if
+
+        --output-summary '$summary'
+        --output-detailed-summary '$detailed_summary'
+        --output-resfinder '$resfinder'
+        --output-plasmidfinder '$plasmidfinder'
+        --output-settings '$settings'
+        --output-excel '$excel_proper_extension'
+        --output-mlst '$mlst'
+
+        --output-hits-dir staramr_hits
+
+        #if str($pointfinder_db.use_pointfinder) != 'disabled'
+            --output-pointfinder '$pointfinder'
+            #if str($pointfinder_db.use_pointfinder) == 'custom'
+                --pointfinder-organism '${pointfinder_db.pointfinder_custom}'
+            #else
+                --pointfinder-organism '${pointfinder_db.use_pointfinder}'
+            #end if
+        #end if
+
+        $named_genomes
+    ]]></command>
+    <inputs>
+        <param type="data" name="genomes" format="fasta" multiple="true"/>
+        <conditional name="pointfinder_db">
+            <param name="use_pointfinder" type="select" label="Enable scanning for point mutations using the PointFinder database">
+                <option value="disabled" selected="true">Disable PointFinder</option>                
+                <option value="campylobacter">Campylobacter</option>
+                <option value="enterococcus_faecalis">enterococcus_faecalis</option>
+                <option value="enterococcus_faecium">enterococcus_faecium</option>
+                <option value="escherichia_coli">escherichia_coli</option>      
+                <option value="helicobacter_pylori">helicobacter_pylori</option>          
+                <option value="salmonella">Salmonella</option>
+                <option value="custom">Unvalidated</option>
+            </param>
+	    <!-- These three values don't have any additional parameters as they are used as-is to control the PointFinder organism -->
+	    <when value="disabled"/>
+        <when value="campylobacter"/>
+        <when value="enterococcus_faecalis"/>
+        <when value="enterococcus_faecium"/>
+        <when value="escherichia_coli"/>
+        <when value="helicobacter_pylori"/>
+	    <when value="salmonella"/>
+
+	    <!-- This option provides the ability to select among a number of custom/unvalidated PointFinder organisms -->
+            <when value="custom">
+                <param name="pointfinder_custom" type="select" label="PointFinder organism (unvalidated)" help="Select one of the unvalidated PointFinder organisms to use for scanning for point mutations. These have not been fully validated as compatible with staramr so caution is recommended when interpreting results.">                   
+                    <option value="klebsiella">klebsiella</option>
+                    <option value="mycobacterium_tuberculosis">mycobacterium_tuberculosis</option>
+                    <option value="neisseria_gonorrhoeae">neisseria_gonorrhoeae</option>
+                    <option value="plasmodium_falciparum">plasmodium_falciparum</option>
+                    <option value="staphylococcus_aureus">staphylococcus_aureus</option>
+                </param>
+            </when>
+        </conditional>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param name="pid_threshold" type="float" label="Percent identity threshold for BLAST" value="98.0"
+                   min="0" max="100" help="(--pid-threshold)" />
+            <param name="plength_resfinder" type="float" label="Percent length overlap of BLAST hit for ResFinder database" value="60.0"
+                   min="0" max="100" help="(--percent-length-overlap-resfinder)" />
+            <param name="plength_pointfinder" type="float" label="Percent length overlap of BLAST hit for PointFinder database" value="95.0"
+                   min="0" max="100" help="(--percent-length-overlap-pointfinder)" />
+            <param name="plength_plasmidfinder" type="float" label="Percent length overlap of BLAST hit for PlasmidFinder database" value="60.0"
+                   min="0" max="100" help="(--percent-length-overlap-plasmidfinder)" />
+            <param name="genome_size_lower_bound" type="integer" label="The lower bound for our genome size for the quality metrics" value="4000000"
+                   help="(--genome-size-lower-bound)" />
+            <param name="genome_size_upper_bound" type="integer" label="The upper bound for our genome size for the quality metrics" value="6000000"
+                   help="(--genome-size-upper-bound)" />
+            <param name="minimum_N50_value" type="integer" label="The minimum N50 value for the quality metrics" value="10000"
+                   help="(--minimum-N50-value)" />
+            <param name="minimum_contig_length" type="integer" label="The minimum contig length for the quality metrics" value="300"
+                   help="(--minimum-contig-length)" />
+            <param name="unacceptable_number_contigs" type="integer" label="The number of contigs, under the minimum contig length which is unacceptable for the quality metrics" value="1000"
+                   help="(--unacceptable-number-contigs)" />
+            <param name="report_all_blast" type="boolean" label="Report all BLAST results" truevalue="--report-all-blast" falsevalue=""
+                   help="Report all BLAST results (includes overlapping hits, mainly for debugging)" />
+            <param name="exclude_negatives" type="boolean" label="Exclude negative (non-resistant) results" truevalue="--exclude-negatives" falsevalue="" />
+            <param name="exclude_resistance_phenotypes" type="boolean" label="Exclude resistance phenotypes" truevalue="--exclude-resistance-phenotypes" falsevalue="" />
+            <param name="mlst_scheme" type="select" label="MLST Scheme">
+		<option value="auto" selected="true">Automatic</option>
+                <option value="aactinomycetemcomitans">aactinomycetemcomitans</option>
+                <option value="abaumannii">abaumannii</option>
+                <option value="abaumannii_2">abaumannii_2</option>
+                <option value="achromobacter">achromobacter</option>
+                <option value="aeromonas">aeromonas</option>
+                <option value="aphagocytophilum">aphagocytophilum</option>
+                <option value="arcobacter">arcobacter</option>
+                <option value="bbacilliformis">bbacilliformis</option>
+                <option value="bcc">bcc</option>
+                <option value="bcereus">bcereus</option>
+                <option value="bfragilis">bfragilis</option>
+                <option value="bhenselae">bhenselae</option>
+                <option value="blicheniformis_14">blicheniformis_14</option>
+                <option value="bordetella_3">bordetella_3</option>
+                <option value="borrelia">borrelia</option>
+                <option value="bpseudomallei">bpseudomallei</option>
+                <option value="brachyspira">brachyspira</option>
+                <option value="brachyspira_2">brachyspira_2</option>
+                <option value="brachyspira_3">brachyspira_3</option>
+                <option value="brachyspira_4">brachyspira_4</option>
+                <option value="brachyspira_5">brachyspira_5</option>
+                <option value="brucella">brucella</option>
+                <option value="bsubtilis">bsubtilis</option>
+                <option value="bwashoensis">bwashoensis</option>
+                <option value="campylobacter">campylobacter</option>
+                <option value="campylobacter_nonjejuni">campylobacter_nonjejuni</option>
+                <option value="campylobacter_nonjejuni_2">campylobacter_nonjejuni_2</option>
+                <option value="campylobacter_nonjejuni_3">campylobacter_nonjejuni_3</option>
+                <option value="campylobacter_nonjejuni_4">campylobacter_nonjejuni_4</option>
+                <option value="campylobacter_nonjejuni_5">campylobacter_nonjejuni_5</option>
+                <option value="campylobacter_nonjejuni_6">campylobacter_nonjejuni_6</option>
+                <option value="campylobacter_nonjejuni_7">campylobacter_nonjejuni_7</option>
+                <option value="campylobacter_nonjejuni_8">campylobacter_nonjejuni_8</option>
+                <option value="campylobacter_nonjejuni_9">campylobacter_nonjejuni_9</option>
+                <option value="cbotulinum">cbotulinum</option>
+                <option value="cdifficile">cdifficile</option>
+                <option value="cfreundii">cfreundii</option>
+                <option value="chlamydiales">chlamydiales</option>
+                <option value="cmaltaromaticum">cmaltaromaticum</option>
+                <option value="cperfringens">cperfringens</option>
+                <option value="cronobacter">cronobacter</option>
+                <option value="csepticum">csepticum</option>
+                <option value="diphtheria_3">diphtheria_3</option>
+                <option value="dnodosus">dnodosus</option>
+                <option value="ecloacae">ecloacae</option>
+                <option value="ecoli">ecoli</option>
+                <option value="ecoli_achtman_4">ecoli_achtman_4</option>
+                <option value="edwardsiella">edwardsiella</option>
+                <option value="efaecalis">efaecalis</option>
+                <option value="efaecium">efaecium</option>
+                <option value="fpsychrophilum">fpsychrophilum</option>
+                <option value="gallibacterium">gallibacterium</option>
+                <option value="geotrichum">geotrichum</option>
+                <option value="hcinaedi">hcinaedi</option>
+                <option value="helicobacter">helicobacter</option>
+                <option value="hinfluenzae">hinfluenzae</option>
+                <option value="hparasuis">hparasuis</option>
+                <option value="hsuis">hsuis</option>
+                <option value="kaerogenes">kaerogenes</option>
+                <option value="kingella">kingella</option>
+                <option value="klebsiella">klebsiella</option>
+                <option value="koxytoca">koxytoca</option>
+                <option value="leptospira">leptospira</option>
+                <option value="leptospira_2">leptospira_2</option>
+                <option value="leptospira_3">leptospira_3</option>
+                <option value="liberibacter">liberibacter</option>
+                <option value="listeria_2">listeria_2</option>
+                <option value="llactis_phage">llactis_phage</option>
+                <option value="lsalivarius">lsalivarius</option>
+                <option value="mabscessus">mabscessus</option>
+                <option value="magalactiae">magalactiae</option>
+                <option value="manserisalpingitidis">manserisalpingitidis</option>
+                <option value="mbovis_2">mbovis_2</option>
+                <option value="mcanis">mcanis</option>
+                <option value="mcaseolyticus">mcaseolyticus</option>
+                <option value="mcatarrhalis_achtman_6">mcatarrhalis_achtman_6</option>
+                <option value="mflocculare">mflocculare</option>
+                <option value="mgallisepticum">mgallisepticum</option>
+                <option value="mgallisepticum_2">mgallisepticum_2</option>
+                <option value="mhaemolytica">mhaemolytica</option>
+                <option value="mhominis_3">mhominis_3</option>
+                <option value="mhyopneumoniae">mhyopneumoniae</option>
+                <option value="mhyorhinis">mhyorhinis</option>
+                <option value="miowae">miowae</option>
+                <option value="mplutonius">mplutonius</option>
+                <option value="mpneumoniae">mpneumoniae</option>
+                <option value="msciuri">msciuri</option>
+                <option value="msynoviae">msynoviae</option>
+                <option value="mycobacteria_2">mycobacteria_2</option>
+                <option value="neisseria">neisseria</option>
+                <option value="oralstrep">oralstrep</option>
+                <option value="orhinotracheale">orhinotracheale</option>
+                <option value="otsutsugamushi">otsutsugamushi</option>
+                <option value="pacnes_3">pacnes_3</option>
+                <option value="paeruginosa">paeruginosa</option>
+                <option value="pdamselae">pdamselae</option>
+                <option value="pfluorescens">pfluorescens</option>
+                <option value="pgingivalis">pgingivalis</option>
+                <option value="plarvae">plarvae</option>
+                <option value="pmultocida">pmultocida</option>
+                <option value="pmultocida_2">pmultocida_2</option>
+                <option value="ppentosaceus">ppentosaceus</option>
+                <option value="pputida">pputida</option>
+                <option value="psalmonis">psalmonis</option>
+                <option value="ranatipestifer">ranatipestifer</option>
+                <option value="rhodococcus">rhodococcus</option>
+                <option value="sagalactiae">sagalactiae</option>
+                <option value="saureus">saureus</option>
+                <option value="sbsec">sbsec</option>
+                <option value="scanis">scanis</option>
+                <option value="schromogenes">schromogenes</option>
+                <option value="sdysgalactiae">sdysgalactiae</option>
+                <option value="senterica_achtman_2">senterica_achtman_2</option>
+                <option value="sepidermidis">sepidermidis</option>
+                <option value="sgallolyticus">sgallolyticus</option>
+                <option value="shaemolyticus">shaemolyticus</option>
+                <option value="shewanella">shewanella</option>
+                <option value="shominis">shominis</option>
+                <option value="sinorhizobium">sinorhizobium</option>
+                <option value="smaltophilia">smaltophilia</option>
+                <option value="spneumoniae">spneumoniae</option>
+                <option value="spseudintermedius">spseudintermedius</option>
+                <option value="spyogenes">spyogenes</option>
+                <option value="ssuis">ssuis</option>
+                <option value="staphlugdunensis">staphlugdunensis</option>
+                <option value="sthermophilus">sthermophilus</option>
+                <option value="streptomyces">streptomyces</option>
+                <option value="streptothermophilus">streptothermophilus</option>
+                <option value="suberis">suberis</option>
+                <option value="szooepidemicus">szooepidemicus</option>
+                <option value="taylorella">taylorella</option>
+                <option value="tenacibaculum">tenacibaculum</option>
+                <option value="tpallidum">tpallidum</option>
+                <option value="ureaplasma">ureaplasma</option>
+                <option value="vcholerae">vcholerae</option>
+                <option value="vcholerae_2">vcholerae_2</option>
+                <option value="vibrio">vibrio</option>
+                <option value="vparahaemolyticus">vparahaemolyticus</option>
+                <option value="vtapetis">vtapetis</option>
+                <option value="vvulnificus">vvulnificus</option>
+                <option value="wolbachia">wolbachia</option>
+                <option value="xfastidiosa">xfastidiosa</option>
+                <option value="ypseudotuberculosis_achtman_3">ypseudotuberculosis_achtman_3</option>
+                <option value="yruckeri">yruckeri</option>
+            </param>
+            <conditional name="exclude_genes">
+                <param name="exclude_genes_condition" type="select" label="Exclude certain AMR genes from the results">
+                    <option value="default" selected="true">Exclude default list of AMR genes</option>
+                    <option value="custom">Provide a custom list of AMR genes to exclude</option>
+                    <option value="none">Do not exclude any AMR genes</option>
+                </param>
+                <when value="default" />
+                <when value="custom">
+                    <param type="data" name="exclude_genes_file" format="txt,tabular" label="Exclude genes file" help="Pass a file containing a list of genes to exclude from the ResFinder/PointFinder results" />
+                </when>
+                <when value="none" />
+       	    </conditional>
+            <conditional name="complex_mutations">
+                <param name="complex_mutations_condition" type="select" label="Provide a custom list of complex mutations">
+                    <option value="default" selected="true">Use default list of complex mutations</option>
+		    <option value="custom">Provide a custom list of complex mutations</option>
+                </param>
+                <when value="default" />
+                <when value="custom">
+                    <param type="data" name="complex_mutations_file" format="txt,tabular" label="Complex mutations file" help="Pass a file containing a list of complex mutations to group (if present) in the PointFinder results" />
+                </when>
+            </conditional>
+            <param name="plasmidfinder_type" type="select" label="Specify PlasmidFinder Database type">
+                <option value="include_all" selected="true">Include all available database types</option>
+                <option value="gram_positive">Gram Positive</option>
+                <option value="enterobacteriaceae">Enterobacteriaceae</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+    <data format="tabular" name="mlst" label="${tool.name} on ${on_string}: mlst.tsv" />
+        <data format="tabular" name="summary" label="${tool.name} on ${on_string}: summary.tsv" />
+        <data format="tabular" name="detailed_summary" label="${tool.name} on ${on_string}: detailed_summary.tsv" />
+        <data format="tabular" name="resfinder" label="${tool.name} on ${on_string}: resfinder.tsv" />
+        <data format="tabular" name="plasmidfinder" label="${tool.name} on ${on_string}: plasmidfinder.tsv" />
+        <data format="tabular" name="pointfinder" label="${tool.name} on ${on_string}: pointfinder.tsv">
+            <filter>pointfinder_db['use_pointfinder'] != "disabled"</filter>
+        </data>
+        <data format="txt" name="settings" label="${tool.name} on ${on_string}: settings.txt" />
+        <data format="xlsx" name="excel" label="${tool.name} on ${on_string}: results.xlsx" />
+        <collection name="blast_hits" type="list" label="${tool.name} on ${on_string}: hits">
+            <discover_datasets pattern="__name_and_ext__" directory="staramr_hits" />
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="9">
+            <param name="genomes" value="16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+            <param name="use_pointfinder" value="salmonella" />
+
+            <output name="summary" file="test1-summary.tsv" ftype="tabular" />
+            <output name="detailed_summary" file="test1-detailed-summary.tsv" ftype="tabular" />
+            <output name="resfinder" file="test1-resfinder.tsv" ftype="tabular" />
+            <output name="plasmidfinder" file="test1-plasmidfinder.tsv" ftype="tabular" />
+	    <output name="pointfinder" file="test1-pointfinder.tsv" ftype="tabular" />
+            <output_collection name="blast_hits" type="list">
+                <element name="resfinder_16S-rc_gyrA-rc_beta-lactam.fsa" file="test1-hits/resfinder_16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+                <element name="pointfinder_16S-rc_gyrA-rc_beta-lactam.fsa" file="test1-hits/pointfinder_16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="9">
+            <param name="genomes" value="16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+            <param name="use_pointfinder" value="escherichia_coli" />
+
+            <output name="summary" file="test1-summary-ecoli.tsv" ftype="tabular" />
+            <output name="detailed_summary" file="test1-detailed-summary-ecoli.tsv" ftype="tabular" />
+            <output name="resfinder" file="test1-resfinder.tsv" ftype="tabular" />
+            <output name="plasmidfinder" file="test1-plasmidfinder.tsv" ftype="tabular" />
+            <output name="pointfinder" file="test1-pointfinder-ecoli.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+
+            <output name="summary" file="test2-summary.tsv" ftype="tabular" />
+            <output name="resfinder" file="test2-resfinder.tsv" ftype="tabular" />
+            <output_collection name="blast_hits" type="list">
+                <element name="resfinder_16S-rc_gyrA-rc_beta-lactam.fsa" file="test2-hits/resfinder_16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+            <section name="advanced">
+                <param name="mlst_scheme" value="listeria_2" />
+            </section>
+            <output name="mlst" file="mlst.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="16S-rc_gyrA-rc_beta-lactam.fsa" ftype="fasta" />
+            <param name="pid_threshold" value="99.8" />
+
+            <output name="summary" file="test3-summary.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="16S rc_gyrA rc_beta-lactam spaces (extra:characters).fsa" ftype="fasta" />
+            <param name="pid_threshold" value="99.8" />
+
+            <output name="summary" file="test4-summary.tsv" ftype="tabular" />
+        </test>
+	<test expect_num_outputs="8">
+            <param name="genomes" value="test-aminoglycoside.fsa" ftype="fasta" />
+
+            <output name="summary" file="test5-summary.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="test-aminoglycoside.fsa" ftype="fasta" />
+            <param name="exclude_genes_condition" value="none" />
+
+            <output name="summary" file="test6-summary.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="test-aminoglycoside.fsa" ftype="fasta" />
+            <param name="exclude_genes_condition" value="custom" />
+            <param name="exclude_genes_file" value="genes_to_exclude.tsv" />
+
+            <output name="summary" file="test5-summary.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="8">
+            <param name="genomes" value="test-aminoglycoside.fsa" ftype="fasta" />
+            <param name="genome_size_lower_bound" value="1" />
+            <param name="genome_size_upper_bound" value="10" />
+
+            <output name="summary" file="test8-summary.tsv" ftype="tabular"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+staramr
+=======
+
+staramr_ scans bacterial genome contigs against both the ResFinder_, PlasmidFinder_ and PointFinder_ databases (used by their respective webservices_) and compiles a summary report of detected antimicrobial resistance genes.
+
+Usage
+-----
+
+1. Select your genome contigs (in FASTA format).
+2. Select whether or not you wish to scan your genome for point mutations giving antimicrobial resistance using the PointFinder database. This requires you to specify the specific organism you are scanning.
+3. Run the tool.
+
+Input
+-----
+
+Genomes
+```````
+
+staramr_ takes as input one or more assembled genomes (in FASTA format) to search for AMR genes.
+
+Exclude genes file
+``````````````````
+
+Setting **Provide a custom list of AMR genes to exclude** in the **Advanced options** allows you to pass a file containing a list of genes to exclude from the results. The file must start with a line **#gene_id** and the gene names must correspond to the sequence IDs in the ResFinder/PointFinder databases.  For example:
+
+::
+
+    #gene_id
+    aac(6')-Iaa_1_NC_003197
+    ColpVC_1__JX133088
+
+Complex mutations file
+``````````````````````
+
+Complex mutations describe multiple point mutations that must be simultaneously present in order to confer resistance. Complex mutations may be specified by the user using a TSV-formatted file with the following format:
+
+::
+
+    positions    mandatory    phenotype
+    mutation(s)  mutation(s)  phenotype
+
+Where "positions" are all the point mutations to group into the complex mutation (optional and mandatory), "mandatory" are all the point mutations that must be present for the complex mutation to be reported (mandatory is a subset of positions), and phenotype is the phenotype that is conferred when this set of mutations is present.
+
+Output
+------
+
+There are 6 different output files produced by `staramr` as well as a collection of additional files.
+
+mlst.tsv
+````````````````````
+
+A tabular file of each multi-locus sequence type (MLST) and it's corresponding locus/alleles, one genome per line.
+
++------------+---------------------+---------------+---------+---------+---------+---------+---------+---------+----------+
+| Isolate ID | Scheme              | Sequence Type | Locus 1 | Locus 2 | Locus 3 | Locus 4 | Locus 5 | Locus 6 | Locus 7  |
++============+=====================+===============+=========+=========+=========+=========+=========+=========+==========+
+| SRR1952908 | senterica_achtman_2 | 11            | aroC(5) | dnaN(2) | hemD(3) | hisD(7) | purE(6) | sucA(6) | thrA(11) |
+| SRR1952926 | senterica_achtman_2 | 11            | aroC(5) | dnaN(2) | hemD(3) | hisD(7) | purE(6) | sucA(6) | thrA(11) |
++------------+---------------------+---------------+---------+---------+---------+---------+---------+---------+----------+
+
+
+
+summary.tsv
+```````````
+
+A summary of all detected AMR genes/mutations in each genome, one genome per line.
+
+
++------------+----------------+-----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------+---------------------+---------------+---------------+-----------+---------------------------------------------------+-------------------------+
+| Isolate ID | Quality Module | Genotype                                                  | Predicted Phenotype                                                                                       | CGE Predicted Phenotype                                                                                                                                                                   | Plasmid                                      | Scheme              | Sequence Type | Genome Length | N50 value | Number of Contigs Greater Than Or Equal To 300 bp | Quality Module Feedback |
++============+================+===========================================================+===========================================================================================================+===========================================================================================================================================================================================+==============================================+=====================+===============+===============+===========+===================================================+=========================+
+| SRR1952908 | Passed         | aadA1, aadA2, blaTEM-57, cmlA1, gyrA (S83Y), sul3, tet(A) | streptomycin, ampicillin, chloramphenicol, ciprofloxacin I/R, nalidixic acid, sulfisoxazole, tetracycline | Spectinomycin, Streptomycin, Amoxicillin, Ampicillin, Cephalothin, Piperacillin, Ticarcillin, Chloramphenicol, Nalidixic acid, Ciprofloxacin, Sulfamethoxazole, Doxycycline, Tetracycline | ColpVC, IncFIB(S), IncFII(S), IncI1-I(Alpha) | senterica_achtman_2 | 11            | 4785500       | 250423    | 41                                                |                         |
+| SRR1952926 | Passed         | blaTEM-57, gyrA (S83Y), tet(A)                            | ampicillin, ciprofloxacin I/R, nalidixic acid, tetracycline                                               | Amoxicillin, Ampicillin, Cephalothin, Piperacillin, Ticarcillin, Nalidixic acid, Ciprofloxacin, Doxycycline, Tetracycline                                                                 | ColpVC, IncFIB(S), IncFII(S), IncI1-I(Alpha) | senterica_achtman_2 | 11            | 4785451       | 228311    | 40                                                |                         |
++------------+----------------+-----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------+---------------------+---------------+---------------+-----------+---------------------------------------------------+-------------------------+
+
+
+detailed_summary.tsv
+````````````````````
+
+A detailed summary of all detected AMR genes/mutations/plasmids in each genome/type, one gene/type per line.
+
++------------+----------------------------+------------+---------------------+-----------------------------+-----------+----------+-------------------------+-------------+-------+------+-----------+
+| Isolate ID | Data                       | Data Type  | Predicted Phenotype | CGE Predicted Phenotype     | %Identity | %Overlap | HSP Length/Total Length | Contig      | Start | End  | Accession |
++============+============================+============+=====================+=============================+===========+==========+=========================+=============+=======+======+===========+
+| SRR1952908 | ST11 (senterica_achtman_2) | MLST       |                     |                             |           |          |                         |             |       |      |           |
+| SRR1952908 | ColpVC                     | Plasmid    |                     |                             | 98.96     | 100.0    | 193/193                 | contig00038 | 1618  | 1426 | JX133088  |
+| SRR1952908 | aadA1                      | Resistance | streptomycin        | Spectinomycin, Streptomycin | 100.0     | 100.0    | 792/792                 | contig00030 | 5355  | 4564 | JQ414041  |
++------------+----------------------------+------------+---------------------+-----------------------------+-----------+----------+-------------------------+-------------+-------+------+-----------+
+
+
+
+resfinder.tsv
+`````````````
+
+A tabular file of each AMR gene and additional BLAST information from the **ResFinder** database, one gene per line.
+
++------------+--------+---------------------+---------------------------+-----------+----------+-------------------------+-------------+-------+------+-----------+-----------+-----------+
+| Isolate ID | Gene   | Predicted Phenotype | CGE Predicted Phenotype   | %Identity | %Overlap | HSP Length/Total Length | Contig      | Start | End  | Accession | Sequence  | CGE Notes |
++============+========+=====================+===========================+===========+==========+=========================+=============+=======+======+===========+===========+===========+
+| SRR1952908 | sul3   | sulfisoxazole       | Sulfamethoxazole          | 100.00    | 100.00   | 792/792                 | contig00030 | 2091  | 2882 | AJ459418  | ATGA[...] |           |
+| SRR1952908 | tet(A) | tetracycline        | Doxycycline, Tetracycline | 99.92     | 97.80    | 1247/1275               | contig00032 | 1476  | 2722 | AF534183  | ATGT[...] |           |
++------------+--------+---------------------+---------------------------+-----------+----------+-------------------------+-------------+-------+------+-----------+-----------+-----------+
+
+
+plasmidfinder.tsv
+`````````````````
+
+A tabular file of each AMR plasmid type and additional BLAST information from the **PlasmidFinder** database, one plasmid type per line.
+
++------------+-----------+-----------+----------+-------------------------+-------------+-------+------+-----------+
+| Isolate ID | Plasmid   | %Identity | %Overlap | HSP Length/Total Length | Contig      | Start | End  | Accession |
++============+===========+===========+==========+=========================+=============+=======+======+===========+
+| SRR1952908 | ColpVC    | 98.96     | 100      | 193/193                 | contig00038 | 1618  | 1426 | JX133088  |
+| SRR1952908 | IncFIB(S) | 98.91     | 100      | 643/643                 | contig00024 | 10302 | 9660 | FN432031  |
++------------+-----------+-----------+----------+-------------------------+-------------+-------+------+-----------+
+
+
+pointfinder.tsv
+```````````````
+
+A tabular file of each AMR point mutation and additional BLAST information from the **PointFinder** database, one gene per line.
+
++------------+-------------+-----------------------------------+------------------------------+-------+----------+---------------------+-----------+----------+-------------------------+-------------+--------+--------+----------------------+-----------+-----------------------+---------------------+------------------+
+| Isolate ID | Gene        | Predicted Phenotype               | CGE Predicted Phenotype      | Type  | Position | Mutation            | %Identity | %Overlap | HSP Length/Total Length | Contig      | Start  | End    | Pointfinder Position | CGE Notes | CGE Required Mutation | CGE Mechanism       | CGE PMID         |
++============+=============+===================================+==============================+=======+==========+=====================+===========+==========+=========================+=============+========+========+======================+===========+=======================+=====================+==================+
+| SRR1952908 | gyrA (S83Y) | ciprofloxacin I/R, nalidixic acid | Nalidixic acid,Ciprofloxacin | codon | 83       | TCC -> TAC (S -> Y) | 99.96     | 100.00   | 2637/2637               | contig00008 | 22801  | 20165  | S83Y                 |           |                       | Target modification | 7492118,10471553 |
+| SRR1952926 | gyrA (S83Y) | ciprofloxacin I/R, nalidixic acid | Nalidixic acid,Ciprofloxacin | codon | 83       | TCC -> TAC (S -> Y) | 99.96     | 100.00   | 2637/2637               | contig00011 | 157768 | 160404 | S83Y                 |           |                       | Target modification | 7492118,10471553 |
++------------+-------------+-----------------------------------+------------------------------+-------+----------+---------------------+-----------+----------+-------------------------+-------------+--------+--------+----------------------+-----------+-----------------------+---------------------+------------------+
+
+
+settings.txt
+````````````
+
+The command-line, database versions, and other settings used to run `staramr`.
+
+::
+
+    command_line                  = staramr search --pointfinder-organism enterococcus_faecium -o out pbp5.fa
+    version                       = 0.10.0
+    start_time                    = 2023-08-23 13:37:41
+    end_time                      = 2023-08-23 13:37:42
+    total_minutes                 = 0.02
+    resfinder_db_dir              = staramr/databases/data/dist/resfinder
+    resfinder_db_url              = https://bitbucket.org/genomicepidemiology/resfinder_db.git
+    resfinder_db_commit           = fa32d9a3cf0c12ec70ca4e90c45c0d590ee810bd
+    resfinder_db_date             = Tue, 24 May 2022 06:51
+    pointfinder_db_dir            = staramr/databases/data/dist/pointfinder
+    pointfinder_db_url            = https://bitbucket.org/genomicepidemiology/pointfinder_db.git
+    pointfinder_db_commit         = 8c694b9f336153e6d618b897b3b4930961521eb8
+    pointfinder_db_date           = Mon, 01 Feb 2021 15:46
+    pointfinder_organisms_all     = campylobacter, enterococcus_faecalis, enterococcus_faecium, escherichia_coli, helicobacter_pylori, klebsiella, mycobacterium_tuberculosis, neisseria_gonorrhoeae, plasmodium_falciparum, salmonella, staphylococcus_aureus
+    pointfinder_organisms_valid   = campylobacter, enterococcus_faecalis, enterococcus_faecium, escherichia_coli, helicobacter_pylori, salmonella
+    plasmidfinder_db_dir          = staramr/databases/data/dist/plasmidfinder
+    plasmidfinder_db_url          = https://bitbucket.org/genomicepidemiology/plasmidfinder_db.git
+    plasmidfinder_db_commit       = c18e08c17a5988d4f075fc1171636e47546a323d
+    plasmidfinder_db_date         = Wed, 18 Jan 2023 09:45
+    mlst_version                  = 2.23.0
+    pointfinder_organism          = enterococcus_faecium
+    pointfinder_gene_drug_version = 072621.2
+    resfinder_gene_drug_version   = 072621
+
+results.xlsx
+````````````
+
+An Excel spreadsheet containing the previous 5 files as separate worksheets.
+
+BLAST Hits
+``````````
+
+The dataset collection  **hits** stores fasta files of the specific blast hits.
+
+Galaxy wrapper written by Aaron Petkau and Eric Marinier at the National Microbiology Laboratory, Public Health Agency of Canada.
+
+.. _staramr: https://github.com/phac-nml/staramr
+.. _ResFinder: https://bitbucket.org/genomicepidemiology/resfinder_db
+.. _PlasmidFinder: https://bitbucket.org/genomicepidemiology/plasmidfinder_db
+.. _PointFinder: https://bitbucket.org/genomicepidemiology/pointfinder_db
+.. _webservices: http://www.genomicepidemiology.org/services/
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+            @Article{microorganisms10020292,
+            	AUTHOR = {Bharat, Amrita and Petkau, Aaron and Avery, Brent P. and Chen, Jessica C. and Folster, Jason P. and Carson, Carolee A. and Kearney, Ashley and Nadon, Celine and Mabon, Philip and Thiessen, Jeffrey and Alexander, David C. and Allen, Vanessa and El Bailey, Sameh and Bekal, Sadjia and German, Greg J. and Haldane, David and Hoang, Linda and Chui, Linda and Minion, Jessica and Zahariadis, George and Domselaar, Gary Van and Reid-Smith, Richard J. and Mulvey, Michael R.},
+            	TITLE = {Correlation between Phenotypic and In Silico Detection of Antimicrobial Resistance in Salmonella enterica in Canada Using Staramr},
+            	JOURNAL = {Microorganisms},
+            	VOLUME = {10},
+            	YEAR = {2022},
+            	NUMBER = {2},
+            	ARTICLE-NUMBER = {292},
+            	URL = {https://www.mdpi.com/2076-2607/10/2/292},
+            	ISSN = {2076-2607},
+            	DOI = {10.3390/microorganisms10020292}
+            }
+        </citation>
+    </citations>
+    <creator>
+        <person givenName="Aaron" familyName="Petkau" identifier="apetkau" email="aaron.petkau@gmail.com"/>
+        <person givenName="Jennifer" familyName="Tran" identifier="jennifertran" email="jennifer.tran101@gmail.com"/>
+        <person givenName="Saskia" familyName="Hiltemann" identifier="shiltemann" email="saskia.hiltemann@gmail.com"/>
+        <person identifier="RichardDavidsonTheGreat"/>
+        <person identifier="takadonet"/>
+        <person givenName="Helena" familyName="Rasche" identifier="hexylena" email="hexylena@galaxians.org"/>
+        <person givenName="Eric" familyName="Marinier" identifier="emarinier"/>
+    </creator>
+</tool>
