@@ -20,10 +20,13 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
     "infile", "i", 1, "character",
     "outfile", "o", 1, "character",
+    "method", "m", 1, "character",
     "scorecol", "n", 1, "integer",
     "lowerbetter", "l", 1, "logical",
     "summits", "s", 1, "integer",
     "th", "t", 1, "double",
+    "minoverlap", "O", 1, "integer",
+    "use_blacklist", "B", 0, "logical",
     "format", "f", 1, "character",
     "plots", "p", 2, "character",
     "bmatrix", "b", 0, "logical",
@@ -73,7 +76,11 @@ if (length(ctrls) != 0) {
     )
 }
 
-sample <- dba(sampleSheet = sample_table, peakFormat = "bed", scoreCol = opt$scorecol, bLowerScoreBetter = opt$lowerbetter)
+sample <- dba(sampleSheet = sample_table, peakFormat = "bed", scoreCol = opt$scorecol, bLowerScoreBetter = opt$lowerbetter, minOverlap = opt$minoverlap)
+
+if (!is.null(opt$use_blacklist)) {
+    sample <- dba.blacklist(sample, blacklist = TRUE)
+}
 
 if (!is.null(opt$summits)) {
     sample_count <- dba.count(sample, summits = opt$summits)
@@ -82,17 +89,25 @@ if (!is.null(opt$summits)) {
 }
 
 sample_contrast <- dba.contrast(sample_count, categories = DBA_CONDITION, minMembers = 2)
-sample_analyze <- dba.analyze(sample_contrast)
-diff_bind <- dba.report(sample_analyze, th = opt$th)
+
+if (opt$method == "DBA_DESEQ2") {
+    method <- DBA_DESEQ2
+} else if (opt$method == "DBA_EDGER") {
+    method <- DBA_EDGER
+}
+
+sample_analyze <- dba.analyze(sample_contrast, method = method, bBlacklist = FALSE, bGreylist = FALSE)
+
+diff_bind <- dba.report(sample_analyze, th = opt$th, method = method)
 
 # Generate plots
 if (!is.null(opt$plots)) {
     pdf(opt$plots)
-    orvals <- dba.plotHeatmap(sample_analyze, contrast = 1, correlations = FALSE, cexCol = 0.8, th = opt$th)
-    dba.plotPCA(sample_analyze, contrast = 1, th = opt$th, label = DBA_TISSUE, labelSize = 0.3)
-    dba.plotMA(sample_analyze, th = opt$th)
-    dba.plotVolcano(sample_analyze, th = opt$th)
-    dba.plotBox(sample_analyze, th = opt$th)
+    orvals <- dba.plotHeatmap(sample_analyze, contrast = 1, correlations = FALSE, cexCol = 0.8, th = opt$th, method = method)
+    dba.plotPCA(sample_analyze, contrast = 1, th = opt$th, label = DBA_TISSUE, labelSize = 0.3, method = method)
+    dba.plotMA(sample_analyze, th = opt$th, method = method)
+    dba.plotVolcano(sample_analyze, th = opt$th, method = method)
+    dba.plotBox(sample_analyze, th = opt$th, method = method)
     dev.off()
 }
 
@@ -140,7 +155,7 @@ write.table(res_sorted, file = opt$outfile, sep = "\t", quote = FALSE, row.names
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
-    bmat <- dba.peakset(sample_count, bRetrieve = TRUE, DataType = DBA_DATA_FRAME)
+    bmat <- dba.peakset(sample_count, bRetrieve = TRUE, DataType = DBA_DATA_FRAME, minOverlap = opt$minoverlap)
     # Output as 0-based tabular
     bmat <- data.frame(
         Chrom = bmat[, 1],
