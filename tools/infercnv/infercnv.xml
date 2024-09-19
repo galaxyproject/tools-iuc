@@ -1,0 +1,706 @@
+<tool id="infercnv" name="InferCNV" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Infer Copy Number Variation from Single-Cell RNA-Seq Data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #if $annotation.gene_annotation == "gtf":
+            ## extract gene order from gtf file
+            python '$__tool_directory__/gtf_to_position_file.py' --attribute_name $attribute '$gtf_file' 'gene_order.tabular' &&
+        #end if
+        #if str($input_mat.format) == "mtx":
+            mkdir matrix_10x &&
+            ln -s '$input_mat.mtx' matrix_10x/matrix.mtx &&
+            ln -s '$input_mat.mtx_genes' matrix_10x/genes.tsv &&
+            ln -s '$input_mat.mtx_barcodes' matrix_10x/barcodes.tsv &&
+        #end if
+        Rscript '$infercnv_script'
+    ]]></command>
+    <configfiles>
+        <configfile name="infercnv_script">
+            # InferCNV configuration file
+            # This file is used to specify the parameters for the InferCNV tool
+            
+            # load library
+            library('infercnv')
+
+            #if str($input_mat.format) == "mtx":
+            library(Seurat)
+            mtx = Read10X("matrix_10x/")
+            #else:
+            mtx = '$input_mat.raw_mtx'
+            #end if
+
+            # create the infercnv object
+            infercnv_obj = CreateInfercnvObject(
+                                                raw_counts_matrix=mtx, # the matrix of genes (rows) vs. cells (columns) containing the raw counts
+                                                #if $annotation.gene_annotation == "gtf":
+                                                    gene_order_file='gene_order.tabular', # tabular file containing the positions of each gene along each chromosome in the genome.
+                                                #end if
+                                                #if $annotation.gene_annotation == "local":
+                                                    gene_order_file='$gene_order', # data file containing the positions of each gene along each chromosome in the genome.
+                                                #end if
+                                                annotations_file='$cell_annotations', # a description of the cells, indicating the cell type classifications
+                                                #if '$ref_group':
+                                                    ref_group_names=c($ref_group), # a vector containing the classifications of the reference (normal) cells to use for infering cnv
+                                                #end if
+                                                delim="\t",
+                                                #if $max_cell:
+                                                    max_cells_per_group = $max_cell, #maximun number of cells to use per group. Default=NULL, using all cells defined in the annotations_file. 
+                                                #end if
+                                                #if $max_count:
+                                                    min_max_counts_per_cell = c($min_count, $max_count), # minimum and maximum counts allowed per cell. Any cells outside this range will be removed from the counts matrix. 
+                                                #else
+                                                    min_max_counts_per_cell = c($min_count, +Inf),
+                                                #end if
+                                                chr_exclude = c($chr_exclude) # chromosomes to exclude from the analysis
+                                                )
+
+            num_threads = as.numeric(Sys.getenv("GALAXY_SLOTS"))
+            if (is.na(num_threads) || nchar(num_threads) == 0) {
+                num_threads = 1
+            }
+            
+            # perform infercnv operations to reveal cnv signal
+            infercnv_obj = infercnv::run(
+                                infercnv_obj,
+                                cutoff= $cutoff,
+                                min_cells_per_gene = $min_cells_per_gene,
+                                out_dir="output",
+                                num_ref_groups = NULL, # keep this as default
+                                ref_subtract_use_mean_bounds = TRUE, # keep this as default
+
+                                # Control number of threads for multiprocessesor use
+                                num_threads = num_threads,
+
+                                ## Smoothing params
+                                window_length = $window_length,
+                                smooth_method = "$smooth_method",
+
+                                ## Clustering params
+                                cluster_by_groups = $cluster_by_groups,
+                                cluster_references = $cluster_references,
+                                k_obs_groups = $k_obs_groups, 
+                                hclust_method = "$hclust_method",
+                                max_centered_threshold = 3, # keep this as default
+                                scale_data = $scale_data, 
+
+                                ## HMM params
+                                HMM= $HMM,
+                                HMM_transition_prob = 1e-06, # keep this as default
+                                HMM_report_by = "$HMM_report_by",
+                                HMM_type = "$HMM_type",
+                                HMM_i3_pval = 0.05, # keep this as default
+                                HMM_i3_use_KS = FALSE, # keep this as default
+                                BayesMaxPNormal = $BayesMaxPNormal,
+                                sim_method = "meanvar", # keep this as default
+                                sim_foreground = FALSE, # keep this as default
+                                reassignCNVs = TRUE, # keep this as default
+
+                                ## Tumor subclustering params
+                                analysis_mode = "$analysis_mode",
+                                tumor_subcluster_partition_method = "$tumor_subcluster_partition_method",
+                                tumor_subcluster_pval = 0.1, # keep this as default
+                                k_nn = $k_nn,
+                                leiden_method = "$leiden_method",
+                                leiden_function = "$leiden_function",
+                                leiden_resolution = "auto", # keep this as default
+                                leiden_method_per_chr = "$leiden_method_per_chr",
+                                leiden_function_per_chr = "$leiden_function_per_chr",
+                                leiden_resolution_per_chr = $leiden_resolution_per_chr,
+                                per_chr_hmm_subclusters = $per_chr_hmm_subclusters,
+                                per_chr_hmm_subclusters_references = $per_chr_hmm_subclusters_references,
+                                z_score_filter = $z_score_filter,
+
+                                ## de-noising parameters
+                                #if $denoise:
+                                    denoise= $denoise,
+                                #end if
+                                #if $noise_filter:
+                                    noise_filter = $noise_filter,
+                                #end if
+                                sd_amplifier = $sd_amplifier,
+                                noise_logistic = $noise_logistic,
+
+                                ## Outlier parameters
+                                outlier_method_bound = "average_bound", # keep this as default
+                                outlier_lower_bound = NA, # keep this as default
+                                outlier_upper_bound = NA, # keep this as default
+
+                                ## Plotting parameters
+                                final_scale_limits = NULL, # keep this as default
+                                final_center_val = NULL, # keep this as default
+                                debug = FALSE, # keep this as default
+                                plot_steps = FALSE, # keep this as default
+                                inspect_subclusters = TRUE, # keep this as default
+                                resume_mode = TRUE, # keep this as default
+                                png_res = $png_res, 
+                                plot_probabilities = TRUE, # keep this as default
+                                save_rds = TRUE, # keep this as default
+                                save_final_rds = TRUE, # keep this as default
+                                diagnostics = $diagnostics,
+
+                                ## Experimental options
+                                remove_genes_at_chr_ends = FALSE, # keep this as default
+                                prune_outliers = FALSE, # keep this as default
+                                mask_nonDE_genes = FALSE, # keep this as default
+                                mask_nonDE_pval = 0.05, # keep this as default
+                                test.use = "wilcoxon", # keep this as default
+                                require_DE_all_normals = "any", # keep this as default
+                                hspike_aggregate_normals = FALSE, # keep this as default
+                                no_plot = FALSE, # keep this as default
+                                no_prelim_plot = FALSE, # keep this as default
+                                write_expr_matrix = FALSE, # keep this as default
+                                write_phylo = FALSE, # keep this as default
+                                output_format = "png", # keep this as default
+                                plot_chr_scale = FALSE, # keep this as default
+                                chr_lengths = NULL, # keep this as default
+                                useRaster = TRUE, # keep this as default
+                                up_to_step = 100 # keep this as default
+                                )
+            # apply median filter
+            #if str($median_filter) == "true":
+                infercnv_obj_medianfiltered = infercnv::apply_median_filtering(infercnv_obj)
+
+                infercnv::plot_cnv(infercnv_obj_medianfiltered, 
+                                out_dir='output',
+                                output_filename='infercnv.median_filtered', 
+                                obs_title = "Observations (Cells)", # keep this as default
+                                ref_title = "References (Cells)", # keep this as default
+                                cluster_by_groups = TRUE, # keep this as default
+                                cluster_references = TRUE, # keep this as default
+                                plot_chr_scale = FALSE, # keep this as default
+                                chr_lengths = NULL, # keep this as default
+                                k_obs_groups = 1, # keep this as default
+                                contig_cex = 1, # keep this as default
+                                x.center = mean(infercnv_obj@expr.data), # keep this as default
+                                x.range = "auto", # keep this as default
+                                hclust_method = "$hclust_method", 
+                                custom_color_pal = NULL, # keep this as default
+                                color_safe_pal = FALSE, # keep this as default
+                                png_res = $png_res,
+                                dynamic_resize = 0, # keep this as default
+                                ref_contig = NULL, # keep this as default
+                                write_expr_matrix = FALSE, # keep this as default
+                                write_phylo = FALSE, # keep this as default
+                                useRaster = TRUE # keep this as default
+                                )
+            #end if
+        </configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="input_mat">
+            <param name="format" type="select" label="Matrix format">
+                <option value="tsv">Tabular (non-sparse matrix)</option>
+                <option value="mtx" selected="true">10x sparse matrix</option>
+            </param>
+            <when value="tsv">
+                <param name="raw_mtx" type="data" format="tabular" label="Raw counts matrix" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+            </when>
+            <when value="mtx">
+                <param name="mtx" type="data" format="mtx,tabular,txt" label="Raw counts matrix (matrix market)" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+                <param name="mtx_genes" type="data" format="tabular,txt" label="Genes file" help="The genes file for matrix market matrix, a two column symbol - symbol or gene_id - symbol tab separated file" />
+                <param name="mtx_barcodes" type="data" format="tabular,txt" label="Barcodes file" help="The barcodes file for matrix market matrix, a single column file with the cell/barcode identifiers"/>
+            </when>
+        </conditional>
+        <conditional name="annotation">
+            <param name="gene_annotation" type="select" label="Gene annotation">
+                <option value="local">Use a gene order file: </option>
+                <option value="gtf">use a GTF file: </option>
+            </param>
+            <when value="local">
+                <param name="gene_order" type="data" format="tabular" label="Gene order file" help="Tabular file containing the positions of each gene along each chromosome in the genome." />
+            </when>
+            <when value="gtf">
+                <param name="gtf_file" type="data" format="gtf,gtf.gz" label="GTF file" />
+                <param name="attribute" type="text" value="gene_id" label="attribute name" help="The name of the attribute in the GTF attributes to use, for example 'gene_name' or 'transcript_id'">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="_" />
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9a-zA-Z_]+</validator>
+                </param>
+            </when>
+        </conditional>
+        <param name="cell_annotations" type="data" format="tabular" label="Cell annotations file" help="A description of the cells, indicating the cell type classifications" />
+        <param name="ref_group" type="text" label="Reference group names" optional="true" help="A vector containing the classifications of the reference (normal) cells to use for infering cnv">
+        <sanitizer>
+            <valid initial="string.printable"></valid>
+        </sanitizer>
+        </param>
+        <section name="advanced" title="Advanced parameters">
+            <param name="max_cell" type="integer" min="0" optional="true" label="Maximun number of cells to use per group."/>
+            <param name="min_count" type="integer" min="0" value="100" optional="true" label="Minimum counts allowed per cell."/>
+            <param name="max_count" type="integer" min="0" optional="true" label="Maximum counts allowed per cell."/>
+            <param name="chr_exclude" type="text" value="&quot;chrX&quot;, &quot;chrY&quot;, &quot;chrM&quot;" label="Chromosomes to exclude" optional="true" help="Chromosomes to exclude from the analysis">
+                <sanitizer>
+                    <valid initial="string.printable"></valid>
+                </sanitizer>
+            </param>
+            <param name="cutoff" type="float" min="0" max="1" value="1" label="Cutoff" help="The cutoff value to use for infercnv" />
+            <param name="min_cells_per_gene" type="integer" min="0" value="3" label="Minimum cells per gene" help="minimum number of reference cells requiring expression measurements to include the corresponding gene." />
+            <section name="smoothing" title="Smoothing parameters">
+                <param name="window_length" type="integer" min="0" value="101" label="Window length" help="Length of the window for the moving average (smoothing). Should be an odd integer." />
+                <param name="smooth_method" type="select" label="Smoothing method" help="The method to use for smoothing" >
+                    <option value="pyramidinal">pyramidinal</option>
+                    <option value="runmeans">runmeans</option>
+                    <option value="coordinates">coordinates</option>
+                </param>
+            </section>
+            <section name="clustering" title="Clustering parameters">
+                <param name="cluster_by_groups" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Cluster by groups" help="Whether to cluster by groups" />
+                <param name="cluster_references" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Cluster references" help="Whether to cluster references within their annotations or not" />
+                <param name="k_obs_groups" type="integer" min="0" value="1" label="K obs groups" help="Number of groups in which to break the observations" />
+                <param name="hclust_method" type="select" label="Hclust method" help="Method used for hierarchical clustering of cells." >
+                    <option value="ward.D2">ward.D2</option>
+                    <option value="ward.D">ward.D</option>
+                    <option value="single">single</option>
+                    <option value="complete">complete</option>
+                    <option value="average">average</option>
+                    <option value="mcquitty">mcquitty</option>
+                    <option value="median">median</option>
+                    <option value="centroid">centroid</option>
+                </param>
+                <param name="scale_data" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Scale data" help="Whether to scale the data" />
+            </section>
+            <section name="HMM" title="HMM parameters">
+                <param name="HMM" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="HMM" help="Whether to run HMM to predict CNV level" />
+                <param name="HMM_report_by" type="select" label="HMM report by" help="Note, reporting is performed entirely separately from the HMM prediction. So, you can predict on subclusters, but get per-cell level reporting (more voluminous output" >
+                    <option value="subcluster">subcluster</option>
+                    <option value="cell">cell</option>
+                    <option value="consensus">consensus</option>
+                </param>
+                <param name="HMM_type" type="select" label="HMM model type" help="The type of HMM to use" >
+                    <option value="i6">i6</option>
+                    <option value="i3">i3</option>
+                </param>
+                <param name="BayesMaxPNormal" type="float" min="0" max="1" value="0.5" label="Bayes max p normal" help="Maximum P(Normal) allowed for a CNV prediction according to BayesNet. (zero turns it off)" />
+            </section>
+            <section name="tumor_subclustering" title="Tumor subclustering parameters">
+                <param name="analysis_mode" type="select" label="Analysis mode" help="Grouping level for image filtering or HMM predictions. default: samples (fastest, but subclusters is ideal)" >
+                    <option value="samples">samples</option>
+                    <option value="subclusters">subclusters</option>
+                    <option value="cells">cells</option>
+                </param>
+                <param name="tumor_subcluster_partition_method" type="select" label="Tumor subcluster partition method" help="Method for defining tumor subclusters." >
+                    <option value="leiden">leiden</option>
+                    <option value="random_trees">random_trees</option>
+                    <option value="qnorm">qnorm</option>
+                </param>
+                <param name="k_nn" type="integer" min="0" value="20" label="KNN" help="number k of nearest neighbors to search for when using the Leiden partition method for subclustering" />
+                <param name="leiden_method" type="select" label="Leiden method" help="Method used to generate the graph on which the Leiden algorithm is applied" >
+                    <option value="PCA">PCA</option>
+                    <option value="simple">simple</option>
+                </param>
+                <param name="leiden_function" type="select" label="Leiden function" help="Whether to use the Constant Potts Model (CPM) or modularity in igraph." >
+                    <option value="CPM">CPM</option>
+                    <option value="modularity">modularity</option>
+                </param>
+                <param name="leiden_method_per_chr" type="select" label="Leiden method per chr" help="Method used to generate the graph on which the Leiden algorithm is applied for the per chromosome subclustering." >
+                    <option value="simple">simple</option>
+                    <option value="PCA">PCA</option>
+                </param>
+                <param name="leiden_function_per_chr" type="select" label="Leiden function per chr" help="Whether to use the Constant Potts Model (CPM) or modularity in igraph for the per chromosome subclustering." >
+                    <option value="modularity">modularity</option>
+                    <option value="CPM">CPM</option>
+                </param>
+                <param name="leiden_resolution_per_chr" type="integer" min="0" value="1" label="Leiden resolution per chr" help="esolution parameter for the Leiden algorithm for the per chromosome subclustering." />
+                <param name="per_chr_hmm_subclusters" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Per chr HMM subclusters" help="Run subclustering per chromosome over all cells combined to run the HMM on those subclusters instead. Only applicable when using leiden subclustering." />
+                <param name="per_chr_hmm_subclusters_references" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Per chr HMM subclusters references" help="Whether the per chromosome subclustering should also be done on references" />
+                <param name="z_score_filter" type="float" min="0" max="1" value="0.8" label="Z score treshold" help="Z-score used as a treshold to filter genes used for subclustering. Applied to remove genes with high expression variability such as MHC genes. " />
+            </section>
+            <section name="denoise" title="Denoising parameters">
+                <param name="denoise" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Denoise" help="Whether to denoise the data" />
+                <param name="noise_filter" type="integer" min="0" optional="true" label="Noise filter" help="Values +- from the reference cell mean will be set to zero" />
+                <param name="sd_amplifier" type="float" min="0" value="1.5" label="SD amplifier" help="Noise is defined as mean(reference_cells) +- sdev(reference_cells) * sd_amplifier" />
+                <param name="noise_logistic" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Noise logistic" help="use the noise_filter or sd_amplifier based threshold (whichever is invoked) as the midpoint in a logistic model for downscaling values close to the mean." />
+                <param name="median_filter" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Median filter" help="Apply the median filtering to smooth the visual output of inferCNV" />
+            </section>
+            <section name="plotting" title="Plotting parameters">
+                <param name="png_res" type="integer" min="0" value="300" label="PNG resolution" help="Resolution of the PNG files" />
+                <param name="diagnostics" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Diagnostics" help="Create diagnostic plots after running the Bayesian model" />
+            </section>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="infercnv_results" type="list" label="${tool.name} on ${on_string}: InferCNV Results">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.txt$" format="tabular" directory="output"/>
+        </collection>
+        <collection name="infercnv_plots" type="list" label="${tool.name} on ${on_string}: InferCNV plots">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.png$" format="png" directory="output"/>
+        </collection>
+        <data name="gene_order" format="tabular" label="Gene order file" from_work_dir="gene_order.tabular">
+        <filter>annotation['gene_annotation'] == 'gtf'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="raw_counts_matrix.tabular"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="local"/>
+                <param name="gene_order" value="gene_order_file.tabular"/>
+            </conditional>
+            <param name="cell_annotations" value="annotations_file.tabular" />
+            <param name="ref_group" value="&quot;normal&quot;" />
+            <param name="cutoff" value="1" />
+            <param name="cluster_by_groups" value="TRUE" />
+            <param name="HMM" value="TRUE" />
+            <param name="denoise" value="TRUE" />
+            <param name="analysis_mode" value="subclusters" />
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test1_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.576008315090849"/>
+                        <has_text text="0.902155765020965"/>
+                        <has_text text="1.16307372496506"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv.observation_groupings" file="output/test1_infercnv.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="&quot;Dendrogram Group&quot; &quot;Dendrogram Color&quot; &quot;Annotation Group&quot; &quot;Annotation Color&quot;"/>
+                        <has_text text="tumor_grp_1_cell_5"/>
+                        <has_text text="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.heatmap_thresholds" file="output/test1_infercnv_subclusters.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="0.792686678669785"/>
+                        <has_text_matching expression="0.919329314347129"/>
+                        <has_text_matching expression="1.29925722137916"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.observation_groupings" file="output/test1_infercnv_subclusters.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="tumor_grp_1_cell_7"/>
+                        <has_text_matching expression="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="infercnv_plots" type="list">
+                <element name="infercnv" file="output/test1_infercnv.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv_subclusters" file="output/test1_infercnv_subclusters.png" ftype="png" compare="sim_size"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input_mat">
+                <param name="format" value="mtx"/>
+                <param name="mtx" value="matrix.mtx"/>
+                <param name="mtx_genes" value="genes.tsv"/>
+                <param name="mtx_barcodes" value="barcodes.tsv"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="local"/>
+                <param name="gene_order" value="gene_order_file.tabular"/>
+            </conditional>
+            <param name="cell_annotations" value="annotations_file.tabular" />
+            <param name="ref_group" value="&quot;normal&quot;" />
+            <param name="cutoff" value="1" />
+            <param name="cluster_by_groups" value="TRUE" />
+            <param name="HMM" value="TRUE" />
+            <param name="denoise" value="TRUE" />
+            <param name="analysis_mode" value="subclusters" />
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test1_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.576008315090849"/>
+                        <has_text text="0.902155765020965"/>
+                        <has_text text="1.16307372496506"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv.observation_groupings" file="output/test1_infercnv.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="&quot;Dendrogram Group&quot; &quot;Dendrogram Color&quot; &quot;Annotation Group&quot; &quot;Annotation Color&quot;"/>
+                        <has_text text="tumor_grp_1_cell_5"/>
+                        <has_text text="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.heatmap_thresholds" file="output/test1_infercnv_subclusters.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="0.792686678669785"/>
+                        <has_text_matching expression="0.919329314347129"/>
+                        <has_text_matching expression="1.29925722137916"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.observation_groupings" file="output/test1_infercnv_subclusters.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="tumor_grp_1_cell_7"/>
+                        <has_text_matching expression="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="infercnv_plots" type="list">
+                <element name="infercnv" file="output/test1_infercnv.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv_subclusters" file="output/test1_infercnv_subclusters.png" ftype="png" compare="sim_size"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="local"/>
+                <param name="gene_order" value="gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt"/>
+            </conditional>
+            <param name="cell_annotations" value="oligodendroglioma_annotations_downsampled.txt" />
+            <param name="ref_group" value="&quot;Microglia/Macrophage&quot;, &quot;Oligodendrocytes (non-malignant)&quot;" />
+            <param name="cutoff" value="1" />
+            <param name="cluster_by_groups" value="TRUE" />
+            <param name="HMM" value="TRUE" />
+            <param name="denoise" value="TRUE" />
+            <param name="analysis_mode" value="subclusters" />
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test2_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.687708841037092"/>
+                        <has_text text="0.879888015783497"/>
+                        <has_text text="1.31229115896291"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv.observation_groupings" file="output/test2_infercnv.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="&quot;Dendrogram Group&quot; &quot;Dendrogram Color&quot; &quot;Annotation Group&quot; &quot;Annotation Color&quot;"/>
+                        <has_text text="malignant_93_s1"/>
+                        <has_text text="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.heatmap_thresholds" file="output/test2_infercnv_subclusters.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="0.880334980972325"/>
+                        <has_text_matching expression="1.0723353696432"/>
+                        <has_text_matching expression="1.31233585548179"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.observation_groupings" file="output/test2_infercnv_subclusters.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="93_P8_B02"/>
+                        <has_text_matching expression="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="infercnv_plots" type="list">
+                <element name="infercnv" file="output/test2_infercnv.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv_subclusters" file="output/test2_infercnv_subclusters.png" ftype="png" compare="sim_size"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="local"/>
+                <param name="gene_order" value="gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt"/>
+            </conditional>
+            <param name="cell_annotations" value="oligodendroglioma_annotations_downsampled.txt" />
+            <param name="ref_group" value="&quot;Microglia/Macrophage&quot;, &quot;Oligodendrocytes (non-malignant)&quot;" />
+            <param name="cutoff" value="1" />
+            <param name="cluster_by_groups" value="TRUE" />
+            <param name="denoise" value="TRUE" />
+            <param name="analysis_mode" value="subclusters" />
+            <param name="median_filter" value="true" />
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test2_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.687708841037092"/>
+                        <has_text text="0.879888015783497"/>
+                        <has_text text="1.31229115896291"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv.observation_groupings" file="output/test2_infercnv.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="&quot;Dendrogram Group&quot; &quot;Dendrogram Color&quot; &quot;Annotation Group&quot; &quot;Annotation Color&quot;"/>
+                        <has_text text="malignant_93_s1"/>
+                        <has_text text="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.heatmap_thresholds" file="output/test2_infercnv_subclusters.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="0.880334980972325"/>
+                        <has_text_matching expression="1.0723353696432"/>
+                        <has_text_matching expression="1.31233585548179"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.observation_groupings" file="output/test2_infercnv_subclusters.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="93_P8_B02"/>
+                        <has_text_matching expression="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="infercnv_plots" type="list">
+                <element name="infercnv.median_filtered" file="output/test3_infercnv.median_filtered.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv" file="output/test2_infercnv.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv_subclusters" file="output/test2_infercnv_subclusters.png" ftype="png" compare="sim_size"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="gtf"/>
+                <param name="gtf_file" value="test.gtf.gz"/>
+                <param name="attribute" value="gene_name"/>
+            </conditional>
+            <param name="cell_annotations" value="oligodendroglioma_annotations_downsampled.txt" />
+            <param name="ref_group" value="&quot;Microglia/Macrophage&quot;, &quot;Oligodendrocytes (non-malignant)&quot;" />
+            <param name="cutoff" value="1" />
+            <param name="cluster_by_groups" value="TRUE" />
+            <param name="analysis_mode" value="subclusters" />
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test4_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.755722308622985"/>
+                        <has_text text="0.943628225066843"/>
+                        <has_text text="1.09395295822193"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="gene_order" file="gene_order.tabular">
+                <assert_contents>
+                    <has_text_matching expression="WASH7P.*chr1.*14404.*29570"/>
+                    <has_text_matching expression="PUSL1.*chr1.*1308567.*1311677"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+InferCNV is used to explore tumor single cell RNA-Seq data to identify evidence for somatic large-scale chromosomal copy number alterations, such as gains or deletions of entire chromosomes or large segments of chromosomes. This is done by exploring expression intensity of genes across positions of tumor genome in comparison to a set of reference 'normal' cells.
+
+InferCNV is one component of the TrinityCTAT toolkit focused on leveraging the use of RNA-Seq to better understand cancer transcriptomes. To find out more about Trinity CTAT please visit TrinityCTAT_.
+
+-----
+
+**Input Files**
+
+
+**Raw Counts Matrix**
+
+InferCNV is compatible with both smart-seq2 and 10x single cell transcriptome data, and presumably other methods (not tested).  The counts matrix can be generated using any conventional single cell transcriptome quantification pipeline, yielding a matrix of genes (rows) vs. cells (columns) containing assigned read counts.
+
+The format might look like so:
+
+========    =============   =============   =============   =============   =============   ================
+,           MGH54_P16_F12   MGH54_P12_C10   MGH54_P11_C11   MGH54_P15_D06   MGH54_P16_A03   ...   
+--------    -------------   -------------   -------------   -------------   -------------   ----------------
+A2M         0               0               0               0               0               ...   
+--------    -------------   -------------   -------------   -------------   -------------   ----------------
+A4GALT      0               0               0               0               0               ...   
+--------    -------------   -------------   -------------   -------------   -------------   ----------------
+AAAS        0               37              30              21              0               ...   
+--------    -------------   -------------   -------------   -------------   -------------   ----------------
+AACS        0               0               0               0               2               ...   
+--------    -------------   -------------   -------------   -------------   -------------   ----------------
+AADAT       0               0               0               0               0               ...   
+--------    -------------   -------------   -------------   -------------   -------------   ----------------
+...         ...             ...             ...             ...             ...             ...   
+========    =============   =============   =============   =============   =============   ================
+
+The matrix can be provided as a tabular file, or ideally, as a 10x matrix market (sparse) format, as what the Seurat Read10x method expects (matrix.mtx, genes.tsv, barcodes.tsv).
+
+
+**Sample annotation file**
+
+The sample annotation file is used to define the different cell types. The format is simply two columns, tabular, and there is **no** column header.
+
+
+==============   ===============================
+MGH54_P2_C12     Microglia/Macrophage
+--------------   -------------------------------
+MGH36_P6_F03     Microglia/Macrophage
+--------------   -------------------------------
+MGH54_P16_F12    Oligodendrocytes (non-malignant)
+--------------   -------------------------------
+MGH54_P12_C10    Oligodendrocytes (non-malignant)
+--------------   -------------------------------
+MGH36_P1_B02     malignant_MGH36
+--------------   -------------------------------
+MGH36_P1_H10     malignant_MGH36
+==============   ===============================
+
+
+The first column is the cell name, and the 2nd column indicates the known cell type.
+
+The sample (ie. patient) information is encoded in the attribute name as "malignant_{patient}", which allows the tumor cells to be clustered and plotted according to sample (patient) in the heatmap.
+
+
+.. class:: infomark
+
+Only those cells listed in the sample annotations file will be analyzed by inferCNV.  This is useful in case you cells of interest are a subset of the total counts matrix, without needing create a new matrix containing the subset of interest.
+
+
+**Gene ordering file**
+
+The gene ordering file provides the chromosomal location for each gene.  The format is tabular and has **no** column header, simply providing the gene name, chromosome, and gene span:
+
+
+=========       ====    ======= =======
+WASH7P          chr1    14363   29806
+---------       ----    ------- -------
+LINC00115       chr1    761586  762902
+---------       ----    ------- -------
+NOC2L           chr1    879584  894689
+---------       ----    ------- -------
+MIR200A         chr1    1103243 1103332
+---------       ----    ------- -------
+SDF4            chr1    1152288 1167411
+---------       ----    ------- -------
+UBE2J2          chr1    1189289 1209265
+=========       ====    ======= =======
+
+
+.. class:: infomark
+
+Every gene in the counts matrix to be analyzed should have the corresponding gene name and location info provided in this gene ordering file. 
+
+
+.. class:: infomark
+
+Note, only those genes that exist in both the counts matrix and the gene ordering file will be included in the inferCNV analysis.
+
+
+-----
+
+**parameters**
+
+.. class:: infomark
+
+**Note:** If you do not have reference cells, you can leave *Reference group names* blank, in which case the average signal across all cells will be used to define the baseline. This can work well when there are sufficient differences among the cells included (ie. they do not all show a chromosomal deletion at the same place).
+
+.. class:: infomark
+
+**Note:** inferCNV expects that you've already filtered out low quality cells. If you need to further impose minimum/maximum read counts per cell, you can include an additional filter in Advanced parameters.
+
+.. class:: infomark
+
+**Note:** The cutoff value determines which genes will be used for the infercnv analysis. Genes with a mean number of counts across cells will be excluded. For smart-seq (full-length transcript sequencing, typically using cell plate assays rather than droplets), a value of **1** works well. For 10x (and potentially other 3'-end sequencing and droplet assays, where the count matrix tends to be more sparse), a value of **0.1** is found to generally work well.
+
+.. class:: infomark
+
+**Note:** The 'cluster_by_groups' setting indicates to perform separate clustering for the tumor cells according to the patient type, as defined in the cell annotations file.
+
+.. class:: infomark
+
+**Note:** 
+By default, inferCNV operates at the level of whole samples, such as all cells defined as a certain cell type derived from a single patient. This is the fastest way to run inferCNV, but often not the optimal way, as a given tumor sample may have subpopulations with varied patterns of CNV.
+By setting "analysis_mode" to "subclusters", inferCNV will attempt to partition cells into groups having consistent patterns of CNV. CNV prediction (via HMM) would then be performed at the level of the subclusters rather than whole samples.
+
+
+.. image:: https://raw.githubusercontent.com/wiki/broadinstitute/infercnv/images/infercnv.logo.png
+    :height: 500
+    :width: 600
+
+
+
+
+.. _TrinityCTAT: https://github.com/NCIP/Trinity_CTAT/wiki
+    </help>
+    <expand macro="citations" />
+</tool>
