@@ -146,7 +146,7 @@ class findOut:
         else:
             bwex = np.r_[False, bw <= self.bwbot, False]
         bwexd = np.diff(bwex)
-        bwexdnz = bwexd.nonzero()[0]
+        bwexdnz = bwexd.nonzero()[0]  # start and end transition of each segment - nice!
         bwregions = np.reshape(bwexdnz, (-1, 2))
         return bwregions
 
@@ -155,10 +155,9 @@ class findOut:
         potentially multiple
         """
         bed.sort()
-        beds = ["%s\t%d\t%d\t%s\t%d" % x for x in bed]
         with open(bedfname, "w") as bedf:
-            bedf.write("\n".join(beds))
-            bedf.write("\n")
+            for b in bed:
+                bedf.write("%s\t%d\t%d\t%s\t%d\n" % b)
 
     def makeTableRow(self, bw, bwlabel, chr):
         """
@@ -194,7 +193,6 @@ class findOut:
         restab = []
         bwlabels = self.bwlabels
         bwnames = self.bwnames
-        bwnames.sort()
         reshead = "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
@@ -251,8 +249,11 @@ class findOut:
                     self.bwbot = np.quantile(bw, self.qlo)
                     bwlo = self.processVals(bw, isTop=False)
                     for j, seg in enumerate(bwlo):
+                        seglen = seg[1] - seg[0]
                         if seg[1] - seg[0] >= self.bedwin:
-                            score = -1 * np.sum(bw[seg[0]:seg[1]]) / float(seglen)
+                            score = (
+                                -1 * np.sum(bw[seg[0]:seg[1]]) / float(seglen)
+                            )
                             bedlo.append(
                                 (
                                     chr,
