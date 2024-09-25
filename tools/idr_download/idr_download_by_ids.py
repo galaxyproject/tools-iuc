@@ -222,7 +222,7 @@ def download_image_data(
             prefix = "image-"
             # normalize image ids by stripping off prefix if it exists
             image_ids = [
-                iid[len(prefix) :] if iid[: len(prefix)] == prefix else iid
+                iid[len(prefix):] if iid[:len(prefix)] == prefix else iid
                 for iid in image_ids_or_dataset_id
             ]
         for image_id in image_ids:
