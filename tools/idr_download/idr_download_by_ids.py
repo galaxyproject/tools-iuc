@@ -4,15 +4,15 @@ import os
 import sys
 import tarfile
 from contextlib import ExitStack
-from tempfile import TemporaryDirectory
 from itertools import product
-import numpy
+from tempfile import TemporaryDirectory
 
-from tifffile import imwrite
+import numpy
 from libtiff import TIFF
 from omero.cli import cli_login
-from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
+from omero.gateway import BlitzGateway  # noqa
+from tifffile import imwrite
 
 
 def warn(message, image_identifier, warn_skip=False):
