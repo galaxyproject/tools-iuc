@@ -5,7 +5,10 @@ import sys
 import tarfile
 from contextlib import ExitStack
 from tempfile import TemporaryDirectory
+from itertools import product
+import numpy
 
+from tifffile import imwrite
 from libtiff import TIFF
 from omero.cli import cli_login
 from omero.gateway import BlitzGateway  # noqa
@@ -110,9 +113,27 @@ def get_image_array(image, tile, z, c, t):
     return selection
 
 
+def get_full_image_array(image):
+    # The goal is to get the image in TZCYX order
+    pixels = image.getPrimaryPixels()
+    tzclist = list(product(range(image.getSizeT()), range(image.getSizeZ()), range(image.getSizeC())))
+    zctlist = [(z, c, t) for (t, z, c) in tzclist]
+    try:
+        all_planes = numpy.array(list(pixels.getPlanes(zctlist)))
+        all_planes_reshaped = all_planes.reshape(image.getSizeT(), image.getSizeZ(), image.getSizeC(), all_planes.shape[-2], all_planes.shape[-1])
+    except Exception as e:
+        warning = '{0} (ID: {1})'.format(image.getName(),
+                                         image.getId())
+        warn('Could not download the requested region', warning)
+        warn(e.msg)
+        return
+
+    return all_planes_reshaped
+
+
 def download_image_data(
     image_ids_or_dataset_id, dataset=False,
-    download_original=False,
+    download_original=False, download_full=False,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
     skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secured=False, config_file=None
@@ -131,7 +152,7 @@ def download_image_data(
                 omero_username = 'public'
                 omero_password = 'public'
 
-    if not download_original and region_spec not in ['rectangle', 'center']:
+    if not download_original and not download_full and region_spec not in ['rectangle', 'center']:
         raise ValueError(
             'Got unknown value "{0}" as region_spec argument'
             .format(region_spec)
@@ -226,16 +247,79 @@ def download_image_data(
                     'database. Aborting!'
                     .format(image_warning_id)
                 )
-            if not download_original:
+            try:
+                # try to extract image name
+                # if anything goes wrong here skip the image
+                # or abort.
+                image_name = os.path.splitext(image.getName())[0]
+                image_warning_id = '{0} (ID: {1})'.format(
+                    image_name, image_id
+                )
+            except Exception as e:
+                # respect skip_failed on unexpected errors
+                if skip_failed:
+                    warn(str(e), image_warning_id, warn_skip=True)
+                    continue
+                else:
+                    raise
+            if download_full:
+                fname = '__'.join([image_name.replace(' ', '_'), str(image_id), "full"]) + '.tiff'
+                # download and save the region as TIFF
+                try:
+                    im_array = get_full_image_array(image)
+
+                    if download_tar:
+                        fname = os.path.join(tempdir, fname)
+
+                    imwrite(fname, im_array, imagej=True)
+                    # move image into tarball
+                    if download_tar:
+                        archive.add(fname, os.path.basename(fname))
+                        os.remove(fname)
+                except Exception as e:
+                    if skip_failed:
+                        # respect skip_failed on unexpected errors
+                        warn(str(e), image_warning_id, warn_skip=True)
+                        continue
+                    else:
+                        raise
+
+            elif download_original:
                 try:
                     # try to extract image properties
                     # if anything goes wrong here skip the image
                     # or abort.
-                    image_name = os.path.splitext(image.getName())[0]
-                    image_warning_id = '{0} (ID: {1})'.format(
-                        image_name, image_id
-                    )
-
+                    original_image_name = image.getFileset().listFiles()[0].getName()
+                    fname = image_name + "__" + str(image_id) + os.path.splitext(original_image_name)[1]
+                    fname = fname.replace(' ', '_')
+                    fname = fname.replace('/', '_')
+                    download_directory = "./"
+                    if download_tar:
+                        download_directory = tempdir
+                    with cli_login("-u", omero_username, "-s", omero_host, "-w", omero_password) as cli:
+                        cli.invoke(["download", f"Image:{image_id}", download_directory])
+                        if cli.rv != 0:
+                            raise Exception("Download failed.")
+                    # This will download to download_directory/original_image_name
+                    os.rename(os.path.join(download_directory, original_image_name),
+                              os.path.join(download_directory, fname))
+                    # move image into tarball
+                    if download_tar:
+                        archive.add(os.path.join(download_directory, fname),
+                                    os.path.basename(fname))
+                        os.remove(os.path.join(download_directory, fname))
+                except Exception as e:
+                    # respect skip_failed on unexpected errors
+                    if skip_failed:
+                        warn(str(e), image_warning_id, warn_skip=True)
+                        continue
+                    else:
+                        raise
+            else:
+                try:
+                    # try to extract image properties
+                    # if anything goes wrong here skip the image
+                    # or abort.
                     if region_spec == 'rectangle':
                         tile = get_clipping_region(image, *coord, width, height)
                     elif region_spec == 'center':
@@ -314,16 +398,13 @@ def download_image_data(
                                 .format(channel, image_warning_id)
                             )
 
-                # download and save the region as TIFF
                 fname = '__'.join(
                     [image_name, str(image_id)] + [str(x) for x in tile]
                 )
+                fname += '.tiff'
+                fname = fname.replace(' ', '_')
+                # download and save the region as TIFF
                 try:
-                    if fname[-5:] != '.tiff':
-                        fname += '.tiff'
-
-                    fname = fname.replace(' ', '_')
-
                     im_array = get_image_array(image, tile, z_stack, channel_index, frame)
 
                     if download_tar:
@@ -340,41 +421,6 @@ def download_image_data(
                 except Exception as e:
                     if skip_failed:
                         # respect skip_failed on unexpected errors
-                        warn(str(e), image_warning_id, warn_skip=True)
-                        continue
-                    else:
-                        raise
-            else:
-                try:
-                    # try to extract image properties
-                    # if anything goes wrong here skip the image
-                    # or abort.
-                    image_name = os.path.splitext(image.getName())[0]
-                    image_warning_id = '{0} (ID: {1})'.format(
-                        image_name, image_id
-                    )
-                    original_image_name = image.getFileset().listFiles()[0].getName()
-                    fname = image_name + "__" + str(image_id) + os.path.splitext(original_image_name)[1]
-                    fname = fname.replace(' ', '_')
-                    fname = fname.replace('/', '_')
-                    download_directory = "./"
-                    if download_tar:
-                        download_directory = tempdir
-                    with cli_login("-u", omero_username, "-s", omero_host, "-w", omero_password) as cli:
-                        cli.invoke(["download", f"Image:{image_id}", download_directory])
-                        if cli.rv != 0:
-                            raise Exception("Download failed.")
-                    # This will download to download_directory/original_image_name
-                    os.rename(os.path.join(download_directory, original_image_name),
-                              os.path.join(download_directory, fname))
-                    # move image into tarball
-                    if download_tar:
-                        archive.add(os.path.join(download_directory, fname),
-                                    os.path.basename(fname))
-                        os.remove(os.path.join(download_directory, fname))
-                except Exception as e:
-                    # respect skip_failed on unexpected errors
-                    if skip_failed:
                         warn(str(e), image_warning_id, warn_skip=True)
                         continue
                     else:
@@ -408,6 +454,10 @@ if __name__ == "__main__":
     p.add_argument(
         '--download-original', dest='download_original', action='store_true',
         help="download the original file uploaded to omero"
+    )
+    p.add_argument(
+        '--download-full', dest='download_full', action='store_true',
+        help="download the full image on omero"
     )
     p.add_argument(
         '-c', '--channel',
