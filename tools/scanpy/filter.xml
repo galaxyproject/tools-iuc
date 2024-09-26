@@ -1,18 +1,21 @@
-<tool id="scanpy_filter" name="Filter" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@profile@">
-    <description>with scanpy</description>
+<tool id="scanpy_filter" name="Scanpy filter" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>mark and subsample</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="bio_tools"/>
-    <expand macro="requirements"/>
+    <expand macro="requirements">
+        <requirement type="package" version="0.2.3">scrublet</requirement>
+        <requirement type="package" version="0.1.4">scikit-misc</requirement>
+    </expand>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
 @CMD@
       ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
-@CMD_imports@
-@CMD_read_inputs@
+@CMD_IMPORTS@
+@CMD_READ_INPUTS@
 
 #if $method.method == 'pp.filter_cells'
 sc.pp.filter_cells(
@@ -28,6 +31,8 @@ sc.pp.filter_cells(
     #end if
     copy=False)
 
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
 #else if $method.method == 'pp.filter_genes'
 sc.pp.filter_genes(
     adata,
@@ -42,6 +47,8 @@ sc.pp.filter_genes(
     #end if
     copy=False)
 
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
 #else if $method.method == 'tl.filter_rank_genes_groups'
 sc.tl.filter_rank_genes_groups(
     adata,
@@ -55,25 +62,48 @@ sc.tl.filter_rank_genes_groups(
     key_added='$method.key_added',
     min_in_group_fraction=$method.min_in_group_fraction,
     max_out_group_fraction=$method.max_out_group_fraction,
-    min_fold_change=$method.min_fold_change)
+    min_fold_change=$method.min_fold_change,
+    compare_abs=$method.compare_abs)
+
+# Temporary fix for Issue reported here: https://github.com/scverse/anndata/issues/726
+# Check and convert elements in 'rank_genes_groups_filtered' to strings
+if 'rank_genes_groups_filtered' in adata.uns:
+    for key, value in adata.uns['rank_genes_groups_filtered'].items():
+        if not isinstance(value, str):
+            adata.uns['rank_genes_groups_filtered'][key] = str(value)
+
+@CMD_ANNDATA_WRITE_OUTPUTS@
 
 #else if $method.method == "pp.highly_variable_genes"
 sc.pp.highly_variable_genes(
     adata=adata,
     flavor='$method.flavor.flavor',
-    #if $method.flavor.flavor == 'seurat'
-        min_mean=$method.flavor.min_mean,
-        max_mean=$method.flavor.max_mean,
-        min_disp=$method.flavor.min_disp,
+    #if $method.flavor.flavor == 'seurat':
+    min_mean=$method.flavor.min_mean,
+    max_mean=$method.flavor.max_mean,
+    min_disp=$method.flavor.min_disp,
         #if str($method.flavor.max_disp) != ''
-        max_disp=$method.flavor.max_disp,
+    max_disp=$method.flavor.max_disp,
         #end if
-    #else if $method.flavor.flavor == 'cell_ranger'
+    #else if $method.flavor.flavor == 'cell_ranger':
+    n_top_genes=$method.flavor.n_top_genes,
+    #else if $method.flavor.flavor == 'seurat_v3':
+    n_top_genes=$method.flavor.n_top_genes,
+    span=$method.flavor.span,
+    #else if $method.flavor.flavor == 'seurat_v3_paper':
     n_top_genes=$method.flavor.n_top_genes,
     #end if
     n_bins=$method.n_bins,
     subset=$method.subset,
+    #if $method.layer != ''
+    layer='$method.layer',
+    #end if
+    #if $method.batch_key != ''
+    layer='$method.batch_key',
+    #end if
     inplace=True)
+
+@CMD_ANNDATA_WRITE_OUTPUTS@
 
 #else if $method.method == 'pp.subsample'
 sc.pp.subsample(
@@ -86,7 +116,16 @@ sc.pp.subsample(
     random_state=$method.random_state,
     copy=False)
 
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
 #else if $method.method == "pp.downsample_counts"
+    #if str($method.counts_per_cell) != ''
+print("Sum of counts for the first cell before:", adata.X[0, :].sum())
+print("Sum of counts for the last cell before:", adata.X[adata.X.shape[0]-1, :].sum())
+    #else if str($method.total_counts) != ''
+print("Sum of total counts before:", adata.X.sum())
+    #end if
+
 sc.pp.downsample_counts(
     adata=adata,
     #if str($method.counts_per_cell) != ''
@@ -99,11 +138,20 @@ sc.pp.downsample_counts(
     replace=$method.replace,
     copy=False)
 
+    #if str($method.counts_per_cell) != ''
+print("Sum of counts for the first cell after:", adata.X[0, :].sum())
+print("Sum of counts for the last cell after:", adata.X[adata.X.shape[0]-1, :].sum())
+    #else if str($method.total_counts) != ''
+print("Sum of total counts after:", adata.X.sum())
+    #end if
+
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
 #else if $method.method == "filter_marker"
 
-#if $method.layer_selection.use_raw == 'False':
-    adata.X = adata.layers['$method.layer_selection.layer']
-#end if
+    #if $method.layer_selection.use_raw == 'False':
+adata.X = adata.layers['$method.layer_selection.layer']
+    #end if
 
 def check_marker(adata, group, gene, thresh_mean, thresh_frac, groupby):
     filtered_data = adata[adata.obs[groupby] == group, adata.var_names == gene]
@@ -115,9 +163,9 @@ def check_marker(adata, group, gene, thresh_mean, thresh_frac, groupby):
 
 header='infer'
 
-#if $method.header == 'not_included':
-    header=None
-#end if
+    #if $method.header == 'not_included':
+header=None
+    #end if
 
 marker_list={key: list(value.values()) for key, value in pd.read_csv('$method.markerfile', sep='\t', index_col=0, header=header).to_dict(orient='index').items()}
 
@@ -133,10 +181,36 @@ for key, value in marker_list.items():
 
 df = pd.DataFrame(marker_list).T
 df.to_csv('marker.tsv', sep='\t', index=True)
-#end if
 
-@CMD_anndata_write_outputs@
-]]></configfile>
+#else if $method.method == "pp.scrublet"
+sc.pp.scrublet(
+    adata,
+    #if $method.batch_key != ''
+    batch_key='$method.batch_key',
+    #end if
+    sim_doublet_ratio=$method.sim_doublet_ratio,
+    expected_doublet_rate=$method.expected_doublet_rate,
+    stdev_doublet_rate=$method.stdev_doublet_rate,
+    synthetic_doublet_umi_subsampling=$method.synthetic_doublet_umi_subsampling,
+    knn_dist_metric='$method.knn_dist_metric',
+    normalize_variance=$method.normalize_variance,
+    log_transform=$method.log_transform,
+    mean_center=$method.mean_center,
+    n_prin_comps=$method.n_prin_comps,
+    use_approx_neighbors=$method.use_approx_neighbors,
+    get_doublet_neighbor_parents=$method.get_doublet_neighbor_parents,
+    #if str($method.n_neighbors) != ''
+    n_neighbors=$method.n_neighbors,
+    #end if
+    #if str($method.threshold) != ''
+    threshold=$method.threshold,
+    #end if
+    random_state=$method.random_state)
+
+@CMD_ANNDATA_WRITE_OUTPUTS@
+#end if
+        ]]>
+        </configfile>
     </configfiles>
     <inputs>
         <expand macro="inputs_anndata"/>
@@ -149,33 +223,34 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                 <option value="pp.subsample">Subsample to a fraction of the number of observations, using 'pp.subsample'</option>
                 <option value="pp.downsample_counts">Downsample counts from count matrix, using 'pp.downsample_counts'</option>
                 <option value="filter_marker">Filter markers from count matrix and marker list</option>
+                <option value="pp.scrublet">Predict doublets using 'pp.scrublet'</option>
             </param>
             <when value="pp.filter_cells">
                 <conditional name="filter">
                     <param argument="filter" type="select" label="Filter">
-                        <option value="min_counts">Minimum number of counts</option>
+                        <option value="min_counts" selected="true">Minimum number of counts</option>
                         <option value="max_counts">Maximum number of counts</option>
                         <option value="min_genes">Minimum number of genes expressed</option>
                         <option value="max_genes">Maximum number of genes expressed</option>
                     </param>
                     <when value="min_counts">
-                        <param argument="min_counts" type="integer" min="0" value="" label="Minimum number of counts required for a cell to pass filtering" help=""/>
+                        <param argument="min_counts" type="integer" min="0" value="" label="Minimum number of counts required for a cell to pass filtering"/>
                     </when>
                     <when value="max_counts">
-                        <param argument="max_counts" type="integer" min="0" value="" label="Maximum number of counts required for a cell to pass filtering" help=""/>
+                        <param argument="max_counts" type="integer" min="0" value="" label="Maximum number of counts required for a cell to pass filtering"/>
                     </when>
                     <when value="min_genes">
-                        <param argument="min_genes" type="integer" min="0" value="" label="Minimum number of genes expressed required for a cell to pass filtering" help=""/>
-                    </when>    
+                        <param argument="min_genes" type="integer" min="0" value="" label="Minimum number of genes expressed required for a cell to pass filtering"/>
+                    </when>
                     <when value="max_genes">
-                        <param argument="max_genes" type="integer" min="0" value="" label="Maximum number of genes expressed required for a cell to pass filtering" help=""/>
+                        <param argument="max_genes" type="integer" min="0" value="" label="Maximum number of genes expressed required for a cell to pass filtering"/>
                     </when>
                 </conditional>
             </when>
             <when value="pp.filter_genes">
                 <conditional name="filter">
                     <param argument="filter" type="select" label="Filter">
-                        <option value="min_counts">Minimum number of counts</option>
+                        <option value="min_counts" selected="true">Minimum number of counts</option>
                         <option value="max_counts">Maximum number of counts</option>
                         <option value="min_cells">Minimum number of cells expressed</option>
                         <option value="max_cells">Maximum number of cells expressed</option>
@@ -188,7 +263,7 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     </when>
                     <when value="min_cells">
                         <param argument="min_cells" type="integer" min="0" value="" label="Minimum number of cells expressed required for a gene to pass filtering"/>
-                    </when>    
+                    </when>
                     <when value="max_cells">
                         <param argument="max_cells" type="integer" min="0" value="" label="Maximum number of cells expressed required for a gene to pass filtering"/>
                     </when>
@@ -196,24 +271,27 @@ df.to_csv('marker.tsv', sep='\t', index=True)
             </when>
             <when value="tl.filter_rank_genes_groups">
                 <param argument="key" type="text" optional="true" label="Key in adata.uns where the rank_genes_groups output is stored">
-                    <expand macro="sanitize_query" />
+                    <expand macro="sanitize_query"/>
                 </param>
                 <param argument="groupby" type="text" optional="true" label="The key of the observations grouping to consider">
-                    <expand macro="sanitize_query" />
+                    <expand macro="sanitize_query"/>
                 </param>
                 <expand macro="param_use_raw"/>
                 <param argument="key_added" type="text" value="rank_genes_groups_filtered" label="Key that will contain new values">
-                    <expand macro="sanitize_query" />
+                    <expand macro="sanitize_query"/>
                 </param>
                 <param argument="min_in_group_fraction" type="float" min="0" max="1" value="0.25" label="Minimum fraction of genes expressing the gene within the categories"/>
                 <param argument="max_out_group_fraction" type="float" min="0" max="1" value="0.5" label="Maximum fraction of genes expressing the gene outside the categories"/>
-                <param argument="min_fold_change" type="integer" value="2" label="Minimum fold change"/>
+                <param argument="min_fold_change" type="integer" value="1" label="Minimum fold change"/>
+                <param argument="compare_abs" type="boolean" truevalue="True" falsevalue="False" checked="false" label="If selected, compare absolute values of log fold change with min_fold_change"/>
             </when>
             <when value="pp.highly_variable_genes">
                 <conditional name='flavor'>
-                    <param argument="flavor" type="select" label="Flavor for computing normalized dispersion">
-                        <option value="seurat">Seurat</option>
+                    <param argument="flavor" type="select" label="Choose the flavor for identifying highly variable genes" help="Expects logarithmized data, except when flavor='seurat_v3'/'seurat_v3_paper', in which count">
+                        <option value="seurat" selected="true">Seurat</option>
                         <option value="cell_ranger">Cell Ranger</option>
+                        <option value="seurat_v3">Seurat v3</option>
+                        <option value="seurat_v3_paper">Seurat v3 (paper)</option>
                     </param>
                     <when value="seurat">
                         <param argument="min_mean" type="float" value="0.0125" label="Minimal mean cutoff"/>
@@ -224,18 +302,29 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <when value="cell_ranger">
                         <param argument="n_top_genes" type="integer" value="" label="Number of highly-variable genes to keep"/>
                     </when>
+                    <when value="seurat_v3">
+                        <param argument="n_top_genes" type="integer" value="" optional="false" label="Number of highly-variable genes to keep"/>
+                        <param argument="span" type="float" value="0.3" label="The fraction of the data (cells) used when estimating the variance in the loess model fit"/>
+                    </when>
+                    <when value="seurat_v3_paper">
+                        <param argument="n_top_genes" type="integer" value="" optional="false" label="Number of highly-variable genes to keep"/>
+                    </when>
                 </conditional>
                 <param argument="n_bins" type="integer" value="20" label="Number of bins for binning the mean gene expression" help="Normalization is done with respect to each bin. If just a single gene falls into a bin, the normalized dispersion is artificially set to 1"/>
                 <param argument="subset" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Inplace subset to highly-variable genes?" help="Otherwise it merely indicates highly variable genes."/>
+                <expand macro="param_layer"/>
+                <param argument="batch_key" type="text" value="" label="Specify the batch key" help="If specified, highly-variable genes are selected within each batch separately and merged.">
+                    <expand macro="sanitize_query"/>
+                </param>
             </when>
             <when value="pp.subsample">
                 <conditional name="type">
                     <param name="type" type="select" label="Type of subsampling">
-                        <option value="fraction">By fraction</option>
+                        <option value="fraction" selected="true">By fraction</option>
                         <option value="n_obs">By number of observation</option>
                     </param>
                     <when value="fraction">
-                        <param argument="fraction" type="float" value="" label="Subsample to this 'fraction' of the number of observations"/>
+                        <param argument="fraction" type="float" min="0" value="" label="Subsample to this 'fraction' of the number of observations"/>
                     </when>
                     <when value="n_obs">
                         <param argument="n_obs" type="integer" min="0" value="" label="Subsample to this number of observations"/>
@@ -251,15 +340,12 @@ df.to_csv('marker.tsv', sep='\t', index=True)
             </when>
             <when value="filter_marker">
                 <param argument="markerfile" type="data" format="tabular" label="List of markers" help="This should be a tsv where row = group (e.g. celltypes) and columns = markers."></param>
-                <param name="header" type="select" label="Header in the list of markers?">
-                    <option value="included">Header incldued</option>
-                    <option value="not_included">Header not included</option>
-                </param>
+                <param name="header" type="boolean" truevalue="included" falsevalue="not_included" checked="true" label="Header is included in the list of markers?"/>
                 <param argument="thresh_mean" type="float" min="0.0" value="1.0" label="Minimal average count of all cells of a group (e.g., celltype) for a particular marker" help="Increasing the threshold will result in a smaller marker set."/>
                 <param argument="thresh_frac" type="float" min="0.0" max="1.0" value="0.1" label="Minimal fractions of cells that has a higher count than the average count of all cells of the group for the marker" help="Increasing this threshold might remove marker outliers."/>
                 <conditional name="layer_selection">
-                    <param name="use_raw" type="select" label="Use .X of adata to perform the filtering" help="">
-                        <option value="True">Yes</option>
+                    <param name="use_raw" type="select" label="Use .X of adata to perform the filtering">
+                        <option value="True" selected="true">Yes</option>
                         <option value="False">No</option>
                     </param>
                     <when value="False">
@@ -267,23 +353,46 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     </when>
                     <when value="True"/>
                 </conditional>
-                <param argument="groupby" type="text" value="" label="The key of the observation grouping to consider (e.g., celltype)" help="">
+                <param argument="groupby" type="text" value="" label="The key of the observation grouping to consider (e.g., celltype)">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="pp.scrublet">
+                <param argument="batch_key" type="text" value="" optional="true" label="Batch key for the concatenate">
                     <expand macro="sanitize_query" />
                 </param>
+                <param argument="sim_doublet_ratio" type="float" value="2.0" label="Number of doublets to simulate relative to the number of observed transcriptomes"/>
+                <param argument="expected_doublet_rate" type="float" value="0.05" label="The estimated doublet rate for the experiment"/>
+                <param argument="stdev_doublet_rate" type="float" value="0.02" label="Uncertainty in the expected doublet rate"/>
+                <param argument="synthetic_doublet_umi_subsampling" type="float" value="1.0" label="Rate for sampling UMIs when creating synthetic doublets" help="f 1.0, each doublet is created by simply adding the UMI counts from two randomly sampled observed transcriptomes. For values less than 1, the UMI counts are added and then randomly sampled at the specified rate."/>
+                <param name="knn_dist_metric" type="select" label="Distance metric used when finding nearest neighbors">
+                    <expand macro="distance_metric_options"/>
+                </param>
+                <param argument="normalize_variance" type="boolean" truevalue="True" falsevalue="False" checked="true" label="normalize the data such that each gene has a variance of 1"/>
+                <param argument="log_transform" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Whether to use log1p() to log-transform the data prior to PCA"/>
+                <param argument="mean_center" type="boolean" truevalue="True" falsevalue="False" checked="true" label="If True, center the data such that each gene has a mean of 0"/>
+                <param argument="n_prin_comps" type="integer" value="30" label="Number of principal components used to embed the transcriptomes prior to k-nearest-neighbor graph construction"/>
+                <param argument="use_approx_neighbors" type="boolean" truevalue="True" falsevalue="None" checked="false" label="Use approximate nearest neighbor method (annoy) for the KNN classifier"/>
+                <param argument="get_doublet_neighbor_parents" type="boolean" truevalue="True" falsevalue="False" checked="false" label="If True, return (in .uns) the parent transcriptomes that generated the doublet neighbors of each observed transcriptome" help="This information can be used to infer the cell states that generated a given doublet state."/>
+                <param argument="n_neighbors" type="integer" value="" optional="true" label="Number of neighbors used to construct the KNN graph of observed transcriptomes and simulated doublets"/>
+                <param argument="threshold" type="float" value="" optional="true" label="Doublet score threshold for calling a transcriptome a doublet" help="If None, this is set automatically"/>
+                <param name="random_state" type="integer" value="0" label="Initial state for doublet simulation and nearest neighbors"/>
             </when>
         </conditional>
         <expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
-        <expand macro="anndata_outputs"/>
+        <expand macro="anndata_outputs">
+            <filter>method['method'] != 'filter_marker'</filter>
+        </expand>
         <data name="marker_out" format="tabular" from_work_dir="marker.tsv" label="${tool.name} on ${on_string}: Markers">
             <filter>method['method'] == 'filter_marker'</filter>
         </data>
     </outputs>
     <tests>
+        <!-- test 1 -->
         <test expect_num_outputs="2">
-            <!-- test 1 -->
-            <param name="adata" value="krumsiek11.h5ad" />
+            <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.filter_cells"/>
                 <conditional name="filter">
@@ -291,112 +400,125 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <param name="min_counts" value="3"/>
                 </conditional>
             </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
             <assert_stdout>
                 <has_text_matching expression="336 × 11"/>
             </assert_stdout>
-            <section name="advanced_common">
-                <param name="show_log" value="true" />
-            </section>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="sc.pp.filter_cells"/>
                     <has_text_matching expression="min_counts=3"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.filter_cells.krumsiek11-min_counts.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                </assert_contents>
+            </output>
         </test>
+
+        <!-- test 2 -->
         <test expect_num_outputs="2">
-            <!-- test 2 -->
-            <param name="adata" value="krumsiek11.h5ad" />
+            <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.filter_cells"/>
                 <conditional name="filter">
                     <param name="filter" value="max_genes"/>
-                    <param name="max_genes" value="100"/>
+                    <param name="max_genes" value="10"/>
                 </conditional>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="354 × 11"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="sc.pp.filter_cells"/>
                     <has_text_matching expression="adata"/>
-                    <has_text_matching expression="max_genes=100"/>
+                    <has_text_matching expression="max_genes=10"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.filter_cells.krumsiek11-max_genes.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                </assert_contents>
+            </output>
         </test>
+
+        <!-- test 3 -->
         <test expect_num_outputs="2">
-            <!-- test 3 -->
-            <param name="adata" value="krumsiek11.h5ad" />
+            <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.filter_genes"/>
                 <conditional name="filter">
                     <param name="filter" value="min_counts"/>
-                    <param name="min_counts" value="3"/>
+                    <param name="min_counts" value="100"/>
                 </conditional>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="640 × 8"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="sc.pp.filter_genes"/>
-                    <has_text_matching expression="min_counts=3"/>
+                    <has_text_matching expression="min_counts=100"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.filter_genes.krumsiek11-min_counts.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                </assert_contents>
+            </output>
         </test>
 
         <!--  test 4 -->
         <!-- Fails to write to anndata after tl.filter_rank_genes_groups
              Issue has been reported here: https://github.com/scverse/anndata/issues/726
              The current fix is: del adata.uns['rank_genes_groups_filtered']  -->
-        <!--<test expect_num_outputs="2">
-            <param name="adata" value="tl.rank_genes_groups.krumsiek11.h5ad" />
+        <!-- The issue is fixed in the script here -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="tl.filter_rank_genes_groups"/>
                 <param name="key" value="rank_genes_groups"/>
-                <param name="use_raw" value="False"/>
-                <param name="key_added" value="rank_genes_groups_filtered"/>
-                <param name="min_in_group_fraction" value="0.25"/>
-                <param name="max_out_group_fraction" value="0.5"/>
                 <param name="min_fold_change" value="3"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="tl.filter_rank_genes_groups"/>
                     <has_text_matching expression="key='rank_genes_groups'"/>
                     <has_text_matching expression="use_raw=False"/>
-                    <has_text_matching expression="log=False"/>
                     <has_text_matching expression="key_added='rank_genes_groups_filtered'"/>
                     <has_text_matching expression="min_in_group_fraction=0.25"/>
                     <has_text_matching expression="max_out_group_fraction=0.5"/>
                     <has_text_matching expression="min_fold_change=3"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.filter_rank_genes_groups.h5ad" ftype="h5ad" compare="sim_size"/>
-        </test>-->
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/rank_genes_groups_filtered"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test 5 -->
         <test expect_num_outputs="2">
-            <!-- test 5 -->
             <param name="adata" value="blobs.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.highly_variable_genes"/>
-                <conditional name="flavor">
-                    <param name="flavor" value="seurat"/>
-                    <param name="min_mean" value="0.0125"/>
-                    <param name="max_mean" value="3"/>
-                    <param name="min_disp" value="0.5"/>
-                </conditional>
-                <param name="n_bins" value="20"/>
-                <param name="subset" value="false"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
             <output name="hidden_output">
                 <assert_contents>
@@ -409,22 +531,27 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <has_text_matching expression="subset=False"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.highly_variable_genes.seurat.blobs.h5ad" ftype="h5ad" compare="sim_size" delta="100000" delta_frac="0.2"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/highly_variable,var/means,var/dispersions,var/dispersions_norm"/>
+                    <has_h5_keys keys="uns/hvg"/>
+                </assert_contents>
+            </output>
         </test>
+
+        <!-- test 6 -->
         <test expect_num_outputs="2">
-            <!-- test 6 -->
-            <param name="adata" value="krumsiek11.h5ad" />
+            <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.highly_variable_genes"/>
                 <conditional name="flavor">
                     <param name="flavor" value="cell_ranger"/>
                     <param name="n_top_genes" value="2"/>
                 </conditional>
-                <param name="n_bins" value="20"/>
                 <param name="subset" value="true"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
             <output name="hidden_output">
                 <assert_contents>
@@ -435,22 +562,30 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <has_text_matching expression="subset=True"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.highly_variable_genes.krumsiek11-cell_ranger.h5ad" ftype="h5ad" compare="sim_size" delta="100000" delta_frac="0.9"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/highly_variable,var/means,var/dispersions,var/dispersions_norm"/>
+                    <has_h5_keys keys="uns/hvg"/>
+                </assert_contents>
+            </output>
         </test>
+
+        <!-- test 7 -->
         <test expect_num_outputs="2">
-            <!-- test 7 -->
-            <param name="adata" value="krumsiek11.h5ad" />
+            <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.subsample"/>
                 <conditional name="type">
-                    <param name="type" value="fraction" />
+                    <param name="type" value="fraction"/>
                     <param name="fraction" value="0.5"/>
                 </conditional>
-                <param name="random_state" value="0"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="320 × 11"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="sc.pp.subsample"/>
@@ -458,22 +593,29 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <has_text_matching expression="random_state=0"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.subsample.krumsiek11_fraction.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="2">
-            <!-- test 8 -->
-            <param name="adata" value="krumsiek11.h5ad" />
+
+        <!-- test 8 -->
+        <test expect_num_outputs="2">    
+            <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.subsample"/>
                 <conditional name="type">
-                    <param name="type" value="n_obs" />
+                    <param name="type" value="n_obs"/>
                     <param name="n_obs" value="10"/>
                 </conditional>
-                <param name="random_state" value="0"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="10 × 11"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="sc.pp.subsample"/>
@@ -481,19 +623,22 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <has_text_matching expression="random_state=0"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.subsample.krumsiek11_n_obs.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                </assert_contents>
+            </output>
         </test>
+
+        <!-- test 9 -->
         <test expect_num_outputs="2">
-            <!-- test 9 -->
-            <param name="adata" value="random-randint.h5ad" />
+            <param name="adata" value="random-randint.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.downsample_counts"/>
                 <param name="total_counts" value="20000"/>
-                <param name="random_state" value="0"/>
-                <param name="replace" value="false"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
             <output name="hidden_output">
                 <assert_contents>
@@ -501,35 +646,100 @@ df.to_csv('marker.tsv', sep='\t', index=True)
                     <has_text_matching expression="total_counts=20000"/>
                     <has_text_matching expression="random_state=0"/>
                     <has_text_matching expression="replace=False"/>
+                    <has_text_matching expression="Sum of total counts before: 49983776.0"/>
+                    <has_text_matching expression="Sum of total counts after: 20000"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="pp.downsample_counts.random-randint.h5ad" ftype="h5ad" compare="sim_size" delta="10000000" delta_frac="0.5"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/index"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="3">
-            <!-- test 10 -->
-            <param name="adata" value="cosg.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_1.h5ad" />
+
+        <!-- test 10 -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="random-randint.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="pp.downsample_counts"/>
+                <param name="counts_per_cell" value="20000"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.pp.downsample_counts"/>
+                    <has_text_matching expression="counts_per_cell=20000"/>
+                    <has_text_matching expression="random_state=0"/>
+                    <has_text_matching expression="replace=False"/>
+                    <has_text_matching expression="Sum of counts for the first cell before: 489934.0"/>
+                    <has_text_matching expression="Sum of counts for the last cell before: 503669.0"/>
+                    <has_text_matching expression="Sum of counts for the first cell after: 20000.0"/>
+                    <has_text_matching expression="Sum of counts for the last cell after: 20000.0"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/index"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test 10 -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="cosg.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_1.h5ad"/>
             <conditional name="method">
                 <param name="method" value="filter_marker"/>
                 <param name="markerfile" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_1.tsv"/>
-                <param name="thresh_mean" value="1.0"/>
                 <param name="thresh_frac" value="0.2"/>
-                <param name="layer_selection" value="True"/>
+                <conditional name="layer_selection">
+                    <param name="use_raw" value="True"/>
+                </conditional>
                 <param name="groupby" value="bulk_labels"/>
             </conditional>
             <section name="advanced_common">
-                <param name="show_log" value="true" />
+                <param name="show_log" value="true"/>
             </section>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="adata, key, x, 1.0, 0.2, 'bulk_labels'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" file="cosg.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_1_out.h5ad" ftype="h5ad">
+            <output name="marker_out" ftype="tabular">
                 <assert_contents>
-                    <has_h5_keys keys="obs, var, uns" />
+                    <has_text text="CD14+ Monocyte"/>
+                    <has_text text="C9orf142"/>
+                    <has_text text="EGR1"/>
+                    <has_text text="GZMB"/>
                 </assert_contents>
             </output>
-            <output name="marker_out" file="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv" ftype="tabular" compare="sim_size"/>
+        </test>
+
+        <!-- test 11 -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="krumsiek11.h5ad"/>
+            <conditional name="method">
+            <param name="method" value="pp.scrublet"/>
+                <param name="n_prin_comps" value="5"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.pp.scrublet"/>
+                    <has_text_matching expression="sim_doublet_ratio=2.0"/>
+                    <has_text_matching expression="expected_doublet_rate=0.05"/>
+                    <has_text_matching expression="n_prin_comps=5"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/doublet_score,obs/predicted_doublet"/>
+                    <has_h5_keys keys="uns/scrublet"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -589,9 +799,11 @@ Downsample counts (`pp.downsample_counts`)
 Downsample counts so that each cell has no more than `target_counts`. Cells with fewer counts than `target_counts` are unaffected by this. This
 has been implemented by M. D. Luecken.
 
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/stable/generated/scanpy.pp.downsample_counts.html>`__
 
 Filter marker genes (`filter_marker`)
-======================================================================
+=====================================
 
 This option is specific for celltype marker gene detection. You can generate a celltype marker gene file (tsv) with **COSG** provided at Galaxy.
 
@@ -602,6 +814,14 @@ A marker gene is returned (retained in the list) if the mean expression of the m
 More details on the `scanpy documentation
 <https://scanpy.readthedocs.io/en/stable/api/scanpy.pp.downsample_counts.html>`__
 
+
+Predict cell doublets using a nearest-neighbor classifier of observed transcriptomes and simulated doublets. (`pp.scrublet`)
+============================================================================================================================
+
+Works best if the input is a raw (unnormalized) counts matrix from a single sample or a collection of similar samples from the same experiment. This function is a wrapper around functions that pre-process using Scanpy and directly call functions of Scrublet().
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/stable/api/generated/scanpy.pp.scrublet.html>`__
 
     ]]></help>
     <expand macro="citations"/>
