@@ -10,8 +10,8 @@ from tempfile import TemporaryDirectory
 import numpy
 from libtiff import TIFF
 from omero.cli import cli_login
-from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
-from omero.gateway import BlitzGateway  # noqa
+from omero.constants.namespaces import NSBULKANNOTATIONS
+from omero.gateway import BlitzGateway
 from tifffile import imwrite
 
 
