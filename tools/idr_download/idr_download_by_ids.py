@@ -238,15 +238,15 @@ def download_image_data(
     Args:
         image_ids_or_dataset_id (list of string): Can be either a list with a single id (int) of a dataset or a list with images ids (int) or images ids prefixed by 'image-'
         dataset (bool, optional): Whether the image_ids_or_dataset_id is a dataset id and all images from this dataset should be retrieved (true) or image_ids_or_dataset_id are individual image ids (false). Defaults to False.
-        download_original (bool, optional): Whether the original file uploded to omero should be downloaded. Defaults to False.
+        download_original (bool, optional): Whether the original file uploded to omero should be downloaded (ignored if `download_full` is set to True). Defaults to False.
         download_full (bool, optional): Whether the full image (hyperstack) on omero should be written to TIFF. Defaults to False.
-        channel (string, optional): Channel name. Defaults to None.
-        z_stack (int, optional): Z stack (plane) index. Defaults to 0.
-        frame (int, optional): T frame index. Defaults to 0.
-        coord (tuple of int, optional): Coordinates of the top left or center of the region to crop. Defaults to (0, 0).
-        width (int, optional): Width of the region to crop. Defaults to 0.
-        height (int, optional): Height of the region to crop. Defaults to 0.
-        region_spec (str, optional): How the region is specified ('rectangle' = coord is top left or 'center' = the region is center). Defaults to "rectangle".
+        channel (string, optional): Channel name (ignored if `download_full` or `download_original` is set to True). Defaults to None.
+        z_stack (int, optional): Z stack (plane) index (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
+        frame (int, optional): T frame index (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
+        coord (tuple of int, optional): Coordinates of the top left or center of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to (0, 0).
+        width (int, optional): Width of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
+        height (int, optional): Height of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
+        region_spec (str, optional): How the region is specified ('rectangle' = coord is top left or 'center' = the region is center, ignored if `download_full` or `download_original` is set to True). Defaults to "rectangle".
         skip_failed (bool, optional): Do not stop the downloads if one fails. Defaults to False.
         download_tar (bool, optional): Put all downloaded images into a tar file. Defaults to False.
         omero_host (str, optional): omero host url. Defaults to "idr.openmicroscopy.org".
@@ -587,25 +587,6 @@ if __name__ == "__main__":
         "for which to retrieve data (default: "
         "read ids from stdin).",
     )
-    p.add_argument(
-        "--download-original",
-        dest="download_original",
-        action="store_true",
-        help="download the original file uploaded to omero",
-    )
-    p.add_argument(
-        "--download-full",
-        dest="download_full",
-        action="store_true",
-        help="download the full image on omero",
-    )
-    p.add_argument(
-        "-c",
-        "--channel",
-        help="name of the channel to retrieve data for "
-        "(note: the first channel of each image will be downloaded if "
-        "left unspecified)",
-    )
     region = p.add_mutually_exclusive_group()
     region.add_argument(
         "--rectangle",
@@ -629,8 +610,42 @@ if __name__ == "__main__":
         "Note: Even values for width and height will be rounded down to "
         "the nearest odd number.",
     )
-    p.add_argument("-f", "--frame", type=int, default=0)
-    p.add_argument("-z", "--z-stack", type=int, default=0)
+    region.add_argument(
+        "--download-original",
+        dest="download_original",
+        action="store_true",
+        help="download the original file uploaded to omero",
+    )
+    region.add_argument(
+        "--download-full",
+        dest="download_full",
+        action="store_true",
+        help="download the full image on omero",
+    )
+    p.add_argument(
+        "-c",
+        "--channel",
+        help="name of the channel to retrieve data for "
+        "(note: the first channel of each image will be downloaded if "
+        "left unspecified), ignored with `--download-original` and "
+        "`--download-full`",
+    )
+    p.add_argument(
+        "-f",
+        "--frame",
+        type=int,
+        default=0,
+        help="index of the frame to retrive data for (first frame is 0),"
+        " ignored with `--download-original` and `--download-full`",
+    )
+    p.add_argument(
+        "-z",
+        "--z-stack",
+        type=int,
+        default=0,
+        help="index of the slice to retrive data for (first slice is 0),"
+        " ignored with `--download-original` and `--download-full`",
+    )
     p.add_argument("--skip-failed", action="store_true")
     p.add_argument("--download-tar", action="store_true")
     p.add_argument("-oh", "--omero-host", type=str, default="idr.openmicroscopy.org")
