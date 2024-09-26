@@ -10,11 +10,11 @@ from tempfile import TemporaryDirectory
 import numpy
 from omero.cli import cli_login
 from omero.constants.namespaces import NSBULKANNOTATIONS
-from omero.gateway import BlitzGateway
+from omero.gateway import BlitzGateway, _ImageWrapper
 from tifffile import imwrite
 
 
-def warn(message, image_identifier, warn_skip=False):
+def warn(message: str, image_identifier: str, warn_skip: bool = False) -> None:
     """Print an error `message` to stderr and
     - prefix with the `image_identifier`
     - suffix with 'Skipping download!' if `warn_skip` is True
@@ -38,11 +38,11 @@ def warn(message, image_identifier, warn_skip=False):
     )
 
 
-def find_channel_index(image, channel_name):
+def find_channel_index(image: _ImageWrapper, channel_name: str) -> int:
     """Identify the channel index from the `image` and the `channel_name`
 
     Args:
-        image (omero.gateway._ImageWrapper): image wrapper on which the channel should be identified
+        image (_ImageWrapper): image wrapper on which the channel should be identified
         channel_name (string): name of the channel to look for
 
     Returns:
@@ -65,11 +65,11 @@ def find_channel_index(image, channel_name):
     return -1
 
 
-def get_clipping_region(image, x, y, w, h):
+def get_clipping_region(image: _ImageWrapper, x: int, y: int, w: int, h: int) -> list[int]:
     """Check `x`, `y` and adjust `w`, `h` to image size to be able to crop the `image` with these coordinates
 
     Args:
-        image (omero.gateway._ImageWrapper): image wrapper on which region want to be cropped
+        image (_ImageWrapper): image wrapper on which region want to be cropped
         x (int): left x coordinate
         y (int): top y coordinate
         w (int): width
@@ -80,7 +80,7 @@ def get_clipping_region(image, x, y, w, h):
         ValueError: if the x or y coordinates are larger than the width or height of the image.
 
     Returns:
-        list of int: new x, y, width, height adjusted to the image
+        list[int]: new [x, y, width, height] adjusted to the image
     """
     # If the (x, y) coordinate falls outside the image boundaries, we
     # cannot just shift it because that would render the meaning of
@@ -108,11 +108,11 @@ def get_clipping_region(image, x, y, w, h):
     return [x, y, w, h]
 
 
-def confine_plane(image, z):
+def confine_plane(image: _ImageWrapper, z: int) -> int:
     """Adjust/Confine `z` to be among the possible z for the `image`
 
     Args:
-        image (omero.gateway._ImageWrapper): image wrapper for which the z is adjusted
+        image (_ImageWrapper): image wrapper for which the z is adjusted
         z (int): plane index that need to be confined
 
     Returns:
@@ -127,11 +127,11 @@ def confine_plane(image, z):
     return z
 
 
-def confine_frame(image, t):
+def confine_frame(image: _ImageWrapper, t: int) -> int:
     """Adjust/Confine `t` to be among the possible t for the `image`
 
     Args:
-        image (omero.gateway._ImageWrapper): image wrapper for which the t is adjusted
+        image (_ImageWrapper): image wrapper for which the t is adjusted
         t (int): frame index that need to be confined
 
     Returns:
@@ -146,18 +146,18 @@ def confine_frame(image, t):
     return t
 
 
-def get_image_array(image, tile, z, c, t):
+def get_image_array(image: _ImageWrapper, tile: list[int], z: int, c: int, t: int) -> numpy.ndarray:
     """Get a 2D numpy array from an `image` wrapper for a given `tile`, `z`, `c`, `t`
 
     Args:
-        image (omero.gateway._ImageWrapper): image wrapper from which values are taken
-        tile (list of int): [x, y, width, height] where x,y is the top left coordinate of the region to crop
+        image (_ImageWrapper): image wrapper from which values are taken
+        tile (list[int]): [x, y, width, height] where x,y is the top left coordinate of the region to crop
         z (int): plane index
         c (int): channel index
         t (int): frame index
 
     Returns:
-        numpy array of 2 dimensions: image values of the selected area
+        numpy.ndarray: image values of the selected area (2 dimensions)
     """
     pixels = image.getPrimaryPixels()
     try:
@@ -170,14 +170,14 @@ def get_image_array(image, tile, z, c, t):
     return selection
 
 
-def get_full_image_array(image):
+def get_full_image_array(image: _ImageWrapper) -> numpy.ndarray:
     """Get a 5D numpy array with all values from an `image` wrapper
 
     Args:
-        image (omero.gateway._ImageWrapper): image wrapper from which values are taken
+        image (_ImageWrapper): image wrapper from which values are taken
 
     Returns:
-        numpy array of 5 dimensions: image values in the TZCYX order
+        numpy.ndarray: image values in the TZCYX order (5 dimensions)
     """
     # The goal is to get the image in TZCYX order
     pixels = image.getPrimaryPixels()
@@ -209,23 +209,23 @@ def get_full_image_array(image):
 
 
 def download_image_data(
-    image_ids_or_dataset_id,
-    dataset=False,
-    download_original=False,
-    download_full=False,
-    channel=None,
-    z_stack=0,
-    frame=0,
-    coord=(0, 0),
-    width=0,
-    height=0,
-    region_spec="rectangle",
-    skip_failed=False,
-    download_tar=False,
-    omero_host="idr.openmicroscopy.org",
-    omero_secured=False,
-    config_file=None,
-):
+    image_ids_or_dataset_id: str,
+    dataset: bool = False,
+    download_original: bool = False,
+    download_full: bool = False,
+    channel: str = None,
+    z_stack: int = 0,
+    frame: int = 0,
+    coord: tuple[int, int] = (0, 0),
+    width: int = 0,
+    height: int = 0,
+    region_spec: str = "rectangle",
+    skip_failed: bool = False,
+    download_tar: bool = False,
+    omero_host: str = "idr.openmicroscopy.org",
+    omero_secured: bool = False,
+    config_file: str = None,
+) -> None:
     """Download the image data of
       either a list of image ids or all images from a dataset.
       The image data can be:
@@ -235,14 +235,14 @@ def download_image_data(
       Optionally, the final file can be in a tar
 
     Args:
-        image_ids_or_dataset_id (list of string): Can be either a list with a single id (int) of a dataset or a list with images ids (int) or images ids prefixed by 'image-'
+        image_ids_or_dataset_id (list[str]): Can be either a list with a single id (int) of a dataset or a list with images ids (int) or images ids prefixed by 'image-'
         dataset (bool, optional): Whether the image_ids_or_dataset_id is a dataset id and all images from this dataset should be retrieved (true) or image_ids_or_dataset_id are individual image ids (false). Defaults to False.
         download_original (bool, optional): Whether the original file uploded to omero should be downloaded (ignored if `download_full` is set to True). Defaults to False.
         download_full (bool, optional): Whether the full image (hyperstack) on omero should be written to TIFF. Defaults to False.
         channel (string, optional): Channel name (ignored if `download_full` or `download_original` is set to True). Defaults to None.
         z_stack (int, optional): Z stack (plane) index (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
         frame (int, optional): T frame index (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
-        coord (tuple of int, optional): Coordinates of the top left or center of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to (0, 0).
+        coord (tuple[int, int], optional): Coordinates of the top left or center of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to (0, 0).
         width (int, optional): Width of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
         height (int, optional): Height of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
         region_spec (str, optional): How the region is specified ('rectangle' = coord is top left or 'center' = the region is center, ignored if `download_full` or `download_original` is set to True). Defaults to "rectangle".
@@ -545,7 +545,7 @@ def download_image_data(
                         raise
 
 
-def _center_to_ul(center_x, center_y, width, height):
+def _center_to_ul(center_x: int, center_y: int, width: int, height: int) -> list[int]:
     """Convert the center coordinates (`center_x`, `center_y`), `width`, `height` to upper left coordinates, width, height
 
     Args:
@@ -555,7 +555,7 @@ def _center_to_ul(center_x, center_y, width, height):
         height (int): height
 
     Returns:
-        list of 4 int: x, y, width, height where x,y are the upper left coordinates
+        list[int]: [x, y, width, height] where x,y are the upper left coordinates
     """
     if width > 0:
         ext_x = (width - 1) // 2
