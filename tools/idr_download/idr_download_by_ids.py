@@ -205,8 +205,7 @@ def get_full_image_array(image: _ImageWrapper) -> numpy.ndarray:
         )
     except Exception as e:
         warning = "{0} (ID: {1})".format(image.getName(), image.getId())
-        warn("Could not download the requested region", warning)
-        warn(e.msg)
+        warn(f"Could not download the full image \n {e.msg}", warning)
         return
 
     return all_planes_reshaped
