@@ -8,7 +8,6 @@ from itertools import product
 from tempfile import TemporaryDirectory
 
 import numpy
-from libtiff import TIFF
 from omero.cli import cli_login
 from omero.constants.namespaces import NSBULKANNOTATIONS
 from omero.gateway import BlitzGateway
@@ -532,11 +531,7 @@ def download_image_data(
 
                     if download_tar:
                         fname = os.path.join(tempdir, fname)
-                    try:
-                        tiff = TIFF.open(fname, mode="w")
-                        tiff.write_image(im_array)
-                    finally:
-                        tiff.close()
+                    imwrite(fname, im_array)
                     # move image into tarball
                     if download_tar:
                         archive.add(fname, os.path.basename(fname))
