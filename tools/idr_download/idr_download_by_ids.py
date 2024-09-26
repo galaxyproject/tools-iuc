@@ -16,6 +16,15 @@ from tifffile import imwrite
 
 
 def warn(message, image_identifier, warn_skip=False):
+    """Print an error message to stderr and
+    - prefix with the image identifier
+    - suffix with 'Skipping download!' if warn_skip is True
+
+    Args:
+        message (string): Message to print to stderr
+        image_identifier (string): Image identifier
+        warn_skip (bool, optional): Whether 'skipping download' should be suffix to the message. Defaults to False.
+    """
     message = message.rstrip()
     if warn_skip:
         if message[-1] in [".", "!", "?"]:
@@ -31,6 +40,15 @@ def warn(message, image_identifier, warn_skip=False):
 
 
 def find_channel_index(image, channel_name):
+    """Identify the channel index from the image and the channel name
+
+    Args:
+        image (omero.gateway._ImageWrapper): image wrapper on which the channel should be identified
+        channel_name (string): name of the channel to look for
+
+    Returns:
+        int: Index of the channel or -1 if was not found.
+    """
     channel_name = channel_name.lower()
     for n, channel in enumerate(image.getChannelLabels()):
         if channel_name == channel.lower():
@@ -49,6 +67,22 @@ def find_channel_index(image, channel_name):
 
 
 def get_clipping_region(image, x, y, w, h):
+    """Check x,y and adjust w,h to image size to be able to crop the image with these coordinates
+
+    Args:
+        image (omero.gateway._ImageWrapper): image wrapper on which region want to be cropped
+        x (int): left x coordinate
+        y (int): top y coordinate
+        w (int): width
+        h (int): height
+
+    Raises:
+        ValueError: if the x or y coordinates are negative.
+        ValueError: if the x or y coordinates are larger than the width or height of the image.
+
+    Returns:
+        list of int: new x, y, width, height adjusted to the image
+    """
     # If the (x, y) coordinate falls outside the image boundaries, we
     # cannot just shift it because that would render the meaning of
     # w and h undefined (should width and height be decreased or the whole
@@ -76,6 +110,15 @@ def get_clipping_region(image, x, y, w, h):
 
 
 def confine_plane(image, z):
+    """Adjust/Confine z to be among the possible z for the image
+
+    Args:
+        image (omero.gateway._ImageWrapper): image wrapper for which the z is adjusted
+        z (int): plane index that need to be confined
+
+    Returns:
+        int: confined z
+    """
     if z < 0:
         z = 0
     else:
@@ -86,6 +129,15 @@ def confine_plane(image, z):
 
 
 def confine_frame(image, t):
+    """Adjust/Confine t to be among the possible t for the image
+
+    Args:
+        image (omero.gateway._ImageWrapper): image wrapper for which the t is adjusted
+        t (int): frame index that need to be confined
+
+    Returns:
+        int: confined t
+    """
     if t < 0:
         t = 0
     else:
@@ -96,6 +148,18 @@ def confine_frame(image, t):
 
 
 def get_image_array(image, tile, z, c, t):
+    """Get a 2D numpy array from an image wrapper for a given tile, z, c, t
+
+    Args:
+        image (omero.gateway._ImageWrapper): image wrapper from which values are taken
+        tile (list of int): [x, y, width, height] where x,y is the top left coordinate of the region to crop
+        z (int): plane index
+        c (int): channel index
+        t (int): frame index
+
+    Returns:
+        numpy array of 2 dimensions: image values of the selected area
+    """
     pixels = image.getPrimaryPixels()
     try:
         selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
@@ -108,13 +172,24 @@ def get_image_array(image, tile, z, c, t):
 
 
 def get_full_image_array(image):
+    """Get a 5D numpy array with all values from an image wrapper
+
+    Args:
+        image (omero.gateway._ImageWrapper): image wrapper from which values are taken
+
+    Returns:
+        numpy array of 5 dimensions: image values in the TZCYX order
+    """
     # The goal is to get the image in TZCYX order
     pixels = image.getPrimaryPixels()
+    # Get the final tzclist in the order that will make the numpy reshape work
     tzclist = list(
         product(
             range(image.getSizeT()), range(image.getSizeZ()), range(image.getSizeC())
         )
     )
+    # As getPlanes requires the indices in the zct order
+    # We keep the final order but switch indices
     zctlist = [(z, c, t) for (t, z, c) in tzclist]
     try:
         all_planes = numpy.array(list(pixels.getPlanes(zctlist)))
@@ -152,6 +227,39 @@ def download_image_data(
     omero_secured=False,
     config_file=None,
 ):
+    """Download the image data of
+      either a list of image ids or all images from a dataset.
+      The image data can be:
+       - a 2D cropped region or
+       - a hyperstack written in a tiff file
+       - the original image uploaded in omero
+      Optionally, th final file can be in a tar
+
+    Args:
+        image_ids_or_dataset_id (list of string): Can be either a list with a single id (int) of a dataset or a list with images ids (int) or images ids prefixed by 'image-'
+        dataset (bool, optional): Whether the image_ids_or_dataset_id is a dataset id and all images from this dataset should be retrieved (true) or image_ids_or_dataset_id are individual image ids (false). Defaults to False.
+        download_original (bool, optional): Whether the original file uploded to omero should be downloaded. Defaults to False.
+        download_full (bool, optional): Whether the full image (hyperstack) on omero should be written to TIFF. Defaults to False.
+        channel (string, optional): Channel name. Defaults to None.
+        z_stack (int, optional): Z stack (plane) index. Defaults to 0.
+        frame (int, optional): T frame index. Defaults to 0.
+        coord (tuple of int, optional): Coordinates of the top left or center of the region to crop. Defaults to (0, 0).
+        width (int, optional): Width of the region to crop. Defaults to 0.
+        height (int, optional): Height of the region to crop. Defaults to 0.
+        region_spec (str, optional): How the region is specified ('rectangle' = coord is top left or 'center' = the region is center). Defaults to "rectangle".
+        skip_failed (bool, optional): Do not stop the downloads if one fails. Defaults to False.
+        download_tar (bool, optional): Put all downloaded images into a tar file. Defaults to False.
+        omero_host (str, optional): omero host url. Defaults to "idr.openmicroscopy.org".
+        omero_secured (bool, optional): Whether the omero connects with secure connection. Defaults to False.
+        config_file (string, optional): File path with config file with credentials to connect to OMERO. Defaults to None.
+
+    Raises:
+        ValueError: If the region_spec is not 'rectangle' nor 'center' and a cropped region is wanted.
+        ValueError: If there is no dataset with this number in OMERO
+        ValueError: If there is no image with this number in OMERO
+        Exception: If the command to download the original image fails
+        ValueError: If the channel name could not be identified
+    """
 
     if config_file is None:  # IDR connection
         omero_username = "public"
@@ -443,6 +551,17 @@ def download_image_data(
 
 
 def _center_to_ul(center_x, center_y, width, height):
+    """Convert the center coordinates, width, height to upper left coordinates, width, height
+
+    Args:
+        center_x (int): x coordinate of center
+        center_y (int): y coordinate of center
+        width (int): width
+        height (int): height
+
+    Returns:
+        list of 4 int: x, y, width, height where x,y are the upper left coordinates
+    """
     if width > 0:
         ext_x = (width - 1) // 2
         ul_x = max([center_x - ext_x, 0])
