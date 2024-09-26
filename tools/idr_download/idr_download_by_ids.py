@@ -180,7 +180,6 @@ def download_image_data(
                 omero_username, omero_password, host=omero_host, secure=omero_secured
             )
         )
-        # exit_stack.callback(conn.connect().close)
         if download_tar:
             # create an archive file to write images to
             archive = exit_stack.enter_context(tarfile.open("images.tar", mode="w"))
@@ -245,7 +244,7 @@ def download_image_data(
             if image is None:
                 if skip_failed:
                     warn(
-                        "Unable to find an image with this ID in the " "database.",
+                        "Unable to find an image with this ID in the database.",
                         image_warning_id,
                         warn_skip=True,
                     )
@@ -291,7 +290,6 @@ def download_image_data(
                         continue
                     else:
                         raise
-
             elif download_original:
                 try:
                     # try to extract image properties
