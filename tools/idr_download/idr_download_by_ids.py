@@ -15,9 +15,9 @@ from tifffile import imwrite
 
 
 def warn(message, image_identifier, warn_skip=False):
-    """Print an error message to stderr and
-    - prefix with the image identifier
-    - suffix with 'Skipping download!' if warn_skip is True
+    """Print an error `message` to stderr and
+    - prefix with the `image_identifier`
+    - suffix with 'Skipping download!' if `warn_skip` is True
 
     Args:
         message (string): Message to print to stderr
@@ -39,7 +39,7 @@ def warn(message, image_identifier, warn_skip=False):
 
 
 def find_channel_index(image, channel_name):
-    """Identify the channel index from the image and the channel name
+    """Identify the channel index from the `image` and the `channel_name`
 
     Args:
         image (omero.gateway._ImageWrapper): image wrapper on which the channel should be identified
@@ -66,7 +66,7 @@ def find_channel_index(image, channel_name):
 
 
 def get_clipping_region(image, x, y, w, h):
-    """Check x,y and adjust w,h to image size to be able to crop the image with these coordinates
+    """Check `x`, `y` and adjust `w`, `h` to image size to be able to crop the `image` with these coordinates
 
     Args:
         image (omero.gateway._ImageWrapper): image wrapper on which region want to be cropped
@@ -109,7 +109,7 @@ def get_clipping_region(image, x, y, w, h):
 
 
 def confine_plane(image, z):
-    """Adjust/Confine z to be among the possible z for the image
+    """Adjust/Confine `z` to be among the possible z for the `image`
 
     Args:
         image (omero.gateway._ImageWrapper): image wrapper for which the z is adjusted
@@ -128,7 +128,7 @@ def confine_plane(image, z):
 
 
 def confine_frame(image, t):
-    """Adjust/Confine t to be among the possible t for the image
+    """Adjust/Confine `t` to be among the possible t for the `image`
 
     Args:
         image (omero.gateway._ImageWrapper): image wrapper for which the t is adjusted
@@ -147,7 +147,7 @@ def confine_frame(image, t):
 
 
 def get_image_array(image, tile, z, c, t):
-    """Get a 2D numpy array from an image wrapper for a given tile, z, c, t
+    """Get a 2D numpy array from an `image` wrapper for a given `tile`, `z`, `c`, `t`
 
     Args:
         image (omero.gateway._ImageWrapper): image wrapper from which values are taken
@@ -171,7 +171,7 @@ def get_image_array(image, tile, z, c, t):
 
 
 def get_full_image_array(image):
-    """Get a 5D numpy array with all values from an image wrapper
+    """Get a 5D numpy array with all values from an `image` wrapper
 
     Args:
         image (omero.gateway._ImageWrapper): image wrapper from which values are taken
@@ -232,7 +232,7 @@ def download_image_data(
        - a 2D cropped region or
        - a hyperstack written in a tiff file
        - the original image uploaded in omero
-      Optionally, th final file can be in a tar
+      Optionally, the final file can be in a tar
 
     Args:
         image_ids_or_dataset_id (list of string): Can be either a list with a single id (int) of a dataset or a list with images ids (int) or images ids prefixed by 'image-'
@@ -546,7 +546,7 @@ def download_image_data(
 
 
 def _center_to_ul(center_x, center_y, width, height):
-    """Convert the center coordinates, width, height to upper left coordinates, width, height
+    """Convert the center coordinates (`center_x`, `center_y`), `width`, `height` to upper left coordinates, width, height
 
     Args:
         center_x (int): x coordinate of center
