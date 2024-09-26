@@ -65,7 +65,9 @@ def find_channel_index(image: _ImageWrapper, channel_name: str) -> int:
     return -1
 
 
-def get_clipping_region(image: _ImageWrapper, x: int, y: int, w: int, h: int) -> list[int]:
+def get_clipping_region(
+    image: _ImageWrapper, x: int, y: int, w: int, h: int
+) -> list[int]:
     """Check `x`, `y` and adjust `w`, `h` to image size to be able to crop the `image` with these coordinates
 
     Args:
@@ -146,7 +148,9 @@ def confine_frame(image: _ImageWrapper, t: int) -> int:
     return t
 
 
-def get_image_array(image: _ImageWrapper, tile: list[int], z: int, c: int, t: int) -> numpy.ndarray:
+def get_image_array(
+    image: _ImageWrapper, tile: list[int], z: int, c: int, t: int
+) -> numpy.ndarray:
     """Get a 2D numpy array from an `image` wrapper for a given `tile`, `z`, `c`, `t`
 
     Args:
