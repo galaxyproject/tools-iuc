@@ -300,8 +300,8 @@ class findOut:
                 t.write("\n")
         some = False
         if self.outbeds in ["outzero"]:
-                self.writeBed(bedzero, self.bedoutzeo)
-                some = True
+            self.writeBed(bedzero, self.bedoutzero)
+            some = True
         if self.qlo:
             if self.outbeds in ["outall", "outlo", "outlohi"]:
                 self.writeBed(bedlo, self.bedoutlo)
