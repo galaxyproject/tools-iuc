@@ -7,7 +7,7 @@ import os
 import shutil
 import sys
 import tarfile
-from datetime import datetime
+from datetime import date
 from urllib.parse import urlparse
 from urllib.request import HTTPError, Request, urlopen
 
@@ -118,7 +118,19 @@ def url_download(url, target_directory, meta):
         return target_directory
 
 
-def download(database_name, release, meta, test, out_file):
+def create_data_manager_entry(database_name, release, file_path):
+    time = date.today().strftime("%Y-%m-%d")
+    data_manager_entry = {}
+    data_manager_entry["value"] = (
+        f"{database_name.replace(' ', '_').lower()}_release_{release}_downloaded_{time}"
+    )
+    data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
+    data_manager_entry["path"] = file_path
+    data_manager_entry["version"] = release
+    return data_manager_entry
+
+
+def download(release, meta, test, out_file):
 
     with open(out_file) as fh:
         params = json.load(fh)
@@ -137,72 +149,56 @@ def download(database_name, release, meta, test, out_file):
             for url in items.values():
                 assert is_urlfile(url)
 
-    # download both taxonomy metadata tables
+    data_manager_json = {"data_tables": {}}
+
+    # download taxonomy metadata tables
     if meta:
         url = urls[release]["meta_ar"]
-        file_path = url_download(url, target_directory, meta)
+        url_download(url, target_directory, meta)
         url = urls[release]["meta_bac"]
         file_path = url_download(url, target_directory, meta)
+
+        data_manager_json["data_tables"]["gtdbtk_database_metadata_versioned"] = [
+            create_data_manager_entry("Metadata Tables", release, file_path)
+        ]
     # download the full DB
     else:
         url = urls[release]["full"]
         file_path = url_download(url, target_directory, meta)
-
-    time = datetime.utcnow().strftime("%Y-%m-%d")
-
-    data_manager_json = {"data_tables": {}}
-    data_manager_entry = {}
-    data_manager_entry["value"] = f"{database_name}_release_{release}_downloaded_{time}"
-    data_manager_entry["name"] = database_name
-    data_manager_entry["path"] = file_path
-    data_manager_entry["version"] = release
+        data_manager_json["data_tables"]["gtdbtk_database_versioned"] = [
+            create_data_manager_entry("Full Database", release, file_path)
+        ]
 
     # store in dedicated metadata table
-    if meta:
-        data_manager_json["data_tables"][
-            "gtdbtk_database_metadata_versioned"
-        ] = data_manager_entry
-    else:
-        data_manager_json["data_tables"][
-            "gtdbtk_database_versioned"
-        ] = data_manager_entry
-
     with open(out_file, "w") as fh:
         json.dump(data_manager_json, fh, sort_keys=True)
 
 
-parser = argparse.ArgumentParser()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
 
-parser.add_argument(
-    "--database_name", dest="database_name", help="GTDB-Tk database display name"
-)
+    parser.add_argument("--version", dest="version", help="DB version")
+    parser.add_argument(
+        "--release", dest="release", help="Release of the GTDB-Tk database version"
+    )
+    parser.add_argument("--out_file", dest="out_file", help="JSON output file")
+    parser.add_argument(
+        "--meta",
+        dest="meta",
+        action="store_true",
+        help="Store meta data flag",
+    )
+    parser.add_argument(
+        "--test",
+        dest="test",
+        action="store_true",
+        help="Run test",
+    )
+    args = parser.parse_args()
 
-parser.add_argument("--version", dest="version", help="DB version")
-
-parser.add_argument(
-    "--release", dest="release", help="Release of the GTDB-Tk database version"
-)
-parser.add_argument("--out_file", dest="out_file", help="JSON output file")
-parser.add_argument(
-    "--meta",
-    dest="meta",
-    action="store_true",
-    help="Store meta data flag",
-)
-
-parser.add_argument(
-    "--test",
-    dest="test",
-    action="store_true",
-    help="Run test",
-)
-
-args = parser.parse_args()
-
-download(
-    args.database_name,
-    args.release,
-    args.meta,
-    args.test,
-    args.out_file,
-)
+    download(
+        args.release,
+        args.meta,
+        args.test,
+        args.out_file,
+    )
