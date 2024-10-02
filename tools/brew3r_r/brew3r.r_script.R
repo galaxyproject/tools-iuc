@@ -103,9 +103,9 @@ if (is.null(input_gr_to_extend$exon_id)) {
     input_gr_to_extend$exon_id[is.exon] <- paste0(
         "EXON",
         sprintf(
-                    "%010d",
-                    1:length(is.exon)
-                )
+            "%010d",
+            1:length(is.exon)
+        )
     )
 }
 
