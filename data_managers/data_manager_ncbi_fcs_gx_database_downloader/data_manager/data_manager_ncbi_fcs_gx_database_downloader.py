@@ -63,7 +63,6 @@ def sync_files(opts: argparse.Namespace) -> typing.Dict[str, typing.List[typing.
                 "use_source_manifest": "1" if opts.use_source_manifest else "0",
                 "phone_home": "1" if opts.phone_home else "0",
                 "phone_home_label": opts.phone_home_label,
-                "node_cache_dir": opts.node_cache_dir,
                 "local_manifest": opts.output_dir,
             }
         ]
