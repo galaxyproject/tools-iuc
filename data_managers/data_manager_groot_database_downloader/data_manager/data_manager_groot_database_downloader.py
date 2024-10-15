@@ -5,7 +5,6 @@ import argparse
 import json
 import shutil
 import subprocess
-from datetime import date
 from pathlib import Path
 
 
