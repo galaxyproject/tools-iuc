@@ -6,11 +6,20 @@
     <expand macro="edam"/>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-        mkdir -p inputs outputs &&
+        #if $type.de_type == 'non_parametric':
+            #set $cell_type = [str(x.strip()) for x in str($type.cell_type).split(',')]
+            #if str($type.cell_types_present) != '':
+                #set $cell_types_present = [str(x.strip()) for x in str($type.cell_types_present).split(',')]
+            #end if
+        #end if
+        mkdir -p 'inputs' 'results' 'logs' 'figures' &&
         ln -s '$rctd' 'inputs/rctd.rds' &&
+        touch 'results/cside_script.R' &&
+        cat '$cside_script' > 'results/cside_script.R' &&
+        Rscript '$cside_script'
     ]]></command>
     <configfiles>
-        <configfile name="spacexr_cside_config">
+        <configfile name="cside_script">
             # cside script
             # This file is used to specify the parameters for the cside from spacexr package
 
@@ -22,6 +31,54 @@
             # load RCTD object
             myRCTD &lt;- readRDS('inputs/rctd.rds')
             
+            # set core
+            myRCTD@config$max_cores &lt;- \${GALAXY_SLOTS:-2}
+
+            # CSIDE
+            #if $type.de_type == 'non_parametric':
+                cell_types &lt;- c($cell_type)
+                myRCTD &lt;- run.CSIDE.nonparam(myRCTD,
+                                            df = $type.df,
+                                            barcodes = NULL, # use all barcodes
+                                            cell_types = cell_types,
+                                            cell_type_threshold = $type.cell_type_threshold,
+                                            gene_threshold = $type.gene_threshold,
+                                            doublet_mode = $type.doublet_mode,
+                                            #if str($weight_threshold) != '':
+                                                weight_threshold = $type.weight_threshold,
+                                            #end if
+                                            sigma_gene = $type.sigma_gene,
+                                            PRECISION.THRESHOLD = $type.PRECISION.THRESHOLD,
+                                            #if str($cell_types_present) != '':
+                                                cell_types_present = $cell_types_present,
+                                            #end if
+                                            fdr = $type.fdr
+                                            test_genes_sig = $type.test_genes_sig,
+                                            logs = $type.logs
+                                            )
+                # save the results
+                # save significant genes in each cell type
+                for (cell_type in cell_types) {
+                    df &lt;- myRCTD@de_results$sig_gene_list[[cell_type]]
+                    assign(cell_type, df)
+                    write.table(df, file = paste0("results/", cell_type, "sig.tabular"), sep = "\t", quote = FALSE)
+                }
+                # save all genes in each cell type
+                for (cell_type in cell_types) {
+                    df &lt;- myRCTD@de_results$all_gene_list[[cell_type]]
+                    assign(cell_type, df)
+                    write.table(df, file = paste0("results/", cell_type, "sig.tabular"), sep = "\t", quote = FALSE)
+                }
+            #end if
+
+            # create plots
+            #if str($output.plots) == 'True':
+                make_all_de_plots(myRCTD, "figures")
+            #end if
+            # save rds file
+            #if str($output.rds) == 'True':
+                saveRDS(myRCTD, file = 'results/cside_results.rds')
+            #end if
         </configfile>
     </configfiles>
     <inputs>
@@ -35,6 +92,18 @@
                 <option value="custom">Custom spatial locations</option>
             </param>
             <when value="non_parametric">
+                <param argument="df" type="integer" min="0" value="15" label="Degrees of freedom" help="The degrees of freedom, or number of basis functions to be used in the model"/>
+                <param argument="cell_type" type="text" label="Cell types used for CSIDE" help="If null, cell types will be chosen with aggregate occurences of at least 'cell type threshold'"/>
+                <param argument="cell_type_threshold" type="integer" min="0" value="125" label="Cell type threshold" help="Min occurence of number of cells for each cell type to be used"/>
+                <param argument="gene_threshold" type="float" min="0" value="0.00005" label="Gene threshold" help="Minimum average normalized expression required for selecting genes"/>
+                <param argument="doublet_mode" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Use RCTD doublet mode weights?" help="Otherwise, uses RCTD full mode weights" />
+                <param argument="weight_threshold" type="float" min="0" value="" optional="true" label="Weight threshold" help="The threshold of total normalized weights across all cell types in 'cell types' per pixel to be included in the model."/>
+                <param argument="sigma_gene" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Fit gene specific overdispersion parameter?" help="If FALSE, overdispersion parameter is same across all genes." />
+                <param argument="PRECISION.THRESHOLD" type="float" min="0" value="0.05" label="Precision threshold" help="For checking for convergence, the maximum parameter change per algorithm step"/>
+                <param argument="cell_types_present" type="text" optional="true" label="Cell types present" help="cell types (a superset of 'cell types') to be considered as occuring often enough to consider for gene expression contamination during the step filtering out marker genes of other cell types."/>
+                <param argument="fdr" type="float" min="0" value="0.01" label="FDR" help="False discovery rate for hypothesis testing"/>
+                <param argument="test_genes_sig" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Genes will be tested for significance"/>
+                <param argument="logs" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="write progress to log?"/>
             </when>
             <when value="point_density">
             </when>
@@ -45,6 +114,11 @@
             <when value="custom">
             </when>
         </conditional>
+        <section name="output" title="Output options">
+            <param name="plots" type="boolean" truevalue="True" falsevalue="False" checked="false" label="save plots?"/>
+            <param name="rds" type="boolean" truevalue="True" falsevalue="False" checked="true" label="save RDS file?"/>
+            <param name="rscript" type="boolean" truevalue="True" falsevalue="False" checked="false" label="save RScript?"/>
+        </section>
     </inputs>
     <outputs>
 
