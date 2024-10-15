@@ -1,4 +1,4 @@
-<tool id="fastp" name="fastp" version="@TOOL_VERSION@+galaxy1" profile="23.1">
+<tool id="fastp" name="fastp" version="@TOOL_VERSION@+galaxy2" profile="23.1">
     <description>fast all-in-one preprocessing for FASTQ files</description>
     <macros>
         <import>macros.xml</import>
@@ -13,11 +13,13 @@
 
 ## Link input files
 
-#set ext = '.fastq'
+#set ext = '.fastqsanger'
 
-#if $single_paired.single_paired_selector == 'paired_collection':
-    #if $single_paired.paired_input.forward.is_of_type('fastq.gz'):
-        #set ext = '.fastq.gz'
+#if $single_paired.single_paired_selector == 'paired_collection'
+    #if $single_paired.paired_input.forward.is_of_type('fastqsanger.gz')
+        #set ext = '.fastqsanger.gz'
+    #elif $single_paired.paired_input.forward.is_of_type('fastqillumina.gz')
+        #set ext = '.fastqillumina.gz'
     #end if
     #set $in1 = $single_paired.paired_input.forward
     #set $in2 = $single_paired.paired_input.reverse
@@ -28,8 +30,10 @@
     ln -sf '$in1' '$in1_name' &&
     ln -sf '$in2' '$in2_name' &&
 #else
-    #if $in1.is_of_type('fastq.gz')
-        #set ext = '.fastq.gz'
+    #if $in1.is_of_type('fastqsanger.gz')
+        #set ext = '.fastqsanger.gz'
+    #elif $in1.is_of_type('fastqillumina.gz')
+        #set ext = '.fastqillumina.gz'
     #end if
 
     #set $in1_name = re.sub('[^\w\-\s]', '_', str($in1.element_identifier)) + $ext
@@ -41,6 +45,7 @@
     #end if
 #end if
 
+cp '$c1' galaxy.json &&
 
 ## Run fastp
 
@@ -54,13 +59,29 @@ fastp
 #end if
 
 -i '$in1_name'
--o first${ext}
 
-#if str($single_paired.single_paired_selector).startswith('paired'):
+## Merge reads
+
+#if str($single_paired.single_paired_selector).startswith('paired')
     -I '$in2_name'
-    -O second${ext}
+    #if $single_paired.merge_reads.merge
+        $single_paired.merge_reads.merge
+        --merged_out '$merged_reads'
+        #if $single_paired.merge_reads.include_unmerged
+            $single_paired.merge_reads.include_unmerged
+        #else
+            --out1 '$unmerged_out1'
+            --out2 '$unmerged_out2'
+            --unpaired1 '$unpaired1'
+            --unpaired2 '$unpaired2'
+        #end if
+    #else
+        -o first${ext}
+        -O second${ext}
+    #end if
+#else 
+    -o first${ext}
 #end if
-
 
 ## Adapter Trimming Options
 
@@ -200,14 +221,50 @@ $filter_options.low_complexity_filter.enable_low_complexity_filter
 
 $read_mod_options.base_correction_options.correction
 
-&&
-
-mv first${ext} '${out1}'
-#if str($single_paired.single_paired_selector).startswith('paired'):
+#if str($single_paired.single_paired_selector).startswith('single')
+    &&
+    mv first${ext} '${out1}'
+#elif str($single_paired.single_paired_selector).startswith('paired') and not $single_paired.merge_reads.merge:
+    &&
+    mv first${ext} '${out1}'
     &&
     mv second${ext} '${out2}'
 #end if
 ]]></command>
+    <configfiles>
+        <configfile name="c1">
+            #set $ext1 = "fastqsanger"
+            #set $ext2 = "fastqsanger"
+            #if str($single_paired.single_paired_selector) == "single"
+                #if $in1.ext.endswith("gz")
+                    #set $ext1 = "fastqsanger.gz"
+                #end if
+            #elif str($single_paired.single_paired_selector) == "paired"
+                #if $in1.ext.endswith("gz")
+                    #set $ext1 = "fastqsanger.gz"
+                #end if
+                #if $in2.ext.endswith("gz")
+                    #set $ext2 = "fastqsanger.gz"
+                #end if
+            #else
+                #if $paired_input.forward.ext.endswith("gz")
+                    #set $ext1 = "fastqsanger.gz"
+                #end if
+                #if $paired_input.reverse.ext.endswith("gz")
+                    #set $ext2 = "fastqsanger.gz"
+                #end if
+            #end if
+            {
+                "out1": {"ext": "$ext1"},
+                "out2": {"ext": "$ext2"},
+                "merged_reads": {"ext": "$ext1"},
+                "unmerged_out1": {"ext": "$ext1"},
+                "unmerged_out2": {"ext": "$ext2"},
+                "unpaired1": {"ext": "$ext1"},
+                "unpaired2": {"ext": "$ext2"}
+            }
+        </configfile>
+    </configfiles>
     <inputs>
         <conditional name="single_paired">
             <param name="single_paired_selector" type="select" label="Single-end or paired reads">
@@ -223,6 +280,7 @@ mv first${ext} '${out1}'
             <when value="paired">
                 <expand macro="in" read_number="1" argument="-i"/>
                 <expand macro="in" read_number="2" argument="-I"/>
+                <expand macro="merge_reads" />
                 <expand macro="adapter_trimming_options">
                     <expand macro="adapter_sequence" read_number="2"/>
                     <expand macro="detect_adapter_for_pe" />
@@ -230,7 +288,8 @@ mv first${ext} '${out1}'
                 <expand macro="global_trimming_options_paired" />
             </when>
             <when value="paired_collection">
-                <param name="paired_input" type="data_collection" format="fastq,fastq.gz" label="Select paired collection(s)" collection_type="paired"/>
+                <param name="paired_input" type="data_collection" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Select paired collection(s)" collection_type="paired"/>
+                <expand macro="merge_reads" />
                 <expand macro="adapter_trimming_options">
                     <expand macro="adapter_sequence" read_number="2"/>
                     <expand macro="detect_adapter_for_pe" />
@@ -315,19 +374,19 @@ mv first${ext} '${out1}'
 
         <section name="output_options" title="Output Options" expanded="False">
             <param name="report_html" type="boolean" truevalue="True" falsevalue="False" checked="True" label="Output HTML report" help="fastp provides a QC report for the data Before and After filtering within a single HTML page, which enables comparison of the quality statistics changed by the preprocessing step directly"/>
-            <param name="report_json" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output JSON report" help="The JSON report contains all the data visualized in the HTML report. The format of the JSON report is manually optimized to be easily readable by humans and is compatible with MultiQC"/>
+            <param name="report_json" type="boolean" truevalue="True" falsevalue="False" checked="True" label="Output JSON report" help="The JSON report contains all the data visualized in the HTML report. The format of the JSON report is manually optimized to be easily readable by humans and is compatible with MultiQC"/>
         </section>
     </inputs>
 
     <outputs>
-        <data name="out1" format_source="in1" label="${tool.name} on ${on_string}: Read 1 output">
-            <filter>single_paired['single_paired_selector'] in ["single", "paired"]</filter>
+        <data name="out1" format="auto" label="${tool.name} on ${on_string}: Read 1 output">
+            <filter>single_paired['single_paired_selector'] in ["single", "paired"] and not single_paired['merge_reads']['merge']</filter>
         </data>
-        <data name="out2" format_source="in2" label="${tool.name} on ${on_string}: Read 2 output">
-            <filter>single_paired['single_paired_selector'] == "paired"</filter>
+        <data name="out2" format="auto" label="${tool.name} on ${on_string}: Read 2 output">
+            <filter>single_paired['single_paired_selector'] == "paired" and not single_paired['merge_reads']['merge']</filter>
         </data>
         <collection name="output_paired_coll" type="paired" format_source="paired_input['forward']" label="${tool.name} on ${on_string}: Paired-end output">
-            <filter>single_paired['single_paired_selector'] == "paired_collection"</filter>
+            <filter>single_paired['single_paired_selector'] == "paired_collection" and not single_paired['merge_reads']['merge']</filter>
         </collection>
         <data name="report_html" format="html" from_work_dir="fastp.html" label="${tool.name} on ${on_string}: HTML report">
             <filter>output_options['report_html'] is True</filter>
@@ -335,15 +394,35 @@ mv first${ext} '${out1}'
         <data name="report_json" format="json" from_work_dir="fastp.json" label="${tool.name} on ${on_string}: JSON report">
             <filter>output_options['report_json'] is True</filter>
         </data>
+        <data name="merged_reads" format="auto" label="${tool.name} on ${on_string}: Merged reads">
+            <filter>single_paired['single_paired_selector'] in ["paired", "paired_collection"] and single_paired['merge_reads']['merge']</filter>
+        </data>
+        <data name="unmerged_out1" format="auto" label="${tool.name} on ${on_string}: Unmerged filtered reads1">
+            <filter>single_paired['single_paired_selector'] in ["paired", "paired_collection"] and single_paired['merge_reads']['merge'] and not single_paired['merge_reads']['include_unmerged']</filter>
+        </data>
+        <data name="unmerged_out2" format="auto" label="${tool.name} on ${on_string}: Unmerged filtered reads2">
+            <filter>single_paired['single_paired_selector'] in ["paired", "paired_collection"] and single_paired['merge_reads']['merge'] and not single_paired['merge_reads']['include_unmerged']</filter>
+        </data>
+        <data name="unpaired1" format="auto" label="${tool.name} on ${on_string}: Unmerged unfiltered reads1">
+            <filter>single_paired['single_paired_selector'] in ["paired", "paired_collection"] and single_paired['merge_reads']['merge'] and not single_paired['merge_reads']['include_unmerged']</filter>
+        </data>
+        <data name="unpaired2" format="auto" label="${tool.name} on ${on_string}: Unmerged unfiltered reads2">
+            <filter>single_paired['single_paired_selector'] in ["paired", "paired_collection"] and single_paired['merge_reads']['merge'] and not single_paired['merge_reads']['include_unmerged']</filter>
+        </data>
     </outputs>
 
     <tests>
         <!-- 1. Ensure default output works -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <output name="out1" ftype="fastqsanger" file="out1.fq"/>
             <output name="report_html">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
+            <output name="report_json">
                 <assert_contents>
                     <has_text text="fastp report"/>
                 </assert_contents>
@@ -358,6 +437,7 @@ mv first${ext} '${out1}'
                     <element name="reverse" value="bwa-mem-fastq2.fq" ftype="fastqsanger" />
                 </collection>
             </param>
+            <param name="report_json" value="False" />
             <output name="report_html">
                 <assert_contents>
                     <has_text text="fastp report"/>
@@ -370,73 +450,82 @@ mv first${ext} '${out1}'
         </test>
         <!-- 3. Ensure custom adapter works -->
         <test expect_num_outputs="2">
-            <param name="in1" ftype="fastq" value="R1.fq"/>
+            <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <param name="adapter_sequence1" value="ATCG"/>
-            <output name="out1" ftype="fastq" file="out_a.fq"/>
+            <param name="report_json" value="False" />
+            <output name="out1" ftype="fastqsanger" file="out_a.fq"/>
         </test>
         <!-- 4. Ensure UMI processing works -->
         <test expect_num_outputs="2">
-            <param name="in1" ftype="fastq" value="R1.fq"/>
+            <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read1"/>
                 <param name="umi_len" value="8"/>
             </section>
-            <output name="out1" ftype="fastq" file="out2.fq"/>
+            <param name="report_json" value="False" />
+            <output name="out1" ftype="fastqsanger" file="out2.fq"/>
         </test>
         <!-- 5. Ensure UMI processing with different lengths works -->
         <test expect_num_outputs="2">
-            <param name="in1" ftype="fastq" value="R1.fq"/>
+            <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read1"/>
                 <param name="umi_len" value="12"/>
             </section>
-            <output name="out1" ftype="fastq" file="out3.fq"/>
+            <param name="report_json" value="False" />
+            <output name="out1" ftype="fastqsanger" file="out3.fq"/>
         </test>
-        <!-- 6. Ensure paired-end fastq works -->
+        <!-- 6. Ensure paired-end fastqsanger works -->
         <test expect_num_outputs="3">
-            <param name="in1" ftype="fastq" value="bwa-mem-fastq1.fq"/>
-            <param name="in2" ftype="fastq" value="bwa-mem-fastq2.fq"/>
+            <param name="in1" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
             <param name="single_paired_selector" value="paired"/>
-            <output name="out1" ftype="fastq" file="out_bwa1.fq"/>
-            <output name="out2" ftype="fastq" file="out_bwa2.fq"/>
+            <param name="report_json" value="False" />
+            <output name="out1" ftype="fastqsanger" file="out_bwa1.fq"/>
+            <output name="out2" ftype="fastqsanger" file="out_bwa2.fq"/>
         </test>
         <!-- 7. Ensure paired-end UMI processing of Read 1 works -->
         <test expect_num_outputs="3">
-            <param name="in1" ftype="fastq" value="bwa-mem-fastq1.fq"/>
-            <param name="in2" ftype="fastq" value="bwa-mem-fastq2.fq"/>
+            <param name="in1" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
             <param name="single_paired_selector" value="paired"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read1"/>
                 <param name="umi_len" value="8"/>
             </section>
-            <output name="out1" ftype="fastq" file="out_bwa_umi_read1_1.fq"/>
-            <output name="out2" ftype="fastq" file="out_bwa_umi_read1_2.fq"/>
+            <param name="report_json" value="False" />
+            <output name="out1" ftype="fastqsanger" file="out_bwa_umi_read1_1.fq"/>
+            <output name="out2" ftype="fastqsanger" file="out_bwa_umi_read1_2.fq"/>
         </test>
         <!-- 8. Ensure paired-end UMI processing of Read 2 works -->
-        <test expect_num_outputs="3">
-            <param name="in1" ftype="fastq" value="bwa-mem-fastq1.fq"/>
-            <param name="in2" ftype="fastq" value="bwa-mem-fastq2.fq"/>
+        <test expect_num_outputs="4">
+            <param name="in1" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
             <param name="single_paired_selector" value="paired"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read2"/>
                 <param name="umi_len" value="8"/>
             </section>
-            <output name="out1" ftype="fastq" file="out_bwa_umi_read2_1.fq"/>
-            <output name="out2" ftype="fastq" file="out_bwa_umi_read2_2.fq"/>
+            <output name="out1" ftype="fastqsanger" file="out_bwa_umi_read2_1.fq"/>
+            <output name="out2" ftype="fastqsanger" file="out_bwa_umi_read2_2.fq"/>
+            <output name="report_json">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
         </test>
         <!-- 9. Ensure JSON report output works -->
         <test expect_num_outputs="2">
             <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <param name="report_html" value="False"/>
-            <param name="report_json" value="True"/>
             <output name="out1" ftype="fastqsanger" file="out1.fq"/>
             <output name="report_json">
                 <assert_contents>
@@ -445,23 +534,33 @@ mv first${ext} '${out1}'
             </output>
         </test>
         <!-- 10. Ensure polyG trimming works -->
-        <test expect_num_outputs="2">
-            <param name="in1" ftype="fastq.gz" value="R1.fq.gz"/>
+        <test expect_num_outputs="3">
+            <param name="in1" ftype="fastqsanger.gz" value="R1.fq.gz"/>
             <param name="single_paired_selector" value="single"/>
             <param name="trimming_select" value="-g"/>
             <param name="poly_g_min_len" value="10"/>
-            <output name="out1" ftype="fastq.gz" decompress="True" file="out1.fq.gz"/>
+            <output name="out1" ftype="fastqsanger.gz" decompress="True" file="out1.fq.gz"/>
+            <output name="report_json">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
         </test>
         <!-- 11. Ensure polyX trimming works -->
-        <test expect_num_outputs="2">
-            <param name="in1" ftype="fastq.gz" value="R1.fq.gz"/>
+        <test expect_num_outputs="3">
+            <param name="in1" ftype="fastqsanger.gz" value="R1.fq.gz"/>
             <param name="single_paired_selector" value="single"/>
             <param name="trimming_select" value="-G"/>
             <param name="polyx_trimming_select" value="-x"/>
             <param name="poly_x_min_len" value="10"/>
-            <output name="out1" ftype="fastq.gz" decompress="True" file="out1.fq.gz"/>
+            <output name="out1" ftype="fastqsanger.gz" decompress="True" file="out1.fq.gz"/>
+            <output name="report_json">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
         </test>
-        <!-- 12. Test fastq files with different length -->
+        <!-- 12. Test fastqsanger files with different length -->
         <test expect_exit_code="255" expect_failure="true">
             <param name="single_paired_selector" value="paired_collection"/>
             <param name="paired_input">
@@ -470,6 +569,63 @@ mv first${ext} '${out1}'
                     <element name="reverse" value="bwa-mem-fastq2_too_long.fq" ftype="fastqsanger" />
                 </collection>
             </param>
+        </test>
+        <!-- 13. Test merge reads in combination with paired -->
+        <test expect_num_outputs="5">
+            <param name="in1" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+            <param name="single_paired_selector" value="paired"/>
+            <param name="merge" value="--merge" />
+            <param name="report_html" value="False" />
+            <param name="report_json" value="False" />
+            <output name="merged_reads" ftype="fastqsanger" file="bwa-mem-merged-reads.fastqsanger" />
+            <output name="unmerged_out1" ftype="fastqsanger" file="bwa-mem-unmerged-filtered-reads1.fastqsanger" />
+            <output name="unmerged_out2" ftype="fastqsanger" file="bwa-mem-unmerged-filtered-reads2.fastqsanger" />
+            <output name="unpaired1" ftype="fastqsanger" file="bwa-mem-unmerged-unfiltered-reads1.fastqsanger" />
+            <output name="unpaired2" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size size="0" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 14. Test merge and include_unmerged in combination with paired collection -->
+        <test expect_num_outputs="2">
+            <param name="single_paired_selector" value="paired_collection"/>
+            <param name="paired_input">
+                <collection type="paired">
+                    <element name="forward" value="bwa-mem-fastq1.fq" ftype="fastqsanger" />
+                    <element name="reverse" value="bwa-mem-fastq2.fq" ftype="fastqsanger" />
+                </collection>
+            </param>
+            <param name="merge" value="--merge" />
+            <param name="include_unmerged" value="--include_unmerged" />
+            <param name="report_html" value="False" />
+            <output name="merged_reads" ftype="fastqsanger" file="bwa-mem-merged-read-include-unmerged.fastqsanger" />
+            <output name="report_json">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!--15. Test paired collection in combination with compressed input-->
+        <test expect_num_outputs="4">
+            <param name="single_paired_selector" value="paired_collection"/>
+            <param name="paired_input">
+                <collection type="paired">
+                    <element name="forward" value="bwa-mem-fastq-paired-collection/input_forward.fastqsanger.gz" ftype="fastqsanger.gz" />
+                    <element name="reverse" value="bwa-mem-fastq-paired-collection/input_reverse.fastqsanger.gz" ftype="fastqsanger.gz" />
+                </collection>
+            </param>
+            <param name="report_json" value="False" />
+            <output name="report_html">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
+            <output_collection name="output_paired_coll" type="paired">
+                <element name="forward" value="bwa-mem-fastq-paired-collection/output_forward.fastqsanger.gz" decompress="True" ftype="fastqsanger.gz"/>
+                <element name="reverse" value="bwa-mem-fastq-paired-collection/output_reverse.fastqsanger.gz" decompress="True" ftype="fastqsanger.gz"/>
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
@@ -494,13 +650,13 @@ afford high performance.
 
 6. Trim polyG in 3' ends, which is commonly seen in NovaSeq/NextSeq data. Trim polyX in 3' ends to remove unwanted polyX tailing (i.e. polyA tailing for mRNA-Seq data)
 
-7. Preprocess unique molecular identifer (UMI) enabled data, shift UMI to sequence name
+7. Preprocess unique molecular identifier (UMI) enabled data, shift UMI to sequence name
 
 8. Report JSON format result for further interpreting
 
 9. Visualize quality control and filtering results on a single HTML page (like FASTQC but faster and more informative)
 
-10. Split the output to multiple files (0001.R1.gz, 0002.R1.gz...) to support parallel processing. Two modes can be used, limiting the total split file number, or limitting the lines of each split file (*Not enabled in this Galaxy tool*)
+10. Split the output to multiple files (0001.R1.gz, 0002.R1.gz...) to support parallel processing. Two modes can be used, limiting the total split file number, or limiting the lines of each split file (*Not enabled in this Galaxy tool*)
 
 11. Support long reads (data from PacBio / Nanopore devices)
 
@@ -508,13 +664,18 @@ afford high performance.
 
 **Inputs**
 
-Single-end or Paired-end FASTQ or FASTQ.GZ reads
+Single-end or Paired-end (compressed) fastqsagnger or fastqillumina files
 
 -----
 
 **Outputs**
 
     * Processed reads
+    * Merged reads
+    * Unmerged filtered reads1, reads that cannot be merged successfully, but both pass all the filters.
+    * Unmerged filtered reads2, reads that cannot be merged successfully, but both pass all the filters.
+    * Unmerged unfiltered reads1, reads that cannot be merged, **read1** passes filters but **read2** doesn't.
+    * Unmerged unfiltered reads2, reads that cannot be merged, **read2** passes filters but **read1** doesn't.
 
 Optionally, under **Output Options** you can choose to output
 
