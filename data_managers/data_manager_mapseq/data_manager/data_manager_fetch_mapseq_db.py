@@ -10,18 +10,28 @@ from datetime import datetime
 import wget
 
 DB_paths = {
-    "mgnify_lsu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_lsu-20200130.tar.gz",
-    "mgnify_ssu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_ssu-20200130.tar.gz",
-    "mgnify_its_unite": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/UNITE-20200214.tar.gz",
-    "mgnify_its_itsonedb": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/ITSoneDB-20200214.tar.gz",
+    "mgnify_v5_lsu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_lsu-20200130.tar.gz",
+    "mgnify_v5_ssu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/silva_ssu-20200130.tar.gz",
+    "mgnify_v5_its_unite": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/UNITE-20200214.tar.gz",
+    "mgnify_v5_its_itsonedb": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipeline-5.0/ref-dbs/ITSoneDB-20200214.tar.gz",
+    "mgnify_v6_lsu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipelines/tool-dbs/silva-lsu/silva-lsu_138.1.tar.gz",
+    "mgnify_v6_ssu": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipelines/tool-dbs/silva-ssu/silva-ssu_138.1.tar.gz",
+    "mgnify_v6_its_unite": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipelines/tool-dbs/unite/unite_9.0.tar.gz",
+    "mgnify_v6_its_itsonedb": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipelines/tool-dbs/itsonedb/itsonedb_1.141.tar.gz",
+    "mgnify_v6_pr2": "ftp://ftp.ebi.ac.uk/pub/databases/metagenomics/pipelines/tool-dbs/pr2/pr2_5.0.0.tar.gz",
     "test_lsu": "https://zenodo.org/record/8205348/files/test_lsu.tar.gz",
 }
 
 DB_names = {
-    "mgnify_lsu": "MGnify LSU (v5.0.7) - silva_lsu-20200130",
-    "mgnify_ssu": "MGnify SSU (v5.0.7) - silva_ssu-20200130",
-    "mgnify_its_unite": "MGnify ITS UNITE (v5.0.7) - UNITE-20200214",
-    "mgnify_its_itsonedb": "MGnify ITS ITSonedb (v5.0.7) - ITSoneDB-20200214",
+    "mgnify_v5_lsu": "MGnify LSU (v5.0.7) - silva_lsu-20200130",
+    "mgnify_v5_ssu": "MGnify SSU (v5.0.7) - silva_ssu-20200130",
+    "mgnify_v5_its_unite": "MGnify ITS UNITE (v5.0.7) - UNITE-20200214",
+    "mgnify_v5_its_itsonedb": "MGnify ITS ITSonedb (v5.0.7) - ITSoneDB-20200214",
+    "mgnify_v6_lsu": "MGnify LSU (v6.0) - silva_lsu-20240702",
+    "mgnify_v6_ssu": "MGnify SSU (v6.0) - silva_ssu-20240701",
+    "mgnify_v6_its_unite": "MGnify ITS UNITE (v6.0) - UNITE-20240702",
+    "mgnify_v6_its_itsonedb": "MGnify ITS ITSonedb (v6.0) - ITSoneDB-20240702",
+    "mgnify_v6_pr2": "MGnify PR2 (v6.0) - PR2-20240702",
     "test_lsu": "Trimmed LSU Test DB",
 }
 

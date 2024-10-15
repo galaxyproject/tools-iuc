@@ -1,0 +1,598 @@
+<tool id="spapros_evaluation" name="Evaluation" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@profile@">
+    <description>of marker genes with spapros</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+    </expand>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+@CMD@
+      ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+@CMD_read_inputs@
+
+mpl.rcParams['figure.dpi'] = $figure_options.dpi
+plt.rcParams["font.size"] = $figure_options.fontsize
+
+header_probeset='infer'
+#if $header_probeset == 'not_included':
+header_probeset=None
+#end if
+
+## Probe set generation
+probeset = pd.read_csv('$probeset', sep='\t', index_col=0, header=header_probeset)
+probeset = [x for x in probeset.values.flatten().tolist() if not pd.isna(x)]
+
+## Reference set generation
+methods_pre="#echo ','.join(["%s" % $s for $i, $s in enumerate($methods_reference)])#"
+methods=methods_pre.split(',')
+
+reference_sets = sp.se.select_reference_probesets(
+adata, 
+n=$nreference,
+#if $genes_key != '':
+genes_key='$genes_key',
+#else:
+genes_key=None,
+#end if
+#if $obs_key != '':
+obs_key='$obs_key',
+#end if
+#if $seeds != '':
+seeds=[$seeds],
+#end if
+methods=methods,
+verbosity=0
+)
+
+## Parameter setting
+
+custom_params = {
+'data': {
+'name': '$probeset_name', 
+'celltype_key': '$celltype_key'
+}, 
+'metrics': {
+#if $method.method == 'plot_summary' or $method.method == 'plot_cluster_similarity':
+'cluster_similarity': {
+'ns': [$method.ns_start, $method.ns_end],
+'AUC_borders': [#echo ",".join(["[%s, %s]" % ($s.auc_borders_start, $s.auc_borders_end) for $i, $s in enumerate($method.series_auc_borders)])#]
+},
+#end if
+#if $method.method == 'plot_summary' or $method.method == 'plot_knn_overlap':
+'knn_overlap': {
+'ks': [#echo ",".join([ "%s" % $s.k for $i, $s in enumerate($method.knn) ])#]
+},
+#end if
+#if $method.method == 'plot_confusion_matrix':
+'forest_clfs': {
+'ct_key': '$celltype_key',
+#if $method.method == 'plot_summary':
+'threshold': $method.forest_clfs_threshold
+#end if
+},
+#end if
+#if $method.method == 'plot_summary':
+#if $method.select_marker_corr.use_marker_corr == 'True':
+'marker_corr': {
+'per_celltype': $method.select_marker_corr.per_celltype,
+'per_marker': $method.select_marker_corr.per_marker,
+#if $method.select_marker_corr.select_per_celltype_min_mean.use_per_celltype_min_mean == 'True'
+'per_celltype_min_mean': $method.select_marker_corr.select_per_celltype_min_mean.per_celltype_min_mean,
+#end if
+#if $method.select_marker_corr.select_per_marker_min_mean.use_per_marker_min_mean == 'True'
+'per_marker_min_mean': $method.select_marker_corr.select_per_marker_min_mean.per_marker_min_mean
+#end if
+},
+#end if
+#end if
+#if $method.method == 'plot_marker_corr':
+'marker_corr': {
+'per_celltype': $method.per_celltype,
+'per_marker': $method.per_marker,
+#if $method.select_per_celltype_min_mean.use_per_celltype_min_mean == 'True'
+'per_celltype_min_mean': $method.select_per_celltype_min_mean.per_celltype_min_mean,
+#else:
+'per_celltype_min_mean': None,
+#end if
+#if $method.select_per_marker_min_mean.use_per_marker_min_mean == 'True'
+'per_marker_min_mean': $method.select_per_marker_min_mean.per_marker_min_mean
+#else:
+'per_marker_min_mean': None
+#end if
+},
+#end if
+#if $method.method == 'plot_summary':
+'gene_corr': {
+'threshold': $method.gene_corr_threshold
+}
+#end if
+}
+}
+
+## Setup evaluator
+
+#if $method.method == 'plot_summary' or $method.method == 'plot_marker_corr':
+
+header_markerset='infer'
+feature_marker=dict()
+
+#if $method.method == 'plot_summary':
+#if $method.select_marker_corr.header_markerset == 'not_included' :
+header_markerset=None
+#end if
+feature_marker = {key: [v for v in list(value.values()) if pd.notna(v)] for key, value in pd.read_csv('$method.select_marker_corr.markerset', sep='\t', index_col=0, header=header_markerset).to_dict(orient='index').items()}
+#end if
+#if $method.method == 'plot_marker_corr':
+#if $method.header_markerset == 'not_included':
+header_markerset=None
+#end if
+feature_marker = {key: [v for v in list(value.values()) if pd.notna(v)] for key, value in pd.read_csv('$method.markerset', sep='\t', index_col=0, header=header_markerset).to_dict(orient='index').items()}
+#end if
+
+#end if
+
+evaluator = sp.ev.ProbesetEvaluator(
+adata, 
+metrics_params=custom_params, 
+scheme="full", 
+verbosity=0,
+#if $method.method == 'plot_summary' or $method.method == 'plot_marker_corr':
+marker_list=feature_marker,
+#end if
+results_dir=None
+)
+
+## Evaluation reference set
+for set_id, df in reference_sets.items():
+    gene_set = df[df["selection"]].index.to_list()
+    evaluator.evaluate_probeset(gene_set, set_id=set_id)
+
+## Evaluation probe set
+evaluator.evaluate_probeset(probeset, set_id='$probeset_name')
+
+## Execution of method ##
+
+#if $method.method == 'plot_summary':
+evaluator.plot_summary(
+@CMD_plot@
+)
+#end if
+
+#if $method.method == 'plot_confusion_matrix':
+evaluator.plot_confusion_matrix(
+@CMD_plot@
+)
+#end if
+
+#if $method.method == 'plot_coexpression':
+evaluator.plot_coexpression(
+@CMD_plot@
+)
+#end if
+
+#if $method.method == 'plot_cluster_similarity':
+evaluator.plot_cluster_similarity(
+@CMD_plot@
+)
+#end if
+
+#if $method.method == 'plot_knn_overlap':
+evaluator.plot_knn_overlap(
+@CMD_plot@
+)
+#end if
+
+## plot_marker_corr does not allow for the show keyword
+#if $method.method == 'plot_marker_corr':
+evaluator.plot_marker_corr(
+#if $method.set_ids != 'all' and $method.set_ids != '':
+set_ids=[$method.set_ids],
+#end if
+save='plot.$format'
+)
+#end if
+
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="inputs_anndata"/>
+        <expand macro="param_plot_format"/>
+        <param name="probeset" type="data" format="tabular" label="Probeset tabular file with rows=conditions (e.g., celltypes) and column=features (e.g., genes)"/>
+        <param name="header_probeset" type="select" optional="false" label="Header in the list of probes?">
+            <option value="included">Header incldued</option>
+            <option value="not_included">Header not included</option>
+        </param>
+        <param argument="nreference" type="integer" value="10" min="1" optional="false" label="Number of selected genes to generate a reference set"/> 
+        <param name="methods_reference" type="select" multiple="True" optional="false" label="Select the methods to genereate a reference probeset">
+            <option value="random" selected="true">Random</option>
+            <option value="PCA" selected="false">PCA</option>
+            <option value="DE" selected="false">Differential expressed features based on wilxocon rank genes test (DE)</option>
+            <option value="HVG" selected="false">Highly variable features (HVG)</option>
+        </param>
+        <param name="genes_key" type="text" optional="true" label="adata.var key for subset of preselected genes to run the selections" help="This is typically highly_variable_genes. Leave empty to not subset genes."/>
+        <param name="obs_key" type="text" optional="true" label="Column name of adata.obs for which marker scores are calculated" help="Only required for method DE."/>
+        <param name="seeds" type="text" optional="true" label="List of random integer seeds (comma seperated, e.g., 123,999,22)" help="For each seed, one random gene set is selected if random in methods. Leave it empty to for one random set with a random seed."/>
+        <param name="probeset_name" type="text" value="probeset" optional="false" label="Name for your probeset that should be displayed in plots"/>
+        <param name="celltype_key" type="text" value="celltype" optional="false" label="Column name of adata.obs that represents groups of your cells (e.g., celltype)"/>
+        <conditional name="method">
+            <param argument="method" type="select" optional="false" label="Method of spapros">
+                <option value="plot_summary">Plot statistic summary, using 'evaluator.plot_summary'</option>
+                <option value="plot_confusion_matrix">Plot confusion matrix, using 'evaluator.plot_confusion_matrix'</option>
+                <option value="plot_coexpression">Plot coexpression heatmap, using 'evaluator.plot_coexpression'</option>
+                <option value="plot_cluster_similarity">Plot cluster similariy, using 'evaluator.plot_cluster_similarity'</option>
+                <option value="plot_knn_overlap">Plot knn overlap, using 'evaluator.plot_knn_overlap'</option>
+                <option value="plot_marker_corr">Plot featue marker correlation, using 'evaluator.plot_marker_corr'</option>
+            </param>
+            <when value="plot_summary">
+                <expand macro="set_ids"/>
+                <param name="forest_clfs_threshold" type="float" value="0.8" min="0.0" max="1.0" label="Assesses how many cell types (%) can be predicted with an accuracy of at least threshold" help="The metric gives an idea about how many cell types can be identified with high confidence with the given gene set."/>
+                <param name="gene_corr_threshold" type="float" value="0.8" min="0.0" max="1.0" label="Percentage of features (e.g., genes) that have a maximum correlation of less than threshold with all other features" help="This metric gives an idea about how many features show unique expression profiles in the gene set."/>
+                <param name="ns_start" type="integer" value="5" min="1" label="The minimum number of leiden clusters clusters" help="Clusterings are calculated with different leiden resolutions to genertate clusterings of n = ns_start to ns_end clusters."/>
+                <param name="ns_end" type="integer" value="21" min="1" label="The maximum number of leiden clusters clusters" help="Clusterings are calculated with different leiden resolutions to genertate clusterings of n = ns_start to ns_end clusters."/>
+                <repeat name="series_auc_borders" title="Calculates nmi AUCs over given borders">
+                    <param name="auc_borders_start" type="integer" value="15" min="1" label="Calculates nmi over n ranges auc_borders_start to auc_borders_end" help="Defined border shouldn't exceed values in nmis."/>
+                    <param name="auc_borders_end" type="integer" value="20" min="1" label="Calculates nmi over n ranges auc_borders_start to auc_borders_end" help="Defined border shouldn't exceed values in nmis."/>
+                </repeat>
+                <repeat name="knn" title="Calculate knn graphs for each k">
+                    <param name="k" type="integer" value="10" min="1" label="Includes nearest neighbors for all k"/>
+                </repeat>
+                <conditional name="select_marker_corr">
+                    <param name="use_marker_corr" type="select" label="Do you want to calculate the correlation between your probeset and marker features?">
+                        <option value="False">No</option>
+                        <option value="True">Yes</option>
+                    </param>
+                    <when value="True">
+                        <expand macro="param_markerset"/>
+                        <param name="per_celltype" type="boolean" truevalue="True" falsevalue="False" label="Wether to return columns with per cell type max correlations" checked="true"/>
+                        <param name="per_marker" type="boolean" truevalue="True" falsevalue="False" label="Wether to return columns with per marker max correlations" checked="true"/>
+                        <conditional name="select_per_celltype_min_mean">
+                            <param name="use_per_celltype_min_mean" type="select" label="Add a column for correlation per cell type that only takes into accounts markers with mean expression > per_celltype_min_mean">
+                                <option value="False">No</option>
+                                <option value="True">Yes</option>
+                            </param>
+                            <when value="True">
+                                <param name="per_celltype_min_mean" type="float" value="0.0" min="0.0" label="Set per_celltype_min_mean"/>
+                            </when>
+                            <when value="False"/>
+                        </conditional>
+                        <conditional name="select_per_marker_min_mean">
+                            <param name="use_per_marker_min_mean" type="select" label="Add a column for correlation per cell type that only takes into accounts markers with mean expression > per_celltype_min_mean">
+                                <option value="False">No</option>
+                                <option value="True">Yes</option>
+                            </param>
+                            <when value="True">
+                                <param name="per_marker_min_mean" type="float" value="0.0" min="0.0" label="Set per_marker_min_mean"/>
+                            </when>
+                            <when value="False"/>
+                        </conditional>
+                    </when>
+                    <when value="False"/>
+                </conditional>
+            </when>
+            <when value="plot_confusion_matrix">
+                <expand macro="set_ids"/>
+            </when>
+            <when value="plot_coexpression">
+                <expand macro="set_ids"/>
+            </when>
+            <when value="plot_cluster_similarity">
+                <expand macro="set_ids"/>
+                <param name="ns_start" type="integer" value="5" min="1" label="The minimum number of leiden clusters clusters" help="Clusterings are calculated with different leiden resolutions to genertate clusterings of n = ns_start to ns_end clusters."/>
+                <param name="ns_end" type="integer" value="21" min="1" label="The maximum number of leiden clusters clusters" help="Clusterings are calculated with different leiden resolutions to genertate clusterings of n = ns_start to ns_end clusters."/>
+                <repeat name="series_auc_borders" title="Calculates nmi AUCs over given borders">
+                    <param name="auc_borders_start" type="integer" value="15" min="1" label="Calculates nmi over n ranges auc_borders_start to auc_borders_end" help="Defined border shouldn't exceed values in nmis."/>
+                    <param name="auc_borders_end" type="integer" value="20" min="1" label="Calculates nmi over n ranges auc_borders_start to auc_borders_end" help="Defined border shouldn't exceed values in nmis."/>
+                </repeat>
+            </when>
+            <when value="plot_knn_overlap">
+                <expand macro="set_ids"/>
+                <repeat name="knn" title="Calculate knn graphs for each k">
+                    <param name="k" type="integer" value="10" min="1" label="Includes nearest neighbors for all k"/>
+                </repeat>
+            </when>
+            <when value="plot_marker_corr">
+                <expand macro="param_markerset"/>
+                <expand macro="set_ids"/>
+                <param name="per_celltype" type="boolean" truevalue="True" falsevalue="False" label="Wether to return columns with per cell type max correlations" checked="true"/>
+                <param name="per_marker" type="boolean" truevalue="True" falsevalue="False" label="Wether to return columns with per marker max correlations" checked="true"/>
+                <conditional name="select_per_celltype_min_mean">
+                    <param name="use_per_celltype_min_mean" type="select" label="Add a column for correlation per cell type that only takes into accounts markers with mean expression > per_celltype_min_mean">
+                        <option value="False">No</option>
+                        <option value="True">Yes</option>
+                    </param>
+                    <when value="True">
+                        <param name="per_celltype_min_mean" type="float" value="0.0" min="0.0" label="Set per_celltype_min_mean"/>
+                    </when>
+                    <when value="False"/>
+                </conditional>
+                <conditional name="select_per_marker_min_mean">
+                    <param name="use_per_marker_min_mean" type="select" label="Add a column for correlation per cell type that only takes into accounts markers with mean expression > per_celltype_min_mean">
+                        <option value="False">No</option>
+                        <option value="True">Yes</option>
+                    </param>
+                    <when value="True">
+                        <param name="per_marker_min_mean" type="float" value="0.0" min="0.0" label="Set per_marker_min_mean"/>
+                    </when>
+                    <when value="False"/>
+                </conditional>
+            </when>
+        </conditional>
+        <section name="figure_options" title="Figure Output Options" expanded="false">
+            <param argument="dpi" type="integer" value="300" min="1" label="Dpi of figures"/> 
+            <param argument="fontsize" type="integer" value="100" min="1" label="Font size of figures"/> 
+        </section>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="out_png" format="png" from_work_dir="*.png" label="PNG plot from ${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'png'</filter>
+        </data>
+        <data name="out_pdf" format="pdf" from_work_dir="*.pdf" label="PDF plot from ${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'pdf'</filter>
+        </data>
+        <data name="out_svg" format="svg" from_work_dir="*.svg" label="SVG plot from ${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'svg'</filter>
+        </data>
+        <expand macro="hidden_outputs"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced_240cells.h5ad"/>
+            <param name="format" value="png"/>
+            <param name="probeset" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv"/>
+            <param name="header_probeset" value="included"/>
+            <param name="nreference" value="30"/>
+            <param name="methods_reference" value="random,PCA,DE,HVG"/>
+            <param name="genes_key" value="highly_variable"/>
+            <param name="obs_key" value="celltype"/>
+            <param name="seeds" value="123,124"/>
+            <conditional name="method">
+                <param name="method" value="plot_summary"/>
+                <param name="set_ids" value="all"/>
+                <param name="forest_clfs_threshold" value="0.8"/>
+                <param name="gene_corr_threshold" value="0.8"/>
+                <param name="ns_start" value="5"/>
+                <param name="ns_end" value="21"/>
+                <repeat name="series_auc_borders">
+                    <param name="auc_borders_start" value="7"/>
+                    <param name="auc_borders_end" value="14"/>
+                </repeat>
+                <repeat name="series_auc_borders">
+                    <param name="auc_borders_start" value="15"/>
+                    <param name="auc_borders_end" value="20"/>
+                </repeat>
+                <repeat name="knn">
+                    <param name="k" value="5"/>
+                </repeat>
+                <repeat name="knn">
+                    <param name="k" value="10"/>
+                </repeat>
+                <conditional name="select_marker_corr">
+                    <param name="use_marker_corr" value="True"/>
+                    <param name="markerset" value="marker.tsv"/>
+                    <param name="header_markerset" value="not_included"/>
+                    <param name="per_celltype" value="True"/>
+                    <param name="per_marker" value="True"/>
+                    <conditional name="select_per_celltype_min_mean">
+                        <param name="use_per_celltype_min_mean" value="False"/>
+                    </conditional>
+                    <conditional name="select_per_marker_min_mean">
+                        <param name="use_per_marker_min_mean" value="True"/>
+                        <param name="per_marker_min_mean" value="0.025"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <param name="show_log" value="true" />
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="'name': 'probeset',"/>
+                    <has_text_matching expression="'per_celltype': True,"/>
+                    <has_text_matching expression="'per_marker': True,"/>
+                    <has_text_matching expression="'per_marker_min_mean': 0.025"/>
+                    <has_text_matching expression="evaluator.plot_summary"/>
+                    <has_text_matching expression="save='plot.png',"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_width width="3253" delta="2"/>
+                    <has_image_height height="1446" delta="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced_240cells.h5ad"/>
+            <param name="format" value="png"/>
+            <param name="probeset" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv"/>
+            <param name="header_probeset" value="included"/>
+            <param name="nreference" value="30"/>
+            <param name="methods_reference" value="random,PCA,DE,HVG"/>
+            <param name="genes_key" value="highly_variable"/>
+            <param name="obs_key" value="celltype"/>
+            <param name="seeds" value="123,124"/>
+            <conditional name="method">
+                <param name="method" value="plot_confusion_matrix"/>
+                <param name="set_ids" value="all"/>
+            </conditional>
+            <param name="show_log" value="true" />
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="'name': 'probeset',"/>
+                    <has_text_matching expression="'ct_key': 'celltype',"/>
+                    <has_text_matching expression="evaluator.plot_confusion_matrix"/>
+                    <has_text_matching expression="save='plot.png',"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_width width="4560" delta="2"/>
+                    <has_image_height height="1859" delta="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced_240cells.h5ad"/>
+            <param name="format" value="png"/>
+            <param name="probeset" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv"/>
+            <param name="header_probeset" value="included"/>
+            <param name="nreference" value="30"/>
+            <param name="methods_reference" value="random,PCA,DE,HVG"/>
+            <param name="genes_key" value="highly_variable"/>
+            <param name="obs_key" value="celltype"/>
+            <param name="seeds" value="123,124"/>
+            <conditional name="method">
+                <param name="method" value="plot_coexpression"/>
+                <param name="set_ids" value="all"/>
+            </conditional>
+            <param name="show_log" value="true" />
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="'name': 'probeset',"/>
+                    <has_text_matching expression="evaluator.plot_coexpression"/>
+                    <has_text_matching expression="save='plot.png',"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_width width="5412" delta="2"/>
+                    <has_image_height height="3463" delta="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced_240cells.h5ad"/>
+            <param name="format" value="png"/>
+            <param name="probeset" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv"/>
+            <param name="header_probeset" value="included"/>
+            <param name="nreference" value="30"/>
+            <param name="methods_reference" value="random,PCA,DE,HVG"/>
+            <param name="genes_key" value="highly_variable"/>
+            <param name="obs_key" value="celltype"/>
+            <param name="seeds" value="123,124"/>
+            <conditional name="method">
+                <param name="method" value="plot_cluster_similarity"/>
+                <param name="set_ids" value="all"/>
+                <param name="ns_start" value="3"/>
+                <param name="ns_end" value="20"/>
+                <repeat name="series_auc_borders">
+                    <param name="auc_borders_start" value="7"/>
+                    <param name="auc_borders_end" value="14"/>
+                </repeat>
+                <repeat name="series_auc_borders">
+                    <param name="auc_borders_start" value="15"/>
+                    <param name="auc_borders_end" value="20"/>
+                </repeat>
+            </conditional>
+            <param name="show_log" value="true" />
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="'name': 'probeset',"/>
+                    <has_text_matching expression="evaluator.plot_cluster_similarity"/>
+                    <has_text_matching expression="save='plot.png',"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_width width="3223" delta="2"/>
+                    <has_image_height height="1406" delta="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced_240cells.h5ad"/>
+            <param name="format" value="png"/>
+            <param name="probeset" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv"/>
+            <param name="header_probeset" value="included"/>
+            <param name="nreference" value="30"/>
+            <param name="methods_reference" value="random,PCA,DE,HVG"/>
+            <param name="genes_key" value="highly_variable"/>
+            <param name="obs_key" value="celltype"/>
+            <param name="seeds" value="123,124"/>
+            <conditional name="method">
+                <param name="method" value="plot_knn_overlap"/>
+                <param name="set_ids" value="all"/>
+                <repeat name="knn">
+                    <param name="k" value="6"/>
+                </repeat>
+                <repeat name="knn">
+                    <param name="k" value="11"/>
+                </repeat>
+            </conditional>
+            <param name="show_log" value="true" />
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="'name': 'probeset',"/>
+                    <has_text_matching expression="evaluator.plot_knn_overlap"/>
+                    <has_text_matching expression="save='plot.png',"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_width width="3223" delta="2"/>
+                    <has_image_height height="1406" delta="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced_240cells.h5ad"/>
+            <param name="format" value="png"/>
+            <param name="probeset" value="tl.rank_genes_groups.newton-cg.pbmc68k_highly_reduced_marker_filtered_1.tsv"/>
+            <param name="header_probeset" value="included"/>
+            <param name="nreference" value="50"/>
+            <param name="methods_reference" value="random,PCA,DE,HVG"/>
+            <param name="genes_key" value="highly_variable"/>
+            <param name="obs_key" value="celltype"/>
+            <conditional name="method">
+                <param name="method" value="plot_marker_corr"/>
+                <param name="set_ids" value="all"/>
+                <param name="use_marker_corr" value="True"/>
+                <param name="markerset" value="marker.tsv"/>
+                <param name="header_markerset" value="not_included"/>
+                <param name="per_celltype" value="True"/>
+                <param name="per_marker" value="True"/>
+                <conditional name="select_per_celltype_min_mean">
+                    <param name="use_per_celltype_min_mean" value="False"/>
+                </conditional>
+                <conditional name="select_per_marker_min_mean">
+                    <param name="use_per_marker_min_mean" value="True"/>
+                    <param name="per_marker_min_mean" value="0.025"/>
+                </conditional>
+            </conditional>
+            <param name="show_log" value="true" />
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="'name': 'probeset',"/>
+                    <has_text_matching expression="'per_celltype': True,"/>
+                    <has_text_matching expression="'per_marker': True,"/>
+                    <has_text_matching expression="'per_marker_min_mean': 0.025"/>
+                    <has_text_matching expression="evaluator.plot_marker_corr"/>
+                    <has_text_matching expression="save='plot.png'"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_width width="5064" delta="2"/>
+                    <has_image_height height="4554" delta="2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Probe set evaluation for single-cell sequencing data using spapros.
+============================================================================================================
+
+Spapros is a python package that provides a pipeline for probe set selection and evaluation for targeted spatial transcriptomics data.
+
+Key Features:
+* Select probe sets for spatial transcriptomics which identify cell types of interest, capture general transcriptomic variation, and incorporate prior knowledge
+* Evaluate probe sets with an extensive pipeline
+
+Further documentation can be found here: https://spapros.readthedocs.io/en/latest/index.html.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
