@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
-
 import argparse
 import datetime
 import errno
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -321,12 +320,33 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
     return data_table_entry
 
 
-def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_custom(kraken2_args, custom_database_name, custom_source_info, target_directory, data_table_name=DATA_TABLE_NAME):
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+
+    database_value = "_".join([
+        now,
+        re.sub(r'[^\w_.-]+', '_', custom_database_name).strip('_'),
+        "kmer-len", str(kraken2_args["kmer_len"]),
+        "minimizer-len", str(kraken2_args["minimizer_len"]),
+        "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+        "load-factor", str(kraken2_args["load_factor"]),
+    ])
+
+    database_name = " ".join([
+        custom_database_name,
+        "(" + custom_source_info + ",",
+        "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
+        "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
+        "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ",",
+        "load-factor=" + str(kraken2_args["load_factor"]) + ")",
+    ])
+
+    database_path = database_value
 
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--download-taxonomy',
-        '--db', custom_database_name,
+        '--db', database_path,
     ]
 
     if kraken2_args['skip_maps']:
@@ -337,7 +357,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--add-to-library', kraken2_args["custom_fasta"],
-        '--db', custom_database_name
+        '--db', database_path,
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
@@ -349,7 +369,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
         '--load-factor', str(kraken2_args["load_factor"]),
-        '--db', custom_database_name
+        '--db', database_path,
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
@@ -358,7 +378,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         args = [
             '--threads', str(kraken2_args["threads"]),
             '--clean',
-            '--db', custom_database_name
+            '--db', database_path,
         ]
 
         subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
@@ -367,9 +387,9 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         'data_tables': {
             data_table_name: [
                 {
-                    "value": custom_database_name,
-                    "name": custom_database_name,
-                    "path": custom_database_name
+                    "value": database_value,
+                    "name": database_name,
+                    "path": database_path,
                 }
             ]
         }
@@ -393,6 +413,7 @@ def main():
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
+    parser.add_argument('--custom-source-info', dest='custom_source_info', help='Description of how this build has been sourced (only applies to --database-type custom)')
     parser.add_argument('--skip-maps', dest='skip_maps', action='store_true', help='')
     parser.add_argument('--clean', dest='clean', action='store_true', help='Clean up extra files')
     args = parser.parse_args()
@@ -464,6 +485,7 @@ def main():
         data_manager_output = kraken2_build_custom(
             kraken2_args,
             args.custom_database_name,
+            args.custom_source_info,
             target_directory,
         )
     else:
