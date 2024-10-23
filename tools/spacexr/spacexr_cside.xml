@@ -1,0 +1,231 @@
+<tool id="spacexr_cside" name="CSIDE" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Cell type-specific differential expression with C-SIDE</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        export GALAXY_SLOTS=2 &&
+        mkdir -p 'inputs' 'results' 'logs' 'figures' &&
+        ln -s '$rctd' 'inputs/rctd.rds' &&
+        touch 'results/cside_script.R' &&
+        cat '$cside_script' > 'results/cside_script.R' &&
+        Rscript '$cside_script'
+        #if 'plots' in $output_selector:
+            mv 'results/de_plots/*.pdf' 'results/de_plots_quant/*.pdf' 'results/de_plots_two_regions/*.pdf' 'figures'
+        #end if
+    ]]></command>
+    <configfiles>
+        <configfile name="cside_script"><![CDATA[
+#if $type.cell_types != '':
+    #set $cell_types_list = ['"' + str(x.strip()) + '"' for x in str($type.cell_types).split(',')]
+    #set $cell_types = ','.join($cell_types_list)
+#end if
+#if str($type.cell_types_present) != '':
+    #set $cell_types_present_list = ['"' + str(x.strip()) + '"' for x in str($type.cell_types_present).split(',')]
+    #set $cell_types_present = ','.join($cell_types_present_list)
+#end if
+#if $type.de_type == 'point_density':
+    #set $pathologic_barcode_list = ['"' + str(x.strip()) + '"' for x in str($type.pathologic_barcode).split(',')]
+    #set $pathologic_barcode = ','.join($pathologic_barcode_list)
+#end if
+#if $type.de_type == 'custom':
+    #set $pathologic_barcode_list = ['"' + str(x.strip()) + '"' for x in str($type.pathologic_barcode).split(',')]
+    #set $region_list = [','.join($pathologic_barcode_list)]
+    #for $i, $region in enumerate($type.region):
+        #if str($region.next_pathologic_barcode) != '':
+            #set $next_pathologic_barcode_list = ['"' + str(x.strip()) + '"' for x in str($type.next_pathologic_barcode).split(',')]
+            #set $next_pathologic_barcode = [','.join($next_pathologic_barcode_list)]
+            $region_list.append($next_pathologic_barcode)
+        #end if
+    #end for
+#end if
+
+# cside script
+# This file is used to specify the parameters for the cside from spacexr package
+
+# Load the spacexr library
+library('spacexr')
+library('Matrix')
+library('doParallel')
+
+# load RCTD object
+myRCTD <- readRDS('inputs/rctd.rds')
+core <- Sys.getenv("GALAXY_SLOTS")
+# set core
+
+myRCTD@config[["max_cores"]] <- core
+
+# CSIDE
+#if str($type.de_type) == 'non_parametric':
+myRCTD <- run.CSIDE.nonparam(myRCTD,
+                            df = $type.df,
+                            barcodes = NULL, # use all barcodes
+                            CSIDE_COMMON_RUN
+                            )
+
+#else if str($type.de_type) == 'point_density':
+pathogen_coords <- myRCTD@spatialRNA@coords[c($pathologic_barcode),]
+barcodes <- colnames(myRCTD@spatialRNA@counts)
+explanatory.variable <- exvar.point.density(myRCTD,
+                                            barcodes,
+                                            pathogen_coords,
+                                            radius = $type.radius
+                                            )
+CSIDE_SINGLE_RUN
+
+
+#else if str($type.de_type) == 'cell2cell':
+barcodes <- colnames(myRCTD@spatialRNA@counts)
+explanatory.variable <- exvar.celltocell.interactions(myRCTD,
+                                                        barcodes,
+                                                        '$type.cell_type',
+                                                        radius = $type.radius
+                                                        )
+CSIDE_SINGLE_RUN
+
+
+#else if str($type.de_type) == 'XY':
+    #if str($type.xy) == 'X':
+explanatory.variable <- as.integer(myRCTD@spatialRNA@coords$x &gt; $type.lim)
+names(explanatory.variable) <- rownames(myRCTD@spatialRNA@coords)
+    
+    #else
+explanatory.variable <- as.integer(myRCTD@spatialRNA@coords$y &gt; $type.lim)
+names(explanatory.variable) <- rownames(myRCTD@spatialRNA@coords)
+    #end if
+CSIDE_SINGLE_RUN
+
+#else:
+myRCTD <- run.CSIDE.regions(myRCTD,
+                            $region_list,
+                            log_fc_thresh = $type.log_fc_thresh,
+                            CSIDE_COMMON_RUN
+                            )
+#end if
+
+
+# save the results
+
+# save significant genes in each cell type
+cell_types <- names(myRCTD@de_results[["sig_gene_list"]])
+for (cell_type in cell_types) {
+    df <- myRCTD@de_results[["sig_gene_list"]][[cell_type]]
+    assign(cell_type, df)
+    write.table(df, file = paste0("results/", cell_type, "_sig.tabular"), sep = "\t", quote = FALSE)
+}
+# save all genes in each cell type
+cell_types <- names(myRCTD@de_results[["all_gene_list"]])
+for (cell_type in cell_types) {
+    df <- myRCTD@de_results[["all_gene_list"]][[cell_type]]
+    assign(cell_type, df)
+    write.table(df, file = paste0("results/", cell_type, ".tabular"), sep = "\t", quote = FALSE)
+}
+
+# create plots
+#if 'plots' in $output_selector:
+make_all_de_plots(myRCTD, "figures")
+#end if
+# save rds file
+#if 'rds' in $output_selector:
+saveRDS(myRCTD, file = 'results/cside_results.rds')
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="rctd" type="data" format="rds" label="RCTD object" help="annotated RCTD object"/>
+        <conditional name="type">
+            <param name="de_type" type="select" label="Type of covariates for explaining differential expression with C-SIDE">
+                <option value="non_parametric">Smooth spatial pattern (non-non_parametric)</option>
+                <option value="point_density">Proximity to pathology</option>
+                <option value="cell2cell">Cell-to-cell interaction</option>
+                <option value="XY">define X or Y axis</option>
+                <option value="custom">Custom spatial locations</option>
+            </param>
+            <when value="non_parametric">
+                <param argument="df" type="integer" min="0" value="15" label="Degrees of freedom" help="The degrees of freedom, or number of basis functions to be used in the model."/>
+                <expand macro="cside_common_input"/>
+            </when>
+            <when value="point_density">
+                <expand macro="patho_barcode"/>
+                <expand macro="radius"/>
+                <expand macro="cside_single_input"/>
+            </when>
+            <when value="cell2cell">
+                <param name="cell_type" type="text" optional="false" label="Cell type for which to compute density">
+                    <expand macro="sanitizer"/>
+                </param>
+                <expand macro="radius"/>
+                <expand macro="cside_single_input"/>
+            </when>
+            <when value="XY">
+                <param name="lim" type="integer" value="" optional="false" label="Axis" help="The number on X or Y axis to discriminate two spatial regions"/>
+                <param name="xy" type="boolean" truevalue="X" falsevalue="Y" checked="true" label="Is the number on X axis?"/>
+                <expand macro="cside_single_input"/>
+            </when>
+            <when value="custom">
+                <expand macro="patho_barcode" help="Comma separated barcodes of the custom region."/>
+                <repeat name="region" min="0" title="Next custom region">
+                    <param name="next_pathologic_barcode" type="text" optional="false" label="Barcodes" help="Comma separated barcodes of the custom region.">
+                        <expand macro="sanitizer"/>
+                    </param>
+                </repeat>
+                <expand macro="cside_common_input"/>
+                <param argument="log_FC_thresh" type="float" min="0" value="0.4" label="logFC cutoff for differential expression"/>
+            </when>
+        </conditional>
+        <expand macro="output">
+            <option value="plots">DEG plots</option>
+        </expand>
+    </inputs>
+    <outputs>
+        <collection name="de_results" type="list" label="${tool.name} on ${on_string}: DE Results">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.tabular$" format="tabular" directory="results"/>
+        </collection>
+        <collection name="de_plots" type="list" label="${tool.name} on ${on_string}: DE plots">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.pdf$" format="pdf" directory="figures"/>
+            <filter>output['output_selector'] and 'plots' in output['output_selector']</filter>
+        </collection>
+        <data name="out_rds" format="rds" from_work_dir="results/cside_results.rds" label="${tool.name} on ${on_string}: RDS file">
+            <filter>output['output_selector'] and 'rds' in output['output_selector']</filter>
+        </data>
+        <data name="out_rscript" format="txt" from_work_dir="results/cside_script.R" label="${tool.name} on ${on_string}: RScript">
+            <filter>output['output_selector'] and 'rscript' in output['output_selector']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="rctd" value="myRCTD_merfish.rds"/>
+            <param name="de_type" value="non_parametric"/>
+            <param name="cell_types" value="Astrocytes,a"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rscript" />
+            <output_collection name="de_results" type="list">
+                <element name="type8" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Hello"/>
+                    </assert_contents>
+                </element>
+                <element name="type8_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Hello"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="run.CSIDE.nonparam"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Cell type-Specific Inference of Differential Expression, or CSIDE, is part of the spacexr R package for learning cell type-specific differential expression from spatial transcriptomics data.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>
