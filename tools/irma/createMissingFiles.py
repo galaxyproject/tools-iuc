@@ -12,8 +12,6 @@ def renameSubtypeFiles(identifier):
     for file in files:
         ext = file.split('.')[-1]
         os.rename(file, dirPrefix + "A_" + identifier + "." + ext)
-        print("Rename:")
-        print(file, dirPrefix + "A_" + identifier + "." + ext)
 
 
 def getMissingSegments():
@@ -28,8 +26,6 @@ def getBamHeaderFromAnyFile():
     samtoolsCmd = "samtools view -H " + anyBamFile
     result = subprocess.run(samtoolsCmd, shell=True,
                             stdout=subprocess.PIPE, text=True)
-    print("Sample Header: (from: ", anyBamFile)
-    print(result)
     header = result.stdout.split('\n')[0]
     return header
 
@@ -39,7 +35,6 @@ def writeEmptyBam(identifier, bamHeader):
         f.write(bamHeader)  # write header to a temporary sam file
     cmd = "samtools view -H -b headerSamFile.sam > " \
           + dirPrefix + identifier + ".bam"  # convert to bam
-    print("Create bam file: " + cmd)
     if subprocess.run(cmd, shell=True, text=True).returncode == 0:
         os.remove("headerSamFile.sam")  # delete temporary sam file
     else:
@@ -57,7 +52,6 @@ def samtoolsSortAllBam():
         cmd = "samtools sort " + dirPrefix + segment + "_unsorted.bam > " \
               + dirPrefix + segment + ".bam"
         if subprocess.run(cmd, shell=True, text=True).returncode == 0:
-            print("Sorted bam created. Original bam removed for: " + segment)
             os.remove(dirPrefix + segment + "_unsorted.bam")
         else:
             raise ValueError("Could not sort bam file!")
