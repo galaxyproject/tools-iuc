@@ -9,39 +9,76 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">irma</requirement>
+        <requirement type="package" version="3.12">python</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        mkdir ./irma_temp &&
-        export IRMA_GALAXY_TEMP=\$PWD/irma_temp &&
+        
+        ### handle gz inputs
 
+        #if $input_type == 'single'
+
+        #if $input_type_conditional.fastq_input1.is_of_type('fastq.gz')
+        ln -sf '${input_type_conditional.fastq_input1}' file1.fastq.gz &&
+        #end if
+
+        #elif $input_type == 'paired_collection'
+
+        #if $input_type_conditional.fastq_input.forward.is_of_type('fastq.gz')
+        ln -sf '${input_type_conditional.fastq_input.forward}' file1.fastq.gz &&
+        ln -sf '${input_type_conditional.fastq_input.reverse}'  file2.fastq.gz &&
+        #end if
+
+        #end if
+
+
+        ### irma command
         IRMA 
         '${module}'
-        #set $input_type = $input_type_conditional.input_type
-        #if $input_type == 'single'
+        #if $input_type_conditional.input_type == 'single'
+
+        #if $input_type_conditional.fastq_input1.is_of_type('fastq.gz')
+        file1.fastq.gz
+        #else 
         '${input_type_conditional.fastq_input1}'
-        #elif $input_type == 'paired_collection'
+        #end if
+
+        #elif $input_type_conditional.input_type == 'paired_collection'
+        
+        #if $input_type_conditional.fastq_input.forward.is_of_type('fastq.gz')
+        file1.fastq.gz
+        file2.fastq.gz
+        #else 
         '${input_type_conditional.fastq_input.forward}'
         '${input_type_conditional.fastq_input.reverse}'
         #end if
+
+        #end if
+        
         resultDir
+
 
         &&
         
+        ### script catches missing segments in sample case
         python3 '$__tool_directory__/createMissingFiles.py'
 
     ]]></command>
     <configfiles>
         <configfile filename='irma_config.sh'><![CDATA[
 
-SINGLE_LOCAL_PROC=\${GALAXY_SLOTS:-4}
-DOUBLE_LOCAL_PROC=\$((\${GALAXY_SLOTS:-4} / 2))
-TMP=\$IRMA_GALAXY_TEMP
+SINGLE_LOCAL_PROC=\$GALAXY_SLOTS
+DOUBLE_LOCAL_PROC=expr \$GALAXY_SLOTS / 2
+TMP=\$TMPDIR
 
         #if $advanced_config.customize == 'yes':
 
-### reference
-SKIP_E=$advanced_config.SKIP_E
 
+            #if $advanced_config.reference == 'yes':
+### reference
+SKIP_E=$advanced_config.reference.SKIP_E
+            #end if
+
+            #if $advanced_config.read_gathering == 'yes':
 ### read gathering
 MAX_ROUNDS=$advanced_config.read_gathering.MAX_ROUNDS		                        
 USE_MEDIAN=$advanced_config.read_gathering.USE_MEDIAN		                        
@@ -52,21 +89,29 @@ ADAPTER=$advanced_config.read_gathering.ADAPTER
 ENFORCE_CLIPPED_LENGTH=1$advanced_config.read_gathering.ENFORCE_CLIPPED_LENGTH	    
 MERGE_SECONDARY=$advanced_config.read_gathering.MERGE_SECONDARY         		    
 RESIDUAL_ASSEMBLY_FACTOR=$advanced_config.read_gathering.RESIDUAL_ASSEMBLY_FACTOR   
+            #end if     
 
+            #if $advanced_config.read_gathering == 'yes':
 ### match step
 MIN_RP=$advanced_config.match_step.MIN_RP    
 MIN_RC=$advanced_config.match_step.MIN_RC
 MIN_BLAT_MATCH=$advanced_config.match_step.MIN_BLAT_MATCH
+            #end if     
 
+            #if $advanced_config.sort_step == 'yes':
 ### sort step
 SORT_PROG=$advanced_config.sort_step.SORT_PROG
 NONSEGMENTED=$advanced_config.sort_step.NONSEGMENTED
+            #end if
 
+            #if $advanced_config.align_step == 'yes':
 ## ALIGN STEP ##
 ALIGN_PROG=$advanced_config.align_step.ALIGN_PROG
 DEL_TYPE=$advanced_config.align_step.DEL_TYPE
+            #end if
 
-### FINISHING ASSEMBLY ###
+            #if $advanced_config.assembly == 'yes':
+### FINISHING ASSEMBLY ### ifs hinzufügen
 MAX_ITER_ASSEM=$advanced_config.assembly.MAX_ITER_ASSEM
 NO_MERGE=$advanced_config.assembly.NO_MERGE            
 INS_T=$advanced_config.assembly.INS_T
@@ -80,7 +125,9 @@ SSW_X=$advanced_config.assembly.SSW_X
 SSW_O=$advanced_config.assembly.SSW_O
 SSW_E=$advanced_config.assembly.SSW_E
 ALIGN_AMENDED=$advanced_config.assembly.ALIGN_AMENDED
+            #end if
 
+            #if $advanced_config.variant_calling == 'yes':
 ### VARIANT CALLING ###
 AUTO_F=$advanced_config.variant_calling.AUTO_F
 MIN_FI=$advanced_config.variant_calling.MIN_FI
@@ -91,8 +138,8 @@ MIN_AQ=$advanced_config.variant_calling.MIN_AQ
 MIN_TCC=$advanced_config.variant_calling.MIN_TCC
 MIN_CONF=$advanced_config.variant_calling.MIN_CONF
 SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
-
             #end if
+        #end if
         ]]></configfile>                        
     </configfiles>
     <inputs>
@@ -102,10 +149,10 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                 <option value="paired_collection">Paired Collection</option>
             </param>
             <when value="single">
-                 <param name="fastq_input1" type="data" format="fastqsanger" label="Select fastq dataset" help="Specify dataset with single reads"/>
+                 <param name="fastq_input1" type="data" format="fastq,fastq.gz" label="Select fastq dataset" help="Specify dataset with single reads"/>
             </when>
             <when value="paired_collection">
-                 <param name="fastq_input" type="data_collection" format="fastqsanger" collection_type="paired" label="Select dataset pair" help="Specify paired dataset collection containing paired reads"/>
+                 <param name="fastq_input" type="data_collection" format="fastq,fastq.gz" collection_type="paired" label="Select dataset pair" help="Specify paired dataset collection containing paired reads"/>
             </when>
         </conditional>
 
@@ -127,149 +174,206 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             </param>
             <when value="no" />
             <when value="yes">
-                <param name="SKIP_E" type="select" label="Skip reference elongation?">
-                    <option value="0">No</option>
-                    <option value="1" selected="true">Yes</option>
-                </param>
-                <section name="read_gathering" title="Settings to read gathering" expanded="false">
-                    <param name="MAX_ROUNDS" type="integer" min="1" max="20" value="5" label="Maximal rounds of read gathering"/>
-                    <param name="USE_MEDIAN" type="select" label="Use median or average for read gathering">
-                        <option value="0">Average</option>
-                        <option value="1" selected="true">Median</option>
+                <conditional name="reference">
+                    <param name="customize" type="select" label="Customize Reference Settings" help="Choosing Yes here, lets you overwrite reference settings.">
+                        <option value="no">No, use defaults for reference settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                    <param name="QUAL_THRESHOLD" type="integer" min="0" value="30" label="Minimum read statistic to keep (Phred)"/>
-                    <param name="MIN_LEN" type="integer" min="0" max="1000" value="125" label="Minimum read length to keep (bp)" />
-                    <param name="INCL_CHIM" type="select" label="Include chimera? Transposase adapter - clips 5' of the adapter on the forward strand and 3' on the reverse strand. applicable to NextTera pair-end reads">
-                        <option value="1">Yes</option>
-                        <option value="0" selected="true">No</option>
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="SKIP_E" type="select" label="Skip reference elongation?">
+                            <option value="0">No</option>
+                            <option value="1" selected="true">Yes</option>
+                        </param>
+                    </when>
+                </conditional>
+
+                <conditional name="read_gathering">
+                    <param name="customize" type="select" label="Customize settings to read gathering" help="Choosing Yes here, lets you overwrite read gathering settings.">
+                        <option value="no">No, use defaults for read gathering settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                    <param name="ADAPTER" type="text" value="AGATGTGTATAAGAGACAG" label="Adapter sequence">
-                        <validator type="regex">[CAGT]+</validator> 
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="MAX_ROUNDS" type="integer" min="1" max="20" value="5" label="Maximal rounds of read gathering"/>
+                        <param name="USE_MEDIAN" type="select" label="Use median or average for read gathering">
+                            <option value="0">Average</option>
+                            <option value="1" selected="true">Median</option>
+                        </param>
+                        <param name="QUAL_THRESHOLD" type="integer" min="0" value="30" label="Minimum read statistic to keep (Phred)"/>
+                        <param name="MIN_LEN" type="integer" min="0" max="1000" value="125" label="Minimum read length to keep (bp)" />
+                        <param name="INCL_CHIM" type="select" label="Include chimera? Transposase adapter - clips 5' of the adapter on the forward strand and 3' on the reverse strand. applicable to NextTera pair-end reads">
+                            <option value="1">Yes</option>
+                            <option value="0" selected="true">No</option>
+                        </param>
+                        <param name="ADAPTER" type="text" value="AGATGTGTATAAGAGACAG" label="Adapter sequence">
+                            <validator type="regex">[CAGT]+</validator> 
+                        </param>
+                        <param name="ENFORCE_CLIPPED_LENGTH" type="select" label="Reads are filtered for minimum length post adapter trimming">
+                            <option value="1" selected="true">Yes</option>
+                            <option value="0">No</option>
+                        </param>
+                        <param name="MERGE_SECONDARY" type="select" label="Merge secondary data after the first round to the unmatched pool. Useful if co-infections are not expected.">
+                            <option value="1">Yes</option>
+                            <option value="0" selected="true">No</option>
+                        </param>
+                        <param name="RESIDUAL_ASSEMBLY_FACTOR" type="integer" min="0" max="100" value="0" label="The ratio of match read patterns to altmatch is measured, and if its less than factor, residual assembly is performed. Set 0 for off."/>
+                    </when>
+                </conditional>
+                <conditional name="match_step">
+                    <param name="customize" type="select" label="Customize settings regarding the match step" help="Choosing Yes here, lets you overwrite match step settings.">
+                        <option value="no">No, use defaults for match step settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                    <param name="ENFORCE_CLIPPED_LENGTH" type="select" label="Reads are filtered for minimum length post adapter trimming">
-                        <option value="1" selected="true">Yes</option>
-                        <option value="0">No</option>
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="MIN_RP" type="integer" min="0" value="15" label="Minimum read pattern count to continue"/>
+                        <param name="MIN_RC" type="integer" min="0" value="15" label="Minimum read count to continue"/>
+                        <param name="MIN_BLAT_MATCH" type="integer" min="0" value="0" label="Minimum read pattern count to continue"/>
+                    </when>
+                </conditional>
+                <conditional name="sort_step">
+                    <param name="customize" type="select" label="Customize settings regarding the sort step" help="Choosing Yes here, lets you overwrite sort step settings.">
+                        <option value="no">No, use defaults for sort step settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                    <param name="MERGE_SECONDARY" type="select" label="Merge secondary data after the first round to the unmatched pool. Useful if co-infections are not expected.">
-                        <option value="1">Yes</option>
-                        <option value="0" selected="true">No</option>
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="SORT_PROG" type="select" label="Select program used for sorting">
+                            <option value="LABEL">LABEL</option>
+                            <option value="BLAT" selected="true">BLAT</option>
+                        </param>
+                        <param name="NONSEGMENTED" type="select" label="Activate: Segmented">
+                            <option value="1">No</option>
+                            <option value="0" selected="true">Yes</option>
+                        </param>
+                    </when>
+                </conditional>
+                <conditional name="align_step">
+                    <param name="customize" type="select" label="Customize settings regarding the alignment step" help="Choosing Yes here, lets you overwrite align step settings.">
+                        <option value="no">No, use defaults for align step settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                    <param name="RESIDUAL_ASSEMBLY_FACTOR" type="integer" min="0" max="100" value="0" label="The ratio of match read patterns to altmatch is measured, and if its less than factor, residual assembly is performed. Set 0 for off."/>
-                </section>
-                <section name="match_step" title="Settings regarding the match step" expanded="false" >
-                    <param name="MIN_RP" type="integer" min="0" value="15" label="Minimum read pattern count to continue"/>
-                    <param name="MIN_RC" type="integer" min="0" value="15" label="Minimum read count to continue"/>
-                    <param name="MIN_BLAT_MATCH" type="integer" min="0" value="0" label="Minimum read pattern count to continue"/>
-                </section>
-                <section name="sort_step" title="Settings regarding the sort step" expanded="false">
-                    <param name="SORT_PROG" type="select" label="Select program used for sorting">
-                        <option value="LABEL">LABEL</option>
-                        <option value="BLAT" selected="true">BLAT</option>
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="ALIGN_PROG" type="select" label="Select program used for alignment">
+                            <option value="BLAT">BLAT</option>
+                            <option value="SAM" selected="true">SAM</option>
+                        </param>
+                        <param name="DEL_TYPE" type="select" label="How to handle deletions in rough alignment">
+                            <option value="" selected="true">Default</option>
+                            <option value="NNN">NNN</option>
+                            <option value="REF">REF</option>
+                            <option value="DEL" >DEL</option>
+                        </param>
+                    </when>
+                </conditional>
+                <!-- Sections zum conditional machen -->
+                <conditional name="assembly">
+                    <param name="customize" type="select" label="Customize settings regarding the assembly" help="Choosing Yes here, lets you overwrite assembly settings.">
+                        <option value="no">No, use defaults for assembly settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                    <param name="NONSEGMENTED" type="select" label="Activate: Segmented">
-                        <option value="1">No</option>
-                        <option value="0" selected="true">Yes</option>
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="MAX_ITER_ASSEM" type="integer" min="1" value="5" label="Maximal assembly iteration"/>
+                        <param name="NO_MERGE" type="select" label="Merge read pairs">
+                            <option value="1">Yes</option>
+                            <option value="0" selected="true">No</option>
+                        </param>
+                        <param name="INS_T" type="float" min="0" max="1" value="0.25" label="The minimum frequency threshold for insertion refinement"/>
+                        <param name="DEL_T" type="float" min="0" max="1" value="0.6" label="The minimum frequency threshold for deletion refinement"/>
+                        <param name="INS_T_DEPTH" type="integer" min="1" value="1" label="The minimum coverage depth for insertion refinement"/>
+                        <param name="DEL_T_DEPTH" type="integer" min="1" value="1" label="The minimum coverage depth for deletion refinement"/>
+                        <param name="SILENCE_COMPLEX_INDELS" type="select" label="Silences reads with complex indels (having 4 indels with at least one greater than 9)">
+                            <option value="1">Yes</option>
+                            <option value="0" selected="true">No</option>
+                        </param>
+                        <param name="MIN_AMBIG" type="float" min="0" max="1" value="0.25" label="The minimum called SNV frequency for mixed base in amended consensus folder"/>
+                        <param name="SSW_M" type="integer" min="1" value="2" label="The smith-waterman match score"/>
+                        <param name="SSW_X" type="integer" min="1" value="5" label="The smith-waterman mismatch penalty"/>
+                        <param name="SSW_O" type="integer" min="1" value="10" label="The smith-waterman gap open penalty"/>
+                        <param name="SSW_E" type="integer" min="1" value="1" label="The smith-waterman gap extension penalty"/>
+                        <param name="ALIGN_AMENDED" type="select" label="Do global alignment of the amended consensus to the HMM profile">
+                            <option value="1">Yes</option>
+                            <option value="0" selected="true">No</option>
+                        </param>
+                    </when>
+                </conditional>
+                <!-- Sections zum conditional machen -->
+                <conditional name="variant_calling">
+                    <param name="customize" type="select" label="Customize settings regarding the variant calling" help="Choosing Yes here, lets you overwrite variant calling settings.">
+                        <option value="no">No, use defaults for variant calling settings</option>
+                        <option value="yes">Yes</option>
                     </param>
-                </section>
-                <section name="align_step" title="Settings regarding the alignment step" expanded="false">
-                    <param name="ALIGN_PROG" type="select" label="Select program used for alignment">
-                        <option value="BLAT">BLAT</option>
-                        <option value="SAM" selected="true">SAM</option>
-                    </param>
-                    <param name="DEL_TYPE" type="select" label="How to handle deletions in rough alignment">
-                        <option value="" selected="true">Default</option>
-                        <option value="NNN">NNN</option>
-                        <option value="REF">REF</option>
-                        <option value="DEL" >DEL</option>
-                    </param>
-                </section>
-                <section name="assembly" title="Settings regarding the assembly" expanded="false">
-                    <param name="MAX_ITER_ASSEM" type="integer" min="1" value="5" label="Maximal assembly iteration"/>
-                    <param name="NO_MERGE" type="select" label="Merge read pairs">
-                        <option value="1">Yes</option>
-                        <option value="0" selected="true">No</option>
-                    </param>
-                    <param name="INS_T" type="float" min="0" max="1" value="0.25" label="The minimum frequenncy threshold for insertion refinement"/>
-                    <param name="DEL_T" type="float" min="0" max="1" value="0.6" label="The minimum frequenncy threshold for deletion refinement"/>
-                    <param name="INS_T_DEPTH" type="integer" min="1" value="1" label="The minimum coverage depth for insertion refinement"/>
-                    <param name="DEL_T_DEPTH" type="integer" min="1" value="1" label="The minimum coverage depth for deletion refinement"/>
-                    <param name="SILENCE_COMPLEX_INDELS" type="select" label="Silences reads with complex indels (having 4 indels with at least one greater than 9)">
-                        <option value="1">Yes</option>
-                        <option value="0" selected="true">No</option>
-                    </param>
-                    <param name="MIN_AMBIG" type="float" min="0" max="1" value="0.25" label="The minimum called SNV frequency for mixed base in amended consensus folder"/>
-                    <param name="SSW_M" type="integer" min="1" value="2" label="The smith-waterman match score"/>
-                    <param name="SSW_X" type="integer" min="1" value="5" label="The smith-waterman mismatch penalty"/>
-                    <param name="SSW_O" type="integer" min="1" value="10" label="The smith-waterman gap open penalty"/>
-                    <param name="SSW_E" type="integer" min="1" value="1" label="The smith-waterman gap extension penalty"/>
-                    <param name="ALIGN_AMENDED" type="select" label="Do global alignment of the amended consensus to the HMM profile">
-                        <option value="1">Yes</option>
-                        <option value="0" selected="true">No</option>
-                    </param>
-                </section>
-                <section name="variant_calling" title="Settings regarding variant calling" expanded="false">
-                    <param name="AUTO_F" type="select" label="Automatically adjust frequency threshold">
-                        <option value="1" selected="true">Yes</option>
-                        <option value="0">No</option>
-                    </param>
-                    <param name="MIN_FI" type="float" min="0" max="1" value="0.005" label="The minimum insertion variant frequency"/>
-                    <param name="MIN_FD" type="float" min="0" max="1" value="0.005" label="The minimum deletion variant frequency"/>
-                    <param name="MIN_F" type="float" min="0" max="1" value="0.008" label="The minimum frequency for single nucleotide variants"/>
-                    <param name="MIN_C" type="integer" min="1" value="2" label="The minimum count for variants"/>
-                    <param name="MIN_AQ" type="integer" min="1" value="24" label="The minimum average variant quality (does not apply to deletions)"/>
-                    <param name="MIN_TCC" type="integer" min="1" value="100" label="The minimum non-ambiguous column coverage"/>
-                    <param name="MIN_CONF" type="float" min="0" max="1" value="0.80" label="The minimum confidence"/>
-                    <param name="SIG_LEVEL" type="select" label="The significance test level for variant calling">
-                        <option value="0.999" selected="true">99.9%</option>
-                        <option value="0.99" >99%</option>
-                        <option value="0.95" >95%</option>
-                        <option value="0.90" >90%</option>
-                    </param>
-                </section>            
+                    <when value="no" />
+                    <when value="yes">
+                        <param name="AUTO_F" type="select" label="Automatically adjust frequency threshold">
+                            <option value="1" selected="true">Yes</option>
+                            <option value="0">No</option>
+                        </param>
+                        <param name="MIN_FI" type="float" min="0" max="1" value="0.005" label="The minimum insertion variant frequency"/>
+                        <param name="MIN_FD" type="float" min="0" max="1" value="0.005" label="The minimum deletion variant frequency"/>
+                        <param name="MIN_F" type="float" min="0" max="1" value="0.008" label="The minimum frequency for single nucleotide variants"/>
+                        <param name="MIN_C" type="integer" min="1" value="2" label="The minimum count for variants"/>
+                        <param name="MIN_AQ" type="integer" min="1" value="24" label="The minimum average variant quality (does not apply to deletions)"/>
+                        <param name="MIN_TCC" type="integer" min="1" value="100" label="The minimum non-ambiguous column coverage"/>
+                        <param name="MIN_CONF" type="float" min="0" max="1" value="0.80" label="The minimum confidence"/>
+                        <param name="SIG_LEVEL" type="select" label="The significance test level for variant calling">
+                            <option value="0.999" selected="true">99.9%</option>
+                            <option value="0.99" >99%</option>
+                            <option value="0.95" >95%</option>
+                            <option value="0.90" >90%</option>
+                        </param>
+                    </when>
+                </conditional>          
             </when>
         </conditional>
     </inputs>
     <outputs>
         <collection name="consensus_collection" type="list" label="Fasta Consensus Sequences">
-            <data name="HA" format="fasta" from_work_dir="resultDir/A_HA.fasta" label="HA"/>
-            <data name="MP" format="fasta" from_work_dir="resultDir/A_MP.fasta" label="MP"/>
-            <data name="NA" format="fasta" from_work_dir="resultDir/A_NA.fasta" label="NA"/>
-            <data name="NP" format="fasta" from_work_dir="resultDir/A_NP.fasta" label="NP"/>
-            <data name="NS" format="fasta" from_work_dir="resultDir/A_NS.fasta" label="NS"/>
-            <data name="PA" format="fasta" from_work_dir="resultDir/A_PA.fasta" label="PA"/>
             <data name="PB1" format="fasta" from_work_dir="resultDir/A_PB1.fasta" label="PB1"/>
             <data name="PB2" format="fasta" from_work_dir="resultDir/A_PB2.fasta" label="PB2"/>
+            <data name="PA" format="fasta" from_work_dir="resultDir/A_PA.fasta" label="PA"/>
+            <data name="HA" format="fasta" from_work_dir="resultDir/A_HA.fasta" label="HA"/>
+            <data name="NP" format="fasta" from_work_dir="resultDir/A_NP.fasta" label="NP"/>
+            <data name="NA" format="fasta" from_work_dir="resultDir/A_NA.fasta" label="NA"/>
+            <data name="MP" format="fasta" from_work_dir="resultDir/A_MP.fasta" label="MP"/>
+            <data name="NS" format="fasta" from_work_dir="resultDir/A_NS.fasta" label="NS"/>
         </collection>
         <!-- optional outputs-->
         <collection name="bam_collection" type="list" label="Alignment files (bam)">
             <filter>'bam' in optional_outputs</filter>
-            <data name="HA" format="bam" from_work_dir="resultDir/A_HA.bam" label="HA"/>
-            <data name="MP" format="bam" from_work_dir="resultDir/A_MP.bam" label="MP"/>
-            <data name="NA" format="bam" from_work_dir="resultDir/A_NA.bam" label="NA"/>
-            <data name="NP" format="bam" from_work_dir="resultDir/A_NP.bam" label="NP"/>
-            <data name="NS" format="bam" from_work_dir="resultDir/A_NS.bam" label="NS"/>
-            <data name="PA" format="bam" from_work_dir="resultDir/A_PA.bam" label="PA"/>
             <data name="PB1" format="bam" from_work_dir="resultDir/A_PB1.bam" label="PB1"/>
             <data name="PB2" format="bam" from_work_dir="resultDir/A_PB2.bam" label="PB2"/>
+            <data name="PA" format="bam" from_work_dir="resultDir/A_PA.bam" label="PA"/>
+            <data name="HA" format="bam" from_work_dir="resultDir/A_HA.bam" label="HA"/>
+            <data name="NP" format="bam" from_work_dir="resultDir/A_NP.bam" label="NP"/>
+            <data name="NA" format="bam" from_work_dir="resultDir/A_NA.bam" label="NA"/>
+            <data name="MP" format="bam" from_work_dir="resultDir/A_MP.bam" label="MP"/>
+            <data name="NS" format="bam" from_work_dir="resultDir/A_NS.bam" label="NS"/>
         </collection>
         <collection name="vcf_collection" type="list" label="Variant calling files (VCF)">
             <filter>'vcf' in optional_outputs</filter>
-            <data name="HA" format="vcf" from_work_dir="resultDir/A_HA.vcf" label="HA"/>
-            <data name="MP" format="vcf" from_work_dir="resultDir/A_MP.vcf" label="MP"/>
-            <data name="NA" format="vcf" from_work_dir="resultDir/A_NA.vcf" label="NA"/>
-            <data name="NP" format="vcf" from_work_dir="resultDir/A_NP.vcf" label="NP"/>
-            <data name="NS" format="vcf" from_work_dir="resultDir/A_NS.vcf" label="NS"/>
-            <data name="PA" format="vcf" from_work_dir="resultDir/A_PA.vcf" label="PA"/>
             <data name="PB1" format="vcf" from_work_dir="resultDir/A_PB1.vcf" label="PB1"/>
             <data name="PB2" format="vcf" from_work_dir="resultDir/A_PB2.vcf" label="PB2"/>
+            <data name="PA" format="vcf" from_work_dir="resultDir/A_PA.vcf" label="PA"/>
+            <data name="HA" format="vcf" from_work_dir="resultDir/A_HA.vcf" label="HA"/>
+            <data name="NP" format="vcf" from_work_dir="resultDir/A_NP.vcf" label="NP"/>
+            <data name="NA" format="vcf" from_work_dir="resultDir/A_NA.vcf" label="NA"/>
+            <data name="MP" format="vcf" from_work_dir="resultDir/A_MP.vcf" label="MP"/>
+            <data name="NS" format="vcf" from_work_dir="resultDir/A_NS.vcf" label="NS"/>
         </collection>
     </outputs>
     <tests>
+        
         <test expect_num_outputs="27">
-            <param name="fastq_input1" value="test_reads.fq" />
-            <param name="input_type" value="single" />
+            <conditional name="input_type_conditional">
+                <param name="fastq_input1" value="test_reads.fq" />
+                <param name="input_type" value="single" />
+            </conditional>
             <conditional name="advanced_config">
-                <param name="customize" value="yes" />
+                <param name="customize" value="no" />
             </conditional>
             <param name="module" value="FLU-utr" />
             <param name="optional_outputs" value="vcf,bam"/>
@@ -286,8 +390,13 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             <param name="module" value="FLU"/>
             <param name="optional_outputs" value="bam"/>
             <conditional name="input_type_conditional">
-                <param name="input_type" value="single"/>
-                <param name="fastq_input1" value="test_reads.fq"/>
+                <param name="input_type" value="paired_collection"/>
+                <param name="fastq_input">
+                    <collection type="paired">
+                        <element name="forward" value="test_reads.fq" />
+                        <element name="reverse" value="test_reads_copy.fq" />
+                    </collection>
+                </param>
             </conditional>
             <output_collection name="consensus_collection" type="list" count="8">
                 <element name="HA">
@@ -298,6 +407,7 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             </output_collection>
             <output_collection name="bam_collection" type="list" count="8" />
         </test>
+        
         
         <test expect_num_outputs="9">
             <param name="module" value="FLU-utr"/>
@@ -312,7 +422,17 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                 </param>
             </conditional>
             <conditional name="advanced_config">
-                <param name="customize" value="no"/>
+                <param name="customize" value="yes"/>
+                <conditional name="reference">
+                    <param name="customize" value="yes"/>
+
+                    <param name="SKIP_E" value="0"/>
+                </conditional>
+                <conditional name="read_gathering">
+                    <param name="customize" value="yes"/>
+
+                    <param name="MAX_ROUNDS" value="1"/>
+                </conditional>
             </conditional>
             <output_collection name="consensus_collection" type="list" count="8">
                 <element name="HA">
@@ -338,8 +458,14 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             </conditional>
             <conditional name="advanced_config">
                 <param name="customize" value="yes"/>
-                <param name="SKIP_E" value="0"/>
-                <section name="read_gathering">
+                <conditional name="reference">
+                    <param name="customize" value="yes"/>
+
+                    <param name="SKIP_E" value="1"/>
+                </conditional>
+                <conditional name="read_gathering">
+                    <param name="customize" value="yes"/>
+
                     <param name="MAX_ROUNDS" value="3"/>
                     <param name="USE_MEDIAN" value="1"/>
                     <param name="QUAL_THRESHOLD" value="30"/>
@@ -349,21 +475,29 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                     <param name="ENFORCE_CLIPPED_LENGTH" value="1"/>
                     <param name="MERGE_SECONDARY" value="0"/>
                     <param name="RESIDUAL_ASSEMBLY_FACTOR" value="0"/>
-                </section>
-                <section name="match_step">
+                </conditional>
+                <conditional name="match_step">
+                    <param name="customize" value="yes"/>
+
                     <param name="MIN_RP" value="15"/>
                     <param name="MIN_RC" value="15"/>
                     <param name="MIN_BLAT_MATCH" value="0"/>
-                </section>
-                <section name="sort_step">
+                </conditional>
+                <conditional name="sort_step">
+                    <param name="customize" value="yes"/>
+
                     <param name="SORT_PROG" value="LABEL"/>
                     <param name="NONSEGMENTED" value="0"/>
-                </section>
-                <section name="align_step">
+                </conditional>
+                <conditional name="align_step">
+                    <param name="customize" value="yes"/>
+
                     <param name="ALIGN_PROG" value="SAM"/>
                     <param name="DEL_TYPE" value=""/>
-                </section>
-                <section name="assembly">
+                </conditional>
+                <conditional name="assembly">
+                    <param name="customize" value="yes"/>
+
                     <param name="MAX_ITER_ASSEM" value="5"/>
                     <param name="NO_MERGE" value="0"/>
                     <param name="INS_T" value="0.25"/>
@@ -377,8 +511,10 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                     <param name="SSW_O" value="10"/>
                     <param name="SSW_E" value="1"/>
                     <param name="ALIGN_AMENDED" value="0"/>
-                </section>
-                <section name="variant_calling">
+                </conditional>
+                <conditional name="variant_calling">
+                    <param name="customize" value="yes"/>
+
                     <param name="AUTO_F" value="1"/>
                     <param name="MIN_FI" value="0.005"/>
                     <param name="MIN_FD" value="0.005"/>
@@ -388,7 +524,7 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                     <param name="MIN_TCC" value="100"/>
                     <param name="MIN_CONF" value="0.80"/>
                     <param name="SIG_LEVEL" value="0.999"/>
-                </section>
+                </conditional>
             </conditional>
             <output_collection name="consensus_collection" type="list" count="8">
                 <element name="HA">
@@ -403,14 +539,12 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
 
     </tests>
     <help><![CDATA[
-        Iterative Refinement Meta-Assembler (IRMA), v1.0.3 (22 SEP 2022)
-        Samuel S. Shepard (CDC/DDID/NCIRD/ID), vfn4@cdc.gov
-
-        Irma can be used to obtain robust assembly, variant calling, and phasing of highly variable RNA viruses. 
+        IRMA (Iterative Refinement Meta-Assembler) can be used to obtain robust assembly, variant calling, and phasing of highly variable RNA viruses. 
         These are obtained after an iterative assembly approach. For more information visit https://wonder.cdc.gov/amd/flu/irma/
         IRMA is deployed with modules for influenza, ebolavirus and coronavirus. This galaxy wrapper currently only supports influenza modules.
 
         Just specify the module and provide your read data. For advanced users more settings are available in the advanced config section.
+        Warning: Settings of the advanced config section you edit, may override settings from the selected module configuration. The defaults may not be the module defaults, but global defaults of IRMA.
     ]]></help>
     <citations>
         <citation type="doi">10.1186/s12864-016-3030-6</citation>

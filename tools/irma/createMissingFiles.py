@@ -15,53 +15,67 @@ def renameSubtypeFiles(identifier):
 
 
 def getMissingSegments():
-    presentSegments = [filename.split('.')[0].split('/')[-1]
-                       for filename in glob.glob(dirPrefix + "*.fasta")]
+    presentSegments = []
+    for file in os.listdir(dirPrefix):
+        if file.endswith(".fasta"):
+            presentSegments.append(file.split('.')[0])
+    print(presentSegments)
     return [segment for segment in expectedSegments
             if segment not in presentSegments]
 
 
 def getBamHeaderFromAnyFile():
     anyBamFile = glob.glob(dirPrefix + "*.bam")[0]
-    samtoolsCmd = "samtools view -H " + anyBamFile
-    result = subprocess.run(samtoolsCmd, shell=True,
-                            stdout=subprocess.PIPE, text=True)
-    header = result.stdout.split('\n')[0]
-    return header
+    samtoolsCmd = ["samtools", "view", "-H", anyBamFile]
+    result = subprocess.check_output(samtoolsCmd, text=True)
+    return result.split('\n')[0]
+
+
+def getVcfHeaderFromAnyFile():
+    with open(glob.glob(dirPrefix + "*.vcf")[0]) as f:
+        anyVersionAndDateLines = f.readline() + f.readline()
+        emptyHeaderLine = "#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO"
+        return anyVersionAndDateLines + emptyHeaderLine
 
 
 def writeEmptyBam(identifier, bamHeader):
     with open("headerSamFile.sam", "w") as f:
         f.write(bamHeader)  # write header to a temporary sam file
-    cmd = "samtools view -H -b headerSamFile.sam > " \
-          + dirPrefix + identifier + ".bam"  # convert to bam
-    if subprocess.run(cmd, shell=True, text=True).returncode == 0:
-        os.remove("headerSamFile.sam")  # delete temporary sam file
-    else:
-        raise ValueError("Could not create bam file!")
+    cmd = ['samtools', 'view', '-H', '-b', 'headerSamFile.sam']
+    targetBam = dirPrefix + identifier + ".bam"
+    with open(targetBam, "w") as tB:
+        subprocess.check_call(cmd, stdout=tB, text=True)
+        os.remove("headerSamFile.sam")
 
 
-def writeEmptyFile(identifier, ext):
-    open(dirPrefix + identifier + "." + ext, 'a').close()
+def writeEmptyFasta(identifier):
+    open(dirPrefix + identifier + ".fasta", 'x').close()
+
+
+def writeEmptyVcf(identifier, vcfHeader):
+    with open(dirPrefix + identifier + ".vcf", 'x') as f:
+        f.write(vcfHeader)
 
 
 def samtoolsSortAllBam():
     for segment in expectedSegments:
         os.rename(dirPrefix + segment + ".bam",
                   dirPrefix + segment + "_unsorted.bam")
-        cmd = "samtools sort " + dirPrefix + segment + "_unsorted.bam > " \
-              + dirPrefix + segment + ".bam"
-        if subprocess.run(cmd, shell=True, text=True).returncode == 0:
+        cmd = ['samtools', 'sort', dirPrefix + segment + "_unsorted.bam"]
+        targetBam = dirPrefix + segment + ".bam"
+        with open(targetBam, "w") as tB:
+            subprocess.check_call(cmd, stdout=tB, text=True)
             os.remove(dirPrefix + segment + "_unsorted.bam")
-        else:
-            raise ValueError("Could not sort bam file!")
 
 
 if __name__ == "__main__":
     renameSubtypeFiles("HA")
     renameSubtypeFiles("NA")
+    bamHeader = getBamHeaderFromAnyFile()
+    vcfHeader = getVcfHeaderFromAnyFile()
     for segment in getMissingSegments():
-        writeEmptyBam(segment, getBamHeaderFromAnyFile())
-        writeEmptyFile(segment, "fasta")
-        writeEmptyFile(segment, "vcf")
+        print(segment)
+        writeEmptyBam(segment, bamHeader)
+        writeEmptyFasta(segment)
+        writeEmptyVcf(segment, vcfHeader)
     samtoolsSortAllBam()
