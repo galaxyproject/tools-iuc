@@ -19,7 +19,6 @@ def getMissingSegments():
     for file in os.listdir(dirPrefix):
         if file.endswith(".fasta"):
             presentSegments.append(file.split('.')[0])
-    print(presentSegments)
     return [segment for segment in expectedSegments
             if segment not in presentSegments]
 
