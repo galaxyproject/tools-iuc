@@ -33,7 +33,7 @@ def getBamHeaderFromAnyFile():
 def getVcfHeaderFromAnyFile():
     with open(glob.glob(dirPrefix + "*.vcf")[0]) as f:
         anyVersionAndDateLines = f.readline() + f.readline()
-        emptyHeaderLine = "#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO"
+        emptyHeaderLine = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"
         return anyVersionAndDateLines + emptyHeaderLine
 
 
@@ -42,8 +42,8 @@ def writeEmptyBam(identifier, bamHeader):
         f.write(bamHeader)  # write header to a temporary sam file
     cmd = ['samtools', 'view', '-H', '-b', 'headerSamFile.sam']
     targetBam = dirPrefix + identifier + ".bam"
-    with open(targetBam, "w") as tB:
-        subprocess.check_call(cmd, stdout=tB, text=True)
+    with open(targetBam, "xb") as tB:
+        subprocess.check_call(cmd, stdout=tB)
         os.remove("headerSamFile.sam")
 
 
@@ -73,7 +73,6 @@ if __name__ == "__main__":
     bamHeader = getBamHeaderFromAnyFile()
     vcfHeader = getVcfHeaderFromAnyFile()
     for segment in getMissingSegments():
-        print(segment)
         writeEmptyBam(segment, bamHeader)
         writeEmptyFasta(segment)
         writeEmptyVcf(segment, vcfHeader)
