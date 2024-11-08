@@ -4,14 +4,15 @@ import argparse
 import json
 import os
 import subprocess
+import typing
 
 
-def main():
+def main() -> None:
     opts = parse_args()
 
     output_dict = {
         "data_tables": {
-            "ncbi_fcs_gx_databases": sync_files(opts),
+            "ncbi_fcs_gx_databases_ext": sync_files(opts),
             "ncbi_fcs_gx_divisions": get_divisions(opts),
         }
     }
@@ -20,17 +21,23 @@ def main():
         print(json.dumps(output_dict, sort_keys=True, indent=2), file=f)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag", required=True)
-    parser.add_argument("--source_manifest", required=True)
+
+    parser.add_argument("--tag", required=True, help="Unique identifier for this database")
+    parser.add_argument("--description", required=True, help="Description for this database")
+    parser.add_argument("--source_manifest", required=True, help="Should the tool use the source manifest")
+    parser.add_argument("--use_source_manifest", action="store_true", help="Manifest file for this database")
+    parser.add_argument("--phone_home", action="store_true", help="Should phone home be enabled")
+    parser.add_argument("--phone_home_label", default="", help="Phone home label")
+    parser.add_argument("--node_cache_dir", required=True, help="Directory to copy database to local node")
     parser.add_argument("--output_file", required=True)
     parser.add_argument("--output_dir", required=True)
 
     return parser.parse_args()
 
 
-def sync_files(opts):
+def sync_files(opts: argparse.Namespace) -> typing.Dict[str, typing.List[typing.Dict[str, str]]]:
     os.makedirs(opts.output_dir, exist_ok=True)
 
     args = [
@@ -51,8 +58,12 @@ def sync_files(opts):
         "add": [
             {
                 "value": opts.tag,
+                "description": opts.description,
                 "source_manifest": opts.source_manifest,
-                "name": opts.output_dir,
+                "use_source_manifest": "1" if opts.use_source_manifest else "0",
+                "phone_home": "1" if opts.phone_home else "0",
+                "phone_home_label": opts.phone_home_label,
+                "local_manifest": opts.output_dir,
             }
         ]
     }
@@ -60,7 +71,7 @@ def sync_files(opts):
     return entries_dict
 
 
-def get_divisions(opts):
+def get_divisions(opts: argparse.Namespace) -> typing.Dict[str, typing.List[typing.Dict[str, str]]]:
     # descriptions for the top-level gx divisions
     top_level_description = {
         "anml": "Animals (Metazoa)",
@@ -99,10 +110,10 @@ def get_divisions(opts):
     # add an element to support unknown/unclassified samples
     elements.append(("Unknown / Unclassified", "unkn:unknown"))
 
-    entries_dict = {"add": []}
+    entries_dict: typing.Dict[str, typing.List[typing.Dict[str, str]]] = {"add": []}
 
     for name, gx_div in sorted(elements):
-        entries_dict["add"].append({"value": gx_div, "tag": opts.tag, "name": name})
+        entries_dict["add"].append({"value": gx_div, "tag": opts.tag, "description": name})
 
     return entries_dict
 
