@@ -258,5 +258,7 @@ library(BREW3R.r)
 new.gr <- extend_granges(input_gr, big_gr)
 library("rtracklayer")
 export.gff(input_gr, "input.gtf")
+input_gr$exon_id <- NULL
+export.gff(input_gr, "input_noexonid.gtf")
 export.gff(big_gr, "second_input.gtf")
 export.gff(sort(new.gr, ignore.strand = TRUE), "output.gtf")

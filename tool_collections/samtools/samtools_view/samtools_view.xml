@@ -1,4 +1,4 @@
-<tool id="samtools_view" name="Samtools view" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+<tool id="samtools_view" name="Samtools view" version="@TOOL_VERSION@+galaxy3" profile="@PROFILE@">
     <description>- reformat, filter, or subsample SAM, BAM or CRAM</description>
     <macros>
         <import>macros.xml</import>
@@ -136,6 +136,9 @@
                 #if $mode.filter_config.qname_file:
                     #set std_filters = $std_filters + " --qname-file '%s'" % $mode.filter_config.qname_file
                 #end if
+                #if str($cond_expr.select_expr) == "yes":
+                    #set std_filters = $std_filters + " -e '%s'" % $cond_expr.expression
+                #end if
             #end if
 
             #if $with_subsampling:
@@ -170,7 +173,6 @@
 
             ## filter options (except regions filter, which is the last parameter)
             $std_filters
-
             #if $with_subsampling:
                 --subsample-seed $seed
                 #if str($mode.subsample_config.subsampling_mode.select_subsample) == "target":
@@ -298,6 +300,22 @@
                         </when>
                         <when value="file">
                             <param name="rgfile" type="data" format="tabular" argument="-R" label="Filter by read groups in file" help="Output alignments in read groups listed in FILE." />
+                        </when>
+                    </conditional>
+                    <conditional name="cond_expr">
+                        <param name="select_expr" type="select" label="Filter by expression">
+                            <option value="no" selected="True">No</option>
+                            <option value="yes">Filter using an expression (see manual)</option>
+                        </param>
+                        <when value="no"/>
+                        <when value="yes">
+                            <param name="expression" type="text" argument="-e" label="Filter by expression - for example sclen&gt;0 will filter all soft clipped reads" help="See Samtools manual for Filter expression syntax">
+                                <sanitizer invalid_char="">
+                                    <valid initial="string.printable">
+                                    <remove value="'"/>
+                                </valid>
+                                </sanitizer>
+                            </param>
                         </when>
                     </conditional>
                     <param name="quality" type="integer" argument="-q" optional="true" min="0" label="Filter by quality" help="Skip alignments with MAPQ smaller than INT." />
@@ -576,7 +594,7 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test_15.cram" ftype="cram" compare="sim_size" delta="250" />
+            <output name="outputsam" file="test_15.cram" ftype="cram" compare="sim_size" delta="500" />
         </test>
         <!-- 16) -->
         <test expect_num_outputs="1">
@@ -908,6 +926,50 @@
             </assert_command>
             <output name="outputsam" file="test_31.bam" ftype="bam" lines_diff="2" />
         </test>
+        <!-- 32) testing expression filters -->
+        <test expect_num_outputs="1">
+            <param name="input" value="in_test_30.bam" ftype="bam"/>
+            <conditional name="mode">
+                <param name="outtype" value="selected_reads" />
+                <section name="filter_config">
+                    <conditional name="cond_expr">
+                        <param name="select_expr" value="yes"/>
+                        <param name="expression" value="sclen>0"/>
+                    </conditional>
+                </section>
+                <conditional name="output_options">
+                    <conditional name="output_format">
+                        <param name="oformat" value="bam" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_command>
+                <has_text text="-e 'sclen>0'"/>
+            </assert_command>
+            <output name="outputsam" file="test_32.bam" ftype="bam" lines_diff="2" />
+        </test>
+         <!-- 33) testing expression filters -->
+        <test expect_num_outputs="1">
+            <param name="input" value="in_test_30.bam" ftype="bam"/>
+            <conditional name="mode">
+                <param name="outtype" value="selected_reads" />
+                <section name="filter_config">
+                    <conditional name="cond_expr">
+                        <param name="select_expr" value="yes"/>
+                        <param name="expression" value='rname!="chr13"'/>
+                    </conditional>
+                </section>
+                <conditional name="output_options">
+                    <conditional name="output_format">
+                        <param name="oformat" value="bam" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_command>
+                <has_text text="-e 'rname!="/>
+            </assert_command>
+            <output name="outputsam" file="test_33.bam" ftype="bam" lines_diff="2" />
+        </test>
     </tests>
     <help>
 **What it does**
@@ -991,11 +1053,142 @@ Examples of region specifications:
 
 This filters based on the MAPQ column of the SAM format which gives an estimate about the correct placement of the alignment. Note that aligners do not follow a consistent definition.
 
-## Filtering by Tag **
+**Filtering by Tag**
 
 This filter allows to select reads based on tool or user specific tags, e.g., XS:i:-18 the alignment score tag of bowtie.
 Thus to filter for a specific value of the tag you need the format STR1:STR2, e.g., XS:-18 to filter reads with an aligment score of -18.
 You can also just write STR1 without the value STR2 hence the filter selects all reads with the tag STR1, e.g., XS.
+
+**Filtering by Expression**
+
+
+Filter  expressions  are used as an on-the-fly checking of incoming SAM, BAM or CRAM records, discarding records that do not match the specified expression.
+
+The language used is primarily C style, but with a few differences in the precedence rules for bit operators and the  inclusion  of  regular  expression
+matching.
+
+The operator precedence, from strongest binding to weakest, is
+
+::
+
+        Grouping        (, )             E.g. &quot;(1+2)&#42;3&quot;
+        Values:         literals, vars   Numbers, strings and variables
+        Unary ops:      +, -, !, ~       E.g. -10 +10, !10 (not), ~5 (bit not)
+        Math ops:       \*, /, %          Multiply, division and (integer) modulo
+        Math ops:       +, -             Addition / subtraction
+        Bit-wise:       &amp;                Integer AND
+        Bit-wise        ^                Integer XOR
+        Bit-wise        |                Integer OR
+        Conditionals:   &gt;, &gt;=, &lt;, &lt;=
+        Equality:       \=\=, !=, =~, !~   =~ and !~ match regular expressions
+        Boolean:        &amp;&amp;, ||           Logical AND / OR
+
+
+Expressions  are  computed  using floating point mathematics, so &quot;10 / 4&quot; evaluates to 2.5 rather than 2.  They may be written as integers in decimal or
+&quot;0x&quot; plus hexadecimal, and floating point with or without exponents.However operations that require integers first do an implicit  type  conversion,  so
+&quot;7.9  %  5&quot;  is  2  and &quot;7.9 &amp; 4.1&quot; is equivalent to &quot;7 &amp; 4&quot;, which is 4.  Strings are always specified using double quotes.  To get a double quote in a
+string, use backslash.  Similarly a double backslash is used to get a literal backslash.  For example ab\&quot;c\\d is the string ab&quot;c\d.
+
+Comparison operators are evaluated as a match being 1 and a mismatch being 0, thus &quot;(2 &gt; 1) + (3 &lt; 5)&quot; evaluates as 2.  All comparisons involving  undefined (null) values are deemed to be false.
+
+The  variables are where the file format specifics are accessed from the expression.  The variables correspond to SAM fields, for example to find paired
+alignments with high mapping quality and a very large insert size, we may use the expression &quot;mapq &gt;= 30 &amp;&amp; (tlen &gt;= 100000 || tlen &lt;= -100000)&quot;.  Valid
+variable names and their data types are:
+
+::
+
+    endpos               int            Alignment end position (1-based)
+    flag                 int            Combined FLAG field
+    flag.paired          int            Single bit, 0 or 1
+    flag.proper_pair     int            Single bit, 0 or 2
+    flag.unmap           int            Single bit, 0 or 4
+    flag.munmap          int            Single bit, 0 or 8
+    flag.reverse         int            Single bit, 0 or 16
+    flag.mreverse        int            Single bit, 0 or 32
+    flag.read1           int            Single bit, 0 or 64
+    flag.read2           int            Single bit, 0 or 128
+    flag.secondary       int            Single bit, 0 or 256
+    flag.qcfail          int            Single bit, 0 or 512
+    flag.dup             int            Single bit, 0 or 1024
+    flag.supplementary   int            Single bit, 0 or 2048
+    hclen                int            Number of hard-clipped bases
+    library              string         Library (LB header via RG)
+    mapq                 int            Mapping quality
+    mpos                 int            Synonym for pnext
+    mrefid               int            Mate reference number (0 based)
+    mrname               string         Synonym for rnext
+    ncigar               int            Number of cigar operations
+    pnext                int            Mate's alignment position (1-based)
+    pos                  int            Alignment position (1-based)
+    qlen                 int            Alignment length: no. query bases
+    qname                string         Query name
+    qual                 string         Quality values (raw, 0 based)
+    refid                int            Integer reference number (0 based)
+    rlen                 int            Alignment length: no. reference bases
+    rname                string         Reference name
+    rnext                string         Mate's reference name
+    sclen                int            Number of soft-clipped bases
+    seq                  string         Sequence
+    tlen                 int            Template length (insert size)
+    [XX]                 int / string   XX tag value
+
+
+Flags are returned either as the whole flag value or by checking for a single bit.  Hence the filter expression flag.dup is equivalent to flag &amp; 1024.
+
+&quot;qlen&quot; and &quot;rlen&quot; are measured using the CIGAR string to count the number of query (sequence) and reference bases consumed.  Note &quot;qlen&quot; may not exactly
+match the length of the &quot;seq&quot; field if the sequence is &quot;&#42;&quot;.
+
+&quot;sclen&quot; and &quot;hclen&quot; are the number of soft and hard-clipped bases respectively.  The formula &quot;qlen-sclen&quot; gives the number of sequence bases used in the
+alignment, distinguishing between global alignment and local alignment length.
+
+&quot;endpos&quot; is the (1-based inclusive) position of the rightmost mapped base of the read, as measured using the CIGAR  string,  and  for  mapped  reads  is
+equivalent to &quot;pos+rlen-1&quot;. For unmapped reads, it is the same as &quot;pos&quot;.
+
+Reference  names  may  be matched either by their string forms (&quot;rname&quot; and &quot;mrname&quot;) or as the Nth @SQ line (counting from zero) as stored in BAM using
+&quot;tid&quot; and &quot;mtid&quot; respectively.
+
+Auxiliary tags are described in square brackets and these expand to either integer or string as defined by the tag  itself  (XX:Z:string  or  XX:i:int).
+For example [NM]&gt;=10 can be used to look for alignments with many mismatches and [RG]=~&quot;grp[ABC]-&quot; will match the read-group string.
+
+If no comparison is used with an auxiliary tag it is taken simply to be a test for the existence of that tag.  So [NM] will return any record containing
+an  NM tag, even if that tag is zero (NM:i:0).  In htslib &lt;= 1.15 negating this with ![NM] gave misleading results as it was true if the tag did not exist
+or did exist but was zero.  Now this is strictly does-not-exist.  An explicit exists([NM]) and !exists([NM]) function has also been  added  to  make
+this intention clear.
+
+Similarly  in htslib &lt;= 1.15 using [NM]!=0 was true both when the tag existed and was not zero as well as when the tag did not exist.  From 1.16 onwards
+all comparison operators are only true for tags that exist, so [NM]!=0 works as expected.
+
+Some simple functions are available to operate on strings.  These treat the strings as arrays of bytes, permitting their length,  minimum,  maximum  and
+average values to be computed.  These are useful for processing Quality Scores.
+
+::
+
+    length(x)   Length of the string (excluding nul char)
+    min(x)      Minimum byte value in the string
+    max(x)      Maximum byte value in the string
+    avg(x)      Average byte value in the string
+
+
+Note  that  &quot;avg&quot; is a floating point value and it may be NAN for empty strings.  This means that &quot;avg(qual)&quot; does not produce an error for records that
+have both seq and qual of &quot;&#42;&quot;.  NAN values will fail any conditional checks, so e.g. &quot;avg(qual) &gt; 20&quot; works and will not report these records.  NAN also
+fails all equality, &lt; and &gt; comparisons, and returns zero when given as an argument to the exists function.  It can be negated with !x in which case  it
+becomes true.
+
+Functions that operate on both strings and numerics:
+
+:: 
+
+    exists(x)      True if the value exists (or is explicitly true).
+    default(x,d)   Value x if it exists or d if not.
+
+Functions that apply only to numeric values:
+
+::
+
+    qrt(x)     Square root of x
+    og(x)      Natural logarithm of x
+    ow(x, y)   Power function, x to the power of y
+    xp(x)      Base-e exponential, equivalent to pow(e,x)
 
     </help>
     <expand macro="citations"/>

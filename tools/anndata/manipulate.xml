@@ -1,4 +1,4 @@
-<tool id="anndata_manipulate" name="Manipulate AnnData" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+<tool id="anndata_manipulate" name="Manipulate AnnData" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>object</description>
     <macros>
         <import>macros.xml</import>
@@ -11,6 +11,7 @@
             </param>
         </xml>
     </macros>
+    <expand macro="bio_tools"/>
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
@@ -50,6 +51,27 @@ adata.rename_categories(
     key='$manipulate.key',
     categories=$categories)
 
+#else if $manipulate.function == 'remove_keys'
+    #if $manipulate.obs_keys
+        #set $keys = [x.strip() for x in str($manipulate.obs_keys).split(',')]
+adata.obs = adata.obs.drop(columns=$keys)
+    #end if
+
+    #if $manipulate.var_keys
+        #set $keys = [x.strip() for x in str($manipulate.var_keys).split(',')]
+adata.var = adata.vars.drop(columns=$keys)
+    #end if
+
+#else if $manipulate.function == 'flag_genes'
+## adapted from anndata operations
+    #for $flag in $manipulate.gene_flags
+k_cat = adata.var_names.str.startswith('${flag.startswith}')
+if k_cat.sum() > 0:
+    adata.var['${flag.col_name}'] = k_cat
+else:
+    print(f'No genes starting with {'${flag.startswith}'} found.')
+#end for
+
 #else if $manipulate.function == 'strings_to_categoricals'
 adata.strings_to_categoricals()
 
@@ -70,6 +92,14 @@ obs = pd.concat([adata.obs.reset_index(drop=True), extra_annot_t], axis=1)
 obs.index = obs_index
 adata.obs = obs
     #end if
+
+#else if $manipulate.function == 'split_on_obs'
+import os
+res_dir = "output_split"
+os.makedirs(res_dir, exist_ok=True)
+for s,field_value in enumerate(adata.obs["${manipulate.key}"].unique()):
+    ad_s = adata[adata.obs.${manipulate.key} == field_value]
+    ad_s.write(f"{res_dir}/${manipulate.key}_{s}.h5ad", compression='gzip')
 
 #else if $manipulate.function == 'filter'
     #if $manipulate.filter.filter == 'key'
@@ -126,7 +156,11 @@ adata.raw = adata
 
 #end if
 
-adata.write('anndata.h5ad')
+#if $manipulate.function != 'split_on_obs'
+adata.write('anndata.h5ad', compression='gzip')
+print(adata)
+#end if
+
 ]]></configfile>
     </configfiles>
     <inputs>
@@ -137,9 +171,12 @@ adata.write('anndata.h5ad')
                 <option value="obs_names_make_unique">Makes the obs index unique by appending '1', '2', etc</option>
                 <option value="var_names_make_unique">Makes the var index unique by appending '1', '2', etc</option>
                 <option value="rename_categories">Rename categories of annotation</option>
+                <option value="remove_keys">Remove keys from obs or var annotations</option>
+                <option value="flag_genes">Flag genes start with a pattern</option><!--adapted from EBI anndata operations tool -->
                 <option value="strings_to_categoricals">Transform string annotations to categoricals</option>
                 <option value="transpose">Transpose the data matrix, leaving observations and variables interchanged</option>
                 <option value="add_annotation">Add new annotation(s) for observations or variables</option>
+                <option value="split_on_obs">Split the AnnData object into multiple AnnData objects based on the values of a given obs key</option><!--adapted from EBI anndata operations tool-->
                 <option value="filter">Filter observations or variables</option>
                 <option value="save_raw">Freeze the current state into the 'raw' attribute</option>
             </param>
@@ -167,6 +204,26 @@ adata.write('anndata.h5ad')
                 <param name="key" type="text" value="" label="Key for observations or variables annotation" help="Annotation key in obs or var"/>
                 <param name="categories" type="text" value="" label="Comma-separated list of new categories" help="It should be the same number as the old categories"/>
             </when>
+            <when value="remove_keys">
+                <param name="obs_keys" type="text" value="" optional="true" label="Keys/fields to remove from observations (obs)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="var_keys" type="text" value="" optional="true" label="Keys/fields to remove from variables (var)">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="flag_genes">
+                <repeat name="gene_flags" title="Flag genes that start with these names">
+                    <param name="startswith" type="text" label="Text that you expect the genes to be flagged to start with" help="For example, 'MT-' for mito genes">
+                        <sanitizer invalid_char="">
+                            <valid initial="string.ascii_letters,string.digits,string.punctuation">
+                                <remove value="&apos;" />
+                            </valid>
+                        </sanitizer>
+                    </param>
+                    <param name="col_name" type="text" label="Name of the column in var.names where this boolean flag is stored" help="For example, name this column as 'mito' for mitochondrial genes."/>
+                </repeat>
+            </when>
             <when value="strings_to_categoricals" ></when>
             <when value="transpose" ></when>
             <when value="add_annotation">
@@ -176,6 +233,15 @@ adata.write('anndata.h5ad')
                 </param>
                 <param name="new_annot" type="data" format="tabular" label="Table with new annotations"
                     help="The new table should have the same number of rows and same order than obs or var. The key names should be in the header (1st line)"/>
+            </when>
+            <when value="split_on_obs">
+                <param name="key" type="text" label="The obs key to split on" help="For example, if you want to split on cluster annotation, you can use the key 'louvain'. The output will be a collection of anndata objects">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.ascii_letters,string.digits,string.punctuation">
+                            <remove value="&apos;" />
+                        </valid>
+                    </sanitizer>
+                </param>
             </when>
             <when value="filter">
                 <param name="var_obs" type="select" label="What to filter?">
@@ -237,10 +303,16 @@ adata.write('anndata.h5ad')
         </conditional>
     </inputs>
     <outputs>
-        <data name="anndata" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${manipulate.function}) on ${on_string}"/>
+        <data name="anndata" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${manipulate.function}) on ${on_string}">
+            <filter>manipulate['function'] != 'split_on_obs'</filter>
+        </data>
+        <collection name="output_h5ad_split" type="list" label="${tool.name} (${manipulate.function}) on ${on_string} Collection">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.h5" directory="output_split" format="h5ad" visible="true"/>
+            <filter>manipulate['function'] == 'split_on_obs'</filter>
+        </collection>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 1 -->
             <param name="input" value="import.csv.h5ad"/>
             <conditional name="manipulate">
@@ -256,10 +328,15 @@ adata.write('anndata.h5ad')
                 <has_text_matching expression="join='inner'"/>
                 <has_text_matching expression="index_unique='-'"/>
                 <has_text_matching expression="batch_key='batch'"/>
+                <has_text_matching expression="6 × 2"/>
             </assert_stdout>
-            <output name="anndata" value="manipulate.concatenate.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/batch"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 2 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -268,10 +345,17 @@ adata.write('anndata.h5ad')
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="adata.obs_names_make_unique\(join='-'\)"/>
+                <has_text_matching expression="500 × 11"/>
             </assert_stdout>
-            <output name="anndata" value="manipulate.obs_names_make_unique.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 3 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -280,25 +364,39 @@ adata.write('anndata.h5ad')
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="adata.var_names_make_unique\(join='-'\)"/>
+                <has_text_matching expression="500 × 11"/>
             </assert_stdout>
-            <output name="anndata" value="manipulate.var_names_make_unique.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 4 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="rename_categories"/>
                 <param name="key" value="cell_type"/>
-                <param name="categories" value="Ery, Mk, Mo, progenitor"/>
+                <param name="categories" value="ery, mk, mo, progenitor"/>
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="adata.rename_categories"/>
                 <has_text_matching expression="key='cell_type'"/>
-                <has_text_matching expression="categories=\['Ery', 'Mk', 'Mo', 'progenitor'\]"/>
+                <has_text_matching expression="categories=\['ery', 'mk', 'mo', 'progenitor'\]"/>
+                <has_text_matching expression="500 × 11"/>
             </assert_stdout>
-            <output name="anndata" value="manipulate.rename_categories.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 5 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -306,10 +404,17 @@ adata.write('anndata.h5ad')
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="adata.strings_to_categoricals"/>
+                <has_text_matching expression="500 × 11"/>
             </assert_stdout>
-            <output name="anndata" value="manipulate.strings_to_categoricals.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 6 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -317,10 +422,17 @@ adata.write('anndata.h5ad')
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="adata.transpose"/>
+                <has_text_matching expression="11 × 500"/>
             </assert_stdout>
-            <output name="anndata" value="manipulate.transpose.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 7 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -328,9 +440,20 @@ adata.write('anndata.h5ad')
                 <param name="var_obs" value="var"/>
                 <param name="new_annot" value="var_add_annotation.tabular"/>
             </conditional>
-            <output name="anndata" value="manipulate.add_annotation_var.h5ad" ftype="h5ad" compare="sim_size"/>
+            <assert_stdout>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="var/annot1"/>
+                    <has_h5_keys keys="var/annot2"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 8 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -338,9 +461,20 @@ adata.write('anndata.h5ad')
                 <param name="var_obs" value="obs"/>
                 <param name="new_annot" value="obs_add_annotation.tabular"/>
             </conditional>
-            <output name="anndata" value="manipulate.add_annotation_obs.h5ad" ftype="h5ad" compare="sim_size"/>
+            <assert_stdout>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="obs/annot1"/>
+                    <has_h5_keys keys="obs/annot2"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 9 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -354,9 +488,18 @@ adata.write('anndata.h5ad')
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="anndata" value="manipulate.filter_var_index.h5ad" ftype="h5ad" compare="sim_size"/>
+            <assert_stdout>
+                <has_text_matching expression="500 × 2"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 10 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
@@ -372,23 +515,120 @@ adata.write('anndata.h5ad')
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="anndata" value="manipulate.filter_obs_key.h5ad" ftype="h5ad" compare="sim_size"/>
+            <assert_stdout>
+                <has_text_matching expression="260 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- test 11 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="save_raw"/>
             </conditional>
-            <output name="anndata" value="manipulate.save_raw.h5ad" ftype="h5ad" compare="sim_size" delta="20000" />
+            <assert_stdout>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 12 remove_keys -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="remove_keys"/>
+                <param name="obs_keys" value="cell_type"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 13 flag_genes -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="flag_genes"/>
+                <repeat name="gene_flags">
+                    <param name="startswith" value="Gata"/>
+                    <param name="col_name" value="Gata_TF"/>
+                </repeat>
+                <repeat name="gene_flags">
+                    <param name="startswith" value="Gf"/>
+                    <param name="col_name" value="GF"/>
+                </repeat>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/Gata_TF"/>
+                    <has_h5_keys keys="var/GF"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 14 split_on_obs -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="split_on_obs"/>
+                <param name="key" value="cell_type"/>
+            </conditional>
+            <output_collection name="output_h5ad_split" type="list">
+                <element name="cell_type_0">
+                    <assert_contents>
+                        <has_h5_keys keys="obs/cell_type"/>
+                        <has_h5_keys keys="uns/highlights"/>
+                        <has_h5_keys keys="uns/iroot"/>
+                    </assert_contents>
+                </element>
+                <element name="cell_type_1">
+                    <assert_contents>
+                        <has_h5_keys keys="obs/cell_type"/>
+                        <has_h5_keys keys="uns/highlights"/>
+                        <has_h5_keys keys="uns/iroot"/>
+                    </assert_contents>
+                </element>
+                <element name="cell_type_2">
+                    <assert_contents>
+                        <has_h5_keys keys="obs/cell_type"/>
+                        <has_h5_keys keys="uns/highlights"/>
+                        <has_h5_keys keys="uns/iroot"/>
+                    </assert_contents>
+                </element>
+                <element name="cell_type_3">
+                    <assert_contents>
+                        <has_h5_keys keys="obs/cell_type"/>
+                        <has_h5_keys keys="uns/highlights"/>
+                        <has_h5_keys keys="uns/iroot"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
 **What it does**
 
-This tool takes a AnnData dataset, manipulates it and returns it. 
+This tool takes a AnnData dataset, manipulates it and returns it.
 
-The possible manipulations are: 
+The possible manipulations are:
 
 - Concatenate along the observations axis (`concatenate method <https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.concatenate.html>`__)
 
@@ -408,6 +648,14 @@ The possible manipulations are:
 
     Besides calling `self.obs[key].cat.categories = categories` - similar for `var` - this also renames categories in unstructured annotation that uses the categorical annotation `key`
 
+- Remove keys from obs or var annotations
+
+    Helps in cleaning up andata with many annotations. For example, helps in removing qc metrics calculated during the preprocesing or already existing cluster annotations.
+
+- Flag genes start with a pattern
+
+    Useful for flagging the mitochoncdrial or ribosomal protein genes
+
 - Transform string annotations to categoricals (`strings_to_categoricals method <https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.strings_to_categoricals.html>`__)
 
     Only affects string annotations that lead to less categories than the total number of observations.
@@ -416,7 +664,11 @@ The possible manipulations are:
 
     Data matrix is transposed, observations and variables are interchanged.
 
-- Add annotation for variables or observations 
+- Add annotation for variables or
+
+- Split the AnnData object into multiple AnnData objects based on the values of a given obs key
+
+    For example, helps in splitting an anndata objects based on cluster annotation. This function generates a collection with number of elements equal to the number of categories in the input obs key.
 
 - Filter data variables or observations, by index or key
 
