@@ -24,7 +24,6 @@ physeq <- readRDS(opt$input)
 # Generate bar plot
 p <- plot_bar(physeq, x = opt$x, fill = opt$fill)
 
-# Add faceting if specified
 if (!is.null(opt$facet)) {
   p <- p + facet_wrap(as.formula(paste("~", opt$facet)))
 }
