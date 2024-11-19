@@ -6,15 +6,44 @@ suppressPackageStartupMessages(library("phyloseq"))
 suppressPackageStartupMessages(library("ggplot2"))
 
 option_list <- list(
-  make_option(c("--input"), action = "store", dest = "input", help = "Input file containing a phyloseq object"),
-  make_option(c("--x"), action = "store", dest = "x", help = "Variable for x-axis (e.g., 'Sample', 'Phylum')"),
-  make_option(c("--fill"), action = "store", dest = "fill", help = "Variable for fill color (e.g., 'Genus', 'Order')"),
-  make_option(c("--facet"), action = "store", dest = "facet", default = NULL, help = "Facet by variable (optional)"),
-  make_option(c("--output"), action = "store", dest = "output", help = "Output file (PDF)")
+  make_option(
+    c("--input"),
+    action = "store",
+    dest = "input",
+    help = "Input file containing a phyloseq object"
+  ),
+  make_option(
+    c("--x"),
+    action = "store",
+    dest = "x",
+    help = "Variable for x-axis (e.g., 'Sample', 'Phylum')"
+  ),
+  make_option(
+    c("--fill"),
+    action = "store",
+    dest = "fill",
+    help = "Variable for fill color (e.g., 'Genus', 'Order')"
+  ),
+  make_option(
+    c("--facet"),
+    action = "store",
+    dest = "facet",
+    default = NULL,
+    help = "Facet by variable (optional)"
+  ),
+  make_option(
+    c("--output"),
+    action = "store",
+    dest = "output",
+    help = "Output file (PDF)"
+  )
 )
 
 # Parse arguments
-parser <- OptionParser(usage = "%prog [options] file", option_list = option_list)
+parser <- OptionParser(
+  usage = "%prog [options] file",
+  option_list = option_list
+)
 args <- parse_args(parser)
 opt <- args$options
 
