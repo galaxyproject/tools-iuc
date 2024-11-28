@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
-
 import argparse
 import datetime
 import errno
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +28,7 @@ class KrakenDatabaseTypes(Enum):
     standard_local_build = 'standard_local_build'
     standard_prebuilt = 'standard_prebuilt'
     minikraken = 'minikraken'
+    special_prebuilt = 'special_prebuilt'
     special = 'special'
     custom = 'custom'
 
@@ -65,6 +65,7 @@ class StandardPrebuiltSizes(Enum):
     pluspfp = "pluspfp"
     pluspfp_08gb = "pluspfp_08gb"
     pluspfp_16gb = "pluspfp_16gb"
+    eupathdb48 = "eupathdb48"
 
     def __str__(self):
         return self.value
@@ -145,7 +146,8 @@ def kraken2_build_standard_prebuilt(prebuilt_db, prebuilt_date, target_directory
         'pluspf_16gb': "PlusPF-16 (PlusPF with DB capped at 16 GB)",
         'pluspfp': "PlusPFP (Standard plus protozoa, fungi and plant)",
         'pluspfp_08gb': "PlusPFP-8 (PlusPFP with DB capped at 8 GB)",
-        'pluspfp_16gb': "PlusPFP-16 (PlusPFP with DB capped at 16 GB)"
+        'pluspfp_16gb': "PlusPFP-16 (PlusPFP with DB capped at 16 GB)",
+        'eupathdb48': "EuPathDB-46",
     }
 
     database_value = "_".join([
@@ -321,12 +323,33 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
     return data_table_entry
 
 
-def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_custom(kraken2_args, custom_database_name, custom_source_info, target_directory, data_table_name=DATA_TABLE_NAME):
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+
+    database_value = "_".join([
+        now,
+        re.sub(r'[^\w_.-]+', '_', custom_database_name).strip('_'),
+        "kmer-len", str(kraken2_args["kmer_len"]),
+        "minimizer-len", str(kraken2_args["minimizer_len"]),
+        "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+        "load-factor", str(kraken2_args["load_factor"]),
+    ])
+
+    database_name = " ".join([
+        custom_database_name,
+        "(" + custom_source_info + ",",
+        "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
+        "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
+        "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ",",
+        "load-factor=" + str(kraken2_args["load_factor"]) + ")",
+    ])
+
+    database_path = database_value
 
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--download-taxonomy',
-        '--db', custom_database_name,
+        '--db', database_path,
     ]
 
     if kraken2_args['skip_maps']:
@@ -337,7 +360,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--add-to-library', kraken2_args["custom_fasta"],
-        '--db', custom_database_name
+        '--db', database_path,
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
@@ -349,7 +372,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
         '--load-factor', str(kraken2_args["load_factor"]),
-        '--db', custom_database_name
+        '--db', database_path,
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
@@ -358,7 +381,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         args = [
             '--threads', str(kraken2_args["threads"]),
             '--clean',
-            '--db', custom_database_name
+            '--db', database_path,
         ]
 
         subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
@@ -367,9 +390,9 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         'data_tables': {
             data_table_name: [
                 {
-                    "value": custom_database_name,
-                    "name": custom_database_name,
-                    "path": custom_database_name
+                    "value": database_value,
+                    "name": database_name,
+                    "path": database_path,
                 }
             ]
         }
@@ -388,11 +411,12 @@ def main():
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
-    parser.add_argument('--prebuilt-db', dest='prebuilt_db', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Prebuilt database to download. Only applies to --database-type standard_prebuilt.')
+    parser.add_argument('--prebuilt-db', dest='prebuilt_db', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Prebuilt database to download. Only applies to --database-type standard_prebuilt or special_prebuilt.')
     parser.add_argument('--prebuilt-date', dest='prebuilt_date', help='Database build date (YYYY-MM-DD). Only applies to --database-type standard_prebuilt.')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
+    parser.add_argument('--custom-source-info', dest='custom_source_info', help='Description of how this build has been sourced (only applies to --database-type custom)')
     parser.add_argument('--skip-maps', dest='skip_maps', action='store_true', help='')
     parser.add_argument('--clean', dest='clean', action='store_true', help='Clean up extra files')
     args = parser.parse_args()
@@ -425,7 +449,7 @@ def main():
             kraken2_args,
             target_directory,
         )
-    elif str(args.database_type) == 'standard_prebuilt':
+    elif str(args.database_type) in ('standard_prebuilt', 'special_prebuilt'):
         data_manager_output = kraken2_build_standard_prebuilt(
             str(args.prebuilt_db),
             str(args.prebuilt_date),
@@ -464,6 +488,7 @@ def main():
         data_manager_output = kraken2_build_custom(
             kraken2_args,
             args.custom_database_name,
+            args.custom_source_info,
             target_directory,
         )
     else:
