@@ -34,30 +34,47 @@ parser <- OptionParser(usage = "%prog [options] file", option_list = option_list
 args <- parse_args(parser, positional_arguments = TRUE)
 opt <- args$options
 
+# Validate required options
+if (is.null(opt$input) || opt$input == "") {
+    stop("Error: Input file is required.")
+}
+if (is.null(opt$x) || opt$x == "") {
+    stop("Error: X-axis variable is required.")
+}
+if (is.null(opt$fill) || opt$fill == "") {
+    stop("Error: Fill variable is required.")
+}
+if (is.null(opt$output) || opt$output == "") {
+    stop("Error: Output file is required.")
+}
+
 # Load phyloseq object
 print(paste("Trying to read:", opt$input))
 physeq <- readRDS(opt$input)
 
 # Check if the 'x' and 'fill' variables are valid
-if (!opt$x %in% colnames(sample_data(physeq))) {
-    stop(paste("Error: x variable", opt$x, "does not exist in the sample data."))
+sample_vars <- colnames(sample_data(physeq))
+if (!opt$x %in% sample_vars) {
+    stop(paste("Error: X-axis variable", opt$x, "does not exist in the sample data."))
 }
-
-if (!opt$fill %in% colnames(sample_data(physeq))) {
-    stop(paste("Error: fill variable", opt$fill, "does not exist in the sample data."))
+if (!opt$fill %in% sample_vars) {
+    stop(paste("Error: Fill variable", opt$fill, "does not exist in the sample data."))
 }
 
 # Generate bar plot
 p <- plot_bar(physeq, x = opt$x, fill = opt$fill)
 
 # Only facet if the facet variable is provided and exists in the sample data
-if (!is.null(opt$facet)) {
-    if (opt$facet %in% colnames(sample_data(physeq))) {
+if (!is.null(opt$facet) && opt$facet != "") {
+    if (opt$facet %in% sample_vars) {
         p <- p + facet_wrap(as.formula(paste("~", opt$facet)))
     } else {
         warning(paste("Facet variable", opt$facet, "does not exist in the sample data. Faceting will be skipped."))
     }
 }
 
-# Save to output file
-ggsave(opt$output, plot = p, width = 10, height = 8)
+# Save to output file using PDF device
+print(paste("Saving plot to:", opt$output))
+pdf(file = opt$output, width = 10, height = 8)
+print(p)
+dev.off()
