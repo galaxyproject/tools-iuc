@@ -16,8 +16,8 @@ option_list <- list(
         help = "Variable for x-axis (e.g., 'Sample', 'Phylum')"
     ),
     make_option(c("--fill"),
-        action = "store", dest = "fill",
-        help = "Variable for fill color (e.g., 'Genus', 'Order')"
+        action = "store", dest = "fill", default = NULL,
+        help = "Variable for fill color (e.g., 'Genus', 'Order') (optional)"
     ),
     make_option(c("--facet"),
         action = "store", dest = "facet", default = NULL,
@@ -41,9 +41,6 @@ if (is.null(opt$input) || opt$input == "") {
 if (is.null(opt$x) || opt$x == "") {
     stop("Error: X-axis variable is required.")
 }
-if (is.null(opt$fill) || opt$fill == "") {
-    stop("Error: Fill variable is required.")
-}
 if (is.null(opt$output) || opt$output == "") {
     stop("Error: Output file is required.")
 }
@@ -56,9 +53,6 @@ physeq <- readRDS(opt$input)
 sample_vars <- colnames(sample_data(physeq))
 if (!opt$x %in% sample_vars) {
     stop(paste("Error: X-axis variable", opt$x, "does not exist in the sample data."))
-}
-if (!opt$fill %in% sample_vars) {
-    stop(paste("Error: Fill variable", opt$fill, "does not exist in the sample data."))
 }
 
 # Generate bar plot
