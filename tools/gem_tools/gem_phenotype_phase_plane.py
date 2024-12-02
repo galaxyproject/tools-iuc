@@ -1,4 +1,5 @@
 import argparse
+
 import cobra
 import pandas as pd
 
@@ -96,8 +97,8 @@ def __main__():
         ) from e
 
     # set the uptake constraints if provided
-    if (args.uptake_constraints_file is not None and
-            args.uptake_constraints_file != "None"):
+    if (args.uptake_constraints_file is not None
+            and args.uptake_constraints_file != "None"):
         constraints_df = pd.read_csv(
             args.uptake_constraints_file,
             sep=";",

@@ -1,4 +1,5 @@
 import argparse
+
 import cobra
 import pandas as pd
 
@@ -77,7 +78,7 @@ def __main__():
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Constraints file not found: {args.uptake_constraints_file}"
-                )
+            )
         except pd.errors.EmptyDataError:
             raise ValueError("Constraints file is empty")
         except Exception as e:
@@ -106,12 +107,12 @@ def __main__():
     fva_result["reaction_id"] = fva_result.index
     fva_result["reaction_name"] = fva_result["reaction_id"].apply(
         lambda x: cb_model.reactions.get_by_id(x).name
-        )
+    )
 
     # reorder the columns
     fva_result = fva_result[[
         "reaction_id", "reaction_name", "minimum", "maximum"
-        ]]
+    ]]
 
     fva_result.to_csv(args.out_file, sep=";", index=False, header=True)
 

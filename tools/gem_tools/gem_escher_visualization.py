@@ -1,7 +1,8 @@
 import argparse
+
 import cobra
-from escher import Builder
 import pandas as pd
+from escher import Builder
 
 
 def __main__():

@@ -1,4 +1,5 @@
 import argparse
+
 import cobra
 
 
@@ -11,12 +12,13 @@ def get_exchange_reactions_info(model):
     exchange_reactions = model.exchanges
     exchange_reactions_info = []
     for reaction in exchange_reactions:
-        exchange_reactions_info.append([
-            reaction.id,
-            reaction.name,
-            reaction.reaction,
-            reaction.lower_bound,
-            reaction.upper_bound
+        exchange_reactions_info.append(
+            [
+                reaction.id,
+                reaction.name,
+                reaction.reaction,
+                reaction.lower_bound,
+                reaction.upper_bound
             ])
     txt_object = (
         "reaction_id;reaction_name;reaction_stoichiometry;"

@@ -1,4 +1,5 @@
 import argparse
+
 import cobra
 import pandas as pd
 
@@ -68,7 +69,7 @@ def __main__():
         raise Exception(
             "The model could not be read. "
             "Ensure it is in correct SBML format."
-            ) from e
+        ) from e
 
     # Verifying the genes are present in the model
     gene_ids = [gene.id for gene in cb_model.genes]
@@ -91,10 +92,9 @@ def __main__():
     # Adding all genes to knockout if none are specified
     if genes_to_knockout_1 is None or len(genes_to_knockout_1) == 0:
         genes_to_knockout_1 = [gene.id for gene in cb_model.genes]
-
     # Applying uptake constraints
-    if (args.uptake_constraints_file is not None and
-            args.uptake_constraints_file != "None"):
+    if (args.uptake_constraints_file is not None
+            and args.uptake_constraints_file != "None"):
         constraints_df = pd.read_csv(
             args.uptake_constraints_file,
             sep=";",

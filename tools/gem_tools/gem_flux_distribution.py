@@ -1,4 +1,5 @@
 import argparse
+
 import cobra
 import pandas as pd
 
@@ -46,9 +47,9 @@ def __main__():
         cb_model = cobra.io.read_sbml_model(args.cb_model_location)
     except Exception as e:
         raise Exception(
-                "The model could not be read. Ensure "
-                "it is in correct SBML format."
-            ) from e
+            "The model could not be read. Ensure "
+            "it is in correct SBML format."
+        ) from e
 
     if args.uptake_constraints_file is not None\
             and args.uptake_constraints_file != "None":
@@ -57,14 +58,14 @@ def __main__():
             sep=";",
             header=0,
             index_col=False
-            )
-        for index, row in constraints_df.iterrows():
+        )
+        for _, row in constraints_df.iterrows():
             cb_model.reactions.get_by_id(
                 row["reaction_id"]
-                ).lower_bound = row["lower_bound"]
+            ).lower_bound = row["lower_bound"]
             cb_model.reactions.get_by_id(
                 row["reaction_id"]
-                ).upper_bound = row["upper_bound"]
+            ).upper_bound = row["upper_bound"]
 
     # do pFBA
     solution = cobra.flux_analysis.pfba(cb_model)
@@ -73,7 +74,7 @@ def __main__():
     # reaction ids, and flux distribution
     flux_distribution = pd.DataFrame(
         columns=["reaction_name", "reaction_id", "flux"]
-        )
+    )
 
     flux_distribution["reaction_name"] = \
         [reaction.name for reaction in cb_model.reactions]
