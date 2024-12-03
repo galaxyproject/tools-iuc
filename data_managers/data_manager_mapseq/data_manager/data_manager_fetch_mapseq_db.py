@@ -101,8 +101,6 @@ def main():
     with open(args.output) as fh:
         params = json.load(fh)
 
-    # print(params)
-
     workdir = params["output_data"][0]["extra_files_path"]
     os.mkdir(workdir)
 
@@ -112,8 +110,6 @@ def main():
     # output paths
     db_path = os.path.join(workdir, db_value)
     tmp_path = os.path.join(workdir, "tmp")
-
-    print(tmp_path)
 
     # create DB
     if args.test:
