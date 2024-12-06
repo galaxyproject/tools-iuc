@@ -1,0 +1,458 @@
+<?xml version="1.0"?>
+<tool id="chromhmm_binarize" name="chromHMM Binarize" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>BAM/BED/Signal</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <stdio></stdio>
+    <command detect_errors="exit_code"><![CDATA[
+## BinarizeBam, BinarizeBed and BinarizeSignal share many parameters and are merged in this wrapper
+
+## initialize
+mkdir -p 'input/sample' 'input/control' 'output/control' 'output/binary' &&
+#set $controlCounter = 0
+@FUNCTION_FETCHHEADER@
+
+#if $filetype_cond.filetype_sel == 'Bam' or $filetype_cond.filetype_sel == 'Bed'
+    ## BinarizeBam and BinarizeBed require a createcellmarkfiletable, see help for details.
+    ## If control data should be used, control files are required for all samples.
+    ## <celltype>_<mark>_<i>.<bam/bed>, e.g. cell1_mark1_1.bam
+    ## <celltype>_<mark>_<i>_control.<bam/bed>, e.g. cell1_mark1_1_control.bam
+    #for $i, $current in enumerate($filetype_cond.input_rep)
+        #set $controlfile = ''
+        #set $samplefile = str($current.identifier) + '_' + str($current.mark) + '_' + str($i) + '.' + str($current.sample.datatype.file_ext)
+        ln -s '${current.sample}' 'input/sample/${samplefile}' &&        
+        #if $current.control
+            #set $controlCounter = $controlCounter + 1
+            #set $controlfile = str($current.identifier) + '_' + str($current.mark) + '_' + str($i) + '_control.' + str($current.control.datatype.file_ext)
+            ln -s '${current.control}' 'input/control/${controlfile}' &&            
+        #end if
+        echo -e '${current.identifier}\t${current.mark}\t${samplefile}\t$controlfile' >> 'input/cellmarkfiletable.tsv' && 
+    #end for
+#else if $filetype_cond.filetype_sel == 'Signal'
+    ## Signal files require suffix '_signal'.
+    ## Controlsignal files require suffix '_controlsignal'.
+    ## If control data should be used, control files are required for all samples.
+    ## <celltype>_<chromosome>_<i>_signal.tsv, e.g. cell1_chr7_signal.tsv
+    ## <celltype>_<chromosome>_<i>_controlsignal.tsv, e.g. cell1_chr7_controlsignal.tsv    
+    #for $i, $current in enumerate($filetype_cond.input_rep)
+        #set $listHeader = $fetchHeader($current.sample)
+        #set $samplefile = $listHeader[0] + '_' + $listHeader[1] + '_' + str($i) + '_signal' + '.tsv'
+        ln -s '${current.sample}' 'input/sample/${samplefile}' &&
+        #if $current.control
+            #set $controlCounter = $controlCounter + 1
+            #set $controlfile = $listHeader[0] + '_' + $listHeader[1] + '_' + str($i) + '_controlsignal' + '.tsv'
+            ln -s '${$current.control}' 'input/sample/${controlfile}' &&            
+        #end if
+    #end for
+#end if
+
+## Stop if a control file doesn't exist for every sample.
+#if $controlCounter > 0 and $counter != len($filetype_cond.input_rep)  
+    echo Control data not found for all sample files. >&2
+    exit 1
+#end if
+
+## run
+ChromHMM.sh Binarize${str($filetype_cond.filetype_sel)}
+## optional parameters
+#if $controlCounter > 0
+    -c 'input/control'
+#end if
+-f $filetype_cond.ap.f
+-g $filetype_cond.ap.g
+-p $filetype_cond.ap.p
+$filetype_cond.ap.strictthresh
+-u $filetype_cond.ap.u
+-w $filetype_cond.ap.w
+#if $filetype_cond.filetype_sel == 'Bam' or $filetype_cond.filetype_sel == 'Bed'
+    -b $filetype_cond.ap.b
+    -e $filetype_cond.ap.e
+    $filetype_cond.ap.mode_cond.mode_sel
+    #if $filetype_cond.ap.mode_cond.mode_sel == '-n'
+        $filetype_cond.ap.mode_cond.n
+    #end if
+    #if $filetype_cond.ap.colfields
+        -colfields '$filetype_cond.ap.colfields'
+    #end if
+    #if $controlCounter > 0 and 'control' in $filetype_cond.out
+        -o 'output/control'
+    #end if
+    -s $filetype_cond.ap.s
+    #if 'signal' in $filetype_cond.out
+    -t 'output/signal'
+    #end if
+    ## required parameters in a specific order
+    '${__tool_directory__}/tool-data/CHROMSIZES/${filetype_cond.assembly}.txt' ## chromosomelengthfile
+    'input/sample' ## inputbeddir/inputbamdir
+    'input/cellmarkfiletable.tsv' ## cellmarkfiletable
+    'output/binary' ## outputbinarydir
+#else if $filetype_cond.filetype_sel == 'Signal'
+    ## required parameters (specific order)
+    'input/sample' ## signaldir
+    'output/binary' ## outputdir
+#end if
+
+## postprocessing
+#if 'log' in $filetype_cond.out
+    |& tee -a '$out_log'
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="filetype_cond" label="File type">
+            <param name="filetype_sel" type="select" label="Select file type">
+                 <option value="Bam" selected="true">BAM</option>
+                 <option value="Bed" selected="true">BED</option>
+                 <option value="Signal" selected="true">Signal</option>
+            </param>
+            <when value="Bam">
+                <expand macro="binary_bambed" filetype="bam"/>
+            </when>
+            <when value="Bed">
+                <expand macro="binary_bambed" filetype="bed"/>
+            </when>
+            <when value="Signal">
+               <repeat name="input_rep" min="1" title="Input data" help="If control files are used they are mandatory for all samples.">
+                    <param name="sample" type="data" format="tabular" label="Select sample file"/>
+                    <param name="control" type="data" format="tabular" optional="true" label="Select control file"/>
+                </repeat>
+                <section name="ap" title="Advanced parameters" expanded="true">
+                    <expand macro="f"/>
+                    <expand macro="g"/>
+                    <expand macro="p"/>
+                    <expand macro="strictthresh"/>
+                    <expand macro="u"/>
+                    <expand macro="w"/>
+                </section>
+                <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)" help="Only added to history if selected here and generated by the specific run.">
+                    <option value="binary" selected="true">Binary</option>
+                    <option value="log">Log</option>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <expand macro="out_binary"/>
+        <data name="out_cellmarkfiletable" format="tabular" from_work_dir="input/cellmarkfiletable.tsv" label="${tool.name} on $(on_string) Cellmark file table">
+            <filter>'cellmarkfiletable' in filetype_cond['out']</filter>
+        </data>
+        <collection name="out_control" type="list" label="${tool.name} on ${on_string}: control signals, tabular">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_controlsignal.txt" ext="tabular" directory="output/control" visible="false"/>
+            <filter>'control' in filetype_cond['out']</filter>
+        </collection>
+        <data name="out_log" format="txt" label="${tool.name} on $(on_string) Log">
+            <filter>'log' in filetype_cond['out']</filter>
+        </data>
+        <expand macro="out_signal"/>
+    </outputs>
+    <tests>
+        <!-- 
+            no test implemented for -colfields, -paired, control input files, control output files -->
+
+        <!-- #1 default, bam -->
+        <test expect_num_outputs="1">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Bam"/>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark1"/>
+                    <param name="sample" value="sample1.bam"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark2"/>
+                    <param name="sample" value="sample2.bam"/>
+                </repeat>
+                <param name="assembly" value="hg18"/>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr18">
+                    <assert_contents>
+                        <has_n_lines n="380587"/>
+                        <has_line line="cell1&#009;chr18"/>
+                        <has_line line="0&#009;0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #2 -->
+        <test expect_num_outputs="1">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Bam"/>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark1"/>
+                    <param name="sample" value="sample1.bam"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark2"/>
+                    <param name="sample" value="sample2.bam"/>
+                </repeat>
+                <param name="assembly" value="hg18"/>
+                <section name="ap">
+                    <conditional name="mode_cond">
+                        <param name="mode_sel" value="-center"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr18">
+                    <assert_contents>
+                        <has_n_lines n="380587"/>
+                        <has_line line="cell1&#009;chr18"/>
+                        <has_line line="0&#009;0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #3 -->
+       <test expect_num_outputs="1">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Bam"/>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark1"/>
+                    <param name="sample" value="sample1.bam"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark2"/>
+                    <param name="sample" value="sample2.bam"/>
+                </repeat>
+                <param name="assembly" value="hg18"/>
+                <section name="ap">
+                    <conditional name="mode_cond">
+                        <param name="mode_sel" value="-peaks"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr18">
+                    <assert_contents>
+                        <has_n_lines n="380587"/>
+                        <has_line line="cell1&#009;chr18"/>
+                        <has_line line="0&#009;0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #4 -->
+       <test expect_num_outputs="1">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Bam"/>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark1"/>
+                    <param name="sample" value="sample1.bam"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark2"/>
+                    <param name="sample" value="sample2.bam"/>
+                </repeat>
+                <param name="assembly" value="hg18"/>
+                <section name="ap">
+                    <conditional name="mode_cond">
+                        <param name="mode_sel" value="-n"/>
+                        <param name="-n" value="99"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr18">
+                    <assert_contents>
+                        <has_n_lines n="380587"/>
+                        <has_line line="cell1&#009;chr18"/>
+                        <has_line line="0&#009;0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #5 bed -->
+        <test expect_num_outputs="3">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Bed"/>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark1"/>
+                    <param name="sample" value="sample1.bed"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="identifier" value="cell1"/>
+                    <param name="mark" value="mark2"/>
+                    <param name="sample" value="sample2.bed"/>
+                </repeat>
+                <param name="assembly" value="hg18"/>
+                <section name="ap">
+                    <param name="b" value="199"/>
+                    <param name="e" value="2"/>
+                    <param name="f" value="1"/>
+                    <param name="g" value="1"/>
+                    <conditional name="mode_cond">
+                        <param name="mode_sel" value="-center"/>
+                    </conditional>
+                    <param name="p" value="0.0002"/>
+                    <param name="s" value="1"/>
+                    <param name="strictthresh" value="true"/>
+                    <param name="u" value="2"/>
+                    <param name="w" value="4"/>
+                </section>
+                <param name="out" value="binary,cellmarkfiletable,log"/>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr7">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0&#009;-1"/>
+                    </assert_contents>
+                </element>
+                <element name="cell1_chr11">
+                    <assert_contents>
+                        <has_n_lines n="2"/>
+                        <has_line line="cell1&#009;chr11"/>
+                        <has_line line="-1&#009;0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_cellmarkfiletable">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="cell1&#009;mark1&#009;.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Writing to file.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #6 default, signal -->
+        <test expect_num_outputs="1">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Signal"/>
+                <repeat name="input_rep">
+                    <param name="sample" value="cell1_chr7_signal.txt.gz"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="sample" value="cell1_chr11_signal.txt.gz"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="sample" value="cell2_chr7_signal.txt.gz"/>
+                </repeat>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr11">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line line="cell1&#009;chr11"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </element>
+                <element name="cell1_chr7">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </element>
+                <element name="cell2_chr7">
+                    <assert_contents>
+                        <has_n_lines n="5"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #7 custom, signal -->
+        <test expect_num_outputs="2">
+            <conditional name="filetype_cond">
+                <param name="filetype_sel" value="Signal"/>
+                <repeat name="input_rep">
+                    <param name="sample" value="cell1_chr7_signal.txt.gz"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="sample" value="cell1_chr11_signal.txt.gz"/>
+                </repeat>
+                <repeat name="input_rep">
+                    <param name="sample" value="cell2_chr7_signal.txt.gz"/>
+                </repeat>
+                <section name="ap">
+                    <param name="f" value="1"/>
+                    <param name="g" value="1"/>
+                    <param name="p" value="0.0002"/>
+                    <param name="strictthresh" value="true"/>
+                    <param name="u" value="2"/>
+                    <param name="w" value="4"/>
+                </section>
+                <param name="out" value="binary,log"/>
+            </conditional>
+            <output_collection name="out_binary" type="list">
+                <element name="cell1_chr11">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line line="cell1&#009;chr11"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </element>
+                <element name="cell1_chr7">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </element>
+                <element name="cell2_chr7">
+                    <assert_contents>
+                        <has_n_lines n="5"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Writing to file.+"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+*BinarizeBam*, *BinarizeBed* and *BinarizeSignal* are @HELP_WID@
+
+@HELP_CHROMHMM@
+
+*BinarizeBam* and *BinarizeBed* convert coordinates of aligned reads into binarized data form from which a chromatin state model can be learned. The binarization is based on a poisson background model. If no control data is specified, the parameter to the poisson distribution is the global average number of reads per bin. If control data is specified, the global average number of reads is multiplied by the local enrichment for control reads as determined by the specified parameters. Optionally intermediate signal files can also be outputted and these signal files can later be directly converted into binary form using the *BinarizeSignal*. 
+
+*BinarizeSignal* converts data already processed into signal files into binarized data files. Note the binarization from signal is designed only for signal data which represent counts of reads assigned to bins such as the optional output from the *BinarizeBam* and *BinarizeBed* and  command. If the signal was computed in other ways, then the binarization based on the poisson distribution may not give meaningful results. '-1' entries in a signal files are considered missing.
+
+**Input**
+
+@HELP_FILETYPE_BAM@
+@HELP_FILETYPE_BED@
+@HELP_FILETYPE_CELLMARKFILETABLE@
+@HELP_FILETYPE_SIGNAL@
+@HELP_FILETYPE_CONTROLSIGNAL@
+
+**Output**
+
+@HELP_FILETYPE_BINARY@
+@HELP_FILETYPE_SIGNAL@
+
+.. class:: infomark
+
+**References**
+
+@HELP_REFERENCES@
+    ]]></help>
+    <citations>
+        <expand macro="citations"/>
+    </citations>
+</tool>
