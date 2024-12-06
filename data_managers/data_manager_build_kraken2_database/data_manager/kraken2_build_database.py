@@ -28,6 +28,7 @@ class KrakenDatabaseTypes(Enum):
     standard_local_build = 'standard_local_build'
     standard_prebuilt = 'standard_prebuilt'
     minikraken = 'minikraken'
+    special_prebuilt = 'special_prebuilt'
     special = 'special'
     custom = 'custom'
 
@@ -64,6 +65,7 @@ class StandardPrebuiltSizes(Enum):
     pluspfp = "pluspfp"
     pluspfp_08gb = "pluspfp_08gb"
     pluspfp_16gb = "pluspfp_16gb"
+    eupathdb48 = "eupathdb48"
 
     def __str__(self):
         return self.value
@@ -144,7 +146,8 @@ def kraken2_build_standard_prebuilt(prebuilt_db, prebuilt_date, target_directory
         'pluspf_16gb': "PlusPF-16 (PlusPF with DB capped at 16 GB)",
         'pluspfp': "PlusPFP (Standard plus protozoa, fungi and plant)",
         'pluspfp_08gb': "PlusPFP-8 (PlusPFP with DB capped at 8 GB)",
-        'pluspfp_16gb': "PlusPFP-16 (PlusPFP with DB capped at 16 GB)"
+        'pluspfp_16gb': "PlusPFP-16 (PlusPFP with DB capped at 16 GB)",
+        'eupathdb48': "EuPathDB-46",
     }
 
     database_value = "_".join([
@@ -408,7 +411,7 @@ def main():
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
-    parser.add_argument('--prebuilt-db', dest='prebuilt_db', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Prebuilt database to download. Only applies to --database-type standard_prebuilt.')
+    parser.add_argument('--prebuilt-db', dest='prebuilt_db', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Prebuilt database to download. Only applies to --database-type standard_prebuilt or special_prebuilt.')
     parser.add_argument('--prebuilt-date', dest='prebuilt_date', help='Database build date (YYYY-MM-DD). Only applies to --database-type standard_prebuilt.')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
@@ -446,7 +449,7 @@ def main():
             kraken2_args,
             target_directory,
         )
-    elif str(args.database_type) == 'standard_prebuilt':
+    elif str(args.database_type) in ('standard_prebuilt', 'special_prebuilt'):
         data_manager_output = kraken2_build_standard_prebuilt(
             str(args.prebuilt_db),
             str(args.prebuilt_date),
