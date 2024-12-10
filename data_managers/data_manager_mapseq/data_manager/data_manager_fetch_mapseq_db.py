@@ -52,9 +52,21 @@ def download_untar_store(url, tmp_path, dest_path):
     tar = tarfile.open(tarfile_path)
     tar.extractall(extract_path)
 
+    print(f"Content of folder: {extract_path}", os.listdir(extract_path))
+
+    # case for mapseq v6: all DB files are directly in the tar.gz file
+    # remove the VERSION.txt file since the tool can only handle on .txt file in the DB
     if len(list(os.listdir(extract_path))) > 1:
-        print("More then one folder in zipped file, aborting !")
+        print(f"Found multiple files in {extract_path}. Copy the content.")
+        print(f"Copy data to {dest_path}")
+        version_file_path = os.path.join(extract_path, "VERSION.txt")
+        os.remove(version_file_path)
+        shutil.copytree(extract_path, dest_path)
+        print("Done !")
+
+    # case for mapseq v5: all files are in a subfolder in the tar.gz file
     else:
+        print(f"Found a folder in {extract_path}. Copy the content of the folder.")
         for folder in os.listdir(extract_path):
             folder_path = os.path.join(extract_path, folder)
 
@@ -69,8 +81,12 @@ def main():
     # Parse Command Line
     parser = argparse.ArgumentParser(description="Create data manager JSON.")
     parser.add_argument("--out", dest="output", action="store", help="JSON filename")
-    parser.add_argument("--version", dest="version", action="store", help="Version of the DB")
-    parser.add_argument("--database-type", dest="db_type", action="store", help="Db type")
+    parser.add_argument(
+        "--version", dest="version", action="store", help="Version of the DB"
+    )
+    parser.add_argument(
+        "--database-type", dest="db_type", action="store", help="Db type"
+    )
     parser.add_argument(
         "--test",
         action="store_true",
@@ -84,8 +100,6 @@ def main():
     # to store the DB data
     with open(args.output) as fh:
         params = json.load(fh)
-
-    print(params)
 
     workdir = params["output_data"][0]["extra_files_path"]
     os.mkdir(workdir)
