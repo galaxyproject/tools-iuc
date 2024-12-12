@@ -32,6 +32,16 @@ def __main__():
         help="The flux distribution to visualize."
     )
     parser.add_argument(
+        "-e",
+        "--expect_map",
+        dest="expect_map",
+        action="store",
+        type=str,
+        default=None,
+        required=True,
+        help="Is a map expected to be uploaded?"
+    )
+    parser.add_argument(
         "-l",
         "--model_to_download",
         dest="model_to_download",
@@ -81,6 +91,14 @@ def __main__():
     )
 
     args = parser.parse_args()
+
+    if args.expect_map not in ["True", "False"]:
+        raise Exception("The expect_map argument must be either True or False.")
+    if args.expect_map == "True" and args.map_load_name is None and \
+            args.map_upload_name is None:
+        raise Exception(
+            "You must specify a map name if a map is expected to be uploaded."
+        )
 
     cb_model = None
     model_name = None
