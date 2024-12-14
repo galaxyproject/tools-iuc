@@ -10,7 +10,14 @@ option_list <- list(
         action = "store", dest = "input",
         help = "Input file containing a phyloseq object"
     ),
-    make_option(c("--output"), action = "store", dest = "output", help = "Output file for the updated phyloseq object")
+    make_option(c("--output"),
+        action = "store", dest = "output",
+        help = "Output file for the updated phyloseq object"
+    ),
+    make_option(c("--ranks"),
+        action = "store", dest = "ranks",
+        help = "Comma-separated list of taxonomy ranks (default: Kingdom,Phylum,Class,Order,Family,Genus,Species)"
+    )
 )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list = option_list)
@@ -19,11 +26,19 @@ opt <- args$options
 
 cat("Input file: ", opt$input, "\n")
 cat("Output file: ", opt$output, "\n")
+cat("Ranks provided: ", opt$ranks, "\n")
 
-# Lade das Phyloseq-Objekt
+if (is.null(opt$ranks)) {
+    opt$ranks <- "Kingdom,Phylum,Class,Order,Family,Genus,Species"
+}
+
+# Parse rank names
+rank_names <- unlist(strsplit(opt$ranks, ","))
+
+# Load phyloseq object
 physeq <- readRDS(opt$input)
 
-# Überprüfen, ob das Phyloseq-Objekt erfolgreich geladen wurde
+# Check if physeq object is loaded successfully
 if (is.null(physeq)) {
     stop("Error: Failed to load the Phyloseq object. Check the input file.")
 }
@@ -31,37 +46,27 @@ if (is.null(physeq)) {
 cat("Phyloseq object successfully loaded.\n")
 cat("Class of loaded object: ", class(physeq), "\n")
 
-# Überprüfe das aktuelle Taxonomy Table
+# Check the current tax_table
 cat("Current tax_table:\n")
 print(tax_table(physeq))
 
-# Zuordnung der Rangnamen
-rank_names <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species") # Anpassen je nach Bedarf
-
-# Füge eine leere Spalte für Species hinzu, falls sie fehlt
-if (ncol(tax_table(physeq)) == 6) {
-    tax_table(physeq) <- cbind(tax_table(physeq), Species = NA)
+# Add a column for Species if missing
+if (ncol(tax_table(physeq)) < length(rank_names)) {
+    cat("Warning: Taxonomy table has fewer columns than the provided ranks. Filling missing columns with NA.\n")
+    while (ncol(tax_table(physeq)) < length(rank_names)) {
+        tax_table(physeq) <- cbind(tax_table(physeq), NA)
+    }
+} else if (ncol(tax_table(physeq)) > length(rank_names)) {
+    stop("Error: Number of columns in tax_table exceeds the number of provided ranks. Please adjust your rank list.")
 }
 
-# Überprüfen, ob die Anzahl der Spalten mit der Anzahl der Rangnamen übereinstimmt
-if (ncol(tax_table(physeq)) != length(rank_names)) {
-    stop("Error: Number of columns in tax_table does not match the length of rank_names.")
-}
-
-# Setzen der Spaltennamen
+# Set column names to the provided ranks
 colnames(tax_table(physeq)) <- rank_names
 
-# Bestätige die Änderungen
+# Confirm the changes
 cat("Updated tax_table:\n")
 print(tax_table(physeq))
 
-# Extrahiere das erste Zeichen aus dem ersten Eintrag des tax_table (z.B. Kingdom)
-first_char <- substr(tax_table(physeq)[1, 1], 1, 1)
-cat("Extracted first character: ", first_char, "\n")
-
-# Speichere das aktualisierte Phyloseq-Objekt
+# Save the updated phyloseq object
 saveRDS(physeq, file = opt$output, compress = TRUE)
 cat("Updated Phyloseq object saved to: ", opt$output, "\n")
-
-# Gib das erste Zeichen zurück (es wird später in der XML-Datei verwendet)
-cat(first_char, "\n")
