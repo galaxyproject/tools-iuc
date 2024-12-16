@@ -66,6 +66,8 @@ class StandardPrebuiltSizes(Enum):
     pluspfp_08gb = "pluspfp_08gb"
     pluspfp_16gb = "pluspfp_16gb"
     eupathdb48 = "eupathdb48"
+    core_nt = "core_nt"
+    gtdb_genome_reps = "gtdb_genome_reps"
 
     def __str__(self):
         return self.value
@@ -148,6 +150,8 @@ def kraken2_build_standard_prebuilt(prebuilt_db, prebuilt_date, target_directory
         'pluspfp_08gb': "PlusPFP-8 (PlusPFP with DB capped at 8 GB)",
         'pluspfp_16gb': "PlusPFP-16 (PlusPFP with DB capped at 16 GB)",
         'eupathdb48': "EuPathDB-46",
+        'core_nt': "core_nt (Very large collection, inclusive of GenBank, RefSeq, TPA and PDB)",
+        'gtdb_genome_reps': "GTDB v220 (Bacterial and archaeal)",
     }
 
     database_value = "_".join([
