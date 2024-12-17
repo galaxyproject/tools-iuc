@@ -50,14 +50,13 @@ cat("Class of loaded object: ", class(physeq), "\n")
 cat("Current tax_table:\n")
 print(tax_table(physeq))
 
-# Add a column for Species if missing
-if (ncol(tax_table(physeq)) < length(rank_names)) {
-    cat("Warning: Taxonomy table has fewer columns than the provided ranks. Filling missing columns with NA.\n")
-    while (ncol(tax_table(physeq)) < length(rank_names)) {
-        tax_table(physeq) <- cbind(tax_table(physeq), NA)
-    }
-} else if (ncol(tax_table(physeq)) > length(rank_names)) {
-    stop("Error: Number of columns in tax_table exceeds the number of provided ranks. Please adjust your rank list.")
+
+# Strict check for taxonomy table and provided ranks
+if (ncol(tax_table(physeq)) != length(rank_names)) {
+    stop(
+        "Error: Number of columns in tax_table does not match the number of provided ranks. ",
+        "Please ensure the taxonomy table matches the ranks exactly."
+    )
 }
 
 # Set column names to the provided ranks
