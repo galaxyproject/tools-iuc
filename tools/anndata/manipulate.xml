@@ -37,6 +37,7 @@ adata = adata.concatenate(
     #else
     index_unique=None,
     #end if
+    uns_merge='$manipulate.uns_merge',
     batch_key='$manipulate.batch_key')
 
 #else if $manipulate.function == 'var_names_make_unique'
@@ -86,16 +87,27 @@ adata.var = adata.vars.drop(columns=$keys)
 #else if $manipulate.function == 'flag_genes'
 ## adapted from anndata operations
     #for $flag in $manipulate.gene_flags
-        #if $flag.idx.check_idx == 'yes':
-k_cat = adata.var_names.str.startswith('${flag.startswith}')
+        #if $flag.col_in
+k_cat = adata.var['${flag.col_in}'].str.startswith('${flag.startswith}')
         #else:
-k_cat = adata.var['${flag.idx.key_name}'].str.startswith('${flag.startswith}')
+k_cat = adata.var_names.str.startswith('${flag.startswith}')
         #end if
 if k_cat.sum() > 0:
-    adata.var['${flag.col_name}'] = k_cat
+    adata.var['${flag.col_out}'] = k_cat
 else:
     print(f'No genes starting with {'${flag.startswith}'} found.')
 #end for
+
+#else if $manipulate.function == 'rename_obs':
+adata.obs['${s.to_obs}'] = adata.obs['${s.from_obs}']
+#if not $s.keep_original:
+del adata.obs['${s.from_obs}']
+#end if
+#else if $manipulate.function == 'rename_obs':
+adata.var['${s.to_var}'] = adata.var['${s.from_var}']
+#if not $s.keep_original:
+del adata.var['${s.from_var}']
+#end if
 
 #else if $manipulate.function == 'strings_to_categoricals'
 adata.strings_to_categoricals()
@@ -179,6 +191,49 @@ adata = adata[filtered, :]
 #else if $manipulate.function == 'save_raw'
 adata.raw = adata
 
+#else if $manipulate.function == 'copy_obs'
+source_adata = ad.read_h5ad('$source_adata')
+#for $key in $manipulate.keys
+    #if $key.source_key in source_adata.obs:
+        #if $key.target_key is None
+adata.obs['$key.source_key'] = source_adata.obs['$key.source_key']
+        #else
+adata.obs['$key.target_key'] = source_adata.obs['$key.source_key']
+        #end if
+    #else:
+print(f"Obs key {'{$key.source_key}'} not found in source AnnData.")
+    #end if
+#end for
+
+#else if $manipulate.function == 'copy_uns'
+source_adata = ad.read_h5ad('$source_adata')
+#for $key in $manipulate.keys
+    #if $key.source_key in source_adata.uns:
+        #if $key.target_key is None
+adata.uns['$key.source_key'] = source_adata.uns['$key.source_key']
+        #else
+adata.uns['$key.target_key'] = source_adata.uns['$key.source_key']
+        #end if
+    #else:
+print(f"Uns key {'{$key.source_key}'} not found in source AnnData.")
+    #end if
+#end for
+
+#else if $manipulate.function == 'copy_embed'
+source_adata = ad.read_h5ad('$source_adata')
+#for $key in $manipulate.keys
+    #if $key.source_key in source_adata.obsm:
+        #if $key.target_key is None
+adata.obsm['$key.source_key'] = source_adata.obsm['$key.source_key']
+        #else
+adata.obsm['$key.target_key'] = source_adata.obsm['$key.source_key']
+        #end if
+adata.obsm[target_key] = source_adata.obsm['$key.source_key']
+    #else:
+print(f"Embedding key {'{$key.source_key}'} not found in source AnnData.")
+    #end if
+#end for
+
 #end if
 
 #if $manipulate.function != 'split_on_obs'
@@ -198,12 +253,18 @@ print(adata)
                 <option value="rename_categories">Rename categories of annotation</option>
                 <option value="remove_keys">Remove keys from obs or var annotations</option>
                 <option value="flag_genes">Flag genes start with a pattern</option><!--adapted from EBI anndata operations tool -->
+                <option value="rename_obs">Rename fileds in AnnData observations</option><!--adapted from EBI anndata operations tool -->
+                <option value="rename_var">Rename fileds in AnnData variables</option><!--adapted from EBI anndata operations tool -->
                 <option value="strings_to_categoricals">Transform string annotations to categoricals</option>
                 <option value="transpose">Transpose the data matrix, leaving observations and variables interchanged</option>
                 <option value="add_annotation">Add new annotation(s) for observations or variables</option>
                 <option value="split_on_obs">Split the AnnData object into multiple AnnData objects based on the values of a given obs key</option><!--adapted from EBI anndata operations tool-->
                 <option value="filter">Filter observations or variables</option>
                 <option value="save_raw">Freeze the current state into the 'raw' attribute</option>
+                <option value="copy_obs">Copy observation keys from a different anndata object</option>
+                <option value="copy_uns">Copy uns keys from a different anndata object</option>
+                <option value="copy_embed">Copy embeddings from a different anndata object</option>
+                <option value="copy_uns">Copy layers from a different anndata object</option>
             </param>
             <when value="concatenate">
                 <param name="other_adatas" type="data" format="h5ad" multiple="true" label="Annotated data matrix to add"/>
@@ -212,6 +273,13 @@ print(adata)
                     <option value="outer">Union of variables</option>
                 </param>
                 <param name="batch_key" type="text" value="batch" label="Key to add the batch annotation to obs"/>
+                <param name="uns_merge" type="select" label="Strategy to use for merging entries of uns" help="These strategies are applied recusivley.">
+                    <option value="None" selected="true">The default. The concatenated object will just have an empty dict for uns</option>
+                    <option value="same">Only entries which have the same value in all AnnData objects are kept</option>
+                    <option value="unique">Only entries which have one unique value in all AnnData objects are kept</option>
+                    <option value="first">The first non-missing value is used</option>
+                    <option value="only">A value is included if only one of the AnnData objects has a value at this path</option>
+                </param>
                 <param name="index_unique" type="select" label="Separator to join the existing index names with the batch category" help="Leave it empty to keep existing indices">
                     <option value="-">-</option>
                     <option value="_">_</option>
@@ -258,20 +326,31 @@ print(adata)
                             </valid>
                         </sanitizer>
                     </param>
-                    <param name="col_name" type="text" label="Name of the column in var.names where this boolean flag is stored" help="For example, name this column as 'mito' for mitochondrial genes."/>
-                    <conditional name="idx">
-                        <param name="check_idx" type="select" label="Is the variable in adata.var index?">
-                            <option value="yes" selected="true">Yes</option>
-                            <option value="no">No</option>
-                        </param>
-                        <when value="yes"></when>
-                        <when value="no">
-                            <param name="key_name" type="text" value="" optional="false" label="Key name">
-                                <expand macro="sanitize_query"/>
-                            </param>    
-                        </when>
-                    </conditional>
+                    <param name="col_in" value='' optional="true" type="text" label="Column in .var to use" help="By default it uses the var_names (normally gene symbols)">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="col_out" type="text" label="Name of the column in var.names where this boolean flag is stored" help="For example, name this column as 'mito' for mitochondrial genes.">
+                        <expand macro="sanitize_query"/>
+                    </param>
                 </repeat>
+            </when>
+            <when value="rename_obs">
+                <param name="from_obs" type="text" label="Name of the observations field that you want to change">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="to_obs" type="text" label="New name of the field in the observations">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="keep_original" type="boolean" checked="false" label="Keep original" help="If activated, it will also keep the original column"/>
+            </when>
+            <when value="rename_var">
+                <param name="from_var" type="text" label="Name of the variables field that you want to change">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="to_var" type="text" label="New name of the filed in the variables">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="keep_original" type="boolean" checked="false" label="Keep original" help="If activated, it will also keep the original column"/>
             </when>
             <when value="strings_to_categoricals" ></when>
             <when value="transpose" ></when>
@@ -349,6 +428,39 @@ print(adata)
                 </conditional>
             </when>
             <when value="save_raw"></when>
+            <when value="copy_obs">
+                <param name="source_adata" type="data" format="h5,h5ad" label="Source anndata object" help="Ideally the source AnnData object should containthe same set of genes and cells."/>
+                <repeat name="keys" title="Keys from obs to copy" min="1">
+                    <param name="source_key" type="text" optional="true" label="Key to be copied from the source anndata" help="louvain, batch, etc. Provide one key at a time.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target key name" help="Warning! give a new key anme to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
+            <when value="copy_uns">
+                <param name="source_adata" type="data" format="h5,h5ad" label="Source anndata object" help="Ideally the source AnnData object should containthe same set of genes and cells."/>
+                <repeat name="keys" title="Keys from uns to copy" min="1">
+                    <param name="source_key" type="text" optional="true" label="Key to be copied from the source anndata" help="hvg, neighbors, etc. Provide one key at a time.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target key name" help="Warning! give a new key anme to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
+            <when value="copy_embed">
+                <param name="source_adata" type="data" format="h5,h5ad" label="Source anndata object" help="Ideally the source AnnData object should containthe same set of genes and cells."/>
+                <repeat name="keys" title="Keys from embeddings to copy" min="1">
+                    <param name="source_key" type="text" label="Key to be copied from the source anndata" help="tSNE, UMAP, etc. Provide one key at a time.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target key name" help="Warning! give a new key anme to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
         </conditional>
     </inputs>
     <outputs>
@@ -619,17 +731,11 @@ print(adata)
                 <param name="function" value="flag_genes"/>
                 <repeat name="gene_flags">
                     <param name="startswith" value="Gata"/>
-                    <param name="col_name" value="Gata_TF"/>
-                    <conditional name="idx">
-                        <param name="check_idx" value="yes"/>
-                    </conditional>
+                    <param name="col_out" value="Gata_TF"/>
                 </repeat>
                 <repeat name="gene_flags">
                     <param name="startswith" value="Gf"/>
-                    <param name="col_name" value="GF"/>
-                    <conditional name="idx">
-                        <param name="check_idx" value="yes"/>
-                    </conditional>
+                    <param name="col_out" value="GF"/>
                 </repeat>
             </conditional>
             <assert_stdout>
@@ -715,11 +821,7 @@ print(adata)
                 <param name="function" value="flag_genes"/>
                 <repeat name="gene_flags">
                     <param name="startswith" value="ENSG"/>
-                    <param name="col_name" value="ensembl"/>
-                    <conditional name="idx">
-                        <param name="check_idx" value="no"/>
-                        <param name="key_name" value="gene_ids"/>
-                    </conditional>
+                    <param name="col_out" value="ensembl"/>
                 </repeat>
             </conditional>
             <assert_stdout>
