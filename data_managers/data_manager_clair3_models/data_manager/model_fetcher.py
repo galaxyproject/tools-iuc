@@ -5,10 +5,9 @@ import json
 import sys
 import tarfile
 
-
-from io import StringIO, BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
-from urllib.request import urlopen, Request
+from urllib.request import Request, urlopen
 
 DATA_TABLE_NAME = 'clair3_models'
 
