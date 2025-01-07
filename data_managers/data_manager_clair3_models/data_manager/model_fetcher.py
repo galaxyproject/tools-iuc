@@ -4,8 +4,10 @@ import argparse
 import json
 import sys
 import tarfile
+from hashlib import sha256
 from io import BytesIO, StringIO
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 DATA_TABLE_NAME = 'clair3_models'
@@ -52,11 +54,16 @@ def fetch_model(model_name):
 
     url = f'https://raw.githubusercontent.com/nanoporetech/rerio/refs/heads/master/clair3_models/{model_name}_model'
     httprequest = Request(url)
-    with urlopen(httprequest) as response:
-        if response.status != 200:
-            raise IOError(f'Failed to fetch the model {model_name}: {response.status}')
-        final_url = response.read().decode('utf-8').strip()
-    httprequest = Request(final_url)
+    try:
+        # urlopen throws a HTTPError if it gets a 404 status (and perhaps other non-200 status?)
+        with urlopen(httprequest) as response:
+            if response.status != 200:
+                raise IOError(f'Failed to fetch the model {model_name}: {response.status}')
+            final_url = response.read().decode('utf-8').strip()
+        httprequest = Request(final_url)
+    except HTTPError as e:
+        raise IOError(f'Failed to fetch the model {model_name}: {e}')
+
     with urlopen(httprequest) as response:
         if response.status != 200:
             raise IOError(f'Failed to fetch the model {model_name} from CDN URL {final_url}: {response.status}')
@@ -72,7 +79,9 @@ def unpack_model(data, outdir):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('dm_filename', type=str, help='The filename of the data manager file to read parameters from and write outputs to')
-    parser.add_argument('--download_latest', action='store_true', default=False, help='Download the latest models as per the rerio repository')
+    parser.add_argument('--known_models', type=str, help='List of models already known in the Galaxy data table')
+    parser.add_argument('--sha256_sums', type=str, help='List of sha256sums of the models already known in the Galaxy data table')
+    parser.add_argument('--download_latest', action='store_true', default=False, help='Download the latest models as per the Rerio repository')
     parser.add_argument('--download_models', type=str, help='Comma separated list of models to download')
     args = parser.parse_args()
 
@@ -99,23 +108,38 @@ if __name__ == '__main__':
     data_manager_dict["data_tables"] = config.get("data_tables", {})
     data_manager_dict["data_tables"][DATA_TABLE_NAME] = []
 
+    known_models = set(args.known_models.split(',')) if args.known_models else set()
+    model_to_sha256 = {}
+    if args.known_models:
+        sha256_sums = args.sha256_sums.split(',')
+        for (i, model) in enumerate(known_models):
+            model_to_sha256[model] = sha256_sums[i]
+
     for model in models:
         model_dir = Path(output_directory) / model
-        # In the test below we assume that the contents of the model are uniquely identified by the model name. It is possible
-        # that Oxford Nanopore will change the contents of the model tarball without changing the name. Hopefully this will never
-        # happen.
-        if model_dir.exists():
+        # The data table cannot handle duplicate entries, so we skip models that are already in the data table
+        if model in known_models:
             print(f'Model {model} already exists, skipping', file=sys.stderr)
             continue
         data = fetch_model(model)
+        sha256sum = sha256(data).hexdigest()
+
+        # Since we skip models that are already known we cannot test the sha256sum here. This code is retained to illustrate that an
+        # alternative logic would be to download the model each time and check if the sha256sum matches what is already known. Hopefully
+        # ONT does not update the models while keeping the same name, so this is not needed. The sha256sum is stored in the data table
+        # in case it is needed in the future.
+        # if model in model_to_sha256 and sha256sum != model_to_sha256[model]:
+        #    sys.exit(f'Model {model} already exists with a different sha256sum {model_to_sha256[model]}. This is a serious error, inform the Galaxy admin')
+
         unpack_model(data, output_directory)
 
         data_manager_dict["data_tables"][DATA_TABLE_NAME].append(
             dict(
                 value=model,
+                sha256=sha256sum,
                 path=str(model_dir)
             )
         )
 
-        with open(args.dm_filename, 'w') as fh:
-            json.dump(data_manager_dict, fh, sort_keys=True, indent=4)
+    with open(args.dm_filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True, indent=4)
