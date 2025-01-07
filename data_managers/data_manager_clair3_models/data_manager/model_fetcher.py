@@ -88,11 +88,11 @@ if __name__ == '__main__':
     if not models:
         sys.exit('No models to download, please specify either --download_latest or --download_models')
 
-    with open(args.galaxy_datamanager_filename) as fh:
+    with open(args.dm_filename) as fh:
         config = json.load(fh)
     if 'extra_files_path' not in config.get('output_data', [{}])[0]:
         sys.exit('Please specify the output directory in the data manager configuration (the extra_files_path)')
-    output_directory = config["output_data"]["extra_files_path"]
+    output_directory = config["output_data"][0]["extra_files_path"]
     if not Path(output_directory).exists():
         Path(output_directory).mkdir(parents=True)
 
@@ -118,5 +118,5 @@ if __name__ == '__main__':
             )
         )
 
-        with open(args.output_dm_filename, 'w') as fh:
+        with open(args.dm_filename, 'w') as fh:
             json.dump(data_manager_dict, fh, sort_keys=True, indent=4)
