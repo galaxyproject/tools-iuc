@@ -4,7 +4,6 @@ import argparse
 import json
 import sys
 import tarfile
-
 from io import BytesIO, StringIO
 from pathlib import Path
 from urllib.request import Request, urlopen
