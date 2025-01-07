@@ -25,12 +25,13 @@ def find_latest_models():
         config_line_seen = False
         read_lines = False
         models = []
+        break1 = 0
         for line in StringIO(data):
             if read_lines:
                 if line.startswith('=========================='):
                     read_lines = False
                     break
-                model = line[:break1-1]
+                model = line[:break1 - 1]
                 models.append(model)
             if config_line_seen and line.startswith('=========================='):
                 break1 = line.find(' ')
@@ -84,7 +85,7 @@ if __name__ == '__main__':
         models.extend(find_latest_models())
     if args.download_models:
         models.extend(args.download_models.split(','))
-    
+
     if not models:
         sys.exit('No models to download, please specify either --download_latest or --download_models')
 
@@ -95,7 +96,7 @@ if __name__ == '__main__':
     output_directory = config["output_data"]["extra_files_path"]
     if not Path(output_directory).exists():
         Path(output_directory).mkdir(parents=True)
-    
+
     data_manager_dict = {}
     data_manager_dict["data_tables"] = config.get("data_tables", {})
     data_manager_dict["data_tables"][DATA_TABLE_NAME] = []
