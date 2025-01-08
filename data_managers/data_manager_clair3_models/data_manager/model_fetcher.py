@@ -136,6 +136,7 @@ if __name__ == '__main__':
         data_manager_dict["data_tables"][DATA_TABLE_NAME].append(
             dict(
                 value=model,
+                platform="ont",
                 sha256=sha256sum,
                 path=str(model_dir)
             )
