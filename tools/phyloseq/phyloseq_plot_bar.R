@@ -129,8 +129,10 @@ if (!is.null(opt$facet) && opt$facet != "") {
   }
 }
 
-# Save to output file using PDF device
-print(paste("Saving plot to:", opt$output))
-pdf(file = opt$output, width = 10, height = 8)
-print(p)
-dev.off()
+# Save to output file 
+ggsave(
+  opt$output, 
+  width = 10, 
+  height = 8,
+  device="png"
+)
