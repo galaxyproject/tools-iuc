@@ -3,8 +3,8 @@ import os
 import subprocess
 
 dirPrefix = "resultDir/"
-expectedSegments = ["A_MP", "A_NP", "A_HA", "A_PB1",
-                    "A_PB2", "A_NA", "A_PA", "A_NS"]
+expectedSegments = {"A_MP": 7, "A_NP": 5, "A_HA": 4, "A_PB1": 2,
+                    "A_PB2": 1, "A_NA": 6, "A_PA": 3, "A_NS": 8}
 
 
 def renameSubtypeFiles(identifier):
@@ -19,7 +19,7 @@ def getMissingSegments():
     for file in os.listdir(dirPrefix):
         if file.endswith(".fasta"):
             presentSegments.append(file.split('.')[0])
-    return [segment for segment in expectedSegments
+    return [segment for segment in expectedSegments.keys()
             if segment not in presentSegments]
 
 
@@ -56,8 +56,13 @@ def writeEmptyVcf(identifier, vcfHeader):
         f.write(vcfHeader)
 
 
+def writeEmptyAmendedFasta(identifier):
+    #  irma names these files like: resultDir/amended_consensus/resultDir_<segNr>.fa
+    open(dirPrefix + "amended_consensus/resultDir_" + str(expectedSegments[identifier]) + ".fa", 'x').close()
+
+
 def samtoolsSortAllBam():
-    for segment in expectedSegments:
+    for segment in expectedSegments.keys():
         os.rename(dirPrefix + segment + ".bam",
                   dirPrefix + segment + "_unsorted.bam")
         cmd = ['samtools', 'sort', dirPrefix + segment + "_unsorted.bam"]
@@ -76,4 +81,5 @@ if __name__ == "__main__":
         writeEmptyBam(segment, bamHeader)
         writeEmptyFasta(segment)
         writeEmptyVcf(segment, vcfHeader)
+        writeEmptyAmendedFasta(segment)
     samtoolsSortAllBam()
