@@ -9,10 +9,9 @@
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
 
-        #if $model_source.source == "datatable"
-            #set model_path = $model_source.model.fields.path 
-            ln -s $model_source.model.fields.path . &&
-        #end if
+
+        ## ln -s $model_source.model.fields.path clair3_model &&
+        ln -s \$(dirname \$(which run_clair3.sh))/models/$model_source.select_built_in clair3_model &&
 
         #if str( $primer_scheme_source.primer_scheme_source_selector ) == "tool_data_table":
           ln -s '${primer_scheme_source.primer_scheme_bedfile.fields.path}' 'primer.bed' &&
@@ -29,19 +28,21 @@
         #end if
 
         artic minion
-        --read-file '${read_file}'
-        --threads \${GALAXY_SLOTS:-1}
-        --bed primer.bed
-        --ref reference.fasta
+            --read-file '${read_file}'
+            --threads \${GALAXY_SLOTS:-1}
+            --bed primer.bed
+            --ref reference.fasta
+            --model-dir .
+            --model clair3_model
+
+            --min-depth $min_depth
+            --min-mapq $min_mapq
+            --primer-match-threshold $primer_match_threshold
+            $align_consensus
 
         #if $normalise > 0:
             --normalise ${normalise}
         #end if
-
-        --model-dir .
-        --model $model_source.model.fields.platform
-        ## --model-dir \$(dirname \$(which run_clair3.sh))/models/$model_source.select_built_in
-
 
         ## enclose the sample name in extra single quotes because
         ## the minion pipeline script doesn't care about passing
@@ -56,35 +57,13 @@
         <param argument="--read-file" type="data" format="fastq,fastqsanger,fastq.gz,fastqsanger.gz" 
         label="Input Read File"/>
 
-        <conditional name="model_source">
-            <param name="source" type="select" label="Clair3 model" help="Select if you want to use a built-in model shipping with the tool or a model cached on this Galaxy server.">
-                <option value="built-in">Built-in</option>
-                <option value="datatable">Cached</option>
-            </param>
-            <when value="built-in">
-                <param type="select" name="select_built_in" label="Built-in model">
-                    <option value="r941_prom_sup_g5014">r941_prom_sup_g5014</option>
-                    <option value="r941_prom_hac_g360+g422">r941_prom_hac_g360+g422</option>
-                    <option value="hifi">hifi</option>
-                    <option value="ilmn">ilmn</option>
-                </param>
-            </when>
-            <when value="datatable">
-                <param  name="model" argument="--model_path" type="select" label="Cached model from server" >
-                    <options from_data_table="clair3_models">
-                        <validator type="no_options" message="no cached models available" />
-                    </options>
-                </param>
-            </when>
-        </conditional>
-
         <param argument="--min-mapq" type="integer" min="0" value="20" 
         label="Minimum mapping score"
         help="Minimum mapping quality to consider (default: 20)"/>
         
-        <param argument="--normalise" type="integer" min="0" value="100"
+        <param argument="--normalise" type="integer" min="0" value="400"
         label="Coverage normalisation depth"
-        help="Sample at most this number of reads per amplicon and strand. default=0 (use all reads)" />
+        help="Sample at most this number of reads per amplicon and strand. Set to 0 to use all available data" />
         
         <param argument="--primer-match-threshold" type="integer" value="35"
         label="Primer Match Threshold"
@@ -93,6 +72,10 @@
         <param argument="--min-depth" type="integer" value="20"
         label="Minimum Depth"
         help="Minimum depth required to call a variant (default: 20)" />
+
+        <param argument="--align-consensus" type="boolean" truevalue="--align-consensus" falsevalue=""
+        label="Align Consensus to reference"
+        help="Run a MAFFT to align consensus to reference" />
 
         <conditional name="primer_scheme_source">
             <param name="primer_scheme_source_selector" type="select" label="Select a primer scheme from your history or use one from a tool data table?"
@@ -131,6 +114,26 @@
             </when>
         </conditional>
 
+        <conditional name="model_source">
+            <param name="source" type="select" label="Clair3 model" help="Select if you want to use a built-in model shipping with the tool or a model cached on this Galaxy server.">
+                <option value="built-in">Built-in</option>
+                <!-- <option value="datatable">Cached</option> -->
+            </param>
+            <when value="built-in">
+                <param type="select" name="select_built_in" label="model">
+                    <option value="r941_prom_sup_g5014">r941_prom_sup_g5014</option>
+                    <option value="r941_prom_hac_g360+g422">r941_prom_hac_g360+g422</option>
+                </param>
+            </when>
+            <!-- <when value="datatable">
+                <param  name="model" type="select" label="Cached model from server" >
+                    <options from_data_table="clair3_models">
+                        <validator type="no_options" message="no cached models available" />
+                    </options>
+                </param>
+            </when> -->
+        </conditional>
+
     </inputs>
 
     <outputs>
@@ -144,57 +147,92 @@
         <data name="analysis_log" format="txt" from_work_dir="*.minion.log.txt" label="${tool.name} on ${on_string}: analysis log" />
     </outputs>
     <tests>
+        <!-- Test: built in model selection, primer/reference selection from history -->
         <test>
+            <param name="read_file" value="test.fastq.gz" />
             <param name="reference_source_selector" value="history" />
-            <param name="read_file" value="SRR11410539_seqtk_sample_500_1.fastq" />
-            <param name="reference" value="reference.fasta" />
-            <param name="primer_scheme_source_selector" value="tool_data_table" />
-            <param name="primer_scheme_bedfile" value="test_entry" />
-            <conditional name="model_source">
-                <param name="source" value="datatable" />
-                <param name="model" value="test_model" />
-            </conditional>
-            <output name="consensus_fasta" file="SRR11410539_seqtk_sample_500_1.fastq.consensus.fasta" />
-        </test>
-        <!-- <test>
-            <param name="reference_source_selector" value="history" />
-            <param name="read_file" value="SRR11410539_seqtk_sample_500_1.fastq" />
             <param name="reference" value="reference.fasta" />
             <param name="primer_scheme_source_selector" value="history" />
-            <param name="primer_scheme_bedfile" value="primer.bed" />
+            <param name="primer_scheme_bedfile" value="primers.bed" />
+            <conditional name="model_source">
+                <param name="source" value="built-in" />
+                <param name="select_built_in" value="r941_prom_hac_g360+g422" />
+            </conditional>
+            <output name="consensus_fasta" file="test.fastq.consensus.fasta" />
+        </test>
+        <!-- Test: primer/reference selection from data table -->
+        <test>
+            <param name="read_file" value="test.fastq.gz" />
+            <param name="reference_source_selector" value="tool_data_table" />
+            <param name="reference" value="test_fasta" />
+            <param name="primer_scheme_source_selector" value="tool_data_table" />
+            <param name="primer_scheme_bedfile" value="test_bed" />
             <conditional name="model_source">
                 <param name="source" value="built-in"/>  
                 <param name="select_built_in" value="r941_prom_hac_g360+g422"/>
             </conditional>
-            <output name="consensus_fasta" file="SRR11410539_seqtk_sample_500_1.fastq.consensus.fasta" />
+            <output name="consensus_fasta" file="test.fastq.consensus.fasta" />
         </test>
+        <!-- Test: advanced input params -->
         <test>
-            <param name="reference_source_selector" value="tool_data_table" />
-            <param name="read_file" value="SRR11410539_seqtk_sample_500_1.fastq" />
-            <param name="reference" value="test_entry" />
-            <param name="primer_scheme_source_selector" value="tool_data_table" />
-            <param name="primer_scheme_bedfile" value="test_entry" />
-            <output name="consensus_fasta" file="SRR11410539_seqtk_sample_500_1.fastq.consensus.fasta" />
-        </test> -->
+            <param name="read_file" value="test.fastq.gz" />
+            <param name="reference_source_selector" value="history" />
+            <param name="reference" value="reference.fasta" />
+            <param name="primer_scheme_source_selector" value="history" />
+            <param name="primer_scheme_bedfile" value="primers.bed" />
+            <param name="min_mapq" value="15" />
+            <param name="min_depth" value="10" />
+            <param name="align_consensus" value="True" />
+            <conditional name="model_source">
+                <param name="source" value="built-in" />
+                <param name="select_built_in" value="r941_prom_hac_g360+g422" />
+            </conditional>
+            <output name="consensus_fasta" file="test.fastq.consensus.fasta" />
+        </test>
     </tests>
     <help><![CDATA[
-ARTIC_ minion aligns Nanopore reads that were generated from a tiling amplicon library against a viral reference sequence. 
-It generates a consensus fasta file and a vcf variant file.
+ARTIC minion is a pipeline for working with viral nanopore sequencing data, generated from tiling amplicon schemes. It is designed to help run the artic bioinformatics protocols; for example the `MPXV protocol`_.
 
-This tool is configured to use the experimental 'medaka' variant caller and must be supplied with the name of
-a model file to use with 'medaka', see the `medaka web page`_ for details.
+As of v1.5.1 Medaka is no longer used due to issues with long indels and has been replaced with `clair3`_ as the variant caller.
 
-.. _ARTIC: https://artic.readthedocs.io/en/latest/
-.. _medaka web page: https://github.com/nanoporetech/medaka#models
+ONT provides models for some latest or specific chemistries and basecallers through `Rerio`_. **Please note:** By using these models you agree to ONT licensing which you `can read here`_
 
-Note that you should choose an appropriate model for the medaka version used by ARTIC minion.
+**Where to find amplicon schemes?**
 
-==================  ==================
-  ARTIC version     medaka version
-==================  ==================
- 1.2.1                1.0.3
- 1.3.0-dev            1.2.3
-==================  ==================
+The central location for publically available amplicon schemes is the primalscheme website: https://labs.primalscheme.com/.
+
+Download the "primer.bed" and "reference.fasta" for input into this tool.
+
+**Amplicon Scheme Settings**
+
+Each amplicon scheme will require slighly different minimum and maximum read length settings. On the primalscheme website above, under "Scheme Details" look for the 'ampliconsize' value. Set the maximum value to the ampliconsize+100. If you are using the rapid kit, set the minimum to 200. For ligation kits, set the minimum read length to ampliconsize-200. For example, if the ampliconsize is 2500, maximum=2600, minimum(for ligation)=2300. 
+
+**Which clair3 model to choose?**
+
+See the Rerio repository for information on models:
+https://github.com/nanoporetech/rerio
+
+Another option is to inspect the fastq.gz files using a text editor. The chemistry and model will be in the fastq header.
+
+See the documentation on how to read model names https://github.com/nanoporetech/dorado/?tab=readme-ov-file#decoding-dorado-model-names
+
+The two most important segments are:
+Pore type - eg r1041 or r941. This referes to the R10 or older R9 flow cells.
+Model type - either fast, hac or sup. This is the model speed/accuracy.
+
+Choose the model that closest applies to your data.
+
+**Advanced pipeline parameters**
+For majority of users the parameter default values will result in a good consensus. You may wish to tweak the following parameters:
+
+- minimum mapping quality: The minimap2 mapping quality (phred) of reads against the specified reference.
+- normalise: Increase this value to include more reads in the consensus generation step. This is per amplicon per strand, a value of a 100 would equate to an effective depth of 200. 
+- primer match threshold: When matching a read to a primer site, the pipeline allows for some deviation from the primer location. This value represents the max nucleotide distance between primer site and alignment position.
+
+.. _MPXV protocol: https://artic.network/mpxv/mpxv-bioinformatics-sop.html 
+.. _clair3: https://github.com/HKU-BAL/Clair3
+.. _Rerio: https://github.com/nanoporetech/rerio
+.. _can read here: https://raw.githubusercontent.com/nanoporetech/rerio/refs/heads/master/LICENCE.txt
     ]]></help>
     <expand macro="citations" />
 </tool>
