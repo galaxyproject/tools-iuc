@@ -127,9 +127,11 @@ if (!is.null(opt$topX) && opt$topX != "") {
 
 # Generate bar plot
 if (!is.null(opt$x) && opt$x != "") {
-    p <- plot_bar(physeq, x = opt$x, fill = opt$fill)
+    p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
+        geom_bar(aes(color = NULL, fill = !!sym(opt$fill)), stat = "identity", position = "stack")
 } else {
-    p <- plot_bar(physeq, fill = opt$fill) # If no x is provided, don't include x
+    p <- plot_bar(physeq, fill = opt$fill) +
+        geom_bar(aes(color = NULL, fill = !!sym(opt$fill)), stat = "identity", position = "stack")
 }
 
 # Only facet if the facet variable is provided and exists in the sample data
@@ -140,6 +142,7 @@ if (!is.null(opt$facet) && opt$facet != "") {
         warning(paste("Facet variable", opt$facet, "does not exist in the sample data. Faceting will be skipped."))
     }
 }
+
 
 # Save to output file
 ggsave(
