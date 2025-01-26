@@ -81,8 +81,11 @@ if (opt$normalize) {
 }
 
 if (opt$keepNonAssigned) {
-    # Add synthetic "Not Assigned" for missing/NA taxa
+    # Replace missing/NA taxa with "Not Assigned"
     tax_table(physeq) <- apply(tax_table(physeq), c(1, 2), function(x) ifelse(is.na(x) | x == "", "Not Assigned", x))
+} else {
+    # Filter out "Not Assigned" taxa
+    physeq <- subset_taxa(physeq, !is.na(TaxaLevel) & TaxaLevel != "Not Assigned")
 }
 # Check if the 'x' and 'fill' variables are valid
 sample_vars <- colnames(sample_data(physeq))
