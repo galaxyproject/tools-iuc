@@ -128,10 +128,10 @@ if (!is.null(opt$topX) && opt$topX != "") {
 # Generate bar plot
 if (!is.null(opt$x) && opt$x != "") {
     p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
-        geom_bar(aes(color = NULL, fill = !!sym(opt$fill)), stat = "identity", position = "stack")
+        geom_bar(aes(color = NULL, fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
 } else {
     p <- plot_bar(physeq, fill = opt$fill) +
-        geom_bar(aes(color = NULL, fill = !!sym(opt$fill)), stat = "identity", position = "stack")
+        geom_bar(aes(color = NULL, fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
 }
 
 # Only facet if the facet variable is provided and exists in the sample data
