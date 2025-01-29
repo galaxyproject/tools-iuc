@@ -84,14 +84,17 @@ if (opt$normalize) {
 print("Available taxonomic ranks:")
 print(colnames(tax_table(physeq)))
 
-# Handle missing or unassigned taxa
+# Handle missing or unassigned taxa for all ranks
 if (opt$keepNonAssigned) {
+    # Replace NA or empty values with 'Not Assigned' for all ranks
     tax_table(physeq) <- apply(tax_table(physeq), c(1, 2), function(x) ifelse(is.na(x) | x == "", "Not Assigned", x))
 } else {
-    if ("Phylum" %in% colnames(tax_table(physeq))) {
-        physeq <- subset_taxa(physeq, !is.na(Phylum) & Phylum != "Not Assigned")
-    } else {
-        warning("Taxa filtering by 'Phylum' skipped: Column not found.")
+    # Loop over all taxonomic ranks and filter
+    tax_ranks <- colnames(tax_table(physeq))
+    for (rank in tax_ranks) {
+        if (rank %in% colnames(tax_table(physeq))) {
+            physeq <- subset_taxa(physeq, !is.na(tax_table(physeq)[, rank]) & tax_table(physeq)[, rank] != "Not Assigned")
+        }
     }
 }
 
@@ -127,8 +130,14 @@ if (!is.null(opt$topX) && opt$topX != "") {
 }
 
 # Generate bar plot
-p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
-    geom_bar(aes(fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
+
+if (!is.null(opt$x) && opt$x != "") {
+    p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
+        geom_bar(aes(fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
+} else {
+    p <- plot_bar(physeq, fill = opt$fill) +
+        geom_bar(aes(fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
+}
 
 if (!is.null(opt$facet) && opt$facet != "") {
     sample_vars <- colnames(sample_data(physeq))
