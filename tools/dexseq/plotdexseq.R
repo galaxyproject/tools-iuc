@@ -25,7 +25,9 @@ spec <- matrix(c(
     "transcripts", "t", 1, "logical",
     "names", "a", 1, "logical",
     "normcounts", "n", 1, "logical",
-    "splicing", "s", 1, "logical"
+    "splicing", "s", 1, "logical",
+    "pl_width", "w", 2, "integer",
+    "pl_height", "h", 2, "integer"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -38,7 +40,10 @@ if (!is.null(opt$genefile)) {
     genes <- opt$geneid
 }
 
-pdf("plot.pdf")
+pl_width <- pl_height <- 7
+if (!is.null(opt$pl_width)) pl_width <- opt$pl_width
+if (!is.null(opt$pl_height)) pl_height <- opt$pl_height
+pdf("plot.pdf", width=pl_width, height=pl_height)
 for (i in genes) {
     plotDEXSeq(res, i,
         FDR = opt$fdr, fitExpToVar = opt$primaryfactor,
