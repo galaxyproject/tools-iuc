@@ -91,8 +91,13 @@ print(colnames(tax_table(physeq)))
 # Handle missing or unassigned taxa for all ranks
 if (opt$keepNonAssigned) {
     # Replace NA or empty values with 'Not Assigned' for all ranks
-    tax_df[is.na(tax_df) | tax_df == ""] <- "Not Assigned"
-    tax_table(physeq) <- as.matrix(tax_df)
+    # Loop over all taxonomic ranks and filter
+    tax_ranks <- colnames(tax_table(physeq))
+    for (rank in tax_ranks) {
+        if (rank %in% colnames(tax_table(physeq))) {
+            physeq <- subset_taxa(physeq, !is.na(tax_table(physeq)[, rank]) & tax_table(physeq)[, rank] != "Not Assigned")
+        }
+    }
 }
 
 # Filter to top X taxa if requested
@@ -103,7 +108,7 @@ if (!is.null(opt$topX) && opt$topX != "") {
     }
 
     tax_rank <- opt$fill
-    if (!tax_rank %in% colnames(tax_df)) {
+    if (!tax_rank %in% colnames(tax_table(physeq))) {
         stop(paste("Error: Tax rank", tax_rank, "not found in tax_table."))
     }
 
