@@ -43,7 +43,7 @@ if (!is.null(opt$genefile)) {
 pl_width <- pl_height <- 7
 if (!is.null(opt$pl_width)) pl_width <- opt$pl_width
 if (!is.null(opt$pl_height)) pl_height <- opt$pl_height
-pdf("plot.pdf", width=pl_width, height=pl_height)
+pdf("plot.pdf", width = pl_width, height = pl_height)
 for (i in genes) {
     plotDEXSeq(res, i,
         FDR = opt$fdr, fitExpToVar = opt$primaryfactor,
