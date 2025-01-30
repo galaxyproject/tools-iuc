@@ -91,11 +91,12 @@ print(colnames(tax_table(physeq)))
 # Handle missing or unassigned taxa for all ranks
 if (opt$keepNonAssigned) {
     # Replace NA or empty values with 'Not Assigned' for all ranks
-    # Loop over all taxonomic ranks and filter
     tax_ranks <- colnames(tax_table(physeq))
+
     for (rank in tax_ranks) {
         if (rank %in% colnames(tax_table(physeq))) {
-            physeq <- subset_taxa(physeq, !is.na(tax_table(physeq)[, rank]) & tax_table(physeq)[, rank] != "Not Assigned")
+            # replace NA or empty values with 'Not Assigned'
+            tax_table(physeq)[, rank][is.na(tax_table(physeq)[, rank])] <- "Not Assigned"
         }
     }
 }
