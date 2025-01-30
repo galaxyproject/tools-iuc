@@ -54,6 +54,10 @@ option_list <- list(
     make_option(c("--device"),
         action = "store", dest = "device", default = "pdf",
         help = "Output format (e.g., 'pdf', 'png', 'jpeg')"
+    ),
+    make_option(c("--nolines"),
+        type = "logical", default = FALSE,
+        help = "Remove borders (lines) around bars (TRUE/FALSE)"
     )
 )
 
@@ -87,15 +91,8 @@ print(colnames(tax_table(physeq)))
 # Handle missing or unassigned taxa for all ranks
 if (opt$keepNonAssigned) {
     # Replace NA or empty values with 'Not Assigned' for all ranks
-    tax_table(physeq) <- apply(tax_table(physeq), c(1, 2), function(x) ifelse(is.na(x) | x == "", "Not Assigned", x))
-} else {
-    # Loop over all taxonomic ranks and filter
-    tax_ranks <- colnames(tax_table(physeq))
-    for (rank in tax_ranks) {
-        if (rank %in% colnames(tax_table(physeq))) {
-            physeq <- subset_taxa(physeq, !is.na(tax_table(physeq)[, rank]) & tax_table(physeq)[, rank] != "Not Assigned")
-        }
-    }
+    tax_df[is.na(tax_df) | tax_df == ""] <- "Not Assigned"
+    tax_table(physeq) <- as.matrix(tax_df)
 }
 
 # Filter to top X taxa if requested
@@ -106,7 +103,7 @@ if (!is.null(opt$topX) && opt$topX != "") {
     }
 
     tax_rank <- opt$fill
-    if (!tax_rank %in% colnames(tax_table(physeq))) {
+    if (!tax_rank %in% colnames(tax_df)) {
         stop(paste("Error: Tax rank", tax_rank, "not found in tax_table."))
     }
 
@@ -122,7 +119,7 @@ if (!is.null(opt$topX) && opt$topX != "") {
     otus_in_top_taxa <- rownames(tax_table_agg)[tax_table_agg[, tax_rank] %in% top_taxa]
 
     if (opt$keepOthers) {
-        tax_table(physeq_agg)[, tax_rank][!rownames(tax_table(physeq_agg)) %in% otus_in_top_taxa] <- "Others"
+        tax_table(physeq_agg)[, tax_rank][!rownames(tax_table_agg) %in% otus_in_top_taxa] <- "Others"
         physeq <- physeq_agg
     } else {
         physeq <- prune_taxa(otus_in_top_taxa, physeq_agg)
@@ -130,15 +127,21 @@ if (!is.null(opt$topX) && opt$topX != "") {
 }
 
 # Generate bar plot
-
 if (!is.null(opt$x) && opt$x != "") {
     p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
-        geom_bar(aes(fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
+        geom_bar(aes(fill = !!sym(opt$fill)),
+            stat = "identity", position = "stack",
+            color = ifelse(opt$nolines, NA, "black")
+        )
 } else {
     p <- plot_bar(physeq, fill = opt$fill) +
-        geom_bar(aes(fill = !!sym(opt$fill)), stat = "identity", position = "stack", color = NA)
+        geom_bar(aes(fill = !!sym(opt$fill)),
+            stat = "identity", position = "stack",
+            color = ifelse(opt$nolines, NA, "black")
+        )
 }
 
+# Optional: Add faceting if specified
 if (!is.null(opt$facet) && opt$facet != "") {
     sample_vars <- colnames(sample_data(physeq))
     if (opt$facet %in% sample_vars) {
