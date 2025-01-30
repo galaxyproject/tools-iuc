@@ -157,9 +157,20 @@ if (!is.null(opt$facet) && opt$facet != "") {
     }
 }
 
+# Ensure the file extension matches the device
+if (opt$device == "png" && !grepl("\\.png$", output_file, ignore.case = TRUE)) {
+    output_file <- paste0(tools::file_path_sans_ext(output_file), ".png")
+} else if (opt$device == "pdf" && !grepl("\\.pdf$", output_file, ignore.case = TRUE)) {
+    output_file <- paste0(tools::file_path_sans_ext(output_file), ".pdf")
+} else if (opt$device == "jpeg" && !grepl("\\.jpe?g$", output_file, ignore.case = TRUE)) {
+    output_file <- paste0(tools::file_path_sans_ext(output_file), ".jpg")
+} else if (opt$device == "tiff" && !grepl("\\.tiff?$", output_file, ignore.case = TRUE)) {
+    output_file <- paste0(tools::file_path_sans_ext(output_file), ".tiff")
+}
+
 # Save to output file
 ggsave(
-    filename = opt$output,
+    filename = output_file,
     plot = p,
     width = opt$width,
     height = opt$height,
