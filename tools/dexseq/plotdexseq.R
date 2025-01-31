@@ -45,6 +45,7 @@ if (!is.null(opt$pl_width)) pl_width <- opt$pl_width
 if (!is.null(opt$pl_height)) pl_height <- opt$pl_height
 pdf("plot.pdf", width = pl_width, height = pl_height)
 for (i in genes) {
+    par(oma = c(pl_height*0.2, pl_width*0.2, pl_height*0.2, pl_width*0.2))
     plotDEXSeq(res, i,
         FDR = opt$fdr, fitExpToVar = opt$primaryfactor,
         norCounts = opt$normcounts, expression = TRUE, splicing = opt$splicing,
