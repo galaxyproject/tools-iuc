@@ -157,10 +157,23 @@ if (!is.null(opt$facet) && opt$facet != "") {
     }
 }
 
+print(opt$output)
+print(opt$device)
+# check if the output file extension matches the chosen device
+file_extension <- tools::file_ext(opt$output)
+
+# If the output file extension does not match the chosen device, change the output file name
+if (file_extension != opt$device) {
+    output_file <- paste0(sub(paste0("\\.", file_extension), "", opt$output), ".", opt$device)
+} else {
+    output_file <- opt$output
+}
+
+print(output_file)
 
 # Save to output file
 ggsave(
-    filename = opt$output,
+    filename = output_file,
     plot = p,
     width = opt$width,
     height = opt$height,
