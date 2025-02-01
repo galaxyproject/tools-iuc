@@ -157,7 +157,6 @@ if (!is.null(opt$facet) && opt$facet != "") {
     }
 }
 
-
 # Save to output file
 ggsave(
     filename = opt$output,
