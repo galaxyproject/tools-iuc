@@ -29,11 +29,10 @@ def ipfp(data, precision=1e-5, maxIterations=50):
 	
 	# replace zeros with nan
 	if (data < 0).any():
-		throw_error("Negative values detected in quantification matrix. Are you using log-transformed ratio's? "
-						 "If so, use intensities instead.")
+		throw_error("Negative values detected, only use positive values.")
 	zeros = (data == 0)
 	if zeros.any():
-		print("Zeros in quantification matrix detected; replacing with NA.")
+		print("Zero values detected; replacing with NA.")
 		data = data.astype(float)
 		data[zeros] = np.nan
 	
