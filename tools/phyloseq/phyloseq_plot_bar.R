@@ -85,24 +85,31 @@ if (is.null(opt$output) || opt$output == "") {
 print(paste("Trying to read:", opt$input))
 physeq <- readRDS(opt$input)
 
+## Allow to use OTU as tax group
+# Extract rownames (taxids) from the tax_table and add them as a new column
+taxids <- rownames(tax_table(physeq))
+
+# Get the number of columns in the tax_table
+num_columns <- ncol(tax_table(physeq))
+
+# Add the taxids as a new last column in the tax_table
+tax_table(physeq) <- cbind(tax_table(physeq), taxid = taxids)
+
+# Optionally, rename the last column to 'ASV' / OTU does conflict with phyloseq logic
+colnames(tax_table(physeq))[num_columns + 1] <- "ASV"
+
 # Normalize to relative abundances if requested
 if (opt$normalize) {
     print("Normalizing abundances to sum to 100%...")
     physeq <- transform_sample_counts(physeq, function(x) 100 * x / sum(x))
 }
 
-if (opt$keepNonAssigned) {
-    tax_table(physeq) <- apply(tax_table(physeq), c(1, 2), function(x) ifelse(is.na(x) | x == "", "Not Assigned", x))
-}
-
-sample_vars <- colnames(sample_data(physeq))
-
 # Debug: Check available taxonomic ranks
 print("Available taxonomic ranks:")
 print(colnames(tax_table(physeq)))
 
 # Handle missing or unassigned taxa for all ranks
-if (!is.null(opt$keepNonAssigned) && opt$keepNonAssigned != "") {
+if (opt$keepNonAssigned) {
     # Replace NA or empty values with 'Not Assigned' for all ranks
     tax_ranks <- colnames(tax_table(physeq))
 
@@ -137,7 +144,9 @@ if (!is.null(opt$topX) && opt$topX != "") {
 
     otus_in_top_taxa <- rownames(tax_table_agg)[tax_table_agg[, tax_rank] %in% top_taxa]
 
-    if (!is.null(opt$keepOthers) && opt$keepOthers) {
+    # Group non-top OTUs as 'Others' if requested
+    if (opt$keepOthers) {
+        # Update the tax_table to assign 'Others' to non-top taxa
         tax_table(physeq_agg)[, tax_rank][!rownames(tax_table_agg) %in% otus_in_top_taxa] <- "Others"
         physeq <- physeq_agg
     } else {
@@ -176,7 +185,7 @@ if (!is.null(opt$normalize_x) && opt$normalize_x) {
 if (!is.null(opt$facet) && opt$facet != "") {
     sample_vars <- colnames(sample_data(physeq))
     if (opt$facet %in% sample_vars) {
-        p <- p + facet_wrap(as.formula(paste("~", opt$facet)))
+        p <- p + facet_wrap(as.formula(paste("~", opt$facet)), scales = "free_x")
     } else {
         warning(paste("Facet variable", opt$facet, "not found in sample data. Skipping faceting."))
     }
