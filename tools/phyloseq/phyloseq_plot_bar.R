@@ -7,8 +7,8 @@ suppressPackageStartupMessages(library("ggplot2"))
 
 # Define options
 option_list <- list(
-    make_option(c("--input"),
-        action = "store", dest = "input",
+        make_option(c("--input"),
+                action = "store", dest = "input",
         help = "Input file containing a phyloseq object"
     ),
     make_option(c("--x"),
