@@ -24,6 +24,10 @@ option_list <- list(
         action = "store", dest = "facet", default = NULL,
         help = "Facet by variable (optional)"
     ),
+    # make_option(c("--facet_free_x"),
+    #     action = "store", dest = "facet_free_x", default = NULL,
+    #     help = "Only show x with data in the facet"
+    # ),
     make_option(c("--output"),
         action = "store", dest = "output",
         help = "Output file (PDF)"
@@ -61,7 +65,7 @@ option_list <- list(
         help = "Output format (e.g., 'pdf', 'png', 'jpeg')"
     ),
     make_option(c("--nolines"),
-        type = "logical", default = FALSE,
+        action = "store_true", dest= "nolines", default = FALSE,
         help = "Remove borders (lines) around bars (TRUE/FALSE)"
     )
 )
@@ -105,16 +109,22 @@ if (opt$normalize) {
 }
 
 # Debug: Check available taxonomic ranks
+
+tax_ranks <- colnames(tax_table(physeq))
+sample_vars <- colnames(sample_data(physeq))
+
 print("Available taxonomic ranks:")
-print(colnames(tax_table(physeq)))
+print(tax_ranks)
+
+print("Available metadata:")
+print(sample_vars)
 
 # Handle missing or unassigned taxa for all ranks
 if (opt$keepNonAssigned) {
     # Replace NA or empty values with 'Not Assigned' for all ranks
-    tax_ranks <- colnames(tax_table(physeq))
-
+    
     for (rank in tax_ranks) {
-        if (rank %in% colnames(tax_table(physeq))) {
+        if (rank %in% tax_ranks) {
             # replace NA or empty values with 'Not Assigned'
             tax_table(physeq)[, rank][is.na(tax_table(physeq)[, rank])] <- "Not Assigned"
         }
@@ -154,45 +164,64 @@ if (!is.null(opt$topX) && opt$topX != "") {
     }
 }
 
-# Generate bar plot
-if (!is.null(opt$x) && opt$x != "") {
-    p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
-        geom_bar(aes(fill = !!sym(opt$fill)),
-            stat = "identity", position = "stack",
-            color = ifelse(opt$nolines, NA, "black")
-        )
-} else {
-    p <- plot_bar(physeq, fill = opt$fill) +
-        geom_bar(aes(fill = !!sym(opt$fill)),
-            stat = "identity", position = "stack",
-            color = ifelse(opt$nolines, NA, "black")
-        )
-}
 
-# Optional: Add faceting if specified
+
+# Check if the facet variable is valid and exists
+facet_var <- NULL
 if (!is.null(opt$facet) && opt$facet != "") {
-    sample_vars <- colnames(sample_data(physeq))
-    if (opt$facet %in% sample_vars) {
-        p <- p + facet_wrap(as.formula(paste("~", opt$facet)), scales = "free_x")
+    if (opt$facet %in% sample_vars || opt$facet %in% tax_ranks) {
+        facet_var <- opt$facet  # Store facet variable for later
     } else {
-        warning(paste("Facet variable", opt$facet, "not found in sample data. Skipping faceting."))
+        warning(paste("Facet variable", opt$facet, "not found in sample data or tax ranks. Skipping faceting."))
     }
 }
 
+# Determine if faceting is needed
+facet_formula <- if (!is.null(facet_var)) as.formula(paste("~", facet_var)) else NULL
 
-# Normalize within each x category if requested
-if (opt$normalize_x) {
-    p_data <- p$data %>%
-        group_by(!!sym(opt$x), !!sym(opt$fill), !!sym(opt$facet)) %>%
-        summarise(Abundance = sum(Abundance), .groups = "drop") %>%
-        group_by(!!sym(opt$x), !!sym(opt$facet)) %>% # include facet
-        mutate(Abundance = 100 * Abundance / sum(Abundance))
+# Define color based on the `nolines` option
+plot_color <- ifelse(opt$nolines, NA, "black")
 
-    p <- ggplot(p_data, aes(x = !!sym(opt$x), y = Abundance, fill = !!sym(opt$fill))) +
-        geom_bar(stat = "identity", position = "stack")
+
+# normalize the groups if needed
+# if (opt$normalize_x && !is.null(opt$x) && opt$x != "") {
+#     physeq_agg <- merge_samples(physeq, opt$x)
+#     physeq <- transform_sample_counts(physeq_agg, function(x) (x  / sum(x) * 100))
+# }
+
+# Generate bar plot
+if (!is.null(opt$x) && opt$x != "") {
+p <- plot_bar(physeq, 
+              x = opt$x, 
+              fill = opt$fill) + facet_wrap(facet_formula, scales="free_x") + 
+            geom_bar(stat = "identity", 
+           position = "stack", 
+           aes(fill = !!sym(opt$fill)), 
+           color = plot_color)
+
+} else {
+p <- plot_bar(physeq, 
+              fill = opt$fill) + facet_wrap(facet_formula, scales="free_x") +
+  geom_bar(stat = "identity", 
+           position = "stack", 
+           aes(fill = !!sym(opt$fill)), 
+           color = plot_color)
+
 }
 
+# Reorder fill levels to ensure "Not Assigned" and "Others" are at the bottom if they exist
+fill_values <- unique(p$data[[opt$fill]])  # Get unique fill values
+new_levels <- setdiff(fill_values, c("Not Assigned", "Others"))  # Exclude "Not Assigned" and "Others"
 
+if ("Not Assigned" %in% fill_values) {
+    new_levels <- c("Not Assigned", new_levels)  # Place "Not Assigned" at the bottom if it exists
+}
+if ("Others" %in% fill_values) {
+    new_levels <- c("Others", new_levels)  # Place "Others" at the bottom if it exists
+}
+
+# Apply the new levels to the fill variable in the plot data
+p$data[[opt$fill]] <- factor(p$data[[opt$fill]], levels = new_levels)
 
 # Save to output file
 ggsave(
