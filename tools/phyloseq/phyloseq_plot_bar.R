@@ -209,6 +209,19 @@ p <- plot_bar(physeq,
 
 }
 
+# ## Normalize after plotting 
+
+# # Extract the data used in the plot (if it's not already stored in a data frame)
+# # Modify the data directly (this is a placeholder for your plot data)
+# plot_data <- ggplot_build(p)$data[[1]]
+
+# # Normalize the y values (scale between 0 and 100)
+# plot_data$y <- (plot_data$y / max(plot_data$y)) * 100
+
+# # Update the plot object by modifying its data and re-rendering it
+# p$data <- plot_data  # Update the data in the existing plot object
+
+
 # Reorder fill levels to ensure "Not Assigned" and "Others" are at the bottom if they exist
 fill_values <- unique(p$data[[opt$fill]])  # Get unique fill values
 new_levels <- setdiff(fill_values, c("Not Assigned", "Others"))  # Exclude "Not Assigned" and "Others"
