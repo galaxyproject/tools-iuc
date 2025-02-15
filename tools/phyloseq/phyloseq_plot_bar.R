@@ -48,10 +48,6 @@ option_list <- list(
         action = "store_true", dest = "normalize", default = FALSE,
         help = "Normalize abundances to sum to 100% (optional)"
     ),
-    make_option(c("--normalize_x"),
-        action = "store_true", dest = "normalize_x", default = FALSE,
-        help = "Normalize each x category to 100% (optional)"
-    ),
     make_option(c("--width"),
         action = "store", dest = "width", default = 10,
         type = "numeric", help = "Width of the output plot in inches"
@@ -65,7 +61,7 @@ option_list <- list(
         help = "Output format (e.g., 'pdf', 'png', 'jpeg')"
     ),
     make_option(c("--nolines"),
-        action = "store_true", dest= "nolines", default = FALSE,
+        action = "store_true", dest = "nolines", default = FALSE,
         help = "Remove borders (lines) around bars (TRUE/FALSE)"
     )
 )
@@ -122,7 +118,7 @@ print(sample_vars)
 # Handle missing or unassigned taxa for all ranks
 if (opt$keepNonAssigned) {
     # Replace NA or empty values with 'Not Assigned' for all ranks
-    
+
     for (rank in tax_ranks) {
         if (rank %in% tax_ranks) {
             # replace NA or empty values with 'Not Assigned'
@@ -170,7 +166,7 @@ if (!is.null(opt$topX) && opt$topX != "") {
 facet_var <- NULL
 if (!is.null(opt$facet) && opt$facet != "") {
     if (opt$facet %in% sample_vars || opt$facet %in% tax_ranks) {
-        facet_var <- opt$facet  # Store facet variable for later
+        facet_var <- opt$facet # Store facet variable for later
     } else {
         warning(paste("Facet variable", opt$facet, "not found in sample data or tax ranks. Skipping faceting."))
     }
@@ -191,25 +187,29 @@ plot_color <- ifelse(opt$nolines, NA, "black")
 
 # Generate bar plot
 if (!is.null(opt$x) && opt$x != "") {
-p <- plot_bar(physeq, 
-              x = opt$x, 
-              fill = opt$fill) + facet_wrap(facet_formula, scales="free_x") + 
-            geom_bar(stat = "identity", 
-           position = "stack", 
-           aes(fill = !!sym(opt$fill)), 
-           color = plot_color)
-
+    p <- plot_bar(physeq,
+        x = opt$x,
+        fill = opt$fill
+    ) + facet_wrap(facet_formula, scales = "free_x") +
+        geom_bar(
+            stat = "identity",
+            position = "stack",
+            aes(fill = !!sym(opt$fill)),
+            color = plot_color
+        )
 } else {
-p <- plot_bar(physeq, 
-              fill = opt$fill) + facet_wrap(facet_formula, scales="free_x") +
-  geom_bar(stat = "identity", 
-           position = "stack", 
-           aes(fill = !!sym(opt$fill)), 
-           color = plot_color)
-
+    p <- plot_bar(physeq,
+        fill = opt$fill
+    ) + facet_wrap(facet_formula, scales = "free_x") +
+        geom_bar(
+            stat = "identity",
+            position = "stack",
+            aes(fill = !!sym(opt$fill)),
+            color = plot_color
+        )
 }
 
-# ## Normalize after plotting 
+# ## Normalize after plotting
 
 # # Extract the data used in the plot (if it's not already stored in a data frame)
 # # Modify the data directly (this is a placeholder for your plot data)
@@ -223,14 +223,14 @@ p <- plot_bar(physeq,
 
 
 # Reorder fill levels to ensure "Not Assigned" and "Others" are at the bottom if they exist
-fill_values <- unique(p$data[[opt$fill]])  # Get unique fill values
-new_levels <- setdiff(fill_values, c("Not Assigned", "Others"))  # Exclude "Not Assigned" and "Others"
+fill_values <- unique(p$data[[opt$fill]]) # Get unique fill values
+new_levels <- setdiff(fill_values, c("Not Assigned", "Others")) # Exclude "Not Assigned" and "Others"
 
 if ("Not Assigned" %in% fill_values) {
-    new_levels <- c("Not Assigned", new_levels)  # Place "Not Assigned" at the bottom if it exists
+    new_levels <- c("Not Assigned", new_levels) # Place "Not Assigned" at the bottom if it exists
 }
 if ("Others" %in% fill_values) {
-    new_levels <- c("Others", new_levels)  # Place "Others" at the bottom if it exists
+    new_levels <- c("Others", new_levels) # Place "Others" at the bottom if it exists
 }
 
 # Apply the new levels to the fill variable in the plot data
