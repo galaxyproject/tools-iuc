@@ -138,7 +138,8 @@ if __name__ == '__main__':
                 value=model,
                 platform="ont",
                 sha256=sha256sum,
-                path=str(model_dir)
+                path=str(model_dir),
+                source="rerio"
             )
         )
 
