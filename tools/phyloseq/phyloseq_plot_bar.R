@@ -167,20 +167,18 @@ if (!is.null(opt$topX) && opt$topX != "") {
 
 
 # normalize x groups if needed
-if (opt$x %in% sample_vars){
-
+if (opt$x %in% sample_vars) {
     if (opt$normalize_x && !is.null(opt$x) && opt$x != "") {
         physeq_agg <- merge_samples(physeq, opt$x)
 
-        physeq <- transform_sample_counts(physeq_agg, function(x) (x  / sum(x) * 100))
-        opt$x <- NULL # set to Null since we do not need x for downstream now   
+        physeq <- transform_sample_counts(physeq_agg, function(x) (x / sum(x) * 100))
+        opt$x <- NULL # set to Null since we do not need x for downstream now
         opt$facet <- NULL # set to Null since facetting does not work with normalize x
         warning(paste("normalize x does not work with facetting"))
-
     }
-    } else {
-        warning(paste("x", opt$x, "not found in sample data. Skipping normalize_x."))
-    }
+} else {
+    warning(paste("x", opt$x, "not found in sample data. Skipping normalize_x."))
+}
 
 
 # Check if the facet variable is valid and exists
