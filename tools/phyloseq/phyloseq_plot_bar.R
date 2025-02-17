@@ -24,10 +24,6 @@ option_list <- list(
         action = "store", dest = "facet", default = NULL,
         help = "Facet by variable (optional)"
     ),
-    # make_option(c("--facet_free_x"),
-    #     action = "store", dest = "facet_free_x", default = NULL,
-    #     help = "Only show x with data in the facet"
-    # ),
     make_option(c("--output"),
         action = "store", dest = "output",
         help = "Output file (PDF)"
@@ -47,6 +43,10 @@ option_list <- list(
     make_option(c("--normalize"),
         action = "store_true", dest = "normalize", default = FALSE,
         help = "Normalize abundances to sum to 100% (optional)"
+    ),
+    make_option(c("--normalize_x"),
+        action = "store_true", dest = "normalize_x", default = FALSE,
+        help = "Normalize x groups to sum up to 100%"
     ),
     make_option(c("--width"),
         action = "store", dest = "width", default = 10,
@@ -81,6 +81,11 @@ if (is.null(opt$output) || opt$output == "") {
     stop("Error: Output file is required.")
 }
 
+if (is.null(opt$fill) || opt$fill == "") {
+    print(paste("No fill chosen using ASV"))
+    opt$fill <- "ASV"
+}
+
 # Load phyloseq object
 print(paste("Trying to read:", opt$input))
 physeq <- readRDS(opt$input)
@@ -95,7 +100,7 @@ num_columns <- ncol(tax_table(physeq))
 # Add the taxids as a new last column in the tax_table
 tax_table(physeq) <- cbind(tax_table(physeq), taxid = taxids)
 
-# Optionally, rename the last column to 'ASV' / OTU does conflict with phyloseq logic
+# Rename the last column to 'ASV' / OTU does conflict with phyloseq logic
 colnames(tax_table(physeq))[num_columns + 1] <- "ASV"
 
 # Normalize to relative abundances if requested
@@ -161,6 +166,22 @@ if (!is.null(opt$topX) && opt$topX != "") {
 }
 
 
+# normalize x groups if needed
+if (opt$x %in% sample_vars){
+
+    if (opt$normalize_x && !is.null(opt$x) && opt$x != "") {
+        physeq_agg <- merge_samples(physeq, opt$x)
+
+        physeq <- transform_sample_counts(physeq_agg, function(x) (x  / sum(x) * 100))
+        opt$x <- NULL # set to Null since we do not need x for downstream now   
+        opt$facet <- NULL # set to Null since facetting does not work with normalize x
+        warning(paste("normalize x does not work with facetting"))
+
+    }
+    } else {
+        warning(paste("x", opt$x, "not found in sample data. Skipping normalize_x."))
+    }
+
 
 # Check if the facet variable is valid and exists
 facet_var <- NULL
@@ -177,13 +198,6 @@ facet_formula <- if (!is.null(facet_var)) as.formula(paste("~", facet_var)) else
 
 # Define color based on the `nolines` option
 plot_color <- ifelse(opt$nolines, NA, "black")
-
-
-# normalize the groups if needed
-# if (opt$normalize_x && !is.null(opt$x) && opt$x != "") {
-#     physeq_agg <- merge_samples(physeq, opt$x)
-#     physeq <- transform_sample_counts(physeq_agg, function(x) (x  / sum(x) * 100))
-# }
 
 # Generate bar plot
 if (!is.null(opt$x) && opt$x != "") {
@@ -208,18 +222,6 @@ if (!is.null(opt$x) && opt$x != "") {
             color = plot_color
         )
 }
-
-# ## Normalize after plotting
-
-# # Extract the data used in the plot (if it's not already stored in a data frame)
-# # Modify the data directly (this is a placeholder for your plot data)
-# plot_data <- ggplot_build(p)$data[[1]]
-
-# # Normalize the y values (scale between 0 and 100)
-# plot_data$y <- (plot_data$y / max(plot_data$y)) * 100
-
-# # Update the plot object by modifying its data and re-rendering it
-# p$data <- plot_data  # Update the data in the existing plot object
 
 
 # Reorder fill levels to ensure "Not Assigned" and "Others" are at the bottom if they exist
