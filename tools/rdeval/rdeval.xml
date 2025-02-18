@@ -1,0 +1,250 @@
+<tool id="rdeval" name="rdeval" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Multithreaded read analysis and manipulation tool.</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    #import re
+    #set $mangled_inputs = []
+    #for $input in $input_reads
+        #set $mangled_base = re.sub(r"[^\w\-\s]", "_", str($input.element_identifier))
+        #set $mangled_input = $mangled_base + "." + str($input.ext)
+        #silent $mangled_inputs.append($mangled_input)
+        ln -s '$input' '$mangled_input' &&
+    #end for
+    #if $output_options.output_type.type_selector == "combined_reads"
+        ln -s '$reads_outfile' 'output.${output_type.format_selector}' &&
+    #end if  
+	rdeval --input-reads #echo " ".join([f"'{input}'" for $input in $mangled_inputs])
+	#if $expected_gsize
+		'$expected_gsize'
+	#end if
+	#if $input_filter.filter_selector == "exclude_file"
+		--exclude-list '$exclude_file'
+	#else if $input_filter.filter_selector == "include_file"
+		--include-list '$include_file'
+	#end if
+    #if $filter
+		--filter '$filter'
+    #end if
+		--sample '$sample'
+	#if $input_subsample.seed_selector == "yes"
+		--random-seed '$random_seed'
+	#end if
+	#if $input_compress.compress_selector == "yes"
+		--homopolymer-compress '$homopolymer_compress'
+	#end if
+    #if $stats_flavor.flavor_selector == "stats"
+        #if $sequence_report
+            --sequence-report
+        #end if
+    #else if $stats_flavor.flavor_selector == "quality"
+		--quality '$quality'
+    #else if $stats_flavor.flavor_selector == "size"
+		--out-size '$out_size'
+    #end if
+    #if $output_options.output_type.type_selector == "rd_file"
+        #if $md5
+            --md5
+        #end if
+        -o output.rd
+    #else if $output_options.output_type.type_selector == "combined_reads"
+        -o 'output.${output_type.format_selector}'
+    #end if
+	#if $verbose
+		--verbose
+	#end if
+		--tabular
+		--threads \${GALAXY_SLOTS:-2}
+		> '$stats_outfile'
+	]]></command>
+    <inputs>
+        <param argument="--input-reads" type="data" format="bam,cram,fasta,fasta.gz,fastq,fastq.gz" multiple="true" label="Input dataset" help="FASTA/FASTQ, BAM, or CRAM files."/>
+        <param name="expected_gsize" type="integer" label="Expected Genome Size" optional="true" help="Integer (e.g., 3000000000 for human)."/>
+        <section name="input_filter" title="Filter input reads" expanded="false">
+            <conditional name="file_filter">
+                <param name="filter_selector" type="select" label="Use an exclude or include file">
+                    <option value="no_file" selected="true">no</option>
+                    <option value="exclude_file">Use an exclude file</option>
+                    <option value="include_file">Use an include file</option>
+                </param>
+                <when value="no_file"/>
+                <when value="exclude_file">
+                    <param argument="--exclude-list" type="data" format="txt" optional="true" label="File containing headers to exclude"/>
+                </when>
+                <when value="include_file">
+                    <param argument="--include-list" type="data" format="txt" optional="true" label="File containing headers to include"/>
+                </when>
+            </conditional>
+            <param argument="--filter" type="text" optional="true" label="filter" help="e.g. l&gt;1000 &amp; q&gt;20"/>
+        </section>
+        <section name="input_subsample" title="Subsample input reads" expanded="false">
+            <param argument="--sample" type="float" min="0" max="1" value="1" label="fraction of reads to subsample"/>
+            <conditional name="random_seed">
+                <param name="seed_selector" type="select" label="supply random seed to make subsampling reproducible">
+                    <option value="no" selected="true">no</option>
+                    <option value="yes">yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param argument="--random-seed" type="integer" min="0" value="0" label="random seed to make subsampling reproducible"/>
+                </when>
+            </conditional>
+        </section>
+        <conditional name="input_compress">
+            <param name="compress_selector" type="select" label="Compress homopolymers">
+                <option value="no" selected="true">no</option>
+                <option value="yes">yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param argument="--homopolymer-compress" type="integer" min="0" label="Compress homopolymers longer than n in the input"/>
+            </when>
+        </conditional>
+        <section name="output_options" title="Output options">
+            <conditional name="stats_flavor">
+                <param name="flavor_selector" type="select" label="Stats output">
+                    <option value="stats" selected="true">Stats</option>
+                    <option value="quality">Quality</option>
+                    <option value="size">Size</option>
+                </param>
+                <when value="stats">
+                    <param argument="--sequence-report" type="boolean" checked="false" label="Per read sequence report"/>
+                </when>
+                <when value="quality">
+                    <param argument="--quality" type="select" optional="true" label="quality type">
+                        <option value="q" selected="true">Average quality for each read</option>
+                        <option value="a">Both length and quality for each read</option>
+                    </param>
+                </when>
+                <when value="size">
+                    <param argument="--out-size" type="select" optional="true" label="size list type">
+                        <option value="u" selected="true">unsorted</option>
+                        <option value="s">sorted</option>
+                        <option value="h">histogram</option>
+                        <option value="c">inverse cumulative table</option>
+                    </param>
+                </when>
+            </conditional>
+            <conditional name="output_type">
+                <param name="type_selector" type="select" label="output type">
+                    <option value="rd_file" selected="true">RD file</option>
+                    <option value="combined_reads">Combined reads</option>
+                </param>
+                <when value="combined_reads">
+                    <param name="format_selector" type="select" optional="true" label="Output format">
+                        <option value="fasta.gz" selected="true">fasta</option>
+                        <option value="fastq.gz">fastq</option>
+                        <option value="bam">bam</option>
+                        <option value="cram">cram</option>
+                    </param>
+                </when>
+                <when value="rd_file">
+                    <param argument="--md5" type="boolean" checked="false" label="Print md5 of .rd files"/>
+                </when>
+            </conditional>
+            <param argument="--verbose" type="boolean" checked="false" label="Verbose output"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="stats_outfile" format="tabular" label="Rdeval summary"/>
+        <data name="rd_outfile" from_work_dir="output.rd" format="binary" label="RD File">
+            <filter>output_options["output_type"]["type_selector"] == "rd_file"</filter>
+        </data>
+        <data name="reads_outfile" format="binary" label="Output reads">
+            <filter>output_options["output_type"]["type_selector"] == "combined_reads"</filter>
+            <change_format>
+                <when input="format_selector" value="fasta.gz" format="fasta.gz"/>
+                <when input="format_selector" value="fastq.gz" format="fastq.gz"/>
+                <when input="format_selector" value="bam" format="bam"/>
+                <when input="format_selector" value="cram" format="cram"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_reads" value="test1.fasta.gz" ftype="fasta.gz"/>
+            <output name="stats_outfile" file="output1.tabular" ftype="tabular"/>
+            <output name="rd_outfile" ftype="binary">
+                <assert_contents>
+                    <has_size size="109" delta="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_reads" value="test1.fastq.gz" ftype="fastq.gz"/>
+            <output name="stats_outfile" file="output1.tabular" ftype="tabular" lines_diff="2"/>
+            <output name="rd_outfile" ftype="binary">
+                <assert_contents>
+                    <has_size size="128" delta="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_reads" value="test2.bam" ftype="bam"/>
+            <param name="type_selector" value="combined_reads"/>
+            <output name="stats_outfile" file="output2.tabular" ftype="tabular"/>
+            <param name="format_selector" value="fastq.gz"/>
+            <output name="reads_outfile" file="output2.fastq.gz" ftype="fastq.gz"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**rdeval** is a general-purpose, multithreaded tool for analyzing and manipulating reads (FASTA/FASTQ/BAM/CRAM/RD).
+
+        rdeval input.fa*[.gz]|bam|cram|rd [expected genome size]
+
+::
+
+	Dataset report example:
+
+	+++Read summary+++:
+	# reads: 10000
+	Total read length: 134014104
+	Average read length: 13401.41
+	Read N50: 14270
+	Smallest read length: 1142
+	Largest read length: 40910
+	Coverage: inf
+	GC content %: 43.78
+	Base composition (A:C:T:G): 37693226:29331833:37655925:29333120
+	Average per base quality: 26.47
+
+::
+	
+	Per sequence/read report (--sequence-report) example:
+
+	Header  Comment Length  A       C       G       T       N       GC      Average Quality
+	m54306U_210528_154706/69206614/ccs              22812   6170    5146    4802    6694    0       0.44    89.9705
+	m54306U_210528_154706/25888573/ccs              32200   9162    7270    7112    8656    0       0.45    56.8306
+	m54306U_210528_154706/40634168/ccs              8487    2443    1858    1876    2310    0       0.44    90.3828
+	m54306U_210528_154706/103745617/ccs             16496   4546    3752    3760    4438    0       0.46    88.3554
+
+::
+
+	Options:
+	--sequence-report generates a per-read report
+	-e --exclude-list <file> generates output on a excluding list of headers.
+	-f --filter <exp> filter reads using <exp> in quotes, e.g. 'l>10' for longer than 10bp or 'l>10 & q>10' to further exclude reads by quality (default: none).
+	-i --include-list <file> generates output on a subset list of headers.
+	-o --out-format <file> output file (fa*[.gz], bam, cram, rd). Optionally write reads to file or generate rd summary file.
+	-q --quality q|a generates list of average quality for each read (q) or both length and quality (a).
+	-r --input-reads <file1> <file2> <file n> input file (fa*[.gz], bam, cram, rd).
+	-s --out-size u|s|h|c  generates size list (unsorted|sorted|histogram|inverse cumulative table).
+	--homopolymer-compress <int> compress all the homopolymers longer than n in the input.
+	--sample <float> fraction of reads to subsample.
+	--random-seed <int> an optional random seed to make subsampling reproducible.
+	--md5 print md5 of .rd files.
+	--tabular tabular output.
+	--verbose verbose output.
+	-j --threads <int> numbers of threads (default:5).
+	-v --version software version.
+	--cmd print $0 to stdout.
+
+**Attribution**
+
+This tool relies on the gfastar suite and the gfalibs toolkit `vgl-hub/gfalibs <https://github.com/vgl-hub/gfalibs>`_, developed by Giulio Formenti at the Rockefeller University
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
