@@ -1,6 +1,6 @@
+import json
 import os
 import sys
-import json
 
 fun_db = sys.argv[1]
 fun_db_value = sys.argv[2]
@@ -42,7 +42,7 @@ for f in os.scandir(os.path.join(fun_db, "outgroups")):
     content.append({'value': value, 'name': name, 'select': 'outgroup', 'db_value': fun_db_value})
 
 with open(dmjson, "w") as fh:
-    json.dump({"data_tables":{"funannotate_options":content}}, fh)
+    json.dump({"data_tables": {"funannotate_options": content}}, fh)
 
 print(f'{len([c for c in content if c["select"]=="busco_db"])} x busco_db\n')
 print(f'{len([c for c in content if c["select"]=="trained_species"])} x trained_species\n')
