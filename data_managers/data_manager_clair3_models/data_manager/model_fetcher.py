@@ -26,7 +26,6 @@ def find_latest_models():
         config_line_seen = False
         read_lines = False
         models = []
-        break1 = 0
         # the file that we are parsing has a section that looks like this:
         # Clair3 Models
         # -------------
