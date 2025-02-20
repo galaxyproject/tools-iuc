@@ -22,25 +22,49 @@ def find_latest_models():
             raise IOError(f'Failed to fetch the latest models: {response.status}')
         data = response.read().decode('utf-8')
         init_line_seen = False
+        latest_seen = False
         config_line_seen = False
         read_lines = False
         models = []
         break1 = 0
+        # the file that we are parsing has a section that looks like this:
+        # Clair3 Models
+        # -------------
+
+        # Clair3 models for the following configurations are available:
+
+        # Latest:
+
+        # ========================== =================== =======================
+        # Config                     Chemistry           Dorado basecaller model
+        # ========================== =================== =======================
+        # r1041_e82_400bps_sup_v500  R10.4.1 E8.2 (5kHz) v5.0.0 SUP
+        # r1041_e82_400bps_hac_v500  R10.4.1 E8.2 (5kHz) v5.0.0 HAC
+        # r1041_e82_400bps_sup_v410  R10.4.1 E8.2 (4kHz) v4.1.0 SUP
+        # r1041_e82_400bps_hac_v410  R10.4.1 E8.2 (4kHz) v4.1.0 HAC
+        # ========================== =================== =======================
+        #
+        # and the aim is to extract the list of model names from the table by successfully looking for
+        # "Clair3 Models", then "Latest:", then "Config" and then "=====" and then reading the lines until
+        # the next "=====" is encountered
         for line in StringIO(data):
             if read_lines:
-                if line.startswith('=========================='):
+                if line.startswith('====='):
                     read_lines = False
                     break
                 model = line[:break1 - 1]
                 models.append(model)
-            if config_line_seen and line.startswith('=========================='):
-                break1 = line.find(' ')
+            if config_line_seen and line.startswith('====='):
+                break1 = line.find(' ')  # the first space is the break between the model name column and the rest of the line
                 read_lines = True
                 continue
-            if init_line_seen and line.startswith('Config'):
+            if init_line_seen and line.startswith('Latest:'):
+                latest_seen = True
+                continue
+            if latest_seen and line.startswith('Config'):
                 config_line_seen = True
                 continue
-            if line.startswith('Clair3 models for the following configurations are available:'):
+            if line.startswith('Clair3 Models'):
                 init_line_seen = True
                 continue
         return models
