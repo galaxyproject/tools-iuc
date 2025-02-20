@@ -52,10 +52,9 @@ def find_latest_models():
                 if line.startswith('====='):
                     read_lines = False
                     break
-                model = line[:break1 - 1]
+                model = line.split()[0]
                 models.append(model)
             if config_line_seen and line.startswith('====='):
-                break1 = line.find(' ')  # the first space is the break between the model name column and the rest of the line
                 read_lines = True
                 continue
             if init_line_seen and line.startswith('Latest:'):
