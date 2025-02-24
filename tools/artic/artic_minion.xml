@@ -1,4 +1,4 @@
-<tool id="artic_minion" name="ARTIC minion" version="@TOOL_VERSION@+galaxy0" profile="20.09">
+<tool id="artic_minion" name="ARTIC minion" version="@TOOL_VERSION@+galaxy1" profile="23.2">
     <description>Build consensus sequence and call variants from amplicon-based nanopore sequence data</description>
     <macros>
         <import>macros.xml</import>
@@ -23,25 +23,35 @@
             mv \$OUTNAME clair3_model &&
         #end if
 
-        #if str( $primer_scheme_source.primer_scheme_source_selector ) == "tool_data_table":
-          ln -s '${primer_scheme_source.bed.fields.path}' 'primer.bed' &&
-        #else:
-          ln -s '${primer_scheme_source.bed}' 'primer.bed' &&
-        #end if
+        #if str( $fetch_primer_scheme.fetch ) == "no":
+            #if str( $fetch_primer_scheme.primer_scheme_source.primer_scheme_source_selector ) == "tool_data_table":
+            ln -s '${fetch_primer_scheme.primer_scheme_source.bed.fields.path}' primer.bed &&
+            #else:
+            ln -s '${fetch_primer_scheme.primer_scheme_source.bed}' primer.bed &&
+            #end if
 
-        #if str( $reference_source.reference_source_selector ) == "history":
-          ln -s '${reference_source.reference}' 'reference.fasta' &&
-          samtools faidx 'reference.fasta' &&
-        #else:
-          ln -s '${reference_source.reference.fields.path}' 'reference.fasta' &&
-          samtools faidx 'reference.fasta' &&
+            #if str( $fetch_primer_scheme.reference_source.reference_source_selector ) == "history":
+            ln -s '${fetch_primer_scheme.reference_source.reference}' reference.fasta &&
+            samtools faidx reference.fasta &&
+            #else:
+            ln -s '${fetch_primer_scheme.reference_source.reference.fields.path}' reference.fasta &&
+            samtools faidx reference.fasta &&
+            #end if
         #end if
 
         artic minion
             --read-file '${read_file}'
             --threads \${GALAXY_SLOTS:-1}
+        #if str( $fetch_primer_scheme.fetch ) == "yes":
+            --scheme-name '${fetch_primer_scheme.scheme_name}'
+            --scheme-version '${fetch_primer_scheme.scheme_version}'
+            #if $fetch_primer_scheme.scheme_length > 0:
+                --scheme-length ${fetch_primer_scheme.scheme_length}
+            #end if
+        #else
             --bed primer.bed
             --ref reference.fasta
+        #end if
             --model-dir .
             --model clair3_model
 
@@ -71,9 +81,9 @@
         label="Minimum mapping score"
         help="Minimum mapping quality to consider (default: 20)"/>
         
-        <param argument="--normalise" type="integer" min="0" value="400"
+        <param argument="--normalise" type="integer" min="0" value="100"
         label="Coverage normalisation depth"
-        help="Sample at most this number of reads per amplicon and strand. Set to 0 to use all available data" />
+        help="Sample at most this number of reads per amplicon and strand. Set to 0 to use all available data (default: 100)" />
         
         <param argument="--primer-match-threshold" type="integer" value="35"
         label="Primer Match Threshold"
@@ -87,45 +97,64 @@
         label="Align Consensus to reference"
         help="Run a MAFFT to align consensus to reference" />
 
-        <!-- Primer selection -->
-        <conditional name="primer_scheme_source">
-            <param name="primer_scheme_source_selector" type="select"
-            label="Select primer file"
-            help="See Help section below for how to find primer scheme data files.">
-                <option value="tool_data_table">From tool data table</option>
-                <option value="history">From history</option>
+        <!-- Primer and Reference fetching -->
+        
+        <conditional name="fetch_primer_scheme">
+            <param name="fetch" type="select" label="Fetch primer BED and reference"
+                help="Fetch primer BED and reference FASTA from labs.primalscheme.com for the specified amplicon scheme. This is recommended for schemes (e.g. artic-inrb-mpox) that have a dynamically selected reference">
+                <option value="yes" selected="true">Yes</option>
+                <option value="no">No</option>
             </param>
-            <when value="tool_data_table">
-                <param name="bed" type="select" format="tabular" label="Primer Scheme">
-	            <options from_data_table="primer_scheme_bedfiles">
-	                <validator type="no_options" message="No primer.bed files are available" />
-                </options>
-	        </param>
+            <when value="yes">
+                <param argument="--scheme-name" type="text" label="Amplicon scheme name" optional="false"
+                    help="Name of the amplicon scheme on labs.primalscheme.com to fetch primer BED and reference for" />
+                <param argument="--scheme-version" type="text" label="Amplicon scheme version" optional="false"
+                    help="Version of the amplicon scheme on labs.primalscheme.com in format vX.X.X" />
+                <param argument="--scheme-length" type="integer" value="0" min="0" label="Amplicon scheme amplicon length"
+                    help="Length of the amplicons in the scheme. Only required if the scheme named has multiple lengths" />
             </when>
-            <when value="history">
-                <param name="bed" type="data" format="tabular" label="Primer Scheme" 
-                help="Primer scheme bed file" />
-            </when>
-        </conditional>
+            <when value="no">
+                <!-- Primer selection -->
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" type="select"
+                    label="Select primer file"
+                    help="See Help section below for how to find primer scheme data files.">
+                        <option value="tool_data_table">From tool data table</option>
+                        <option value="history">From history</option>
+                    </param>
+                    <when value="tool_data_table">
+                        <param name="bed" type="select" format="tabular" label="Primer Scheme">
+                        <options from_data_table="primer_scheme_bedfiles">
+                            <validator type="no_options" message="No primer.bed files are available" />
+                        </options>
+                    </param>
+                    </when>
+                    <when value="history">
+                        <param name="bed" type="data" format="tabular" label="Primer Scheme" 
+                        help="Primer scheme bed file" />
+                    </when>
+                </conditional>
 
-        <!-- reference selection -->
-        <conditional name="reference_source">
-            <param name="reference_source_selector" type="select" format="fasta"
-            label="Will you select a reference genome from your history or use a built-in reference?" >
-                <option value="cached">Use a built-in reference</option>
-                <option value="history">Use a reference from history</option>
-            </param>
-            <when value="cached">
-                <param name="reference" type="select" label="Using reference genome" help="Select genome from the list">
-                    <options from_data_table="all_fasta">
-                        <filter type="sort_by" column="2" />
-                        <validator type="no_options" message="No references are available" />
-                    </options>
-                </param>
-            </when>
-            <when value="history">
-                <param name="reference" type="data" format="fasta" label="Use the following dataset as the reference sequence"
-                       help="You can upload a FASTA sequence to the history and use it as reference" />
+                <!-- reference selection -->
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" type="select" format="fasta"
+                    label="Will you select a reference genome from your history or use a built-in reference?" >
+                        <option value="cached">Use a built-in reference</option>
+                        <option value="history">Use a reference from history</option>
+                    </param>
+                    <when value="cached">
+                        <param name="reference" type="select" label="Using reference genome" help="Select genome from the list">
+                            <options from_data_table="all_fasta">
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No references are available" />
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="reference" type="data" format="fasta" label="Use the following dataset as the reference sequence"
+                            help="You can upload a FASTA sequence to the history and use it as reference" />
+                    </when>
+                </conditional>
             </when>
         </conditional>
 
@@ -178,10 +207,17 @@
         <!-- Test: built in model selection, primer/reference selection from history -->
         <test>
             <param name="read_file" value="test.fastq.gz" />
-            <param name="reference_source_selector" value="history" />
-            <param name="reference" value="reference.fasta" />
-            <param name="primer_scheme_source_selector" value="history" />
-            <param name="bed" value="primers.bed" />
+            <conditional name="fetch_primer_scheme">
+                <param name="fetch" value="no" />
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" value="history" />
+                    <param name="bed" value="primers.bed" />
+                </conditional>
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="history" />
+                    <param name="reference" value="reference.fasta" />
+                </conditional>
+            </conditional>
             <conditional name="model_source">
                 <param name="source" value="built-in" />
                 <param name="select_built_in" value="r941_prom_hac_g360+g422" />
@@ -204,11 +240,18 @@
         </test>
         <!-- Test: primer/reference selection from data table -->
         <test>
+            <conditional name="fetch_primer_scheme">
+                <param name="fetch" value="no" />
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" value="tool_data_table" />
+                    <param name="bed" value="test_bed" />
+                </conditional>
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="tool_data_table" />
+                    <param name="reference" value="test_fasta" />
+                </conditional>
+            </conditional>
             <param name="read_file" value="test.fastq.gz" />
-            <param name="reference_source_selector" value="tool_data_table" />
-            <param name="reference" value="test_fasta" />
-            <param name="primer_scheme_source_selector" value="tool_data_table" />
-            <param name="bed" value="test_bed" />
             <conditional name="model_source">
                 <param name="source" value="built-in"/>
                 <param name="select_built_in" value="r941_prom_hac_g360+g422"/>
@@ -232,10 +275,17 @@
         <!-- Test: advanced input params -->
         <test>
             <param name="read_file" value="test.fastq.gz" />
-            <param name="reference_source_selector" value="history" />
-            <param name="reference" value="reference.fasta" />
-            <param name="primer_scheme_source_selector" value="history" />
-            <param name="bed" value="primers.bed" />
+            <conditional name="fetch_primer_scheme">
+                <param name="fetch" value="no" />
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" value="history" />
+                    <param name="bed" value="primers.bed" />
+                </conditional>
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="history" />
+                    <param name="reference" value="reference.fasta" />
+                </conditional>
+            </conditional>
             <param name="min_mapq" value="20" />
             <param name="min_depth" value="10" />
             <param name="align_consensus" value="True" />
