@@ -1,7 +1,7 @@
 <tool id="autobigs-cli" name="autoBIGS.cli" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
     <description>Automated MLST typing</description>
     <macros>
-        <token name="@TOOL_VERSION@">0.5.0</token>
+        <token name="@TOOL_VERSION@">0.6.0</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <import>macros.xml</import>
         <expand macro="bio_tools"/>
@@ -13,46 +13,63 @@
 
     <command detect_errors="exit_code"><![CDATA[
             #if $mode.operation == "info":
-                #if $mode.select_info.retrieved == "schemes":
-                    autoBIGS info --retrieve-bigsdb-schemas
-                    #for $scheme in $mode.select_info.schemes_list
-                        '${scheme.selected_db}'
-                    #end for
-                    --csv '$info_schemes_out'
-                #else if $mode.select_info.retrieved == "databases":
-                    autoBIGS info --retrieve-bigsdbs --csv $info_db_out
-                #end if
+                autoBIGS info --retrieve-bigsdb-schemas '$database_origin.bigsdb' --csv '$info_schemes_out'
             #else if $mode.operation == "st":
-                autoBIGS st '$fasta' '$seqdefdb' $schema '$mlst_profiles_output' $stop_on_fail
+                autoBIGS st '$fasta' '$database_origin.bigsdb' '$mode.scheme' '$mlst_profiles_output' $stop_on_fail
             #end if
     ]]></command>
     <inputs>
+        <conditional name="database_origin">
+            <param name="origin_select" label="Database Origin" type="select" help="The origin of the database to be accessed" optional="false">
+                <option value="pubmlst" selected="true">PubMLST</option>
+                <option value="institutpasteur">Institut Pasteur</option>
+            </param>
+            <when value="pubmlst">
+                <param name="bigsdb" label="PubMLST Database" type="select" help="Select from a list of sequence definition databases hosted by pubMLST." optional="false">
+                    <options from_url="https://rest.pubmlst.org/db" request_method="GET">
+                        <postprocess_expression type="ecma5.1"><![CDATA[${
+                            let options = []
+                            for (let resourceGroup of inputs) {
+                                for (let database of resourceGroup.databases) {
+                                    if (database.name.endsWith("seqdef")) {
+                                        options.push([database.description, database.name])
+                                    }
+                                }
+                            }
+                            return options
+                        }]]></postprocess_expression>
+                    </options>
+                </param>
+            </when>
+            <when value="institutpasteur">
+                <param name="bigsdb" label="PubMLST Database" type="select" help="Select from a list of sequence definition databases hosted by Institut Pasteur." optional="false">
+                    <options from_url="https://bigsdb.pasteur.fr/api/db" request_method="GET">
+                        <postprocess_expression type="ecma5.1"><![CDATA[${
+                            let options = []
+                            for (let resourceGroup of inputs) {
+                                for (let database of resourceGroup.databases) {
+                                    if (database.name.endsWith("seqdef")) {
+                                        options.push([database.description, database.name])
+                                    }
+                                }
+                            }
+                            return options
+                        }]]></postprocess_expression>
+                    </options>
+                </param>
+            </when>
+        </conditional>
         <conditional name="mode">
             <param name="operation" label="Operation" type="select" help="The operational mode of the tool.">
-                <option value="info">Retrieve Database Information</option>
+                <option value="info">Retrieve Schema for Database</option>
                 <option value="st">Perform Sequence Typing</option>
             </param>
             <when value="info">
-                <conditional name="select_info">
-                    <param name="retrieved" label="Retrieve" type="select" help="The type of information should the tool retrieve.">
-                        <option value="schemes">Available Schemes for Database</option>
-                        <option value="databases">Available Databases</option>
-                    </param>
-                    <when value="schemes">
-                        <repeat name="schemes_list" title="Schemes" min="1">
-                            <param name="selected_db" argument="--retrieve-bigsdb-schemas" label="Database Name" type="text" optional="false" help="The name of the database to retrieve schemes for. See help for getting such names."/>
-                        </repeat>
-                    </when>
-                    <when value="databases">
-
-                    </when>
-                </conditional>
             </when>
             <when value="st">
                 <param name="fasta" label="FASTA file" type="data" format="fasta" multiple="true" help="The FASTA(s) file to perform sequence typing on."/>
-                <param name="seqdefdb" label="BIGSdb SeqDef Name" type="text" optional="false" help="The database to use for typing."/>
-                <param name="schema" label="BIGSdb SeqDef Schema ID" type="integer" min="0" help="The (integer) ID of the scheme to be used."/>
-                <param name="stop_on_fail" label="Stop on failure to match" truevalue="--sof" falsevalue="" value="false" type="boolean" help="Stops running on failure to obtain sequence type."/>
+                <param name="scheme" argument="scheme-name" label="BIGSdb SeqDef scheme name" type="text" min="0" help="The name of the scheme to be used. Defaults to MLST. See help for more information."/>
+                <param name="stop_on_fail" argument="--stop-on-fail" label="Stop on failure to match" truevalue="-sof" falsevalue="" value="false" type="boolean" help="Stops running on failure to obtain sequence type."/>
             </when>
         </conditional>
     </inputs>
@@ -60,36 +77,23 @@
         <data name="mlst_profiles_output" label="${tool.name} on ${on_string}" format="csv">
             <filter>mode['operation'] == 'st'</filter>
         </data>
-        <data name="info_db_out" label="${tool.name} supported Databases" format="csv">
-            <filter>mode['operation'] == 'info' and mode['select_info']['retrieved'] == 'databases'</filter>
-        </data>
         <data name="info_schemes_out" label="${tool.name} supported Schemes" format="csv">
-            <filter>mode['operation'] == 'info' and mode['select_info']['retrieved'] == 'schemes'</filter>
+            <filter>mode['operation'] == 'info'</filter>
         </data>
     </outputs>
     <tests>
         <test expect_num_outputs="1">
+            <param name="origin_select" value="institutpasteur"/>
+            <param name="bigsdb" value="pubmlst_bordetella_seqdef" />
             <param name="operation" value="st" />
             <param name="fasta" value="tohama_I_minimized_features.fasta" />
-            <param name="seqdefdb" value="pubmlst_bordetella_seqdef" />
-            <param name="schema" value="3" />
+            <param name="schema" value="MLST" />
             <output name="mlst_profiles_output" file="tohama_I_minimized_features_typed.csv" ftype="csv" />
         </test>
         <test expect_num_outputs="1">
+            <param name="origin_select" value="institutpasteur"/>
+            <param name="bigsdb" value="pubmlst_bordetella_seqdef" />
             <param name="operation" value="info" />
-            <param name="retrieved" value="databases" />
-            <output name="info_db_out">
-                <assert_contents>
-                    <has_text text="BIGSdb Names,Source"/>
-                    <has_text text="pubmlst_bordetella_seqdef,https://bigsdb.pasteur.fr/api"/>
-                </assert_contents>
-            </output>
-        </test>
-        <test expect_num_outputs="1">
-            <param name="operation" value="info" />
-            <repeat name="schemes_list">
-                <param name="selected_db" value="pubmlst_bordetella_seqdef" />
-            </repeat>
             <output name="info_schemes_out">
                 <assert_contents>
                     <has_text text="Name,ID"/>
