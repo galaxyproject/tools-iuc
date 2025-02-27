@@ -54,6 +54,10 @@ option_list <- list(
     make_option(c("--device"),
         action = "store", dest = "device", default = "pdf",
         help = "Output format (e.g., 'pdf', 'png', 'jpeg')"
+    ),
+    make_option(c("--nolines"),
+        type = "logical", default = FALSE,
+        help = "Remove borders (lines) around bars (TRUE/FALSE)"
     )
 )
 
@@ -80,64 +84,76 @@ if (opt$normalize) {
     physeq <- transform_sample_counts(physeq, function(x) 100 * x / sum(x))
 }
 
-if (opt$keepNonAssigned) {
-    # Add synthetic "Not Assigned" for missing/NA taxa
-    tax_table(physeq) <- apply(tax_table(physeq), c(1, 2), function(x) ifelse(is.na(x) | x == "", "Not Assigned", x))
-}
-# Check if the 'x' and 'fill' variables are valid
-sample_vars <- colnames(sample_data(physeq))
+# Debug: Check available taxonomic ranks
+print("Available taxonomic ranks:")
+print(colnames(tax_table(physeq)))
 
-# If topX is provided, filter the phyloseq object to show only top X taxa
+# Handle missing or unassigned taxa for all ranks
+if (opt$keepNonAssigned) {
+    # Replace NA or empty values with 'Not Assigned' for all ranks
+    tax_ranks <- colnames(tax_table(physeq))
+
+    for (rank in tax_ranks) {
+        if (rank %in% colnames(tax_table(physeq))) {
+            # replace NA or empty values with 'Not Assigned'
+            tax_table(physeq)[, rank][is.na(tax_table(physeq)[, rank])] <- "Not Assigned"
+        }
+    }
+}
+
+# Filter to top X taxa if requested
 if (!is.null(opt$topX) && opt$topX != "") {
     topX <- as.numeric(opt$topX)
     if (is.na(topX) || topX <= 0) {
         stop("Error: topX should be a positive number.")
     }
 
-    # Aggregate the data at the selected rank (e.g., Phylum)
-    tax_rank <- opt$fill # Adjust as necessary
+    tax_rank <- opt$fill
+    if (!tax_rank %in% colnames(tax_table(physeq))) {
+        stop(paste("Error: Tax rank", tax_rank, "not found in tax_table."))
+    }
+
     physeq_agg <- tax_glom(physeq, taxrank = tax_rank)
-
-    # Get the abundance of each taxon at the selected rank
     taxa_abundance <- taxa_sums(physeq_agg)
-
-    # Summarize the abundance at each taxonomic rank (grouping by taxonomic name)
     tax_table_agg <- tax_table(physeq_agg)
     taxa_abundance_by_rank <- tapply(taxa_abundance, tax_table_agg[, tax_rank], sum)
-
-    # Identify the top X taxa by summed abundance
     top_taxa <- names(sort(taxa_abundance_by_rank, decreasing = TRUE))[1:topX]
 
-    print("Only plotting taxa in TopX taxa group:")
+    print("Top taxa:")
     print(top_taxa)
 
-    # Get the OTUs corresponding to the top taxa
     otus_in_top_taxa <- rownames(tax_table_agg)[tax_table_agg[, tax_rank] %in% top_taxa]
 
     if (opt$keepOthers) {
-        # Label taxa not in top_taxa as "Others"
-        tax_table(physeq_agg)[, tax_rank][!rownames(tax_table(physeq_agg)) %in% otus_in_top_taxa] <- "Others"
+        tax_table(physeq_agg)[, tax_rank][!rownames(tax_table_agg) %in% otus_in_top_taxa] <- "Others"
         physeq <- physeq_agg
     } else {
-        # Subset the phyloseq object to keep only the top X taxa
-        physeq_filtered <- prune_taxa(otus_in_top_taxa, physeq_agg)
-        physeq <- physeq_filtered
+        physeq <- prune_taxa(otus_in_top_taxa, physeq_agg)
     }
 }
 
 # Generate bar plot
 if (!is.null(opt$x) && opt$x != "") {
-    p <- plot_bar(physeq, x = opt$x, fill = opt$fill)
+    p <- plot_bar(physeq, x = opt$x, fill = opt$fill) +
+        geom_bar(aes(fill = !!sym(opt$fill)),
+            stat = "identity", position = "stack",
+            color = ifelse(opt$nolines, NA, "black")
+        )
 } else {
-    p <- plot_bar(physeq, fill = opt$fill) # If no x is provided, don't include x
+    p <- plot_bar(physeq, fill = opt$fill) +
+        geom_bar(aes(fill = !!sym(opt$fill)),
+            stat = "identity", position = "stack",
+            color = ifelse(opt$nolines, NA, "black")
+        )
 }
 
-# Only facet if the facet variable is provided and exists in the sample data
+# Optional: Add faceting if specified
 if (!is.null(opt$facet) && opt$facet != "") {
+    sample_vars <- colnames(sample_data(physeq))
     if (opt$facet %in% sample_vars) {
         p <- p + facet_wrap(as.formula(paste("~", opt$facet)))
     } else {
-        warning(paste("Facet variable", opt$facet, "does not exist in the sample data. Faceting will be skipped."))
+        warning(paste("Facet variable", opt$facet, "not found in sample data. Skipping faceting."))
     }
 }
 

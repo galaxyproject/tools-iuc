@@ -2,7 +2,7 @@
     <description>Construct robust assemblies of highly variable RNA viruses</description>
     <macros>
         <token name="@TOOL_VERSION@">1.2.0</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@VERSION_SUFFIX@">3</token>
     </macros>
     <xrefs>
         <xref type="bio.tools">irma-virus</xref> 
@@ -44,18 +44,18 @@ IRMA '${module}'
 resultDir &&
 ## IRMA does not write empty output files
 ## so the following script makes sure all expected outputs exist unconditionally
-python3 '$__tool_directory__/createMissingFiles.py' &&
-cat irma_config.sh
+python3 '$__tool_directory__/createMissingFiles.py' 
     ]]></command>
     <configfiles>
         <configfile filename='irma_config.sh'><![CDATA[
 SINGLE_LOCAL_PROC=\${GALAXY_SLOTS:-1}
 DOUBLE_LOCAL_PROC=\$((SINGLE_LOCAL_PROC/2 + (SINGLE_LOCAL_PROC==1)))
 TMP=\$TMPDIR
+ASSEM_PROG="MINIMAP2"
+GRID_ON=0
+SKIP_E=$SKIP_E
+SORT_PROG="BLAT" ## LABEL is not working in galaxy docker.
 #if $advanced_config.customize == 'yes':
-  #if $advanced_config.reference == 'yes':
-SKIP_E=$advanced_config.reference.SKIP_E
-  #end if
   #if $advanced_config.read_gathering == 'yes':
 MAX_ROUNDS=$advanced_config.read_gathering.MAX_ROUNDS		                        
 USE_MEDIAN=$advanced_config.read_gathering.USE_MEDIAN		                        
@@ -72,9 +72,6 @@ MIN_RP=$advanced_config.match_step.MIN_RP
 MIN_RC=$advanced_config.match_step.MIN_RC
 MIN_BLAT_MATCH=$advanced_config.match_step.MIN_BLAT_MATCH
   #end if
-  #if $advanced_config.sort_step == 'yes':
-SORT_PROG=$advanced_config.sort_step.SORT_PROG
-  #end if
   #if $advanced_config.align_step == 'yes':
 ALIGN_PROG=$advanced_config.align_step.ALIGN_PROG
 DEL_TYPE=$advanced_config.align_step.DEL_TYPE
@@ -88,11 +85,24 @@ INS_T_DEPTH=$advanced_config.assembly.INS_T_DEPTH
 DEL_T_DEPTH=$advanced_config.assembly.DEL_T_DEPTH
 SILENCE_COMPLEX_INDELS=$advanced_config.assembly.SILENCE_COMPLEX_INDELS
 MIN_AMBIG=$advanced_config.assembly.MIN_AMBIG
-SSW_M=$advanced_config.assembly.SSW_M
-SSW_X=$advanced_config.assembly.SSW_X
-SSW_O=$advanced_config.assembly.SSW_O
-SSW_E=$advanced_config.assembly.SSW_E
 ALIGN_AMENDED=$advanced_config.assembly.ALIGN_AMENDED
+MM2_A=$advanced_config.assembly.MM2_A
+MM2_B=$advanced_config.assembly.MM2_B
+MM2_O=$advanced_config.assembly.MM2_O
+    #if $module == "FLU-avian":
+## respect user choice of A,B,O,E, but configure short read presets otherwise
+MM2_E="$advanced_config.assembly.MM2_E -x sr"
+    #else:
+MM2_E=$advanced_config.assembly.MM2_E
+    #end if
+  #else:
+    #if $module == "FLU-avian":
+configure short read presets for minimap2 overwriting irma module defaults where necessary
+MM2_A=2
+MM2_B=8
+MM2_O="12,32"
+MM2_E="2,1 -x sr"
+    #end if
   #end if
   #if $advanced_config.variant_calling == 'yes':
 AUTO_F=$advanced_config.variant_calling.AUTO_F
@@ -105,7 +115,8 @@ MIN_TCC=$advanced_config.variant_calling.MIN_TCC
 MIN_CONF=$advanced_config.variant_calling.MIN_CONF
 SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
   #end if
-#end if]]></configfile>
+#end if
+]]></configfile>
     </configfiles>
     <inputs>
         <conditional name="input_type_conditional">
@@ -120,14 +131,17 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                  <param name="fastq_input" type="data_collection" format="fastq,fastq.gz" collection_type="paired" label="Select dataset pair" help="Specify paired dataset collection containing paired reads"/>
             </when>
         </conditional>
-        <param name="module" type="select" label="Select analysis module">
-            <option value="FLU" selected="true">FLU</option>
-            <option value="FLU-utr">FLU-utr</option>
-            <option value="FLU-pacbio">FLU-pacbio</option>
+        <param name="module" type="select" label="Select platform">
+            <option value="FLU-avian" selected="true">Illumina</option>
+            <option value="FLU-minion">MinIon</option>
+            <option value="FLU-pacbio">PacBio</option>
         </param>
+        <param name="SKIP_E" type="boolean" falsevalue="1" truevalue="0" checked="true" label="Assemble UTRs, by elongation of reference" />
         <param name="optional_outputs" type="select" display="checkboxes" multiple="true" optional="true" label="Select additional IRMA outputs">
+            <option value="amended_consensus" selected="false">Amended consensus files: Include ambiguity codes for alleles, with second allele frequency greater 0.25</option>
             <option value="bam" selected="false">Bam: Alignment files of fastq against polished reference</option>
             <option value="vcf" selected="false">Vcf: Variation calling file per segment</option>
+            <option value="run_info" selected="false">Run info: Text file with run metadata</option>
         </param>
         <conditional name="advanced_config">
             <param name="customize" type="select" label="Customize Advanced Settings?" help="Choosing Yes here, lets you overwrite advanced settings defined in IRMA's default configuration file.">
@@ -136,17 +150,6 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             </param>
             <when value="no" />
             <when value="yes">
-                <conditional name="reference">
-                    <param name="customize" type="select" label="Customize Reference Settings" help="Choosing Yes here, lets you overwrite reference settings.">
-                        <option value="no">No, use defaults for reference settings</option>
-                        <option value="yes">Yes</option>
-                    </param>
-                    <when value="no" />
-                    <when value="yes">
-                        <param name="SKIP_E" type="boolean" falsevalue="0" truevalue="1" checked="true" label="Skip reference elongation" />
-                    </when>
-                </conditional>
-
                 <conditional name="read_gathering">
                     <param name="customize" type="select" label="Customize settings to read gathering" help="Choosing Yes here, lets you overwrite read gathering settings.">
                         <option value="no">No, use defaults for read gathering settings</option>
@@ -184,19 +187,6 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                         <param name="MIN_BLAT_MATCH" type="integer" min="0" value="0" label="Minimum read pattern count to continue"/>
                     </when>
                 </conditional>
-                <conditional name="sort_step">
-                    <param name="customize" type="select" label="Customize settings regarding the sort step" help="Choosing Yes here, lets you overwrite sort step settings.">
-                        <option value="no">No, use defaults for sort step settings</option>
-                        <option value="yes">Yes</option>
-                    </param>
-                    <when value="no" />
-                    <when value="yes">
-                        <param name="SORT_PROG" type="select" label="Select program used for sorting">
-                            <option value="LABEL">LABEL</option>
-                            <option value="BLAT" selected="true">BLAT</option>
-                        </param>
-                    </when>
-                </conditional>
                 <conditional name="align_step">
                     <param name="customize" type="select" label="Customize settings regarding the alignment step" help="Choosing Yes here, lets you overwrite align step settings.">
                         <option value="no">No, use defaults for align step settings</option>
@@ -232,10 +222,10 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                         <param name="DEL_T_DEPTH" type="integer" min="1" value="1" label="The minimum coverage depth for deletion refinement"/>
                         <param name="SILENCE_COMPLEX_INDELS" type="boolean" falsevalue="0" truevalue="1" checked="false" label="Silences reads with complex indels (having 4 indels with at least one greater than 9)" />
                         <param name="MIN_AMBIG" type="float" min="0" max="1" value="0.25" label="The minimum called SNV frequency for mixed base in amended consensus folder"/>
-                        <param name="SSW_M" type="integer" min="1" value="2" label="The smith-waterman match score"/>
-                        <param name="SSW_X" type="integer" min="1" value="5" label="The smith-waterman mismatch penalty"/>
-                        <param name="SSW_O" type="integer" min="1" value="10" label="The smith-waterman gap open penalty"/>
-                        <param name="SSW_E" type="integer" min="1" value="1" label="The smith-waterman gap extension penalty"/>
+                        <param name="MM2_A" type="integer" min="1" value="2" label="The minimap2 match score"/>
+                        <param name="MM2_B" type="integer" min="1" value="8" label="The minimap2 mismatch penalty"/>
+                        <param name="MM2_O" type="integer" min="1" value="10" label="The minimap2 gap open penalty"/>
+                        <param name="MM2_E" type="integer" min="1" value="1" label="The minimap2 gap extension penalty"/>
                         <param name="ALIGN_AMENDED" type="boolean" falsevalue="0" truevalue="1" checked="false" label="Do global alignment of the amended consensus to the HMM profile" />
                     </when>
                 </conditional>
@@ -267,8 +257,8 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
     </inputs>
     <outputs>
         <collection name="consensus_collection" type="list" label="Fasta Consensus Sequences">
-            <data name="PB1" format="fasta" from_work_dir="resultDir/A_PB1.fasta" label="PB1"/>
             <data name="PB2" format="fasta" from_work_dir="resultDir/A_PB2.fasta" label="PB2"/>
+            <data name="PB1" format="fasta" from_work_dir="resultDir/A_PB1.fasta" label="PB1"/>
             <data name="PA" format="fasta" from_work_dir="resultDir/A_PA.fasta" label="PA"/>
             <data name="HA" format="fasta" from_work_dir="resultDir/A_HA.fasta" label="HA"/>
             <data name="NP" format="fasta" from_work_dir="resultDir/A_NP.fasta" label="NP"/>
@@ -277,10 +267,21 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             <data name="NS" format="fasta" from_work_dir="resultDir/A_NS.fasta" label="NS"/>
         </collection>
         <!-- optional outputs-->
+        <collection name="amended_collection" type="list" label="Amended Fasta Consensus">
+            <filter>optional_outputs and 'amended_consensus' in optional_outputs</filter>
+            <data name="PB2" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_1.fa"  label="PB2"/>
+            <data name="PB1" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_2.fa" label="PB1"/>
+            <data name="PA" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_3.fa"  label="PA"/>
+            <data name="HA" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_4.fa"  label="HA"/>
+            <data name="NP" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_5.fa"  label="NP"/>
+            <data name="NA" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_6.fa"  label="NA"/>
+            <data name="MP" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_7.fa" label="MP"/>
+            <data name="NS" format="fasta" from_work_dir="resultDir/amended_consensus/resultDir_8.fa"  label="NS"/>
+        </collection>
         <collection name="bam_collection" type="list" label="Alignment files (bam)">
             <filter>optional_outputs and 'bam' in optional_outputs</filter>
-            <data name="PB1" format="bam" from_work_dir="resultDir/A_PB1.bam" label="PB1"/>
             <data name="PB2" format="bam" from_work_dir="resultDir/A_PB2.bam" label="PB2"/>
+            <data name="PB1" format="bam" from_work_dir="resultDir/A_PB1.bam" label="PB1"/>
             <data name="PA" format="bam" from_work_dir="resultDir/A_PA.bam" label="PA"/>
             <data name="HA" format="bam" from_work_dir="resultDir/A_HA.bam" label="HA"/>
             <data name="NP" format="bam" from_work_dir="resultDir/A_NP.bam" label="NP"/>
@@ -290,8 +291,8 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
         </collection>
         <collection name="vcf_collection" type="list" label="Variant calling files (VCF)">
             <filter>optional_outputs and 'vcf' in optional_outputs</filter>
-            <data name="PB1" format="vcf" from_work_dir="resultDir/A_PB1.vcf" label="PB1"/>
             <data name="PB2" format="vcf" from_work_dir="resultDir/A_PB2.vcf" label="PB2"/>
+            <data name="PB1" format="vcf" from_work_dir="resultDir/A_PB1.vcf" label="PB1"/>
             <data name="PA" format="vcf" from_work_dir="resultDir/A_PA.vcf" label="PA"/>
             <data name="HA" format="vcf" from_work_dir="resultDir/A_HA.vcf" label="HA"/>
             <data name="NP" format="vcf" from_work_dir="resultDir/A_NP.vcf" label="NP"/>
@@ -299,17 +300,21 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             <data name="MP" format="vcf" from_work_dir="resultDir/A_MP.vcf" label="MP"/>
             <data name="NS" format="vcf" from_work_dir="resultDir/A_NS.vcf" label="NS"/>
         </collection>
+        <data name="run_info" label="IRMA run info" format="txt" from_work_dir="resultDir/logs/run_info.txt"> 
+            <filter>optional_outputs and 'run_info' in optional_outputs</filter>
+        </data>
     </outputs>
     <tests>
         <test expect_num_outputs="27">
             <conditional name="input_type_conditional">
-                <param name="fastq_input1" value="test_reads.fq" />
+                <param name="fastq_input1" value="forward.fastqsanger" />
                 <param name="input_type" value="single" />
             </conditional>
             <conditional name="advanced_config">
                 <param name="customize" value="no" />
             </conditional>
-            <param name="module" value="FLU-utr" />
+            <param name="module" value="FLU-avian" />
+            <param name="SKIP_E" value="1" />
             <param name="optional_outputs" value="vcf,bam"/>
             <output_collection name="consensus_collection" type="list">
                 <element name="HA">
@@ -320,14 +325,15 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             </output_collection>
         </test>
         <test expect_num_outputs="18">
-            <param name="module" value="FLU"/>
+            <param name="module" value="FLU-avian" />
+            <param name="SKIP_E" value="1" />
             <param name="optional_outputs" value="bam"/>
             <conditional name="input_type_conditional">
                 <param name="input_type" value="paired_collection"/>
                 <param name="fastq_input">
                     <collection type="paired">
-                        <element name="forward" value="test_reads.fq" />
-                        <element name="reverse" value="test_reads_copy.fq" />
+                        <element name="forward" value="forward.fastqsanger" />
+                        <element name="reverse" value="reverse.fastqsanger" />
                     </collection>
                 </param>
             </conditional>
@@ -341,22 +347,19 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             <output_collection name="bam_collection" type="list" count="8" />
         </test>
         <test expect_num_outputs="9">
-            <param name="module" value="FLU-utr"/>
+            <param name="module" value="FLU-avian" />
+            <param name="SKIP_E" value="1" />
             <conditional name="input_type_conditional">
                 <param name="input_type" value="paired_collection"/>
                 <param name="fastq_input">
                     <collection type="paired">
-                        <element name="forward" value="test_reads.fq" />
-                        <element name="reverse" value="test_reads_copy.fq" />
+                        <element name="forward" value="forward.fastqsanger" />
+                        <element name="reverse" value="reverse.fastqsanger" />
                     </collection>
                 </param>
             </conditional>
             <conditional name="advanced_config">
                 <param name="customize" value="yes"/>
-                <conditional name="reference">
-                    <param name="customize" value="yes"/>
-                    <param name="SKIP_E" value="0"/>
-                </conditional>
                 <conditional name="read_gathering">
                     <param name="customize" value="yes"/>
                     <param name="MAX_ROUNDS" value="1"/>
@@ -371,23 +374,20 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             </output_collection>
         </test>
         <test expect_num_outputs="27">
-            <param name="module" value="FLU"/>
+            <param name="module" value="FLU-pacbio" />
+            <param name="SKIP_E" value="0" />
             <param name="optional_outputs" value="bam,vcf"/>
             <conditional name="input_type_conditional">
                 <param name="input_type" value="paired_collection"/>
                 <param name="fastq_input">
                     <collection type="paired">
-                        <element name="forward" value="test_reads.fq" />
-                        <element name="reverse" value="test_reads_copy.fq" />
+                        <element name="forward" value="forward.fastqsanger" />
+                        <element name="reverse" value="reverse.fastqsanger" />
                     </collection>
                 </param>
             </conditional>
             <conditional name="advanced_config">
                 <param name="customize" value="yes"/>
-                <conditional name="reference">
-                    <param name="customize" value="yes"/>
-                    <param name="SKIP_E" value="true"/>
-                </conditional>
                 <conditional name="read_gathering">
                     <param name="customize" value="yes"/>
                     <param name="MAX_ROUNDS" value="3"/>
@@ -406,10 +406,6 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                     <param name="MIN_RC" value="15"/>
                     <param name="MIN_BLAT_MATCH" value="0"/>
                 </conditional>
-                <conditional name="sort_step">
-                    <param name="customize" value="yes"/>
-                    <param name="SORT_PROG" value="LABEL"/>
-                </conditional>
                 <conditional name="align_step">
                     <param name="customize" value="yes"/>
                     <param name="ALIGN_PROG" value="SAM"/>
@@ -425,10 +421,10 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
                     <param name="DEL_T_DEPTH" value="1"/>
                     <param name="SILENCE_COMPLEX_INDELS" value="true"/>
                     <param name="MIN_AMBIG" value="0.25"/>
-                    <param name="SSW_M" value="2"/>
-                    <param name="SSW_X" value="5"/>
-                    <param name="SSW_O" value="10"/>
-                    <param name="SSW_E" value="1"/>
+                    <param name="MM2_A" value="2"/>
+                    <param name="MM2_B" value="7"/>
+                    <param name="MM2_O" value="12"/>
+                    <param name="MM2_E" value="2"/>
                     <param name="ALIGN_AMENDED" value="false"/>
                 </conditional>
                 <conditional name="variant_calling">
@@ -454,6 +450,32 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
             <output_collection name="bam_collection" type="list" count="8" />
             <output_collection name="vcf_collection" type="list" count="8" />
         </test>
+        <test expect_num_outputs="19">
+            <conditional name="input_type_conditional">
+                <param name="fastq_input1" value="forward.fastqsanger" />
+                <param name="input_type" value="single" />
+            </conditional>
+            <conditional name="advanced_config">
+                <param name="customize" value="no" />
+            </conditional>
+            <param name="module" value="FLU-avian" />
+            <param name="SKIP_E" value="1" />
+            <param name="optional_outputs" value="amended_consensus,run_info"/>
+            <output_collection name="consensus_collection" type="list">
+                <element name="HA">
+                  <assert_contents>
+                    <has_n_lines n="2"/>
+                  </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="amended_collection" type="list">
+                <element name="HA">
+                  <assert_contents>
+                    <has_n_lines n="2"/>
+                  </assert_contents>
+                </element>
+            </output_collection>
+        </test>
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -462,22 +484,24 @@ SIG_LEVEL=$advanced_config.variant_calling.SIG_LEVEL
 
 IRMA (Iterative Refinement Meta-Assembler) can be used to obtain robust assembly, variant calling, and phasing of highly variable RNA viruses.
 These are obtained after an iterative assembly approach. Visit https://wonder.cdc.gov/amd/flu/irma/ for more information.
-IRMA offers modules for influenza, RSV, ebolavirus and coronavirus, but this galaxy wrapper currently only supports influenza modules.
+IRMA offers modules for influenza, RSV, ebolavirus and coronavirus, but this Galaxy wrapper currently only supports influenza modules.
 
 **Inputs**
 
-Specify the module and provide your read data.
+Specify the sequencing platform and provide your read data.
 
 **Outputs**
 
-The default output of the tool is a collection of consensus sequences in FASTA format.
+The default output of the tool is a collection of majority consensus sequences in FASTA format.
 
-Optionally, collections of read mapping and variant calling results can be produced as additional outputs.
+Optionally, collections of ambiguous consensus sequences, of read mapping and variant calling results can be produced as additional outputs.
 
 **Settings**
 
 IRMA provides carefully chosen default settings for its different analysis modes.
 Advanced(!) users have the option to override these through the advanced config section.
+
+This wrapper always uses *minimap2* at the assembly step (even where the IRMA command line tool would default to SSW). For MinIon and PacBio data it uses minimap2's default long reads settings with IRMA-specific modifications of -A, -B, -O and -E parameters. For Illumina data minimap2 is run with its short-reads preset (-x sr) configuration. For all platforms, the minimap2 options -A (match score), -B (mismatch penalty), -O (gap open penalty) and -E (gap extension penalty) are user-configurable via Advanced settings -> Assembly settings.
 
 .. class:: Warning mark
 
