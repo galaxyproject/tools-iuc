@@ -93,6 +93,7 @@ def download_gtdb(data_tables, table_name, target_dp, test=False, mmseq=False):
       data_tables: a dictionary containing the data table info
       table_name: name of the table
       target_dp: directory to put copy or link to the data file
+      mmseq: bool for either run the mmseq command or semibin command
 
     """
     db_dp = target_dp
