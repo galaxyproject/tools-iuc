@@ -58,7 +58,7 @@ option_list <- list(
     ),
     make_option(c("--device"),
         action = "store", dest = "device", default = "pdf",
-        help = "Output format (e.g., 'pdf', 'png', 'jpeg')"
+        help = "Output format (e.g., 'pdf', 'png', 'jpg')"
     ),
     make_option(c("--nolines"),
         action = "store_true", dest = "nolines", default = FALSE,
