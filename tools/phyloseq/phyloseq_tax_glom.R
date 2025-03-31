@@ -63,16 +63,18 @@ if (opt$counts) {
 
 if (opt$single_rank) {
     if (opt$counts) {
-      # Keep only the specified taxonomic rank column and numeric count columns
-      tax_table_agg <- tax_table_agg %>% select(all_of(opt$rank), where(is.numeric))
-      
-      # Group by taxonomic rank and sum the counts
-      tax_table_agg <- tax_table_agg %>%
-        group_by(across(all_of(opt$rank))) %>%
-        summarise(across(where(is.numeric), sum), .groups = "drop")
+        # Keep only the specified taxonomic rank column and numeric count columns
+        tax_table_agg <- tax_table_agg %>% select(all_of(opt$rank), where(is.numeric))
+
+        # Group by taxonomic rank and sum the counts
+        tax_table_agg <- tax_table_agg %>%
+            group_by(across(all_of(opt$rank))) %>%
+            summarise(across(where(is.numeric), sum), .groups = "drop")
     } else {
-      # Keep only the specified taxonomic rank column
-      tax_table_agg <- tax_table_agg %>% select(all_of(opt$rank)) %>% distinct()
+        # Keep only the specified taxonomic rank column
+        tax_table_agg <- tax_table_agg %>%
+            select(all_of(opt$rank)) %>%
+            distinct()
     }
 }
 
