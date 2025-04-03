@@ -6,7 +6,6 @@ suppressPackageStartupMessages(library("optparse"))
 option_list <- list(
     make_option(c("-i", "--input"), type = "character", help = "Path to the phyloseq RDS file", metavar = "FILE"),
     make_option(c("-r", "--rank"), type = "character", help = "Taxonomic rank for aggregation"),
-    make_option("--counts", action = "store_true", default = FALSE, help = "Include OTU counts in output"),
     make_option("--exclude_otu_ids", action = "store_true", default = FALSE, help = "Exclude OTU IDs from output"),
     make_option("--single_rank", action = "store_true", default = FALSE, help = "Only output the specified rank column"),
     make_option("--exclude_na_values", action = "store_true", default = FALSE, help = "Exclude NA values during tax_glom")
@@ -51,31 +50,22 @@ if (!opt$exclude_otu_ids) {
     tax_table_agg <- cbind("OTU ID" = rownames(tax_table_agg), tax_table_agg)
 }
 
-if (opt$counts) {
-    # Extract OTU abundance table and convert to data frame
-    otu_table_agg <- as.data.frame(otu_table(physeq_agg))
+# Extract OTU abundance table and convert to data frame
+otu_table_agg <- as.data.frame(otu_table(physeq_agg))
 
-    # Append taxonomic information to output
-    otu_table_agg <- cbind(tax_table_agg, otu_table_agg)
+# Append taxonomic information to output
+otu_table_agg <- cbind(tax_table_agg, otu_table_agg)
 
-    tax_table_agg <- otu_table_agg
-}
+tax_table_agg <- otu_table_agg
 
 if (opt$single_rank) {
-    if (opt$counts) {
-        # Keep only the specified taxonomic rank column and numeric count columns
-        tax_table_agg <- tax_table_agg %>% select(all_of(opt$rank), where(is.numeric))
+    # Keep only the specified taxonomic rank column and numeric count columns
+    tax_table_agg <- tax_table_agg %>% select(all_of(opt$rank), where(is.numeric))
 
-        # Group by taxonomic rank and sum the counts
-        tax_table_agg <- tax_table_agg %>%
-            group_by(across(all_of(opt$rank))) %>%
-            summarise(across(where(is.numeric), sum), .groups = "drop")
-    } else {
-        # Keep only the specified taxonomic rank column
-        tax_table_agg <- tax_table_agg %>%
-            select(all_of(opt$rank)) %>%
-            distinct()
-    }
+    # Group by taxonomic rank and sum the counts
+    tax_table_agg <- tax_table_agg %>%
+        group_by(across(all_of(opt$rank))) %>%
+        summarise(across(where(is.numeric), sum), .groups = "drop")
 }
 
 # Save the output as a TSV file
