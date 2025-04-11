@@ -1,18 +1,23 @@
-<tool id="kaiju" name="kaiju" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.2" license="MIT">
+<tool id="kaiju" name="kaiju" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
     <description></description>
     <macros>
-        <token name="@TOOL_VERSION@">1.10.1</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <import>macros.xml</import>
     </macros>
-    <xrefs>
-        <xref type="bio.tools">kaiju</xref>
-    </xrefs>
-    <requirements>
-        <requirement type="package" version="@TOOL_VERSION@">kaiju</requirement>
-    </requirements>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-    kaiju
-    -t '$reference.fields.path'/*nodes.dmp
+    #if $task == "tax"
+        kaiju
+        -t '$reference.fields.path'/*nodes.dmp
+        -o '$output_tax'
+    #else
+        #if $protein
+            kaijup
+        #else
+            kaijux
+        #end if
+        -o '$output_best'
+    #end if
     -f '$reference.fields.path'/*.fmi
     #if $input.type == "single"
         -i '$input.reads'
@@ -20,7 +25,7 @@
         -i '$input.reads.forward'
         -j '$input.reads.reverse'
     #end if
-    -o '$output'
+    
     -z "\${GALAXY_SLOTS:-1}"
     $protein
     $low_complexity
@@ -31,6 +36,7 @@
         -s $mode_cond.match_score
         -E $mode_cond.evalue
     #end if
+    $verbose
     ]]></command>
     <inputs>
         <conditional name="input">
@@ -45,9 +51,10 @@
                 <param name="reads" type="data_collection" format="fasta,fastqsanger" collection_type="paired" label="Paired reads"/>
             </when>
         </conditional>
-        <param name="reference" type="select" label="kaiju refernce data">
-            <options from_data_table="kaiju"/>
-            <validator type="no_options" message="No reference data installed. Ask your Galaxy admin."/>
+        <expand macro="reference"/>
+        <param name="task" type="select" label="Task">
+            <option value="tax">taxonomic classification</option>
+            <option value="best_sequence">find best matching database sequence</option>
         </param>
         <param argument="-p" name="protein" type="boolean" truevalue="-p" falsevalue="" label="Input sequences are protein sequences"/>
         <param argument="-X" name="low_complexity" type="boolean" truevalue="-x" falsevalue="-X" checked="true" label="Enable SEG low complexity filter"/>
@@ -64,18 +71,100 @@
             </when>
             <when value="mem"/>
         </conditional>
+        <param argument="-v" name="verbose" type="boolean" truevalue="-v" falsevalue="" checked="false" label="Verbose" help="will add additional columns to output, see help"/>
     </inputs>
     <outputs>
-        <data name="output" format="tabular"/>
+        <data name="output_tax" format="tabular">
+            <actions>
+                <conditional name="verbose">
+                    <when value="false">
+                        <action type="metadata" name="column_names" default="classified,name,taxid" />
+                    </when>
+                    <when value="true">
+                        <action type="metadata" name="column_names" default="classified,name,taxid,length/score,best-match-taxid,best-match-accession,fragment-sequence" />
+                    </when>
+                </conditional>
+            </actions>
+            <filter>task == "tax"</filter>
+        </data>
+        <data name="output_best" format="tabular" label="${tool.name} on ${on_string}: Best sequences">
+            <actions>
+                <action type="metadata" name="column_names" default="classified,name,score,accession,sequence" />
+            </actions>
+            <filter>task == "best_sequence"</filter>
+        </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="1">
             <conditional name="input">
                 <param name="type" value="single"/>
                 <param name="reads" value="query.fa"/>
             </conditional>
             <param name="reference" value="test"/>
-            <output name="output" value="kaiju.out"/>
+            <output name="output_tax" value="kaiju.out">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,taxid" />
+            </output>
+        </test>
+        <!-- paired -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired">
+                        <element name="forward" value="query.fa"/>
+                        <element name="reverse" value="query.fa"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="reference" value="test"/>
+            <output name="output_tax" value="kaiju.out">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,taxid" />
+            </output>
+        </test>
+        <!-- verbose  -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="query.fa"/>
+            </conditional>
+            <param name="reference" value="test"/>
+            <param name="verbose" value="true"/>
+            <output name="output_tax">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="7"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,taxid,length/score,best-match-taxid,best-match-accession,fragment-sequence" />
+            </output>
+        </test>
+
+        <!-- kaijux -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="query.fa"/>
+            </conditional>
+            <param name="task" value="best_sequence"/>
+            <param name="reference" value="test"/>
+            <param name="verbose" value="true"/>
+            <assert_command>
+                <has_text text="kaijux"/>
+            </assert_command>
+            <output name="output_best" value="kaijux.out">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,score,accession,sequence" />
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -84,20 +173,30 @@
 
 **What it does**
 
-TODO: Fill in help in reStructuredText format (https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html)
+Taxonomic classification of high-throughput sequencing reads, e.g., Illumina or Roche/454, from whole-genome sequencing of metagenomic DNA.
+In mode "find best matching database sequence" only the best matching sequences from the reference databases are used. 
 
 Usage
 .....
 
-
 **Input**
 
+Sequences or paired sequences in FASTA/FASTQ format.
 
 **Output**
 
+Tabular dataset with 3 columns:
 
+- either C or U, indicating whether the read is classified or unclassified.
+- name of the read
+- NCBI taxon identifier of the assigned taxon
+
+In verbose mode four more columns are added
+
+- the length or score of the best match used for classification
+- the taxon identifiers of all database sequences with the best match
+- the accession numbers of all database sequences with the best match
+- matching fragment sequence(s)
     ]]></help>
-    <citations>
-        <citation type="doi">10.1038/ncomms11257</citation>
-    </citations>
+    <expand macro="citations"/>
 </tool>
