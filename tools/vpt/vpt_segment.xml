@@ -23,38 +23,123 @@
         #end if
     ]]></command>
     <configfiles>
-        <configfile name="vpt_config">
+        <configfile name="vpt_config"><![CDATA[
             {
                 "experiment_properties": {
-                    "all_z_indexes": [0, 1, 2, ... ],
-                    "z_positions_um": [1.5, 3, 4.5, ... ]
+                    "all_z_indexes": [$vpt_config.experiment_properties.all_z_indexes],
+                    "z_positions_um": [$vpt_config.experiment_properties.z_positions_um]
                 },
+                #for $i, $task in enumerate($vpt_config.segmentation_tasks.segmentation_task):
                 "segmentation_tasks": [
                     {
-                    "task_id": 0,
+                    "task_id": $i,
                     "segmentation_family": "Cellpose2",
-                    "entity_types_detected": [ ... ],
-                    "z_layers": [ ... ],
+                    #if $task.entity_types_detected != "both":
+                    "entity_types_detected": "$task.entity_types_detected",
+                    #else:
+                    "entity_types_detected": [
+                        "nuclei",
+                        "cell"
+                    ],
+                    #end if
+                    "z_layers": $task.z_layers,
                     "segmentation_properties": {
-                        "model": "cyto2",
-                        "model_dimensions": "2D",
-                        "custom_weights": { ... }
+                        #if $task.segmentation_properties.model != "null":
+                        "model": "$task.segmentation_properties.model",
+                        #else:
+                        "model": null,
+                        #end if
+                        "model_dimensions": "$task.segmentation_properties.model_dimensions",
+                        #if $task.segmentation_properties.custom_weights:
+                        "custom_weights": "$task.segmentation_properties.custom_weights",
+                        #else:
+                        "custom_weights": null,
+                        #end if
                         "version": "latest",
+                        "channel_map": {
+                            "greyscale": "$task.segmentation_properties.channel_map.greyscale",
+                            "red": "$task.segmentation_properties.channel_map.red",
+                            "green": "$task.segmentation_properties.channel_map.green",
+                            "blue": "$task.segmentation_properties.channel_map.blue"
+                        }
                     },
-                    "task_input_data": [ ... ] ,
-                    "segmentation_parameters": { ... },
-                    "polygon_parameters": { ... },
+                    "task_input_data": [
+                        #for $j, $input_data in enumerate($task.task_input_data.task_input):
+                        {
+                        "image_channel": "$input_data.image_channel",
+                        #for $k, $preprocess in enumerate($input_data.image_preprocessing):
+                        "image_preprocessing": [
+                            {
+                            "name": "$preprocess.preprocess",
+                            #if $preprocess.preprocess == "normalize":
+                            "parameters": {
+                                "type": "$preprocess.normalization",
+                                #if $preprocess.normalization == "CLAHE":
+                                "clip_limit": $preprocess.clip_limit,
+                                "filter_size": [
+                                $preprocess.filter_size,
+                                $preprocess.filter_size
+                                ]
+                                #end if
+                            }
+                            #if $preprocess.preprocess == "blur":
+                            "parameters": {
+                                "type": "$preprocess.blur_options",
+                                "size": $preprocess.kernel_size
+                            }
+                            #if $preprocess.preprocess == "downsample":
+                            "parameters": {
+                                "scale": "$preprocess.scale",
+                            }
+                            #end if
+                            }
+                        ],
+                        #end for
+                        },
+                    ],
+                    "segmentation_parameters": {
+                        "nuclear_channel": "$task.segmentation_parameters.nuclear_channel",
+                        "entity_fill_channel": "$task.segmentation_parameters.entity_fill_channel",
+                        "diameter": $task.segmentation_parameters.diameter,
+                        "flow_threshold": $task.segmentation_parameters.flow_threshold,
+                        "cellprob_threshold": $task.segmentation_parameters.cellprob_threshold,
+                        "minimum_mask_size": $task.segmentation_parameters.minimum_mask_size,
+                    },
+                    "polygon_parameters": {
+                        "simplification_tol": $task.polygon_parameters.simplification_tol,
+                        "smoothing_radius": $task.polygon_parameters.smoothing_radius,
+                        "minimum_final_area": $task.polygon_parameters.minimum_final_area,
+                    },
                     },
                 ],
-                "segmentation_task_fusion": { ... },
+                #end for
+                "segmentation_task_fusion": {
+                    "entity_fusion_strategy": "$segmentation_task_fusion.entity_fusion_strategy",
+                    "fused_polygon_postprocessing_parameters": {
+                        "min_distance_between_entities": $segmentation_task_fusion.min_distance_between_entities,
+                        "min_final_area": $segmentation_task_fusion.min_final_area
+                    }
+                },
                 "output_files": [
                     {
-                    "entity_types_output": [ ... ],
-                    "files": { ... }
+                    #if $vpt_config.output_files.entity_types_output != "both":
+                    "entity_types_output": "$vpt_config.output_files.entity_types_output",
+                    #else:
+                    "entity_types_output": [
+                        "nuclei",
+                        "cell"
+                    ],
+                    #end if
+                    "files": {
+                        "run_on_tile_dir": "result_tiles",
+                        "mosaic_geometry_file": "cellpose_mosaic_space.parquet",
+                        "micron_geometry_file": "cellpose_micron_space.parquet",
+                        "cell_metadata_file": "cellpose_cell_metadata.csv"
+                    }
                     }
                 ]
             }
-        </configfile>
+        ]]></configfile>
     </configfiles>
     <inputs>
         <param argument="--input_images" type="data" format="tiff" multiple="true" label="MEROSCOPE tiff images"/>
@@ -76,6 +161,7 @@
                     <param argument="--entity_types_detected" type="select" label="detect cell or nucleus?">
                         <option value="cell">cell</option>
                         <option value="nucleus">nucleus</option>
+                        <option value="both">both</option>
                     </param>
                     <param argument="--z_layers" type="text" value="" optional="true" label="comma-separated list of z-index images to segment." help="2D segmentation is applied to all z-layers in the experiment by default without needing to explicitly specify the behavior.">
                         <expand macro="sanitize_digits"/>
@@ -101,11 +187,10 @@
                     <section name="segmentation_parameters" title="Segmentation parameters">
                         <param name="nuclear_channel" type="text" value="" optional="true" label="nuclear channel"/>
                         <param name="entity_fill_channel" type="text" value="" optional="true" label="entity fill channel"/>
-                        <param name="diameter" type="integer" min="0" value="0" label="diameter" help="Default 0 value will let Cellpose to automatically estimate the diameter. Too small diameter leads to fragmented cells and Too big one leads to over-merged cells"/>
-                        <param name="resample" type="boolean" falsevalue="False" truevalue="True" checked="true" label="resample" help="Interpolated flows at the true image size. This option will create smoother ROIs when the cells are large but will be slower in case" />
+                        <param name="diameter" type="integer" min="0" value="30" label="diameter" help="Default 0 value will let Cellpose to automatically estimate the diameter. Too small diameter leads to fragmented cells and Too big one leads to over-merged cells"/>
                         <param name="flow_threshold" type="float" min="0" max="1" value="0.4" label="flow threshold" help="Maximum allowed error of the flows for each mask. Increase if cellpose is not returning as many ROIs as you’d expect, and decrease if cellpose is returning too many ill-shaped ROIs"/>
                         <param name="cellprob_threshold" type="float" min="-6" max="+6" value="0.0" label="cellprobe threshold" help="Decrease this threshold if cellpose is not returning as many ROIs as you’d expect. Similarly, increase this threshold if cellpose is returning too ROIs particularly from dim areas."/>
-                        <param name="niter" type="integer" min="0" value="0" label="Number of iterations" help="The default 0 sets the number of iterations to be proportional to the ROI diameter. For longer ROIs, more iterations might be needed."/>
+                        <param name="minimum_mask_size" type="integer" min="0" value="15" label="Minimum number of pixels per mask" help="Can turn off with -1"/>
                     </section>
                     <section name="task_input_data" title="Task input data" help="A list of image channels and per-channel pre-processing steps. This allows the application of intensity normalization, down-sampling, and/or blurring before performing cell segmentation.">
                         <repeat name="task_input" min="1" max="4" title="Task input data">
@@ -160,6 +245,13 @@
                 </param>
                 <param name="min_distance_between_entities" type="integer" min="0" value="2" label="minimun distance between entities" help="When polygons are subtracted from one another, the space between the cells is zero. In order to provide some separation between cells, a minimum distance between these cell can be specified."/>
                 <param name="min_final_area" type="integer" min="0" value="0" label="minimum area" help="After polygon subtraction, cells smaller than this threshold will be removed"/>
+            </section>
+            <section name="output_files" title="Output files">
+                <param name="entity_types_output" type="select" label="output entity types">
+                    <option value="cell">cell</option>
+                    <option value="nucleus">nucleus</option>
+                    <option value="both">both</option>
+                </param>
             </section>
         </section> 
     </inputs>
