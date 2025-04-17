@@ -1,5 +1,4 @@
 # Function for the data input
-
 load_data <- function(file_name, file_extension) {
     if (file_extension == "csv") {
         data_input <- read.csv(file_name, check.names = "false")
@@ -10,6 +9,5 @@ load_data <- function(file_name, file_extension) {
     } else {
         stop("Unsupported file format.")
     }
-
     return(data_input)
 }
