@@ -349,13 +349,14 @@ def main():
         fig = ma_plots_plotly(num_rows, num_cols, num_plots, plots_data, sample_names, args.size, ylim_hist, ylim_ma, features)
         fig.show()
         if args.output_format == 'html':
-            fig.write_html(f"{args.output_file}.html")
+            fig.write_html(f"{args.output_file}")
         else:
-            pio.write_image(fig, f"{args.output_file}.{args.output_format}", format=args.output_format, width=args.size * num_cols, height=args.size * num_rows, scale=args.scale)
+            pio.write_image(fig, f"{args.output_file}", format=args.output_format, width=args.size * num_cols, height=args.size * num_rows, scale=args.scale)
     else:
         fig = ma_plots_matplotlib(num_rows, num_cols, num_plots, plots_data, sample_names, args.size, ylim_hist, ylim_ma, args.window_width)
         plt.show()
-        fig.savefig(f"{args.output_file}.{args.output_format}", format=args.output_format, dpi=300)
+        fig.savefig(f"{args.output_file}", format=args.output_format, dpi=300)
+    return 0
 
 if __name__ == "__main__":
     main()
