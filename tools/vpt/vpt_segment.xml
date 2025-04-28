@@ -9,12 +9,12 @@
         ln -s '$input_images' 'input/images/' &&
         ln -s '$input_micron_to_mosaic' 'input/micron_to_mosaic_pixel_transform.csv' &&
         ln -s '$detected_transcripts' 'input/detected_transcripts.csv' &&
-        ln -s '$vpt_config' 'input/vpt_config.json' &&
+        ln -s '$vpt_config_file' 'input/vpt_config_file.json' &&
         ### segmentation
         vpt \
         <expand macro="common_args" /> \
         run-segmentation \
-        --segmentation-algorithm 'input/vpt_config.json' \
+        --segmentation-algorithm 'input/vpt_config_file.json' \
         --input-images 'input/images/' \
         --input-micron-to-mosaice 'input/micron_to_mosaic_pixel_transform.csv' \
         --output-path 'output/' \
@@ -58,22 +58,29 @@
         --input-images 'input/images/' \
         --experiment-name '$qc_params.experiment_name' \
         --input-z-index '$qc_params.input_z_index' \
-        --red-stain-name "$task.segmentation_properties.channel_map.red" \
-        --green-stain-name "$task.segmentation_properties.channel_map.green" \
-        --blue-stain-name "$task.segmentation_properties.channel_map.blue" \
+        #if $qc_params.red_stain_name != "":
+            --red-stain-name '$qc_params.red_stain_name' \
+        #end if
+        #if $qc_params.green_stain_name != "":
+            --green-stain-name '$qc_params.green_stain_name' \
+        #end if
+        #if $qc_params.blue_stain_name != "":
+            --blue-stain-name '$qc_params.blue_stain_name' \
+        #end if
         --transcript-count-filter-threshold '$qc_params.transcript_count_filter_threshold' \
         --volume-filter-threshold '$qc_params.volume_filter_threshold' \
         --output-csv 'output/metrics.csv' \
         --output-report 'output/metrics.html' \
         --output-clustering 'output/metrics_clustering.parquet' \ &&
-        mv 'input/vpt_config.json' 'output/vpt_config.json'
+        mv 'input/vpt_config_file.json' 'output/vpt_config_file.json'
     ]]></command>
     <configfiles>
-        <configfile name="vpt_config"><![CDATA[
+        <configfile name="vpt_config_file"><![CDATA[
             {
                 "experiment_properties": {
-                    #set indices = for i in range(len($vpt_config.experiment_properties.z_positions_um)): print(str(i)+",")
-                    "all_z_indexes": [indices],
+                    #set $indices = ",".join([str(i) for i in range(len($vpt_config.experiment_properties.z_positions_um.value))])
+
+                    "all_z_indexes": [$indices],
                     "z_positions_um": [$vpt_config.experiment_properties.z_positions_um]
                 },
                 #for $i, $task in enumerate($vpt_config.segmentation_tasks.segmentation_task):
@@ -113,33 +120,34 @@
                         #for $j, $input_data in enumerate($task.task_input_data.task_input):
                         {
                         "image_channel": "$input_data.image_channel",
-                        #for $k, $preprocess in enumerate($input_data.image_preprocessing):
+                            #for $k, $preprocess_var in enumerate($input_data.image_preprocessing):
                         "image_preprocessing": [
                             {
-                            "name": "$preprocess.preprocess",
-                            #if $preprocess.preprocess == "normalize":
+                            "name": "$preprocess_var.preprocess_conditional.preprocess",
+                                #if $preprocess_var.preprocess_conditional.preprocess == "normalize":
                             "parameters": {
-                                "type": "$preprocess.normalization",
-                                #if $preprocess.normalization == "CLAHE":
-                                "clip_limit": $preprocess.clip_limit,
+                                "type": "$preprocess_var.preprocess_conditional.normalize_conditional.normalization",
+                                    #if $preprocess_var.preprocess_conditional.normalize_conditional.normalization == "CLAHE":
+                                "clip_limit": $preprocess_var.preprocess_conditional.normalize_conditional.clip_limit,
                                 "filter_size": [
-                                $preprocess.filter_size,
-                                $preprocess.filter_size
+                                $preprocess_var.preprocess_conditional.normalize_conditional.filter_size,
+                                $preprocess_var.preprocess_conditional.normalize_conditional.filter_size
                                 ]
+                                    #end if
+                            }
+                                #else if $preprocess_var.preprocess_conditional.preprocess == "blur":
+                            "parameters": {
+                                "type": "$preprocess_var.preprocess_conditional.blur_options",
+                                "size": $preprocess_var.preprocess_conditional.kernel_size
+                            }
+                                #else if $preprocess_var.preprocess_conditional.preprocess == "downsample":
+                            "parameters": {
+                                "scale": "$preprocess_var.preprocess_conditional.scale",
+                            }
                                 #end if
                             }
-                            #if $preprocess.preprocess == "blur":
-                            "parameters": {
-                                "type": "$preprocess.blur_options",
-                                "size": $preprocess.kernel_size
-                            }
-                            #if $preprocess.preprocess == "downsample":
-                            "parameters": {
-                                "scale": "$preprocess.scale",
-                            }
-                            #end if
-                            }
                         ],
+                            #end for
                         #end for
                         },
                     ],
@@ -309,6 +317,9 @@
             <param argument="--input-z-index" type="integer" min="0" value="2" label="The Z plane of the mosaic tiff images to use for the patch"/>
             <param argument="--transcript-count-filter-threshold" type="integer" min="0" value="100" label="The cell transcript count threshold used for computing metrics and clustering"/>
             <param argument="--volume-filter-threshold" type="integer" min="0" value="200" label="The cell volume threshold used for computing metrics and clustering"/>
+            <param argument="--red-stain-name" type="text" value="" optional="true" label="The name of the stain that will be used for the red channel in images"/>
+            <param argument="--green-stain-name" type="text" value="PolyT" optional="true" label="The name of the stain that will be used for the green channel in images"/>
+            <param argument="--blue-stain-name" type="text" value="DAPI" optional="true" label="The name of the stain that will be used for the blue channel in images"/>
         </section>
         <section name="advanced_output" title="Advanced output options">
             <param name="log" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Output log?"/>
@@ -319,7 +330,7 @@
             <discover_datasets pattern="(?P&lt;name&gt;.+)\.csv$" format="csv" directory="output"/>
         </collection>
         <data name="vpt_qc" format="html" from_work_dir="output/metric.html" label="${tool.name} on ${on_string}: VPT QC"/>
-        <collection name="vpt_config" type="list" label="${tool.name} on ${on_string}: VPT Config">
+        <collection name="vpt_config_out" type="list" label="${tool.name} on ${on_string}: VPT Config">
             <discover_datasets pattern="(?P&lt;name&gt;.+)\.json$" format="json" directory="output"/>
         </collection>
         <data name="vpt_log" format="txt" from_work_dir="output/log" label="${tool.name} on ${on_string}: VPT log">
@@ -327,7 +338,109 @@
         </data>
     </outputs>
     <tests>
-
+        <test expect_num_outputs="4">
+            <param name="input_images" location="https://zenodo.org/records/15255088/files/mosaic_Cellbound1_z0.tif"/>
+            <param name="input_micron_to_mosaic" location="https://zenodo.org/records/15255088/files/micron_to_mosaic_pixel_transform.csv"/>
+            <param name="detected_transcripts" location="https://zenodo.org/records/15255088/files/detected_transcripts.csv"/>
+            <section name="vpt_config">
+                <section name="segmentation_tasks">
+                    <repeat name="segmentation_task">
+                        <param name="entity_types_detected" value="cell"/>
+                        <param name="z_layers" value="3"/>
+                        <section name="segmentation_properties">
+                            <param name="model" value="cyto2"/>
+                            <param name="model_dimensions" value="2D"/>
+                            <section name="channel_map">
+                                <param name="red" value="Cellbound1"/>
+                                <param name="green" value="Cellbound3"/>
+                                <param name="blue" value="DAPI"/>
+                            </section>
+                        </section>
+                        <section name="segmentation_parameters">
+                            <param name="nuclear_channel" value="DAPI"/>
+                            <param name="entity_fill_channel" value="all"/>
+                            <param name="diameter" value="70"/>
+                            <param name="flow_threshold" value="0.95"/>
+                            <param name="cellprob_threshold" value="-5.5"/>
+                            <param name="minimum_mask_size" value="500"/>
+                        </section>
+                        <section name="task_input_data">
+                            <repeat name="task_input">
+                                <param name="image_channel" value="Cellbound1"/>
+                                <repeat name="image_preprocessing">
+                                    <conditional name="preprocess_conditional">
+                                        <param name="preprocess" value="normalize"/>
+                                        <conditional name="normalize_conditional">
+                                            <param name="normalization" value="CLAHE"/>
+                                            <param name="clip_limit" value="0.01"/>
+                                            <param name="filter_size" value="100"/>
+                                        </conditional>
+                                    </conditional>
+                                </repeat>
+                            </repeat>
+                            <repeat name="task_input">
+                                <param name="image_channel" value="Cellbound3"/>
+                                <repeat name="image_preprocessing">
+                                    <conditional name="preprocess_conditional">
+                                        <param name="preprocess" value="normalize"/>
+                                        <conditional name="normalize_conditional">
+                                            <param name="normalization" value="CLAHE"/>
+                                            <param name="clip_limit" value="0.01"/>
+                                            <param name="filter_size" value="100"/>
+                                        </conditional>
+                                    </conditional>
+                                </repeat>
+                            </repeat>
+                            <repeat name="task_input">
+                                <param name="image_channel" value="DAPI"/>
+                                <repeat name="image_preprocessing">
+                                    <conditional name="preprocess_conditional">
+                                        <param name="preprocess" value="normalize"/>
+                                        <conditional name="normalize_conditional">
+                                            <param name="normalization" value="CLAHE"/>
+                                            <param name="clip_limit" value="0.01"/>
+                                            <param name="filter_size" value="100"/>
+                                        </conditional>
+                                    </conditional>
+                                </repeat>
+                            </repeat>
+                        </section>
+                        <section name="polygon_parameters">
+                            <param name="simplification_tol" value="2"/>
+                            <param name="smoothing_radius" value="10"/>
+                            <param name="minimum_final_area" value="500"/>
+                        </section>
+                    </repeat>
+                </section>
+                <section name="segmentation_task_fusion">
+                    <param name="entity_fusion_strategy" value="harmonize"/>
+                    <param name="min_distance_between_entities" value="1"/>
+                    <param name="min_final_area" value="500"/>
+                </section>
+                <section name="output_files">
+                    <param name="entity_types_output" value="cell"/>
+                </section>
+            </section>
+            <section name="qc_params">
+                <param name="experiment_name" value="cyto2_1task"/>
+            </section>
+            <section name="advanced_output">
+                <param name="log" value="true"/>
+            </section>
+            <output_collection name="vpt_results" type="list">
+                <element name="cell_by_gene" file="cell_by_gene.csv" compare="diff"/>
+                <element name="cell_metadata" file="cell_metadata.csv" compare="diff"/>
+                <element name="detected_transcripts" file="detected_transcripts.csv" compare="diff"/>
+                <element name="metrics" file="metrics.csv" compare="diff"/>
+                <element name="sum_signals" file="sum_signals.csv" compare="diff"/>
+            </output_collection>
+            <output name="vpt_qc" file="metrics.tsv" compare="sim_size"/>
+            <output_collection name="vpt_config_out" type="list">
+                <element name="segmentation_specification" file="segmentation_specification.json" compare="diff"/>
+                <element name="vpt_config_file" file="vpt_config_file.json" compare="diff"/>
+            </output_collection>
+            <output name="vpt_log" file="log" compare="diff"/>
+        </test>
     </tests>
     <help>
 The Vizgen Post-processing Tool (VPT) is a scalable and reproducible tool which enables users to reprocess and refine the single-cell results of MERSCOPE experiments.
