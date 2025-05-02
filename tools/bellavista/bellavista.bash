@@ -33,8 +33,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 while sleep 1; do
-    # Check if the the job is finised
-    if grep -q "Bella Vista input files created!" './bellavista.log'; then
+    # Check if the job is finished
+    if grep -q "Bella Vista input files created!" './bellavista.log' && \
+    [ -d "input/BellaVista_output/OMEzarrImages" ] && \
+    [ -f "input/BellaVista_output/OMEzarrImages/.zgroup" ]; then
         echo "Bella Vista input files created! Stopping the tool..."
         kill -INT $TOOL_PID
         sleep 1
@@ -43,6 +45,8 @@ while sleep 1; do
             kill -9 $TOOL_PID
         fi
         break
+    elif grep -q "Bella Vista input files created!" './bellavista.log'; then
+        echo "Log indicates completion but output directory structure is incomplete. Continuing..."
     fi
 
     # Check timeout
