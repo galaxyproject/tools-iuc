@@ -35,8 +35,8 @@ trap cleanup EXIT INT TERM
 while sleep 1; do
     # Check if the job is finished
     if grep -q "Bella Vista input files created!" './bellavista.log' && \
-    [ -d "input/BellaVista_output/OMEzarrImages" ] && \
-    [ -f "input/BellaVista_output/OMEzarrImages/.zgroup" ]; then
+    [ -d "./BellaVista_output/OMEzarrImages" ] && \
+    [ -f "./BellaVista_output/OMEzarrImages/.zgroup" ]; then
         echo "Bella Vista input files created! Stopping the tool..."
         kill -INT $TOOL_PID
         sleep 1
