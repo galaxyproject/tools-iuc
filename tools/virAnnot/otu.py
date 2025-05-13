@@ -112,7 +112,7 @@ def _cut_sequence(options):
                                     collection[cdd_id][query_id]["taxonomy"] = "Unknown"
                                     collection[cdd_id][query_id]["nb"] = 0
                                 # keep pfamXXX and RdRp 1
-                                collection[cdd_id]["short_description"] = description.split(",")[0] + description.split(",")[1] 
+                                collection[cdd_id]["short_description"] = description.split(",")[0] + description.split(",")[1]
                                 collection[cdd_id]["full_description"] = description
         i += 1
     if options.merge_rdrp == "yes":
