@@ -1,14 +1,14 @@
 import argparse
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.subplots as sp
-import plotly.io as pio
+from typing import Dict, List, Tuple
 
-from scipy.stats import gaussian_kde
-import statsmodels.api as sm  # to build a LOWESS model
 import matplotlib.pyplot as plt
-from typing import List, Tuple, Dict
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
+import plotly.subplots as sp
+import statsmodels.api as sm  # to build a LOWESS model
+from scipy.stats import gaussian_kde
 
 
 # subplot titles
