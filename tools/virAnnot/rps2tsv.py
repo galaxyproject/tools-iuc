@@ -113,8 +113,8 @@ def _write_tsv(options, hits):
     for h in hits:
         f.write(h + "\t" + str(hits[h]["query_length"]) + "\t")
         f.write(hits[h]["cdd_id"] + "\t" + hits[h]["hit_id"] + "\t" + str(hits[h]["evalue"]) + "\t")
-        f.write(str(hits[h]["startQ"]) + "\t" + str(hits[h]["endQ"]) + "\t" +
-                str(hits[h]["frame"]) + "\t")
+        f.write(str(hits[h]["startQ"]) + "\t" + str(hits[h]["endQ"]) + "\t"
+                + str(hits[h]["frame"]) + "\t")
         f.write(hits[h]["description"] + "\t" + hits[h]["taxonomy"] + "\t" + hits[h]["pident"])
         f.write("\n")
     f.close()
