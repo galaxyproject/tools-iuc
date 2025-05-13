@@ -65,7 +65,7 @@ def _cut_sequence(options):
                         frame = float(row[7])
                         description = row[8]
                         superkingdom = row[9]
-                        try :
+                        try:
                             pident = row[10]
                         except IndexError:
                             log.info(rps_file[0])
