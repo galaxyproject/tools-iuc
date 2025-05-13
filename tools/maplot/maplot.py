@@ -342,7 +342,7 @@ def ma_plots_matplotlib(
 
             # Plot moving average line
             ax.plot(
-                subplot_data["bins"][window_width // 2 : -window_width // 2],
+                subplot_data["bins"][window_width // 2: -window_width // 2],
                 subplot_data["counts_smoothed"],
                 color="red",
             )
