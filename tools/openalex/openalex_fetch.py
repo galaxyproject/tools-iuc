@@ -35,7 +35,7 @@ def fetch_citing_papers(openalex_id, max_citations=None):
         raise ValueError("This work has no citing papers.")
 
     while True:
-        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}"  # fixed: per_page not per-page
+        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}"
         response = requests.get(paged_url)
         response.raise_for_status()
         data = response.json()
