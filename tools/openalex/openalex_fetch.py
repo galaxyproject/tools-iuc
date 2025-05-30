@@ -19,7 +19,8 @@ def get_openalex_id_from_title(title):
         raise ValueError("No paper found with the given title.")
     return results[0]['id'].split('/')[-1]
 
-# fetch papers 
+# fetch papers
+
 def fetch_citing_papers(openalex_id, max_citations=None):
     all_citing_papers = []
     per_page = 200
@@ -35,7 +36,7 @@ def fetch_citing_papers(openalex_id, max_citations=None):
         raise ValueError("This work has no citing papers.")
 
     while True:
-        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}"
+        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}" 
         response = requests.get(paged_url)
         response.raise_for_status()
         data = response.json()
@@ -74,6 +75,7 @@ def download_pdf(url, title, folder_name):
     except Exception as e:
         print(f"[!] Error downloading {url}: {e}")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch citing papers from OpenAlex")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -82,7 +84,7 @@ def main():
     group.add_argument('--title', help='Title of the paper')
 
     parser.add_argument('--download', action='store_true', help='Download available OA PDFs')
-    parser.add_argument('--max-citations', type=str, default="50", dest='max_citations',help="Max citing papers to fetch or 'all'")
+    parser.add_argument('--max-citations', type=str, default="50", dest='max_citations', help="Max citing papers to fetch or 'all'")
     parser.add_argument('--output-dir', default='.', help='Directory to save output files')
     args = parser.parse_args()
 
