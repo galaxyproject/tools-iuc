@@ -35,7 +35,7 @@ def fetch_citing_papers(openalex_id, max_citations=None):
         raise ValueError("This work has no citing papers.")
 
     while True:
-        paged_url = f"{cited_by_url}&per-page={per_page}&page={page}"
+        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}"  # fixed: per_page not per-page
         response = requests.get(paged_url)
         response.raise_for_status()
         data = response.json()
@@ -46,27 +46,26 @@ def fetch_citing_papers(openalex_id, max_citations=None):
 
         all_citing_papers.extend(results)
 
-        # If max_citations set and reached, stop fetching more pages 
         if max_citations and len(all_citing_papers) >= max_citations:
             all_citing_papers = all_citing_papers[:max_citations]
             break
 
         if len(results) < per_page:
-            break  # just last page
+            break
 
         page += 1
 
     return all_citing_papers
 
 
-def download_pdf(url, title, folder='downloads'):
+def download_pdf(url, title, folder_name):
     try:
-        if not os.path.exists(folder):
-            os.makedirs(folder)
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
         response = requests.get(url)
         if response.status_code == 200:
             safe_title = "".join(x for x in title if x.isalnum() or x in " _-").rstrip()
-            file_path = os.path.join(folder, f"{safe_title}.pdf")
+            file_path = os.path.join(folder_name, f"{safe_title}.pdf")
             with open(file_path, 'wb') as f:
                 f.write(response.content)
             print(f"[✓] Downloaded: {file_path}")
@@ -82,7 +81,7 @@ def main():
     group.add_argument('--doi', help='DOI of the paper')
     group.add_argument('--title', help='Title of the paper')
 
-    # parser.add_argument('--download', action='store_true', help='Download available OA PDFs')
+    parser.add_argument('--download', action='store_true', help='Download available OA PDFs')
     parser.add_argument('--max-citations', type=str, default="50", dest='max_citations',help="Max citing papers to fetch or 'all'")
     parser.add_argument('--output-dir', default='.', help='Directory to save output files')
     args = parser.parse_args()
@@ -90,7 +89,7 @@ def main():
     output_dir = args.output_dir
     summary_path = os.path.join(output_dir, "summary.txt")
     tsv_path = os.path.join(output_dir, "citing_papers.tsv")
-    # download_dir = os.path.join(output_dir, "downloads")
+    download_dir = os.path.join(output_dir, "downloads")
 
     if args.max_citations.lower() == "all":
         max_citations = None
@@ -120,8 +119,13 @@ def main():
             if is_open:
                 is_oa += 1
                 print("[OA]", landing_url)
-                # if args.download and location.get('pdf_url'):
-                #     download_pdf(location['pdf_url'], paper['title'])
+                if args.download:
+                    pdf_url = location.get('pdf_url')
+                    if pdf_url:
+                        download_pdf(pdf_url, paper['title'], download_dir)
+                    else:
+                        print(f"[!] No direct PDF URL for: {paper['title']}")
+
             else:
                 is_not_oa += 1
                 print("[Closed]", landing_url)
@@ -139,19 +143,17 @@ def main():
 
         # save  citing papers to a TSV file
         with open(tsv_path, "w", encoding="utf-8") as f:
-            f.write("Title\tDOI\tIs_OA\tLanding_Page_URL\tPDF_URL\n")
+            f.write("Title\tDOI\tIs_OA\n")
             for paper in citing_papers:
                 raw_title = paper.get("title") or "N/A"
                 title = raw_title.replace("\t", " ")
                 doi = paper.get("doi", "N/A")
                 location = paper['locations'][0] if paper['locations'] else {}
                 is_oa = location.get("is_oa", False)
-                landing_url = location.get("landing_page_url", "N/A")
-                pdf_url = location.get("pdf_url", "N/A")
+                # landing_url = location.get("landing_page_url", "N/A")
+                # pdf_url = location.get("pdf_url", "N/A")
 
-                f.write(f"{title}\t{doi}\t{is_oa}\t{landing_url}\t{pdf_url}\n")
-
-
+                f.write(f"{title}\t{doi}\t{is_oa}\n")
 
     except Exception as e:
         print(f"[!] Error: {e}")
