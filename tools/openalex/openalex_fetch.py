@@ -1,6 +1,8 @@
-import requests
 import argparse
 import os
+
+import requests
+
 
 # doi
 def get_openalex_id_from_doi(doi): 
@@ -8,6 +10,7 @@ def get_openalex_id_from_doi(doi):
     response = requests.get(url)
     response.raise_for_status()
     return response.json()['id'].split('/')[-1]
+
 
 # title
 def get_openalex_id_from_title(title): 
@@ -19,8 +22,8 @@ def get_openalex_id_from_title(title):
         raise ValueError("No paper found with the given title.")
     return results[0]['id'].split('/')[-1]
 
-# fetch papers
 
+# fetch papers
 def fetch_citing_papers(openalex_id, max_citations=None):
     all_citing_papers = []
     per_page = 200
@@ -159,7 +162,6 @@ def main():
 
     except Exception as e:
         print(f"[!] Error: {e}")
-
 
 if __name__ == '__main__':
     main()
