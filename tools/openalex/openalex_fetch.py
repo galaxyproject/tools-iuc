@@ -5,7 +5,7 @@ import requests
 
 
 # doi
-def get_openalex_id_from_doi(doi): 
+def get_openalex_id_from_doi(doi):
     url = f'https://api.openalex.org/works/https://doi.org/{doi}'
     response = requests.get(url)
     response.raise_for_status()
@@ -13,7 +13,7 @@ def get_openalex_id_from_doi(doi):
 
 
 # title
-def get_openalex_id_from_title(title): 
+def get_openalex_id_from_title(title):
     url = f'https://api.openalex.org/works?search={title}'
     response = requests.get(url)
     response.raise_for_status()
@@ -39,7 +39,7 @@ def fetch_citing_papers(openalex_id, max_citations=None):
         raise ValueError("This work has no citing papers.")
 
     while True:
-        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}" 
+        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}"
         response = requests.get(paged_url)
         response.raise_for_status()
         data = response.json()
@@ -162,6 +162,7 @@ def main():
 
     except Exception as e:
         print(f"[!] Error: {e}")
+
 
 if __name__ == '__main__':
     main()
