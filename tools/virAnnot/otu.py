@@ -4,8 +4,8 @@
 # Name: virAnnot_otu
 # Author: Marie Lefebvre - INRAE
 # Reuirements: Ete3 toolkit and external apps
-# Aims: Create viral OTUs based on RPS and Blast annotations
 
+"""Create viral OTUs based on RPS and Blast annotations"""
 
 import argparse
 import csv
@@ -65,9 +65,14 @@ def _cut_sequence(options):
                         frame = float(row[7])
                         description = row[8]
                         superkingdom = row[9]
+                        try:
+                            pident = row[10]
+                        except IndexError:
+                            log.info(rps_file[0])
+                            log.info(row)
                         match = re.search("Viruses", superkingdom)
                         # if contig is viral then retrieve sequence
-                        if match:
+                        if match and float(pident) >= options.viral_portion:
                             options.fasta.sort()
                             seq = _retrieve_fasta_seq(options.fasta[i][0], query_id)
                             seq_length = len(seq)
@@ -103,13 +108,23 @@ def _cut_sequence(options):
                                                 if "taxonomy" not in collection[cdd_id][query_id]:
                                                     collection[cdd_id][query_id]["taxonomy"] = "Unknown"
                                 else:
-                                    log.info("No blast file")
+                                    log.debug("No blast file")
                                     collection[cdd_id][query_id]["taxonomy"] = "Unknown"
                                     collection[cdd_id][query_id]["nb"] = 0
-
-                                collection[cdd_id]["short_description"] = description.split(",")[0] + description.split(",")[1]  # keep pfamXXX and RdRp 1
+                                # keep pfamXXX and RdRp 1
+                                collection[cdd_id]["short_description"] = description.split(",")[0] + description.split(",")[1]
                                 collection[cdd_id]["full_description"] = description
         i += 1
+    if options.merge_rdrp == "yes":
+        rdrp_list = ["pfam00680", "pfam02123", "pfam00978", "pfam00998"]
+        collection["RdRp_merge"] = {}
+        for cdd_id in collection:
+            if cdd_id in rdrp_list and cdd_id != "RdRp_merge":
+                log.info("Add " + cdd_id + " in merge")
+                for query_id in collection[cdd_id]:
+                    if query_id not in collection["RdRp_merge"]:
+                        collection["RdRp_merge"][query_id] = {}
+                        collection["RdRp_merge"][query_id] = collection[cdd_id][query_id]
     return collection
 
 
@@ -181,7 +196,11 @@ def _align_sequences(options, hits_collection):
         os.mkdir(options.output)
     color_by_sample = {}
     for cdd_id in hits_collection:
-        cdd_output = options.output + "/" + hits_collection[cdd_id]["short_description"].replace(" ", "_")
+        log.info("align seq for " + cdd_id)
+        if cdd_id == "RdRp_merge":
+            cdd_output = options.output + "/" + cdd_id
+        else:
+            cdd_output = options.output + "/" + hits_collection[cdd_id]["short_description"].replace(" ", "_")
         if not os.path.exists(cdd_output):
             os.mkdir(cdd_output)
         if os.path.exists(cdd_output + "/seq_to_align.fasta"):
@@ -223,7 +242,7 @@ def _align_sequences(options, hits_collection):
             file_matrix = cdd_output + "/identity_matrix.csv"
             log.info("Create tree...")
             _create_tree(tree_file, file_seq_aligned, tree_file + '.png', file_color_config)
-            _compute_pairwise_distance(options, file_seq_aligned, file_matrix, cdd_id)
+            _compute_pairwise_distance(file_seq_aligned, file_matrix, cdd_id)
             log.info("Retrieve OTUs...")
             # if os.path.exists(file_cluster):
             #     os.remove(file_cluster)
@@ -241,7 +260,7 @@ def _align_sequences(options, hits_collection):
             f.close()
 
 
-def _compute_pairwise_distance(options, file_seq_aligned, file_matrix, cdd_id):
+def _compute_pairwise_distance(file_seq_aligned, file_matrix, cdd_id):
     """
     Calculate paiwise distance between aligned protein sequences
     from a cdd_id
@@ -297,8 +316,13 @@ def _get_stats(options, hits_collection):
     log.info("Writing stats to " + file_xlsx)
     for cdd_id in hits_collection:
         otu_collection = {}
-        cdd_output = options.output + "/" + hits_collection[cdd_id]["short_description"].replace(" ", "_")
-        worksheet = workbook.add_worksheet(hits_collection[cdd_id]["short_description"])  # add a worksheet
+        if cdd_id == "RdRp_merge":
+            cdd_output = options.output + "/" + cdd_id
+            worksheet = workbook.add_worksheet(cdd_id)
+        else:
+
+            cdd_output = options.output + "/" + hits_collection[cdd_id]["short_description"].replace(" ", "_")
+            worksheet = workbook.add_worksheet(hits_collection[cdd_id]["short_description"])  # add a worksheet
         file_cluster = cdd_output + '/otu_cluster.csv'
         file_fasta_nucc = cdd_output + '/representative_nucc.fasta'
         with open(file_cluster, 'r') as clust:
@@ -315,25 +339,31 @@ def _get_stats(options, hits_collection):
                         otu_collection[row[0]][sample] = {}
                         otu_collection[row[0]][sample][contig] = {}
                         # add read number of the contig and annotation
-                        if 'nb' in hits_collection[cdd_id][contig]:
-                            otu_collection[row[0]][sample][contig]['nb'] = hits_collection[cdd_id][contig]["nb"]
+                        if contig in hits_collection[cdd_id]:
+                            if 'nb' in hits_collection[cdd_id][contig]:
+                                otu_collection[row[0]][sample][contig]['nb'] = hits_collection[cdd_id][contig]["nb"]
+                            else:
+                                otu_collection[row[0]][sample][contig]['nb'] = 0
+                            if 'taxonomy' in hits_collection[cdd_id][contig]:
+                                otu_collection[row[0]][sample][contig]['taxonomy'] = hits_collection[cdd_id][contig]["taxonomy"]
+                            else:
+                                otu_collection[row[0]][sample][contig]['taxonomy'] = 'unknown'
                         else:
-                            otu_collection[row[0]][sample][contig]['nb'] = 0
-                        if 'taxonomy' in hits_collection[cdd_id][contig]:
-                            otu_collection[row[0]][sample][contig]['taxonomy'] = hits_collection[cdd_id][contig]["taxonomy"]
-                        else:
-                            otu_collection[row[0]][sample][contig]['taxonomy'] = 'unknown'
+                            otu_collection[row[0]][sample][contig] = {'nb': 0, 'taxonomy': 'unknown'}
                     else:
                         otu_collection[row[0]][sample][contig] = {}
                         # add read number of the contig and annotation
-                        if 'nb' in hits_collection[cdd_id][contig]:
-                            otu_collection[row[0]][sample][contig]['nb'] = hits_collection[cdd_id][contig]["nb"]
+                        if contig in hits_collection[cdd_id]:
+                            if 'nb' in hits_collection[cdd_id][contig]:
+                                otu_collection[row[0]][sample][contig]['nb'] = hits_collection[cdd_id][contig]["nb"]
+                            else:
+                                otu_collection[row[0]][sample][contig]['nb'] = 0
+                            if 'taxonomy' in hits_collection[cdd_id][contig]:
+                                otu_collection[row[0]][sample][contig]['taxonomy'] = hits_collection[cdd_id][contig]["taxonomy"]
+                            else:
+                                otu_collection[row[0]][sample][contig]['taxonomy'] = 'unknown'
                         else:
-                            otu_collection[row[0]][sample][contig]['nb'] = 0
-                        if 'taxonomy' in hits_collection[cdd_id][contig]:
-                            otu_collection[row[0]][sample][contig]['taxonomy'] = hits_collection[cdd_id][contig]["taxonomy"]
-                        else:
-                            otu_collection[row[0]][sample][contig]['taxonomy'] = 'unknown'
+                            otu_collection[row[0]][sample][contig] = {'nb': 0, 'taxonomy': 'unknown'}
                     if 'taxonomy' in hits_collection[cdd_id][contig]:
                         otu_collection[row[0]]['global_taxonomy'] = hits_collection[cdd_id][contig]["taxonomy"]
                     else:
@@ -362,7 +392,6 @@ def _get_stats(options, hits_collection):
         # column = 0
         with open(file_fasta_nucc, "w+") as f_nucc:
             for otu in otu_collection:
-                log.info(otu)
                 if isinstance(otu_collection[otu], dict):
                     column = 0
                     worksheet.write(row, column, otu)
@@ -405,7 +434,10 @@ def _create_html(options, hits_collection):
         headers = ['#cdd_id', 'align_files', 'tree_files', 'cluster_files', 'cluster_nb_reads_files', 'pairwise_files', 'description', 'full_description\n']
         map_file.write("\t".join(headers))
         for cdd_id in hits_collection:
-            cdd_output = hits_collection[cdd_id]["short_description"].replace(" ", "_")
+            if cdd_id == "RdRp_merge":
+                cdd_output = "RdRp_merge"
+            else:
+                cdd_output = hits_collection[cdd_id]["short_description"].replace(" ", "_")
             short_description = cdd_output
             file_seq_aligned = cdd_output + '/seq_aligned.final_tree.fa'
             tree_file = cdd_output + '/tree.dnd.png'
@@ -422,6 +454,9 @@ def _create_html(options, hits_collection):
 
 
 def _set_options():
+    """
+    Set parameters
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--blast', help='TAB blast file from blast2ecsv module.', action='append', required=False, dest='blast', nargs='+')
     parser.add_argument('-r', '--rps', help='TAB rpsblast file from rps2ecsv module.', action='append', required=True, dest='rps', nargs='+')
@@ -429,6 +464,7 @@ def _set_options():
     parser.add_argument('-p', '--percentage', help='Percentage similarity threshold for OTUs cutoff.', action='store', type=int, default=90, dest='perc')
     parser.add_argument('-vp', '--viral_portion', help='Minimun portion of viral sequences in RPS domain to be included.', action='store', type=float, default=0.3, dest='viral_portion')
     parser.add_argument('-mpl', '--min_protein_length', help='Minimum query protein length.', action='store', type=int, default=100, dest='min_protein_length')
+    parser.add_argument('-m', '--merge_rdrp', help='Merge RdRp1, 2, 3 and 4 to create otu on it.', action='store', type=str, default="no", dest='merge_rdrp')
     parser.add_argument('-tp', '--tool_path', help='Path to otu_seek.R', action='store', type=str, default='./', dest='tool_path')
     parser.add_argument('-o', '--out', help='The output directory', action='store', type=str, default='./Rps2tree_OTU', dest='output')
     parser.add_argument('-rgb', '--rgb-conf', help='Color palette for contigs coloration', action='store', type=str, default='rgb.txt', dest='file_rgb')
@@ -438,6 +474,9 @@ def _set_options():
 
 
 def _set_log_level(verbosity):
+    """
+    Debbug
+    """
     if verbosity == 1:
         log_format = '%(asctime)s %(levelname)-8s %(message)s'
         log.basicConfig(level=log.INFO, format=log_format)

@@ -45,6 +45,60 @@ def is_urlfile(url):
         return False
 
 
+def extract_tar_iteratively(tarball, target_directory):
+    """
+    Extracts a .tar, .tar.gz, or .tar.bz2 archive iteratively in a memory-efficient manner.
+
+    This function processes the contents of the archive member-by-member, ensuring only
+    one file or directory is loaded into memory at any given time. It handles the creation
+    of directories and symbolic links, and streams large files to disk in chunks to avoid
+    memory overload.
+
+    Args:
+        tarball (str): Path to the tar archive (e.g., .tar, .tar.gz, .tar.bz2) to be extracted.
+        target_directory (str): The destination directory where the archive content
+                                will be extracted.
+
+    Raises:
+        OSError: If there is an issue with file or directory creation, or writing to disk.
+        tarfile.TarError: If there is an issue opening or reading the tar archive.
+
+    Example Usage:
+        extract_tar_iteratively("archive.tar.gz", "/path/to/extract")
+
+    Notes:
+        - The function supports symbolic and hard links present in the tar archive.
+        - It ensures that directories are created before files are extracted.
+        - Large files are streamed to disk in 1 MB chunks to minimize memory usage.
+        - This function does not return anything but will populate the target directory with
+          the extracted content.
+    """
+
+    with tarfile.open(tarball, "r:*") as fh:
+        for member in fh:
+            # Full path to where the member should be extracted
+            member_path = os.path.join(target_directory, member.name)
+
+            if member.isdir():
+                # If it's a directory, ensure it exists
+                os.makedirs(member_path, exist_ok=True)
+            elif member.isfile():
+                # If it's a file, extract it in chunks to avoid memory spikes
+                with fh.extractfile(member) as source, open(
+                    member_path, "wb"
+                ) as target:
+                    shutil.copyfileobj(
+                        source, target, length=1024 * 1024
+                    )  # 1 MB chunks
+            elif member.issym() or member.islnk():
+                # Handle symlinks or hard links if necessary
+                target_link = os.path.join(target_directory, member.name)
+                if member.issym():
+                    os.symlink(member.linkname, target_link)
+                elif member.islnk():
+                    os.link(member.linkname, target_link)
+
+
 def url_download(url, target_directory, meta):
 
     # download the url
@@ -59,7 +113,7 @@ def url_download(url, target_directory, meta):
         src = urlopen(req)
         with open(tarball, "wb") as dst:
             while True:
-                chunk = src.read(2**10)
+                chunk = src.read(2**16)  # Read in 64 KB chunks instead of 1 KB
                 if chunk:
                     dst.write(chunk)
                 else:
@@ -74,9 +128,7 @@ def url_download(url, target_directory, meta):
     if meta:
         # extract the content of *.tar.gz into the target dir
         if tarfile.is_tarfile(tarball):
-            fh = tarfile.open(tarball, "r:*")
-            fh.extractall(target_directory)
-            fh.close()
+            extract_tar_iteratively(tarball, target_directory)
             os.remove(tarball)
             return target_directory  # return path to output folder
         # extract the content of *.gz into the target dir
@@ -96,9 +148,7 @@ def url_download(url, target_directory, meta):
         # handle the DB
         # extract the content of the folder in the tar.gz into the target dir
         if tarfile.is_tarfile(tarball):
-            fh = tarfile.open(tarball, "r:*")
-            fh.extractall(target_directory)
-            fh.close()
+            extract_tar_iteratively(tarball, target_directory)
             os.remove(tarball)
         else:
             # handle the test case for the DB
