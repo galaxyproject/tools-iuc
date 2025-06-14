@@ -1,5 +1,5 @@
 # Test 1: Basic FASTA output from BAM
-samtools fasta samtools_fastx-in1.bam > samtools_fastx-out1.fasta
+samtools fasta -f 0 -F 2304 -G 0 <(samtools sort -n samtools_fastx-in1.bam) > samtools_fastx-out1.fasta
 
 # Test 2: FASTQ output with r0, r1, r2 splits from BAM
 samtools sort -n samtools_fastx-in2.bam | samtools fastq -0 samtools_fastx-out2-1.fastq -1 samtools_fastx-out2-2.fastq -2 samtools_fastx-out2-3.fastq -
