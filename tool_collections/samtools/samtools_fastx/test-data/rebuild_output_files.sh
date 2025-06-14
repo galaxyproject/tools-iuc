@@ -32,10 +32,10 @@ samtools fastq -s 4.s.fq.expected -1 4.1.fq.expected -2 4.2.fq.expected bam2fq.0
 samtools fastq --barcode-tag BC --index-format 'n2i2' --i1 bc.fq.expected -s 4.s.fq.expected -1 4.1.fq.expected -2 4.2.fq.expected bam2fq.004.sam > 4.stdout.expected
 
 # Test 12: Test -O flag with no OQ tags
-samtools fastq --barcode-tag BC --index-format 'n2i2' --i1 bc.fq.expected -s 4.s.fq.expected -1 4.1.fq.expected -2 4.2.fq.expected bam2fq.004.sam > 4.stdout.expected
+samtools fastq -O --barcode-tag BC --index-format 'n2i2' --i1 bc.fq.expected -s 4.s.fq.expected -1 4.1.fq.expected -2 4.2.fq.expected bam2fq.004.sam > 4.stdout.expected
 
 # Test 13: Test -O flag with OQ tags
-samtools fastq --barcode-tag BC -O --index-format 'n2i2' --i1 bc10.fq.expected -s 10.s.fq.expected -1 10.1.fq.expected -2 10.2.fq.expected bam2fq.010.sam > 2.stdout.expected
+samtools fastq -O --barcode-tag BC --index-format 'n2i2' --i1 bc10.fq.expected -s 10.s.fq.expected -1 10.1.fq.expected -2 10.2.fq.expected bam2fq.010.sam > 2.stdout.expected
 
 # Test 14: Tag output test with separators and -N flag
 samtools fastq --barcode-tag BC -N --index-format 'n*i*' --i1 bc_split.fq.expected -s 5.s.fq.expected -1 5.1.fq.expected -2 5.2.fq.expected bam2fq.005.sam > 2.stdout.expected
