@@ -16,8 +16,8 @@ suppressPackageStartupMessages({
 options(stringAsfactors = FALSE, useFancyQuotes = FALSE)
 args <- commandArgs(trailingOnly = TRUE)
 
-#get options, using the spec as defined by the enclosed list.
-#we read the options from the default: commandArgs(TRUE).
+# get options, using the spec as defined by the enclosed list.
+# we read the options from the default: commandArgs(TRUE).
 spec <- matrix(c(
     "verbose", "v", 2, "integer",
     "help", "h", 0, "logical",
@@ -109,7 +109,7 @@ head(res_sorted)
 export_table <- as.data.frame(res_sorted)
 last_column <- ncol(export_table)
 for (i in seq_len(nrow(export_table))) {
-  export_table[i, last_column] <- paste(export_table[i, last_column][[1]], collapse = ", ")
+    export_table[i, last_column] <- paste(export_table[i, last_column][[1]], collapse = ", ")
 }
 export_table[, c(last_column)] <- sapply(export_table[, c(last_column)], as.character)
 write.table(export_table, file = opt$outfile, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)

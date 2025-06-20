@@ -13,12 +13,61 @@ import re
 import sys
 # Functions that may be used in the compute expression
 from math import (  # noqa: F401
+    acos,
+    acosh,
+    asin,
+    asinh,
+    atan,
+    atan2,
+    atanh,
+    cbrt,
     ceil,
+    comb,
+    copysign,
+    cos,
+    cosh,
+    degrees,
+    dist,
+    erf,
+    erfc,
     exp,
+    exp2,
+    expm1,
+    fabs,
+    factorial,
     floor,
+    fmod,
+    frexp,
+    fsum,
+    gamma,
+    gcd,
+    hypot,
+    inf,
+    isclose,
+    isfinite,
+    isinf,
+    isnan,
+    isqrt,
+    ldexp,
+    lgamma,
     log,
     log10,
+    log1p,
+    log2,
+    modf,
+    nextafter,
+    perm,
+    pi,
+    pow,
+    prod,
+    remainder,
+    sin,
     sqrt,
+    tan,
+    tanh,
+    tau,
+    trunc,
+    ulp,
 )
 
 from numpy import format_float_positional
@@ -121,10 +170,10 @@ try:
         'lambda fields: [from_str(s, t) for s, t in zip(fields, [%s])]'
         % args.column_types
     )
-except Exception as e:
+except Exception as err:
     sys.exit(
         'While parsing column types, the following problem occured: "%s"'
-        % e
+        % err
     )
 
 # Get and parse actions
@@ -150,11 +199,19 @@ else:
 # COL_NAME is required with the --header option and specifies the name of the
 # new column; without --header, any COL_NAME gets ignored.
 operators = 'is|not|or|and'
-builtin_and_math_functions = (
+builtin_functions = (
     'abs|all|any|ascii|bin|bool|chr|complex|divmod|float|format|hex|int|len|'
-    'list|map|max|min|oct|ord|pow|range|reversed|round|set|sorted|str|sum|type|'
-    'log|log10|exp|sqrt|ceil|floor'
+    'list|map|max|min|oct|ord|pow|range|reversed|round|set|sorted|str|sum|type'
 )
+
+math_functions = (
+    'acos|acosh|asin|asinh|atan|atan2|atanh|cbrt|ceil|comb|copysign|cos|cosh|degrees|'
+    'dist|erf|erfc|exp|exp2|expm1|fabs|factorial|floor|fmod|frexp|fsum|gamma|gcd|'
+    'hypot|inf|isclose|isfinite|isinf|isnan|isqrt|ldexp|lgamma|log|log10|log1p|'
+    'log2|modf|nextafter|perm|pi|pow|prod|remainder|sin|'
+    'sqrt|tan|tanh|tau|trunc|ulp'
+)
+builtin_and_math_functions = builtin_functions + '|' + math_functions
 imported_numpy_function = 'format_float_positional'
 string_and_list_methods = [
     name for name in dir('') + dir([]) if not name.startswith('_')
@@ -171,6 +228,7 @@ num_cols = in_columns
 for ac in actions:
     try:
         expr_string, col_add_spec, new_col_name = ac.split(';')
+        print(expr_string)
     except ValueError:
         sys.exit(
             'Invalid Action: "%s".  '

@@ -1,0 +1,538 @@
+<tool id="seurat_create" name="Seurat Create" version="@TOOL_VERSION@+galaxy1" profile="@PROFILE@">
+    <description>- Prepare data for the pipeline</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+#if str($method.method) == 'CreateSeuratObject':
+    #if str($method.input_type.input_type) == 'mtx':
+    ln -s '$method.input_type.matrix' matrix.mtx &&
+    ln -s '$method.input_type.gene_names' genes.tsv &&
+    ln -s '$method.input_type.cell_barcodes' barcodes.tsv &&
+    #else if str($method.input_type.input_type) == 'tab':
+    ln -s '$method.input_type.input_tab' input.tab;
+        #if str($method.input_type.citeseq.citeseq) == 'true':
+        ln -s '$method.input_type.citeseq.citeseq_table' citeseq.tab &&
+        #end if
+    #end if
+    cat '$script_file' > $hidden_output &&
+    Rscript '$script_file' >> $hidden_output
+#else:
+@CMD@
+#end if
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+
+#if $method.method == 'CreateSeuratObject'
+    #if $method.input_type.input_type == 'mtx'
+        counts<-Read10X(
+            data.dir = '.',
+            gene.column = $method.input_type.gene_column,
+            cell.column = $method.input_type.cell_column,
+            unique.features = $method.input_type.unique_features,
+            strip.suffix = $method.input_type.strip_suffix
+        )
+
+        #if $method.meta_data
+        meta_data<-read.table(
+            "$method.meta_data",
+            header = TRUE,
+            row.names = 1,
+            sep = "\t"
+        )
+        for (name in colnames(meta_data)) {
+        meta_data[[name]]<-gsub("^$", "N/A", trimws(meta_data[[name]]))
+        meta_data[[name]][is.na(meta_data[[name]])]<-"N/A"
+        }
+        #end if
+
+        seurat_obj<-CreateSeuratObject(
+            counts,
+            assay = '$method.assay',
+            #if $method.names_field != ''
+            names.field = $method.names_field,
+            #end if
+            #if $method.names_delim != ''
+            names.delim = '$method.names_delim',
+            #end if
+            #if $method.min_cells
+            min.cells = $method.min_cells,
+            #end if
+            #if $method.min_features
+            min.features = $method.min_features,
+            #end if
+            #if $method.meta_data
+            meta.data = meta_data
+            #end if
+        )
+
+        #if $method.percent_mt.percent_mt == 'true'
+        seurat_obj[["percent.mt"]]<-PercentageFeatureSet(
+            seurat_obj,
+            pattern = '$method.percent_mt.pattern',
+        )
+        #end if
+
+        #if $method.input_type.citeseq_boolean == 'true'
+        seurat_obj[['ADT']]<-CreateAssayObject(counts[['Antibody Capture']], colnames(x = seurat_obj))
+        #end if
+
+    #else if $method.input_type.input_type == 'tab'
+        counts<-read.table(
+            'input.tab',
+            header = TRUE,
+            row.names = 1,
+            sep = "\t"
+        )
+
+        #if $method.meta_data
+        meta_data<-read.table(
+            "$method.meta_data",
+            header = TRUE,
+            row.names = 1,
+            sep = "\t"
+        )
+        for (name in colnames(meta_data)) {
+        meta_data[[name]]<-gsub("^$", "N/A", trimws(meta_data[[name]]))
+        meta_data[[name]][is.na(meta_data[[name]])]<-"N/A"
+        }
+        #end if
+
+        seurat_obj<-CreateSeuratObject(
+            counts,
+            assay = '$method.assay',
+            #if $method.names_field != ''
+            names.field = $method.names_field,
+            #end if
+            #if $method.names_delim != ''
+            names.delim = '$method.names_delim',
+            #end if
+            #if $method.min_cells
+            min.cells = $method.min_cells,
+            #end if
+            #if $method.min_features
+            min.features = $method.min_features,
+            #end if
+            #if $method.meta_data
+            meta.data = meta_data
+            #end if
+        )
+
+        #if $method.percent_mt.percent_mt == 'true'
+        seurat_obj[["percent.mt"]]<-PercentageFeatureSet(
+            seurat_obj,
+            pattern = '$method.percent_mt.pattern',
+        )
+        #end if
+
+        #if $method.input_type.citeseq.citeseq == 'true'
+            citeseq<-read.table(
+                'citeseq.tab',
+                header = TRUE,
+                row.names = 1,
+                sep = "\t"
+            )
+
+            seurat_obj[['ADT']]<-CreateAssay5Object(counts = citeseq)
+        #end if
+    #end if
+
+#else if $method.method == 'Add_QC_Metrics'
+@CMD_read_inputs@
+
+    #if $method.match.match == 'list'
+    features_list<-paste(readLines('$method.match.features'), collapse=",")
+    #end if
+
+seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
+    seurat_obj,
+    #if $method.match.match == 'pattern'
+    pattern = '$method.match.pattern',
+    #else if $method.match.match == 'list'
+    features = c(unlist(strsplit(features_list, ","))),
+    #end if
+    #if $method.assay != ''
+    assay = '$method.assay'
+    #end if
+)
+
+#else if $method.method == 'FilterCells'
+@CMD_read_inputs@
+    #if $method.minimum_nFeature_RNA
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = nFeature_RNA > $method.minimum_nFeature_RNA
+    )
+    #end if
+    #if $method.maximum_nFeature_RNA
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = nFeature_RNA < $method.maximum_nFeature_RNA
+    )
+    #end if
+    #if $method.minimum_nCount_RNA
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = nCount_RNA > $method.minimum_nCount_RNA
+    )
+    #end if
+    #if $method.maximum_nCount_RNA
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = nCount_RNA < $method.maximum_nCount_RNA
+    )
+    #end if
+    #if $method.minimum_percent_mt
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = percent.mt> $method.minimum_percent_mt
+    )
+    #end if
+    #if $method.maximum_percent_mt
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = percent.mt < $method.maximum_percent_mt
+    )
+    #end if
+    #if $method.other.other == 'true'
+        #if $method.other.minimum
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = $method.other.other_variable > $method.other.minimum
+    )
+        #end if
+        #if $method.other.maximum
+    seurat_obj<-subset(
+        seurat_obj,
+        subset = $method.other.other_variable < $method.other.maximum
+    )
+        #end if
+    #end if
+
+#end if
+
+@CMD_rds_write_outputs@
+
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="method">
+            <param name="method" type="select" label="Method used">
+                <option value="CreateSeuratObject">Create Seurat Object</option>
+                <option value="Add_QC_Metrics">Add QC Metrics</option>
+                <option value="FilterCells">Filter cells by QC metrics</option>
+            </param>
+            <when value="CreateSeuratObject">
+                <conditional name="input_type">
+                    <param name="input_type" type="select" label="Select format of input">
+                        <option value="mtx" selected="true">matrix market (for e.g. 10x data)</option>
+                        <option value="tab">tab-delimited text</option>
+                    </param>
+                    <when value="mtx">
+                        <param name="matrix" type="data" format="mtx" label="Counts matrix with features as rows, cells as columns (.mtx)"/>
+                        <param name="citeseq_boolean" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Matrix includes citeseq data"/>
+                        <param name="gene_names" type="data" format="tsv,tabular" label="List of gene names (for rows)"/>
+                        <param name="cell_barcodes" type="data" format="tsv,tabular,txt" label="List of cell barcodes (for columns)"/>
+                        <param name="gene_column" type="integer" value="2" label="Column of gene table to use as gene names" help="(gene.column)"/>
+                        <param name="cell_column" type="integer" value="1" label="Column of cell table to use as cell names" help="(cell.column)"/>
+                        <param name="unique_features" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Make feature names unique" help="(unique.features)"/>
+                        <param name="strip_suffix" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Remove trailing -1 if present in all cell barcodes" help="(strip.suffix)"/>
+                    </when>
+                    <when value="tab">
+                        <param name="input_tab" type="data" format="tsv,tabular" label="Expression table with features as rows, cells as columns" help="(file)"/>
+                        <conditional name="citeseq">
+                            <param name="citeseq" type="select" label="Add citeseq assay">
+                                <option value="false" selected="true">No</option>
+                                <option value="true">Yes</option>
+                            </param>
+                            <when value="false"></when>
+                            <when value="true">
+                                <param name="citeseq_table" type="data" format ="tsv,tabular" label="CITE-Seq data to add"/>
+                            </when>
+                        </conditional>
+                    </when>
+                </conditional>
+                <param name="meta_data" type="data" format="tsv,tabular" optional="true" label="Additional cell metadata to add" help="table with cell names in first column (meta.data)"/>
+                <param argument="assay" type="text" value="RNA" label="Name of assay to create">
+                    <expand macro="valid_name"/>
+                </param>
+                <param name="min_cells" type="integer" optional="true" value="0" label="Include features detected in at least this many cells" help="(min.cells)"/>
+                <param name="min_features" type="integer" optional="true" value="0" label="Include cells where at least this many features are detected" help="(min.features)"/>
+                <param name="names_field" type="integer" optional="true" value="" label="Field of cell names to use as cell identity class" help="(names.field)"/>
+                <param name="names_delim" type="text" optional="true" value="" label="Delimiter for cell names" help="(names.delim)"/>
+                <conditional name="percent_mt">
+                    <param name="percent_mt" type="select" label="Calculate percentage of mito genes in each cell">
+                        <option value="false" selected="true">No</option>
+                        <option value="true">Yes</option>
+                    </param>
+                    <when value="false">
+                    </when>
+                    <when value="true">
+                        <param argument="pattern" type="text" value="^MT-" label="Pattern/regex to match in gene names" help="e.g. the default '^MT-' matches gene names starting with 'MT-' which are human mitochondrial genes"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="Add_QC_Metrics">
+                <expand macro="input_rds"/>
+                <conditional name="match">
+                    <param name="match" type="select" label="Calculate percentage of reads based on">
+                        <option value="pattern" selected="true">Pattern in gene names</option>
+                        <option value="list">List of features</option>
+                    </param>
+                    <when value="pattern">
+                        <param argument="pattern" type="text" value="^MT-" label="Pattern/regex to match in gene names" help="e.g. the default '^MT-' matches gene names starting with 'MT-' which are human mitochondrial genes"/>
+                    </when>
+                    <when value="list">
+                        <param argument="features" type="data" format="txt,tabular" label="List of genes to match" help="text file with one feature on each line"/>
+                    </when>
+                </conditional>
+                <param name="col_name" type="text" value="percent.mt" label="Name to store the variable as">
+                    <expand macro="valid_name"/>
+                </param>
+                <expand macro="select_assay"/>
+            </when>
+            <when value="FilterCells">
+                <expand macro="input_rds"/>
+                <param name="minimum_nFeature_RNA" type="integer" optional="true" value="" label="Minimum nFeature_RNA"/>
+                <param name="maximum_nFeature_RNA" type="integer" optional="true" value="" label="Maximum nFeature_RNA"/>
+                <param name="minimum_nCount_RNA" type="integer" optional="true" value="" label="Minimum nCount_RNA"/>
+                <param name="maximum_nCount_RNA" type="integer" optional="true" value="" label="Maximum nCount_RNA"/>
+                <param name="minimum_percent_mt" type="float" optional="true" value="" label="Minimum percent.mt"/>
+                <param name="maximum_percent_mt" type="float" optional="true" value="" label="Maximum percent.mt"/>
+                <conditional name="other">
+                    <param name="other" type="select" label="Filter by a different metric">
+                        <option value="false" selected="true">No</option>
+                        <option value="true">Yes</option>
+                    </param>
+                    <when value="false">
+                    </when>
+                    <when value="true">
+                        <param name="other_variable" type="text" value="" label="Enter name of cell metric to filter" help="e.g. percent.ribo or other metrics calculated using 'Add QC Metrics'"/>
+                        <param name="minimum" type="float" optional="true" value="" label="Minimum"/>
+                        <param name="maximum" type="float" optional="true" value="" label="Maximum"/>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <expand macro="seurat_outputs"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <!-- test1: CreateSeuratObject from matrix -->
+            <conditional name="method">
+                <param name="method" value="CreateSeuratObject"/>
+                <conditional name="input_type">
+                    <param name="input_type" value="mtx"/>
+                    <param name="matrix" location="https://zenodo.org/records/13732784/files/matrix.mtx"/>
+                    <param name="gene_names" location="https://zenodo.org/records/13732784/files/genes.tsv"/>
+                    <param name="cell_barcodes" location="https://zenodo.org/records/13732784/files/barcodes.tsv"/>
+                    <param name="gene_column" value="1"/>
+                </conditional>
+                <conditional name="percent_mt">
+                    <param name="percent_mt" value="true"/>
+                    <param name="pattern" value="^Mt"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="Read10X"/>
+                    <has_text_matching expression="CreateSeuratObject"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/13732784/files/rawdata.rds" ftype="rds"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test2: CreateSeuratObject from tabular -->
+            <conditional name="method">
+                <param name="method" value="CreateSeuratObject"/>
+                <conditional name="input_type">
+                    <param name="input_type" value="tab"/>
+                    <param name="input_tab" location="https://zenodo.org/records/13732784/files/counts.tsv"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="read.table"/>
+                    <has_text_matching expression="CreateSeuratObject"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/13732784/files/rawdata2.rds" ftype="rds"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test3: CreateSeuratObject with CITE-Seq -->
+            <conditional name="method">
+                <param name="method" value="CreateSeuratObject"/>
+                <conditional name="input_type">
+                    <param name="input_type" value="tab"/>
+                    <param name="input_tab" location="https://zenodo.org/records/13732784/files/rna.tab"/>
+                    <conditional name="citeseq">
+                        <param name="citeseq" value="true"/>
+                        <param name="citeseq_table" location="https://zenodo.org/records/13732784/files/adt.tab"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <param name="min_features" value=""/>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="read.table"/>
+                    <has_text_matching expression="CreateSeuratObject"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/13732784/files/citeseq.rds" ftype="rds"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test4: Add_QC_Metrics -->
+            <param name="seurat_rds" location="https://zenodo.org/records/13732784/files/rawdata.rds"/>
+            <conditional name="method">
+                <param name="method" value="Add_QC_Metrics"/>
+                <conditional name="match">
+                    <param name="match" value="pattern"/>
+                    <param name="pattern" value="^Rp"/>
+                </conditional>
+                <param name="col_name" value="percent.ribo"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="PercentageFeatureSet"/>
+                    <has_text_matching expression="percent.ribo"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/13732784/files/ribodata.rds" ftype="rds"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test5: FilterCells -->
+            <param name="seurat_rds" location="https://zenodo.org/records/13732784/files/ribodata.rds"/>
+            <conditional name="method">
+                <param name="method" value="FilterCells"/>
+                <param name="minimum_nCount_RNA" value="1"/>
+                <param name="maximum_nCount_RNA" value="20000000"/>
+                <conditional name="other">
+                    <param name="other" value="true"/>
+                    <param name="other_variable" value="percent.mt"/>
+                    <param name="maximum" value="2"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="subset"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" location="https://zenodo.org/records/13732784/files/filtered.rds" ftype="rds"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+Seurat
+======
+
+Seurat is an R package designed for QC, analysis, and exploration of single-cell RNA-seq data.
+
+Seurat aims to enable users to identify and interpret sources of heterogeneity from single-cell transcriptomic measurements, and to integrate diverse types of single-cell data.
+
+Creating a Seurat Object
+========================
+
+Seurat objects can be created from single cell data in matrix market or tab-delimited table formats, using the Read10X or read.table functions followed by CreateSeuratObject.
+The input should be a single cell matrix with cells as rows and genes as columns.
+
+Both RNA-seq and combined RNA and CITE-seq data can be used as inputs.
+
+Read10X
+========
+
+Load sparse data matrices provided by 10X genomics.
+
+More details on the `seurat documentation
+<https://satijalab.org/seurat/reference/read10x>`__
+
+read.table
+==========
+
+Read a tab-delimited tsv or tabular file into an RDS file as a table.
+
+More details on the `R documentation
+<https://www.rdocumentation.org/packages/utils/versions/3.6.2/topics/read.table>`__
+
+CreateSeuratObject
+==================
+
+Create a Seurat Object from raw data in RDS format.
+
+names.field
+
+For the initial identity class for each cell, choose this field from the cell's name.
+E.g. If your cells are named as BARCODE_CLUSTER_CELLTYPE in the input matrix, set names.field to 3 to set the initial identities to CELLTYPE.
+
+names.delim
+
+For the initial identity class for each cell, choose this delimiter from the cell's column name.
+E.g. If your cells are named as BARCODE-CLUSTER-CELLTYPE, set this to “-” to separate the cell name into its component parts for picking the relevant field.
+
+meta.data
+
+Additional cell-level metadata to add to the Seurat object. Should be a data.frame where the rows are cell names and the columns are additional metadata fields.
+Row names in the metadata need to match the column names of the counts matrix.
+
+Filtering can also be performed on:
+
+min.cells = only include features/genes detected in at least this many cells
+
+min.features = only include cells where at least this many features are detected
+
+Some QC metrics are added when creating a Seurat Object (nCount_RNA and nFeature_RNA).
+Mito percentage can optionally be calculated - it will be based on gene names starting with "MT-". If this pattern does not work for your gene names then you can use the separate 'Calculate QC Metrics' function instead.
+
+More details on the `seurat documentation
+<https://satijalab.github.io/seurat-object/reference/CreateSeuratObject.html>`__
+
+Calculate QC Metrics
+====================
+
+Calculate the percentage of all the counts belonging to a subset of the possible features for each cell. This is useful when trying to compute the percentage of transcripts that map to mitochondrial genes for example.
+The calculation here is simply the column sum of the matrix present in the counts slot for features belonging to the set divided by the column sum for all features times 100.
+
+Feature sets can be defined by entering a list of genes or using a shared pattern in the gene names, such as "^MT-" or "^RP[LS]" for human mitochondrial or ribosomal genes.
+
+More details on the `seurat documentation
+<https://satijalab.org/seurat/reference/percentagefeatureset>`__
+
+Filter Cells
+============
+
+Filter cells based on QC metrics.
+
+nFeature_RNA = number of unique genes identified in the cell
+
+ncounts_RNA = total number of RNAs found in the cell
+
+percent.mt = percentage of mitochondrial genes in the cell
+
+More details on the `R documentation
+<https://rdrr.io/r/base/subset.html>`__
+
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

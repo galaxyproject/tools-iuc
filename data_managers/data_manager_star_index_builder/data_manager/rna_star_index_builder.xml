@@ -1,15 +1,15 @@
-<tool id="rna_star_index_builder_data_manager" name="rnastar index versioned" tool_type="manage_data" version="@IDX_VERSION@+galaxy@IDX_VERSION_SUFFIX@" profile="19.05">
+<tool id="rna_star_index_builder_data_manager" name="RNAStar index versioned" tool_type="manage_data" version="@IDX_VERSION@+galaxy@IDX_VERSION_SUFFIX@" profile="23.0">
     <description>builder</description>
 
     <macros>
         <import>macros.xml</import>
     </macros>
 
-    <expand macro="requirements">
-        <requirement type="package" version="3.7">python</requirement>
-    </expand>
+    <expand macro="requirements"/>
 
     <command><![CDATA[
+. '$dmfxns' &&
+
 if [ -z "\$GALAXY_MEMORY_MB" ] ; then
     GALAXY_MEMORY_BYTES=31000000000 ;
 else
@@ -22,6 +22,27 @@ fi ;
 
 mkdir '${target_directory}' &&
 
+#if $auto_sa_index_nbases or $auto_chr_bin_nbits:
+nbases="\$(grep -v '^>' '${all_fasta_source.fields.path}' | tr -d '\n' | wc -c)" &&
+echo "Bases in reference: \$nbases" &&
+#end if
+
+#if $auto_sa_index_nbases:
+saindex_nbases=\$((\$(log2 \$nbases) / 2 - 1)) &&
+[[ \$saindex_nbases -lt 14 ]] || saindex_nbases=14 &&
+#else if $advanced_options.advanced_options_selector == "advanced":
+saindex_nbases=${advanced_options.genomeSAindexNbases} &&
+#end if
+
+#if $auto_chr_bin_nbits:
+nseqs="\$(grep -c '>' '${all_fasta_source.fields.path}')" &&
+echo "Sequences in reference: \$nseqs" &&
+chr_bin_nbits=\$((\$(log2 \$nbases) / \$(log2 \$nseqs))) &&
+[[ \$chr_bin_nbits -lt 18 ]] || chr_bin_nbits=18 &&
+#else if $advanced_options.advanced_options_selector == "advanced":
+chr_bin_nbits=${advanced_options.genomeChrBinNbits} &&
+#end if
+
 STAR
 --runMode genomeGenerate
 --genomeFastaFiles '${all_fasta_source.fields.path}'
@@ -31,29 +52,52 @@ STAR
     --sjdbGTFfile '${GTFconditional.sjdbGTFfile}'
     --sjdbOverhang ${GTFconditional.sjdbOverhang}
 #end if
+#if $advanced_options.advanced_options_selector == "advanced" or $auto_sa_index_nbases:
+    --genomeSAindexNbases "\$saindex_nbases"
+#end if
+#if $advanced_options.advanced_options_selector == "advanced" or $auto_chr_bin_nbits:
+    --genomeChrBinNbits "\$chr_bin_nbits"
+#end if
 #if $advanced_options.advanced_options_selector == "advanced":
-    --genomeSAindexNbases ${advanced_options.genomeSAindexNbases}
-    --genomeChrBinNbits ${advanced_options.genomeChrBinNbits}
     --genomeSAsparseD ${advanced_options.genomeSAsparseD}
 #end if
 --runThreadN \${GALAXY_SLOTS:-2} &&
 
-python '${__tool_directory__}/rna_star_index_builder.py'
---config-file '${out_file}'
---value '${all_fasta_source.fields.value}'
---dbkey '${all_fasta_source.fields.dbkey}'
---index-version '@IDX_VERSION@'
-#if $name:
-    --name '$name'
-#else
-    --name '${all_fasta_source.fields.name}'
-#end if
-#if str($GTFconditional.GTFselect) == "withGTF":
-    --with-gene-model
-#end if
---data-table @IDX_DATA_TABLE@
---subdir '${subdir}'
+cp '$dmjson' '$out_file'
     ]]></command>
+    <configfiles>
+        <configfile name="dmfxns"><![CDATA[
+function log2() {
+    local n=\$1
+    local log2=0
+    while [[ \$n -gt 1 ]]; do
+        n=\$((n >> 1))
+        log2=\$((log2 + 1))
+    done
+    [[ \$log2 -gt 0 ]] && echo \$log2 || echo 1
+}
+]]></configfile>
+        <configfile name="dmjson"><![CDATA[#slurp
+#set $fasta_file_name = str($all_fasta_source.fields.path).split('/')[-1]
+#set $name = $name or $all_fasta_source.fields.name
+#set $target_directory = str($out_file.extra_files_path)
+#set $with_gene_model = 1 if str($GTFconditional.GTFselect) == "withGTF" else 0
+{
+  "data_tables":{
+    "@IDX_DATA_TABLE@":[
+      {
+        "value": "${all_fasta_source.fields.value}",
+        "dbkey": "${all_fasta_source.fields.dbkey}",
+        "name": "${name}",
+        "path": "SA",
+        "with_gene_model": "${with_gene_model}",
+        "version": "@IDX_VERSION@"
+      }
+    ]
+  }
+}
+]]></configfile>
+    </configfiles>
     <inputs>
         <param name="all_fasta_source" type="select" label="Source FASTA Sequence">
             <options from_data_table="all_fasta"/>
@@ -71,6 +115,12 @@ python '${__tool_directory__}/rna_star_index_builder.py'
             </when>
             <when value="withoutGTF" />
         </conditional>
+        <param name="auto_sa_index_nbases" type="boolean" checked="true"
+            label="Automatically calculate --genomeSAindexNbases"
+            help="The value specified for --genomeSAindexNbases in advanced options will be ignored if this option is selected"/>
+        <param name="auto_chr_bin_nbits" type="boolean" checked="true"
+            label="Automatically calculate --genomeChrBinNbits"
+            help="The value specified for --genomeChrBinNbits in advanced options will be ignored if this option is selected"/>
         <conditional name="advanced_options">
             <param name="advanced_options_selector" type="select" label="Advanced options">
                 <option value="default" selected="true">Use default options</option>
@@ -90,7 +140,8 @@ python '${__tool_directory__}/rna_star_index_builder.py'
                         of contigs, it is recommended to scale this parameter as min(18,
                         log2[max(GenomeLength/NumberOfReferences,ReadLength)]). For example, for 3 gigaBase
                         genome with 100,000 chromosomes/scaffolds, this is equal to 15."/>
-                <param argument="--genomeSAsparseD" type="integer" min="1" value="1" label="Suffix array sparsity"
+                <param argument="--genomeSAsparseD" type="integer" min="1" value="1"
+                    label="Suffix array sparsity"
                     help="The distance between indices: use bigger numbers to decrease needed RAM at the cost of
                         mapping speed reduction"/>
             </when>
@@ -104,11 +155,16 @@ python '${__tool_directory__}/rna_star_index_builder.py'
     <tests>
         <test>
             <param name="all_fasta_source" value="phiX174"/>
-            <param name="sequence_name" value="phiX"/>
-            <param name="sequence_id" value="minimal-settings"/>
-            <param name="modelformat" value="None"/>
-
-            <output name="out_file" file="test_star_01.data_manager_json" compare="re_match"/>
+            <output name="out_file" file="test_star_01.data_manager_json"/>
+        </test>
+        <test>
+            <param name="all_fasta_source" value="phiX174"/>
+            <param name="name" value="phiX"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text='"name": "phiX"'/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
 

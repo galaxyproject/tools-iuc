@@ -1,0 +1,152 @@
+<tool id="hgvsparser" name="hgvsParseR" version="@VERSION@+galaxy@GALAXY_VERSION@" profile="20.09"
+      license="GPL-3.0" >
+    <description>parsing and building variant descriptor strings compliant with the HGVS standard</description>
+    <macros>
+        <token name="@VERSION@">0.1.0</token>
+        <token name="@GALAXY_VERSION@">0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="4.0">r-base</requirement>
+    </requirements>
+    <required_files>
+        <include path="parseHGVS.R" />
+        <include path="buildHGVS.R" />
+    </required_files>
+    <command detect_errors="exit_code"><![CDATA[
+Rscript '$configscript' > tmp_output.csv
+    ]]>
+   </command>
+    <configfiles>
+        <configfile name="configscript"><![CDATA[
+input_file <- '$action_choice.input_file'
+input_data <- read.csv(input_file, stringsAsFactors = FALSE)
+#if $action_choice.do == "parse":       
+    source('$__tool_directory__/parseHGVS.R')
+    #if $variant_format == "vcf":
+    values <- paste0("p.", input_data$'$pos_col')
+    #else:
+    values <- input_data$'$pos_col'
+    #end if
+    out_data <- parseHGVS(values)    
+    result <- data.frame(
+        hgvs = out_data$'hgvs',
+        subject = out_data$'subject',
+        type = out_data$'type',
+        start = out_data$'start',
+        ancestral = out_data$'ancestral',
+        variant = out_data$'variant'
+        )
+#else if $action_choice.do == "build":
+source('$__tool_directory__/buildHGVS.R')
+result <- data.frame()
+for (i in 1:nrow(input_data)) {
+    startPos <- input_data$'$startPos'[i]
+    startAA <- input_data$'$startAA'[i]
+    endAA <- input_data$'$endAA'[i]
+    #if $variant_format == "vcf":
+        builder <- new.hgvs.builder.p(1)
+        result_build <- sub("^p\\.", "", with(builder, substitution(startPos, startAA, endAA)))
+    #else if $variant_format == "classic":
+        builder <- new.hgvs.builder.p(1)
+        result_build <- with(builder, substitution(startPos, startAA, endAA))
+    #else:
+        builder <- new.hgvs.builder.p(3)
+        result_build <- with(builder, substitution(startPos, startAA, endAA))
+    #end if
+  result_row <- cbind(input_data[i, ], result_build)
+  result <- rbind(result, result_row)
+}
+#end if
+write.csv(result, file = "tmp_output.csv", row.names = FALSE, na="")
+]]>
+        </configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="action_choice">
+            <param name="do" type="select" label="Choose the action" >
+                <option value="parse" selected="true">parse</option>
+                <option value="build">build</option>
+            </param>
+            <when value="parse" >
+                <param name="input_file" type="data" format="csv" label="Input file" help="File containing column with variant descriptor strings" />
+                <param name="pos_col" type="select" label="Variant descriptor column" help="The name of the column in the file that contains the variant descriptor, e.g. p.Glu214aAla (HGVS notation), p.A435D (classic notation), A435D (amino acid change descriptor format used in VCF)">
+                    <options>
+                        <filter type="data_meta" ref="input_file" key="column_names"/>
+                    </options>
+                </param>
+            </when>
+            <when value="build">
+                <param name="input_file" type="data" format="csv" label="Input file" help="File containing columns with mutation position, ancestral amino acid, and variant amino acid" />
+                <param name="startPos" type="select" label="Mutation position">
+                    <options>
+                        <filter type="data_meta" ref="input_file" key="column_names"/>
+                    </options>
+                </param>
+                <param name="startAA" type="select" label="Ancestral amino acid">
+                    <options>
+                        <filter type="data_meta" ref="input_file" key="column_names"/>
+                    </options>
+                </param>
+                <param name="endAA" type="select" label="Variant amino acid">
+                    <options>
+                        <filter type="data_meta" ref="input_file" key="column_names"/>
+                    </options>
+                </param>
+            </when>
+        </conditional>
+        <param name="variant_format" type="select" label="Variant descriptor format" help="For parsing: choose the format to parse. For building: choose the desired format for the result, regardless of the input format.">
+            <option value="hgvs" selected="true">HGVS (e.g., p.Glu214aAla)</option>
+            <option value="classic">classic (e.g., p.A435D)</option>
+            <option value="vcf">Amino Acid Change used in VCF (e.g., A435D)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="outfile_parsed" format="csv" from_work_dir="tmp_output.csv" label="parseHGVS result on ${on_string}">
+            <filter>action_choice['do'] == 'parse'</filter>
+        </data>
+        <data name="outfile_built" format="csv" from_work_dir="tmp_output.csv" label="buildHGVS result on ${on_string}">
+            <filter>action_choice['do'] == 'build'</filter>
+        </data>
+    </outputs>
+    <tests>
+    <test expect_num_outputs="1">
+        <!--test 1: parse-->
+        <param name="variant_format" value="hgvs"/>
+        <conditional name="action_choice">
+            <param name="do" value="parse"/>
+            <param name="input_file" value="inputParser.csv"/>
+            <param name="pos_col" value="hgvs_pro"/>
+        </conditional>
+        <output name="outfile_parsed" ftype="csv">
+            <assert_contents>
+                <has_text text="ancestral"/>
+            </assert_contents>
+        </output>
+    </test>    
+    <test expect_num_outputs="1">
+        <!--test 2: build-->
+        <param name="variant_format" value="hgvs"/>
+        <conditional name="action_choice">
+            <param name="do" value="build"/>
+            <param name="input_file" value="inputBuilder.csv"/>
+            <param name="startPos" value="start"/>
+            <param name="startAA" value="ancestral"/>
+            <param name="endAA" value="variant"/>
+        </conditional>
+        <output name="outfile_built" ftype="csv">
+            <assert_contents>
+                <has_text text="build"/>
+            </assert_contents>
+        </output>
+    </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool parses and builds variant descriptor strings compliant with the HGVS standard.
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s13059-019-1845-6</citation>
+    </citations>
+</tool>
