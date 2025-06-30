@@ -4,7 +4,7 @@ Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
 
-__version__ = "0.9.2"
+__version__ = "1.2.5"
 
 import csv
 import math
