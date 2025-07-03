@@ -5,31 +5,34 @@
     </macros>
     <expand macro="xrefs"/>
     <requirements>
-        <expand macro="requirements"/>
+        <expand macro="requirements">
+            <requirement type="package" version="0.0.10">harmonypy</requirement>
+            <requirement type="package" version="1.7.4">scanorama</requirement>
+        </expand>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-#if $method.method != 'pp.make_fragment_file' and $method.method != 'pp.import_data'
-@PREP_ADATA@
+#if $method.method != 'pp.make_fragment_file'
+@CMD_PREP_ADATA@
 #end if
 @CMD@
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
-@CMD_imports@
+@CONF_IMPORTS@
 
-#if $method.method != 'pp.make_fragment_file' and $method.method != 'pp.import_data'
-@CMD_read_inputs@
+#if $method.method != 'pp.make_fragment_file'
+@CONF_READ_INPUTS@
 #end if
 
 #if $method.method == 'pp.make_fragment_file'
-sa.pp.make_fragment_file(
+snap.pp.make_fragment_file(
     bam_file = '$method.bam_file',
     is_paired = $method.is_paired,
     #if $method.barcode.extract_type == 'from_tag'
         #if $method.barcode.barcode_tag != ''
     barcode_tag = '$method.barcode.barcode_tag',
         #end if
-    #elif $method.barcode.extract_type == 'from_read_names'
+    #else if $method.barcode.extract_type == 'from_read_names'
         #if $method.barcode.barcode_regex != ''
     barcode_regex = '$method.barcode.barcode_regex',
         #end if
@@ -49,32 +52,62 @@ sa.pp.make_fragment_file(
     tempdir = "."
 )
 
-#else if $method.method == 'pp.import_data'
-import csv
-with open('$method.chrom_sizes') as f:
-    chr_sizes = {x[0]:int(x[1]) for x in csv.reader(f, delimiter='\t')}
-
-sa.pp.import_data(
+#else if $method.method == 'pp.import_fragments'
+adata = snap.pp.import_fragments(
     fragment_file = '$method.fragment_file',
-    chrom_sizes = chr_sizes,
+    chrom_sizes = $method.chrom_sizes,
+    file = '$anndata_out',
     min_num_fragments = $method.min_num_fragments,
     sorted_by_barcode = $method.sorted_by_barcode,
     #if str($method.whitelist) != 'None'
     whitelist = '$method.whitelist',
     #end if
+    #if $method.chrM != ''
+    #set $chrM = ([x.strip() for x in str($method.chrM).split(',')])
+    chrM = $chrM,
+    #end if
     shift_left = $method.shift_left,
     shift_right = $method.shift_right,
-    #set $chr_mt = ([x.strip() for x in str($method.chrM).split(',')])
-    chrM = $chr_mt,
     chunk_size = $method.chunk_size,
-    file = 'anndata.h5ad',
+    tempdir = ".",
+    backend = 'hdf5',
+    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
+)
+## Not sure how this should work and there is no documentation for it.
+## #else if $method.method == 'pp.import_values'
+## snap.pp.import_values(
+##     input_dir = 'input',
+##     file = '$anndata_out',
+##     chrom_sizes = $method.chrom_sizes,
+##     chunk_size = $method.chunk_size,
+##     backend = 'hdf5'
+## )
+
+#else if $method.method == 'pp.import_contacts'
+adata = snap.pp.import_contacts(
+    contact_file = '$method.contact_file',
+    chrom_sizes = $method.chrom_sizes,
+    file = '$anndata_out',
+    sorted_by_barcode = $method.sorted_by_barcode,
+    bin_size = $method.bin_size,
+    chunk_size = $method.chunk_size,
+    tempdir = ".",
+    backend = 'hdf5'
+)
+
+#else if $method.method == 'pp.call_cells'
+snap.pp.call_cells(
+    adata,
+    use_rep = $method.use_rep,
+    inplace = True,
     n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
 )
 
 #else if $method.method == 'pp.add_tile_matrix'
-sa.pp.add_tile_matrix(
+snap.pp.add_tile_matrix(
     adata,
     bin_size = $method.bin_size,
+    inplace = True,
     chunk_size = $method.chunk_size,
     #if $method.exclude_chroms != ''
     #set $excl_chroms = ([x.strip() for x in str($method.exclude_chroms).split(',')])
@@ -90,13 +123,19 @@ sa.pp.add_tile_matrix(
     n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
 )
 
+
+
 #else if $method.method == 'pp.make_gene_matrix'
-adata = sa.pp.make_gene_matrix(
+adata = snap.pp.make_gene_matrix(
     adata,
     gene_anno = '$method.gene_anno',
+    inplace = False,
     chunk_size = $method.chunk_size,
     use_x = $method.use_x,
     id_type = '$method.id_type',
+    upstream = $method.upstream,
+    downstream = $method.downstream,
+    include_gene_body = $method.include_gene_body,
     transcript_name_key = '$method.transcript_name_key',
     transcript_id_key = '$method.transcript_id_key',
     gene_name_key = '$method.gene_name_key',
@@ -111,7 +150,7 @@ adata = sa.pp.make_gene_matrix(
 )
 
 #else if $method.method == 'pp.filter_cells'
-sa.pp.filter_cells(
+snap.pp.filter_cells(
     adata,
     min_counts = $method.min_counts,
     min_tsse = $method.min_tsse,
@@ -126,7 +165,7 @@ sa.pp.filter_cells(
 )
 
 #else if $method.method == 'pp.select_features'
-sa.pp.select_features(
+snap.pp.select_features(
     adata,
     n_features = $method.n_features,
     filter_lower_quantile = $method.filter_lower_quantile,
@@ -143,7 +182,16 @@ sa.pp.select_features(
 )
 
 #else if $method.method == 'pp.scrublet'
-sa.pp.scrublet(
+## somewhere in the SnapATAC2 code, a pandas Series is being passed where a numpy array is expected.
+## This is a workaround to add the nonzero method back to pandas Series.
+## Add the nonzero method back to pandas Series
+import pandas as pd
+def series_nonzero(self):
+    return (self != 0).values.nonzero()
+
+pd.Series.nonzero = series_nonzero
+
+snap.pp.scrublet(
     adata,
     #if $method.features
     features = '$method.features',
@@ -161,7 +209,7 @@ sa.pp.scrublet(
 )
 
 #else if $method.method == 'pp.filter_doublets'
-sa.pp.filter_doublets(
+snap.pp.filter_doublets(
     adata,
     #if $method.probability_threshold
     probability_threshold = $method.probability_threshold,
@@ -174,54 +222,37 @@ sa.pp.filter_doublets(
 )
 
 #else if $method.method == 'pp.mnc_correct'
-sa.pp.mnc_correct(
+snap.pp.mnc_correct(
     adata,
     batch = '$method.batch',
     n_neighbors = $method.n_neighbors,
     n_clusters = $method.n_clusters,
     n_iter = $method.n_iter,
-    @CMD_params_data_integration@
+    @CONF_PARAMS_DATA_INTEGRATION@
     inplace = True,
     n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
 )
 
 #else if $method.method == 'pp.harmony'
-sa.pp.harmony(
+snap.pp.harmony(
     adata,
     batch = '$method.batch',
-    @CMD_params_data_integration@
+    @CONF_PARAMS_DATA_INTEGRATION@
     inplace = True
 )
 
 #else if $method.method == 'pp.scanorama_integrate'
-sa.pp.scanorama_integrate(
+snap.pp.scanorama_integrate(
     adata,
     batch = '$method.batch',
     n_neighbors = $method.n_neighbors,
-    @CMD_params_data_integration@
+    @CONF_PARAMS_DATA_INTEGRATION@
     inplace = True
-)
-
-#else if $method.method == 'metrics.frag_size_distr'
-sa.metrics.frag_size_distr(
-    adata,
-    max_recorded_size = $method.max_recorded_size,
-    add_key = '$method.add_key',
-    inplace = True,
-    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
-)
-
-#else if $method.method == 'metrics.tsse'
-sa.metrics.tsse(
-    adata,
-    gene_anno = '$method.gene_anno',
-    inplace = True,
-    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
 )
 #end if
 
-#if $method.method != 'pp.make_fragment_file' and $method.method != 'pp.import_data'
-@CMD_anndata_write_outputs@
+#if $method.method != 'pp.make_fragment_file'
+@CONF_ANNDATA_WRITE_OUTPUTS@
 #end if
     ]]></configfile>
     </configfiles>
@@ -229,7 +260,11 @@ sa.metrics.tsse(
         <conditional name="method">
             <param name="method" type="select" label="Method used for preprocessing">
                 <option value="pp.make_fragment_file">Convert a BAM file to a fragment file, using 'pp.make_fragment_file'</option>
-                <option value="pp.import_data">Import data fragment files and compute basic QC metrics, using 'pp.import_data'</option>
+                <option value="pp.import_fragments">Import data fragment files and compute basic QC metrics, using 'pp.import_fragments'</option>
+                <!-- Not sure how this should work and there is no documentation for it. -->
+                <!-- <option value="pp.import_values">Import values associated with base pairs, using 'pp.import_values'</option> -->
+                <option value="pp.import_contacts">Import chromatin contacts, using 'pp.import_contacts'</option>
+                <option value="pp.call_cells">Calling cells based on the number of feature counts, using 'pp.call_cells'</option>
                 <option value="pp.add_tile_matrix">Generate cell by bin count matrix, using 'pp.add_tile_matrix'</option>
                 <option value="pp.make_gene_matrix">Generate cell by gene activity matrix, using 'pp.make_gene_matrix'</option>
                 <option value="pp.filter_cells">Filter cell outliers based on counts and numbers of genes expressed, using 'pp.filter_cells'</option>
@@ -239,15 +274,13 @@ sa.metrics.tsse(
                 <option value="pp.mnc_correct">A modified MNN-Correct algorithm based on cluster centroid, using 'pp.mnc_correct'</option>
                 <option value="pp.harmony">Use harmonypy to integrate different experiments,using 'pp.harmony'</option>
                 <option value="pp.scanorama_integrate">Use Scanorama [Hie19] to integrate different experiments, using 'pp.scanorama_integrate'</option>
-                <option value="metrics.frag_size_distr">Compute the fragment size distribution of the dataset, using 'metrics.frag_size_distr'</option>
-                <option value="metrics.tsse">Compute the TSS enrichment score (TSSe) for each cell, using 'metrics.tsse'</option>
             </param>
             <when value="pp.make_fragment_file">
                 <param argument="bam_file" type="data" format="bam" label="File name of the BAM file"/>
                 <param argument="is_paired" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Indicate whether the BAM file contain paired-end reads"/>
                 <conditional name="barcode">
                     <param name="extract_type" type="select" label="How to extract barcodes from BAM records?">
-                        <option value="from_tag">From TAG fileds</option>
+                        <option value="from_tag">From TAG fields</option>
                         <option value="from_read_names">From read names using regular expressions</option>
                     </param>
                     <when value="from_tag">
@@ -259,35 +292,53 @@ sa.metrics.tsse(
                 </conditional>
                 <param argument="umi_tag" type="text" value="" optional="true" label="Extract UMI from TAG fields of BAM records"/>
                 <param argument="umi_regex" type="text" value="" optional="true" label="Extract UMI from read names of BAM records using regular expressions"/>
-                <expand macro="param_shift"/>
+                <expand macro="param_shift" varname="shift_left" label="Shift left" value="4"/>
+                <expand macro="param_shift" varname="shift_right" label="Shift right" value="-5"/>
                 <param argument="min_mapq" type="integer" min="0" value="30" label="Filter the reads based on MAPQ"/>
                 <expand macro="param_chunk_size" size="50000000"/>
             </when>
-            <when value="pp.import_data">
-                <param argument="fragment_file" type="data" format="interval" label="Fragment file, optionally compressed with gzip or zstd"/>
-                <param argument="chrom_sizes" type="data" format="tabular" label="A tabular file containing chromosome names and sizes"/>
-                <param argument="min_num_fragments" type="integer" value="200" label="Number of unique fragments threshold used to filter cells"/>
-                <param argument="sorted_by_barcode" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether the fragment file has been sorted by cell barcodes"/>
-                <param argument="whitelist" type="data" format="txt" optional="True" label="Whitelist file with a list of barcodes" help="Each line must contain a valid barcode. When provided, only barcodes in the whitelist will be retained."/>
-                <param argument="chrM" type="text" value="chrM, M" label="A list of chromosome names that are considered mitochondrial DNA">
+            <when value="pp.import_fragments">
+                <param argument="fragment_file" type="data" format="bed" label="Fragment file to import" help=" A fragment file must contain at least 5 columns: chromosome, start, end, barcode, count"/>
+                <expand macro="param_chrom_sizes" varname="chrom_sizes"/>
+                <param argument="min_num_fragments" type="integer" value="200" label="Minimum number of fragments required for a cell to pass filtering"/>
+                <param argument="sorted_by_barcode" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether the fragment file is sorted by barcode"/>
+                <param argument="whitelist" type="data" format="bed" optional="true" label="A user provided bed file containing genome-wide whitelist regions"/>
+                <param argument="chrM" type="text" value="" optional="true" label="A list of chromosomes to be treated as mitochondrial chromosomes, e.g. chrM, M, mt, mtDNA">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="shift_left" type="integer" value="0" label="Insertion site correction for the left end" help="Note this has no effect on single-end reads"/>
-                <param argument="shift_right" type="integer" value="0" label="Insertion site correction for the right end" help="Note this has no effect on single-end reads"/>
+                <expand macro="param_shift" varname="shift_left" label="Shift left" value="0"/>
+                <expand macro="param_shift" varname="shift_right" label="Shift right" value="0"/>
                 <expand macro="param_chunk_size" size="2000"/>
             </when>
+            <!-- Not sure how this should work and there is no documentation for it. -->
+            <!-- <when value="pp.import_values">
+                <expand macro="param_inputs_anndata" multiple="true"/>
+                <expand macro="param_chrom_sizes" varname="chrom_sizes"/>
+                <expand macro="param_chunk_size" size="200"/>
+            </when> -->
+            <when value="pp.import_contacts">
+                <param argument="contact_file" type="data" format="bed" label="Contact file to import"/>
+                <expand macro="param_chrom_sizes" varname="chrom_sizes"/>
+                <param argument="sorted_by_barcode" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether the contact file is sorted by barcode"/>
+                <param argument="bin_size" type="integer" value="500000" label="The size of consecutive genomic regions used to record the counts"/>
+                <expand macro="param_chunk_size" size="200"/>
+            </when>
+            <when value="pp.call_cells">
+                <expand macro="param_inputs_anndata"/>
+                <param argument="use_rep" type="float" value="" optional="true" label="The representation to use for filtering"/>
+            </when>
             <when value="pp.add_tile_matrix">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="bin_size" type="integer" value="500" label="The size of consecutive genomic regions used to record the counts"/>
                 <expand macro="param_chunk_size" size="500"/>
                 <param argument="exclude_chroms" type="text" value="chrM, chrY, M, Y" optional="true" label="A list of chromosomes to exclude">
                     <expand macro="sanitize_query"/>
                 </param>
-                <expand macro="min_max_frag_size"/>
+                <expand macro="param_min_max_frag_size"/>
                 <expand macro="param_counting_strategy"/>
             </when>
             <when value="pp.make_gene_matrix">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="gene_anno" type="data" format="gtf,gff3" label="GTF/GFF file containing the gene annotation"/>
                 <expand macro="param_chunk_size" size="500"/>
                 <param argument="use_x" type="boolean" truevalue="True" falsevalue="False" checked="false" label="If True, use the matrix stored in .X as raw counts"/>
@@ -295,22 +346,25 @@ sa.metrics.tsse(
                     <option value="gene" selected="true">gene</option>
                     <option value="transcript">transcript</option>
                 </param>
+                <param argument="upstream" type="integer" value="2000" label="Number of base pairs upstream of the regulatory domain"/>
+                <param argument="downstream" type="integer" value="0" label="Number of base pairs downstream of regulatory domain"/>
+                <param argument="include_gene_body" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to include the gene body in the regulatory domain. If False, the TSS is used as the regulatory domain."/>
                 <param argument="transcript_name_key" type="text" value="transcript_name" label="The key of the transcript name in the gene annotation file"/>
                 <param argument="transcript_id_key" type="text" value="transcript_id" label="The key of the transcript id in the gene annotation file"/>
                 <param argument="gene_name_key" type="text" value="gene_name" label="The key of the gene name in the gene annotation file"/>
                 <param argument="gene_id_key" type="text" value="gene_id" label="The key of the gene id in the gene annotation file"/>
-                <expand macro="min_max_frag_size"/>
+                <expand macro="param_min_max_frag_size"/>
                 <expand macro="param_counting_strategy"/>
             </when>
             <when value="pp.filter_cells">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="min_counts" type="integer" value="1000" label="Minimum number of counts required for a cell to pass filtering"/>
-                <param argument="min_tsse" type="float" value="5.0" label="Minimum TSS enrichemnt score required for a cell to pass filtering"/>
+                <param argument="min_tsse" type="float" value="5.0" label="Minimum TSS enrichment score required for a cell to pass filtering"/>
                 <param argument="max_counts" type="integer" value="" optional="true" label="Maximum number of counts required for a cell to pass filtering"/>
                 <param argument="max_tsse" type="float" value="" optional="true" label="Maximum TSS enrichment score expressed required for a cell to pass filtering"/>
             </when>
             <when value="pp.select_features">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="n_features" type="integer" min="1" value="500000" label="Number of features to keep"/>
                 <param argument="filter_lower_quantile" type="float" min="0" value="0.005" label="Lower quantile of the feature count distribution to filter out"/>
                 <param argument="filter_upper_quantile" type="float" min="0" value="0.005" label="Upper quantile of the feature count distribution to filter out"/>
@@ -319,7 +373,7 @@ sa.metrics.tsse(
                 <param argument="max_iter" type="integer" value="1" label="If greater than 1, this function will perform iterative clustering and feature selection"/>
             </when>
             <when value="pp.scrublet">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="features" type="text" value="" optional="true" label=" Boolean index mask, where True means that the feature is kept, and False means the feature is removed."/>
                 <param argument="n_comps" type="integer" value="15" label="Number of components" help="15 is usually sufficient. The algorithm is not sensitive to this parameter"/>
                 <param argument="sim_doublet_ratio" type="float" value="2.0" label="Number of doublets to simulate relative to the number of observed cells"/>
@@ -329,48 +383,37 @@ sa.metrics.tsse(
                 <param argument="random_state" type="integer" value="0" label="Random state"/>
             </when>
             <when value="pp.filter_doublets">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="probability_threshold" type="float" value="0.5" label="Threshold for doublet probability"/>
                 <param argument="score_threshold" type="float" value="" optional="true" label="Threshold for doublet score"/>
             </when>
             <when value="pp.mnc_correct">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="batch" type="text" value="batch" label="Batch labels for cells">
                     <expand macro="sanitize_query"/>
                 </param>
                 <param argument="n_neighbors" type="integer" value="5" label="Number of mutual nearest neighbors"/>
                 <param argument="n_clusters" type="integer" value="40" label="Number of clusters"/>
                 <param argument="n_iter" type="integer" value="1" label="Number of iterations"/>
-                <expand macro="params_data_integration"/>
+                <expand macro="param_data_integration"/>
             </when>
             <when value="pp.harmony">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="batch" type="text" value="batch" label="Batch labels for cells">
                     <expand macro="sanitize_query"/>
                 </param>
-                <expand macro="params_data_integration"/>
+                <expand macro="param_data_integration"/>
             </when>
             <when value="pp.scanorama_integrate">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="batch" type="text" value="batch" label="Batch labels for cells">
                     <expand macro="sanitize_query"/>
                 </param>
                 <param argument="n_neighbors" type="integer" value="20" label="Number of mutual nearest neighbors"/>
-                <expand macro="params_data_integration"/>
-            </when>
-            <when value="metrics.frag_size_distr">
-                <!-- TODO move this to plotting -->
-                <expand macro="inputs_anndata"/>
-                <param argument="max_recorded_size" type="integer" min="1" value="1000" label="The maximum fragment size to record in the result"/>
-                <param argument="add_key" type="text" value="frag_size_distr" label="Key used to store the result in `adata.uns`"/>
-            </when>
-            <when value="metrics.tsse">
-                <!-- TODO move this to plotting -->
-                <expand macro="inputs_anndata"/>
-                <param argument="gene_anno" type="data" format="gtf,gff3" label="GTF/GFF file containing the gene annotation"/>
+                <expand macro="param_data_integration"/>
             </when>
         </conditional>
-        <expand macro="inputs_common_advanced"/>
+        <expand macro="param_common_advanced"/>
     </inputs>
     <outputs>
         <data name="fragments_out" format="interval" label="${tool.name} (${method.method}) on ${on_string}: Fragment file">
@@ -402,35 +445,6 @@ sa.metrics.tsse(
             <output name="fragments_out" location="https://zenodo.org/records/11260316/files/pp.make_fragment_file.pbmc_500_chr21.tsv.gz" ftype="interval" compare="sim_size" delta_frac="0.1"/>
         </test>
         <test expect_num_outputs="2">
-            <!-- pp.pp.import_data -->
-            <conditional name="method">
-                <param name="method" value="pp.import_data"/>
-                <param name="fragment_file" location="https://zenodo.org/records/11260316/files/pbmc_500_chr21.tsv.gz"/>
-                <param name="chrom_sizes" location="https://zenodo.org/records/11260316/files/chr21_size.tabular"/>
-                <param name="min_num_fragments" value="1"/>
-                <param name="sorted_by_barcode" value="False"/>
-                <param name="shift_left" value="0"/>
-                <param name="chrM" value="chrM, M"/>
-                <param name="shift_right" value="0"/>
-                <param name="chunk_size" value="1000"/>
-            </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true"/>
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="sa.pp.import_data"/>
-                    <has_text_matching expression="min_num_fragments = 1"/>
-                    <has_text_matching expression="sorted_by_barcode = False"/>
-                    <has_text_matching expression="shift_left = 0"/>
-                    <has_text_matching expression="chrM = \['chrM', 'M'\]"/>
-                    <has_text_matching expression="shift_right = 0"/>
-                    <has_text_matching expression="chunk_size = 1000"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" location="https://zenodo.org/records/11260316/files/pp.import_data.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1"/>
-        </test>
-        <test expect_num_outputs="2">
             <!-- pp.make_gene_matrix -->
             <conditional name="method">
                 <param name="method" value="pp.make_gene_matrix"/>
@@ -450,7 +464,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.make_gene_matrix"/>
+                    <has_text_matching expression="snap.pp.make_gene_matrix"/>
                     <has_text_matching expression="chunk_size = 500"/>
                     <has_text_matching expression="use_x = False"/>
                     <has_text_matching expression="id_type = 'gene'"/>
@@ -462,23 +476,6 @@ sa.metrics.tsse(
                 </assert_contents>
             </output>
             <output name="anndata_out" location="https://zenodo.org/records/12548681/files/pp.make_gene_matrix.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
-        </test>
-        <test expect_num_outputs="2">
-            <!-- metrics.tsse -->
-            <conditional name="method">
-                <param name="method" value="metrics.tsse"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/pp.import_data.pbmc_500_chr21.h5ad"/>
-                <param name="gene_anno" location="https://zenodo.org/records/11260316/files/chr21.gff3.gz"/>
-                </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true" />
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="sa.metrics.tsse"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" location="https://zenodo.org/records/11260316/files/metrics.tsse.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
         </test>
         <test expect_num_outputs="2">
             <!-- pp.filter_cells -->
@@ -494,7 +491,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.filter_cells"/>
+                    <has_text_matching expression="snap.pp.filter_cells"/>
                     <has_text_matching expression="min_counts = 200"/>
                     <has_text_matching expression="min_tsse = 5"/>
                     <has_text_matching expression="max_counts = 10000"/>
@@ -517,7 +514,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.add_tile_matrix"/>
+                    <has_text_matching expression="snap.pp.add_tile_matrix"/>
                     <has_text_matching expression="bin_size = 5000"/>
                     <has_text_matching expression="chunk_size = 500"/>
                     <has_text_matching expression="exclude_chroms = \['chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'chr9', 'chr10', 'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19', 'chr20', 'chr22', 'chrX', 'chrY'\]"/>
@@ -541,7 +538,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.add_tile_matrix"/>
+                    <has_text_matching expression="snap.pp.add_tile_matrix"/>
                     <has_text_matching expression="bin_size = 5000"/>
                     <has_text_matching expression="chunk_size = 500"/>
                     <has_text_matching expression="exclude_chroms = \['chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'chr9', 'chr10', 'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19', 'chr20', 'chr22', 'chrX', 'chrY'\]"/>
@@ -562,7 +559,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.select_features"/>
+                    <has_text_matching expression="snap.pp.select_features"/>
                     <has_text_matching expression="n_features = 15000"/>
                 </assert_contents>
             </output>
@@ -583,7 +580,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.scrublet"/>
+                    <has_text_matching expression="snap.pp.scrublet"/>
                     <has_text_matching expression="n_comps = 15"/>
                     <has_text_matching expression="sim_doublet_ratio = 2.0"/>
                     <has_text_matching expression="expected_doublet_rate = 0.1"/>
@@ -604,7 +601,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.filter_doublets"/>
+                    <has_text_matching expression="snap.pp.filter_doublets"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/pp.filter_doublets.pbmc_500_chr21.h5ad"/>
@@ -624,7 +621,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.mnc_correct"/>
+                    <has_text_matching expression="snap.pp.mnc_correct"/>
                     <has_text_matching expression="batch = 'batch'"/>
                     <has_text_matching expression="n_neighbors = 3"/>
                     <has_text_matching expression="n_clusters = 10"/>
@@ -647,7 +644,7 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.harmony"/>
+                    <has_text_matching expression="snap.pp.harmony"/>
                     <has_text_matching expression="batch = 'batch'"/>
                     <has_text_matching expression="use_rep = 'X_spectral'"/>
                 </assert_contents>
@@ -667,31 +664,12 @@ sa.metrics.tsse(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.scanorama_integrate"/>
+                    <has_text_matching expression="snap.pp.scanorama_integrate"/>
                     <has_text_matching expression="batch = 'batch'"/>
                     <has_text_matching expression="use_rep = 'X_spectral'"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/pp.scanorama_integrate.pbmc_500_chr21.h5ad"/>
-        </test>
-        <test expect_num_outputs="2">
-        <!-- metrics.frag_size_distr -->
-            <conditional name="method">
-                <param name="method" value="metrics.frag_size_distr"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/pp.import_data.pbmc_500_chr21.h5ad"/>
-                <param name="max_recorded_size" value="500"/>
-                <param name="add_key" value="frag_size_distr"/>
-                </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true" />
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="sa.metrics.frag_size_distr"/>
-                    <has_text_matching expression="add_key = 'frag_size_distr'"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" location="https://zenodo.org/records/11260316/files/metrics.frag_size_distr.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
         </test>
     </tests>
     <help><![CDATA[
@@ -713,17 +691,6 @@ The bam file needn’t be sorted or filtered.
 More details on the `SnapATAC2 documentation
 <https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.make_fragment_file.html>`__
 
-Import data fragment file` and compute basic QC metrics, using `pp.import_data`
-===============================================================================
-
-Import data fragment files and compute basic QC metrics.
-
-A fragment refers to the sequence data originating from a distinct location in the genome. In single-ended sequencing, one read equates to a fragment. However, in paired-ended sequencing, a fragment is defined by a pair of reads. This function is designed to handle, store, and process input files with fragment data, further yielding a range of basic Quality Control (QC) metrics. These metrics include the total number of unique fragments, duplication rates, and the percentage of mitochondrial DNA detected.
-
-How fragments are stored is dependent on the sequencing approach utilized. For single-ended sequencing, fragments are found in `.obsm['fragment_single']`. In contrast, for paired-ended sequencing, they are located in `.obsm['fragment_paired']`.
-
-More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.import_data.html>`__
 
 Generate cell by bin count matrix, using `pp.add_tile_matrix`
 =============================================================
@@ -731,8 +698,6 @@ Generate cell by bin count matrix, using `pp.add_tile_matrix`
 Generate cell by bin count matrix.
 
 This function is used to generate and add a cell by bin count matrix to the AnnData object.
-
-`import_data` must be ran first in order to use this function.
 
 More details on the `SnapATAC2 documentation
 <https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.add_tile_matrix.html>`__
@@ -743,8 +708,6 @@ Generate cell by gene activity matrix, using `pp.make_gene_matrix`
 Generate cell by gene activity matrix.
 
 Generate cell by gene activity matrix by counting the TN5 insertions in gene body regions. The result will be stored in a new file and a new AnnData object will be created.
-
-`import_data` must be ran first in order to use this function.
 
 More details on the `SnapATAC2 documentation
 <https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.make_gene_matrix.html>`__
@@ -760,7 +723,7 @@ More details on the `SnapATAC2 documentation
 Perform feature selection, using `pp.select_features`
 =====================================================
 
-Perform feature selection by selecting the most accessibile features across all cells unless `max_iter` > 1
+Perform feature selection by selecting the most accessible features across all cells unless `max_iter` > 1
 
 More details on the `SnapATAC2 documentation
 <https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.select_features.html>`__
@@ -812,26 +775,6 @@ Scanorama is an algorithm for integrating single-cell data from multiple experim
 
 More details on the `SnapATAC2 documentation
 <https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.scanorama_integrate.html>`__
-
-Compute the fragment size distribution of the dataset, using `metrics.frag_size_distr`
-======================================================================================
-
-Compute the fragment size distribution of the dataset.
-
-This function computes the fragment size distribution of the dataset. Note that it does not operate at the single-cell level. The result is stored in a vector where each element represents the number of fragments and the index represents the fragment length. The first posision of the vector is reserved for fragments with size larger than the `max_recorded_size` parameter. `import_data` must be ran first in order to use this function.
-
-More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.metrics.frag_size_distr.html>`__
-
-Compute the TSS enrichment score (TSSe) for each cell, using `metrics.tsse`
-===========================================================================
-
-Compute the TSS enrichment score (TSSe) for each cell.
-
-`import_data` must be ran first in order to use this function.
-
-More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.metrics.tsse.html>`__
 
     ]]></help>
     <expand macro="citations"/>
