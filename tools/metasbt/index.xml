@@ -9,26 +9,31 @@
     <expand macro="requirements"/>
 
     <command detect_errors="exit_code"><![CDATA[
-source /home/fabio/mambaforge/etc/profile.d/conda.sh && conda activate metasbt &&
-
 #set input_dir = "./genomes"
 
 mkdir -p "${input_dir}" &&
 
 #for $genome in $genomes:
+    genome_name='$(echo "${genome.element_identifier}" | sed "s/[^[:alnum:]_.-]/_/g")' &&
+
     #if $genome.ext.endswith("gz"):
-        gzip -dc "$genome" > "${input_dir}/${genome.name}.fna" &&
+        gzip -dc '${genome}' > "${input_dir}/${genome_name}.fna" &&
     #else
-        ln -s "$genome" "${input_dir}/${genome.name}.fna" &&
+        ln -s '${genome}' "${input_dir}/${genome_name}.fna" &&
     #end if
+
+    realpath "${input_dir}/${genome_name}.fna" >> "${input_dir}/genomes.txt" &&
 #end for
 
 #if $advanced.index_update_conditional.index_update_option == "false":
-    while IFS=$'\t' read -r seq_name seq_taxonomy; do 
-        if [ -f "${input_dir}/${seq_name}.fna" ]; then
-            echo -e "${input_dir}/${seq_name}.fna\t${seq_taxonomy}" >> "${input_dir}/genomes.tsv";
+    while IFS=$'\t' read -r genome_name genome_taxonomy; do
+        genome_name='$(echo "$genome_name" | sed "s/[^[:alnum:]_.-]/_/g")' &&
+        genome_taxonomy='$(echo "$genome_taxonomy" | sed "s/[^[:alnum:]_.-|]/_/g")' &&
+
+        if [ -f "${input_dir}/${genome_name}.fna" ]; then
+            echo -e "${input_dir}/${genome_name}.fna\t${genome_taxonomy}" >> "${input_dir}/genomes.tsv";
         fi
-    done < $taxonomies &&
+    done < '${taxonomies}' &&
 
     metasbt index --workdir "."
                   --database "Database"
@@ -37,32 +42,34 @@ mkdir -p "${input_dir}" &&
                   --pack
 
             #if $advanced.index_update_conditional.bfs_selection.bfs_auto == "false":
-                  --filter-size "${advanced.index_update_conditional.bfs_selection.bfs_size}"
+                  --filter-size '${advanced.index_update_conditional.bfs_selection.bfs_size}'
             #else:
-                  --increase-filter-size "$advanced.index_update_conditional.bfs_selection.bfs_size_increase"
-                  --min-kmer-occurrences "$advanced.index_update_conditional.bfs_selection.min_kmer_occurrences"
+                  --increase-filter-size '$advanced.index_update_conditional.bfs_selection.bfs_size_increase'
+                  --min-kmer-occurrences '$advanced.index_update_conditional.bfs_selection.min_kmer_occurrences'
             #end if
 
             #if $advanced.index_update_conditional.kmers_selection.kmers_auto == "false":
-                  --kmer-size "$advanced.index_update_conditional.kmers_selection.kmer_len"
+                  --kmer-size '$advanced.index_update_conditional.kmers_selection.kmer_len}'
             #else:
-                  --limit-kmer-size "$advanced.index_update_conditional.kmers_selection.max_kmer_len"
+                  --limit-kmer-size '$advanced.index_update_conditional.kmers_selection.max_kmer_len}'
             #end if
 
             #if $advanced.dereplication_selection.dereplication == "true":
-                  --dereplicate "$advanced.dereplication_selection.distance_threshold"
+                  --dereplicate '$advanced.dereplication_update_conditional.distance_threshold}'
             #end if
 
             #if $advanced.quality_control_selection.quality_control == "true":
-                  --completeness "$advanced.quality_control_selection.completeness"
-                  --contamination "$advanced.quality_control_selection.contamination"
+                  --completeness '$advanced.quality_control_selection.completeness}'
+                  --contamination '$advanced.quality_control_selection.contamination}'
             #end if
 
             &&
 #else:
-    find "${input_dir}" -type f -name "*.fna" -exec realpath {} \; > "${input_dir}/genomes.txt" &&
-
-    ln -s "${advanced.index_update_conditional.database_selection.db_tarball}" "./MetaSBT-Database.tar.gz" &&
+    #if $advanced.index_update_conditional.database_selection.source == "cvmfs":
+        ln -s '${advanced.index_update_conditional.database_selection.db_tarball.fields.path}' "./MetaSBT-Database.tar.gz" &&
+    #else:
+        ln -s '${advanced.index_update_conditional.database_selection.db_tarball}' "./MetaSBT-Database.tar.gz" &&
+    #end if
 
     metasbt unpack --workdir "."
                    --database "Database"
@@ -77,21 +84,21 @@ mkdir -p "${input_dir}" &&
                    --pack
 
             #if $advanced.dereplication_selection.dereplication == "true":
-                   --dereplicate "$advanced.dereplication_selection.distance_threshold"
+                   --dereplicate '$advanced.dereplication_selection.distance_threshold}'
             #end if
 
             #if $advanced.quality_control_selection.quality_control == "true":
-                   --completeness "$advanced.quality_control_selection.completeness"
-                   --contamination "$advanced.quality_control_selection.contamination"
+                   --completeness '$advanced.quality_control_selection.completeness}'
+                   --contamination '$advanced.quality_control_selection.contamination}'
             #end if
 
-            &&    
+            &&
 #end if
 
 tail -n +3 "./Database/clusters.tsv" > clusters.tsv &&
 tail -n +3 "./Database/genomes.tsv" > genomes.tsv &&
 
-mv ./*.tar.gz MetaSBT-Database.tar.gz
+mv ./MetaSBT-Database*.tar.gz MetaSBT-Database.tar.gz
     ]]></command>
 
     <inputs>
@@ -178,31 +185,7 @@ mv ./*.tar.gz MetaSBT-Database.tar.gz
                 </when>
 
                 <when value="true">
-                    <!-- Update -->
-                    <conditional name="database_selection">
-                        <!-- Select a MetaSBT database -->
-                        <param name="source" type="select"
-                                label="Will you use a MetaSBT database from your history or a public database?"
-                                help="Public databases are hosted on the Galaxy CVMFS.">
-                            <option value="cvmfs" selected="true">Use a public database</option>
-                            <option value="history">Use a database from the history</option>
-                        </param>
-
-                        <when value="cvmfs">
-                            <param name="db_tarball" type="select"
-                                    label="Select a MetaSBT database"
-                                    help="Choose a specific version of a database.">
-                                <options from_data_table="metasbt_databases">
-                                    <validator message="No MetaSBT database is available" type="no_options"/>
-                                </options>
-                            </param>
-                        </when>
-
-                        <when value="history">
-                            <param name="db_tarball" type="data" format="tar"
-                                    label="Select a MetaSBT database" />
-                        </when>
-                    </conditional>
+                    <expand macro="database"/>
                 </when>
             </conditional>
 
