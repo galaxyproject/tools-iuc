@@ -18,6 +18,25 @@ from typing import TextIO
 from xml.sax.saxutils import escape
 
 
+def get_nextclade_version() -> str:
+    """
+    Get the version of Nextclade installed on the system.
+    Returns the version as a string.
+    """
+
+    nextclade_command = ["nextclade", "--version"]
+    proc = subprocess.run(
+        nextclade_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"Nextclade version check failed: {proc.stderr.decode()}")
+
+    # Nextclade outputs the version in the format "nextclade X.Y.Z"
+    version = proc.stdout.decode().strip().split()[-1]
+    return version
+
+
 def get_datasets() -> list[dict]:
     """
     Get the list of datasets from the Nextclade dataset list command.
@@ -122,7 +141,9 @@ def write_with_indent(file: TextIO, text: str, indent: int) -> None:
     file.write(" " * indent + text + "\n")
 
 
-def generate_macros(macro_file: TextIO, dataset_info: list[dict]) -> None:
+def generate_macros(
+    macro_file: TextIO, nextclade_version: str, dataset_info: list[dict]
+) -> None:
     """
     Generate the Galaxy metadata format for the given datasets and their columns.
     """
@@ -132,6 +153,9 @@ def generate_macros(macro_file: TextIO, dataset_info: list[dict]) -> None:
     indent += indent_size
     write_with_indent(macro_file, "<macros>", indent)
     indent += indent_size
+    write_with_indent(
+        macro_file, f'<token name="@TOOL_VERSION@">{nextclade_version}</token>', indent
+    )
     write_with_indent(macro_file, '<xml name="dataset_selector">', indent)
     seen_first = False
     names_seen = set()
@@ -179,12 +203,18 @@ def generate_macros(macro_file: TextIO, dataset_info: list[dict]) -> None:
     write_with_indent(macro_file, "</conditional>", indent)
     indent -= indent_size
     write_with_indent(macro_file, "</xml>", indent)
-    for (name, columns) in column_info.items():
-        token_name = name.upper().replace("-", "_") + '_NUM_COLUMNS'
-        write_with_indent(macro_file, f'<token name="@{token_name}@">{len(columns)}</token>', indent)
-        token_name = name.upper().replace("-", "_") + '_COLUMNS' # e.g. SARS_COV_2_COLUMNS
+    for name, columns in column_info.items():
+        token_name = name.upper().replace("-", "_") + "_NUM_COLUMNS"
+        write_with_indent(
+            macro_file, f'<token name="@{token_name}@">{len(columns)}</token>', indent
+        )
+        token_name = (
+            name.upper().replace("-", "_") + "_COLUMNS"
+        )  # e.g. SARS_COV_2_COLUMNS
         columns_str = ",".join(columns)
-        write_with_indent(macro_file, f'<token name="@{token_name}@">{columns_str}</token>', indent)
+        write_with_indent(
+            macro_file, f'<token name="@{token_name}@">{columns_str}</token>', indent
+        )
     indent -= indent_size
     write_with_indent(macro_file, "</macros>", indent)
 
@@ -230,10 +260,16 @@ if __name__ == "__main__":
         # to avoid issues with special characters e.g. "&" or "<"
         description = dataset[dataset_attributes_key][dataset_attributes_name_key]
         # special case for the two influenza datasets where a description is duplicated
-        if description == "Influenza A H1N1pdm HA" and "CY121680" in dataset[dataset_name_key]:
-            description += ' (broad)'
-        elif description == "Influenza A H3N2 HA" and "CY163680" in dataset[dataset_name_key]:
-            description += ' (broad)'
+        if (
+            description == "Influenza A H1N1pdm HA"
+            and "CY121680" in dataset[dataset_name_key]
+        ):
+            description += " (broad)"
+        elif (
+            description == "Influenza A H3N2 HA"
+            and "CY163680" in dataset[dataset_name_key]
+        ):
+            description += " (broad)"
         if name.startswith("community/"):
             description = description + " (community contributed)"
         reference_filename = fetch_reference(name)
@@ -241,4 +277,6 @@ if __name__ == "__main__":
         dataset_infos.append(
             {"name": name, "description": description, "columns": columns}
         )
-    generate_macros(args.output_file, dataset_infos)
+
+    nextclade_version = get_nextclade_version()
+    generate_macros(args.output_file, nextclade_version, dataset_infos)
