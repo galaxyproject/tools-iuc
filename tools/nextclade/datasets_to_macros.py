@@ -16,6 +16,7 @@ import tempfile
 
 from typing import TextIO
 
+
 def get_nextclade_version() -> str:
     """
     Get the version of Nextclade installed on the system.
