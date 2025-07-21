@@ -231,6 +231,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # check that nextclade is in the PATH
+    if shutil.which("nextclade") is None:
+        print("Error: nextclade command not found in PATH.", file=sys.stderr)
+        sys.exit(1)
+
     datasets = get_datasets()
 
     # While the datasets JSON has no defined schema, as of 3.15.3, it contains:
