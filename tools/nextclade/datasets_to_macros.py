@@ -15,8 +15,6 @@ import sys
 import tempfile
 
 from typing import TextIO
-from xml.sax.saxutils import escape
-
 
 def get_nextclade_version() -> str:
     """
