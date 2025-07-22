@@ -10,6 +10,14 @@ import sys
 from typing import List
 
 
+def get_nextclade_version() -> str:
+    # Returns the version of the nextclade CLI tool.
+    version_cmd = ["nextclade", "--version"]
+    version_proc = subprocess.run(version_cmd, capture_output=True, check=True)
+    version_output = version_proc.stdout.decode('utf-8').strip()
+    return version_output.split()[1]  # e.g., "nextclade 2.3.0"
+
+
 def parse_date(d: str) -> datetime.datetime:
     # Parses the publication date from the nextclade release tags or user input into a datetime object.
     date = None
@@ -20,46 +28,63 @@ def parse_date(d: str) -> datetime.datetime:
     return date
 
 
-def entry_to_tag(entry: dict) -> str:
-    return (
-        entry["attributes"]["name"]["value"] + "_" + entry["attributes"]["tag"]["value"]
-    )
+def entry_to_tag(name: str, tag: str) -> str:
+    return '_'.join([name, tag])
 
 
-def get_database_list() -> List[dict]:
+def get_database_list(default_compatibility: str) -> List[dict]:
     list_cmd = [
         "nextclade",
         "dataset",
         "list",
-        "--json",
-        "--include-old",
-        "--include-incompatible",
+        "--json"
     ]
     list_proc = subprocess.run(list_cmd, capture_output=True, check=True)
     database_list = json.loads(list_proc.stdout)
     entry_list = []
     for db_entry in database_list:
         attributes = db_entry["attributes"]
-        entry = {
-            "value": entry_to_tag(db_entry),
-            "database_name": attributes["name"]["value"],
-            "description": attributes["name"]["valueFriendly"],
-            "date": datetime.datetime.fromisoformat(
-                attributes["tag"]["value"].replace("Z", "")
-            ),
-            "tag": attributes["tag"]["value"],
-            "min_nextclade_version": db_entry["compatibility"]["nextcladeCli"]["min"],
-        }
-        entry_list.append(entry)
+        name = db_entry["path"]
+        if "shortcuts" in db_entry:
+            name = db_entry["shortcuts"][0]
+        description = attributes["name"]
+        reference_accession = attributes.get("reference accession", "")
+        if ("CY121680" in reference_accession and
+            (description == "Influenza A H1N1pdm HA" or description == "Influenza A H3N2 HA")
+        ):
+            description += " (broad)"
+        if name.startswith("community/"):
+            description += " (community contributed)"
+
+        for version in db_entry["versions"]:
+            version_date = datetime.datetime.fromisoformat(
+                version["updatedAt"].replace("Z", "")
+            )
+            tag = version["tag"]
+            if "compatibility" not in version:
+                version["compatibility"] = {
+                    "cli": default_compatibility,
+                    "web": default_compatibility,
+                }
+            entry = {
+                "value": entry_to_tag(name, tag),
+                "database_name": name,
+                "description": description,
+                "date": version_date,
+                "tag": version["tag"],
+                "min_nextclade_version": version["compatibility"]["cli"],
+            }
+            entry_list.append(entry)
+    
     return entry_list
 
 
 def filter_by_date(
-    existing_release_tags: List[str],
+    existing_release_tags: set[str],
     name: str,
     releases: list,
-    start_date: datetime.datetime = None,
-    end_date: datetime.datetime = None,
+    start_date: datetime.datetime|None = None,
+    end_date: datetime.datetime|None = None,
 ) -> List[dict]:
     ret = []
     for release in releases:
@@ -108,6 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--end_date", type=parse_date)
     parser.add_argument("--known_revisions", type=comma_split)
     parser.add_argument("--datasets", type=comma_split, default=["sars-cov-2"])
+
     parser.add_argument("datatable_name", default="nextclade")
     parser.add_argument("galaxy_config")
     args = parser.parse_args()
@@ -118,13 +144,16 @@ if __name__ == "__main__":
     else:
         existing_release_tags = set()
 
-    releases_available = get_database_list()
+    nextclade_version = get_nextclade_version()
+    major_version = nextclade_version.split(".")[0]
+    default_compatibility = f"{major_version}.0.0"
+    releases_available = get_database_list(default_compatibility)
     if args.testmode:
         releases = []
         for name in args.datasets:
             releases.extend(
                 filter_by_date(
-                    [],
+                    set(),
                     name,
                     releases_available,
                     start_date=args.start_date,
