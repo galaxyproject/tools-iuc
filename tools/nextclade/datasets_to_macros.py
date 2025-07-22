@@ -263,14 +263,9 @@ if __name__ == "__main__":
         # to avoid issues with special characters e.g. "&" or "<"
         description = dataset[dataset_attributes_key][dataset_attributes_name_key]
         # special case for the two influenza datasets where a description is duplicated
-        if (
+        if "CY121680" in dataset[dataset_name_key] and (
             description == "Influenza A H1N1pdm HA"
-            and "CY121680" in dataset[dataset_name_key]
-        ):
-            description += " (broad)"
-        elif (
-            description == "Influenza A H3N2 HA"
-            and "CY163680" in dataset[dataset_name_key]
+            or description == "Influenza A H3N2 HA"
         ):
             description += " (broad)"
         if name.startswith("community/"):

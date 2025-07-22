@@ -14,7 +14,7 @@ def get_nextclade_version() -> str:
     # Returns the version of the nextclade CLI tool.
     version_cmd = ["nextclade", "--version"]
     version_proc = subprocess.run(version_cmd, capture_output=True, check=True)
-    version_output = version_proc.stdout.decode('utf-8').strip()
+    version_output = version_proc.stdout.decode("utf-8").strip()
     return version_output.split()[1]  # e.g., "nextclade 2.3.0"
 
 
@@ -29,16 +29,11 @@ def parse_date(d: str) -> datetime.datetime:
 
 
 def entry_to_tag(name: str, tag: str) -> str:
-    return '_'.join([name, tag])
+    return "_".join([name, tag])
 
 
 def get_database_list(default_compatibility: str) -> List[dict]:
-    list_cmd = [
-        "nextclade",
-        "dataset",
-        "list",
-        "--json"
-    ]
+    list_cmd = ["nextclade", "dataset", "list", "--json"]
     list_proc = subprocess.run(list_cmd, capture_output=True, check=True)
     database_list = json.loads(list_proc.stdout)
     entry_list = []
@@ -48,9 +43,9 @@ def get_database_list(default_compatibility: str) -> List[dict]:
         if "shortcuts" in db_entry:
             name = db_entry["shortcuts"][0]
         description = attributes["name"]
-        reference_accession = attributes.get("reference accession", "")
-        if ("CY121680" in reference_accession and
-            (description == "Influenza A H1N1pdm HA" or description == "Influenza A H3N2 HA")
+        if "CY121680" in db_entry["path"] and (
+            description == "Influenza A H1N1pdm HA"
+            or description == "Influenza A H3N2 HA"
         ):
             description += " (broad)"
         if name.startswith("community/"):
@@ -75,7 +70,7 @@ def get_database_list(default_compatibility: str) -> List[dict]:
                 "min_nextclade_version": version["compatibility"]["cli"],
             }
             entry_list.append(entry)
-    
+
     return entry_list
 
 
@@ -83,8 +78,8 @@ def filter_by_date(
     existing_release_tags: set[str],
     name: str,
     releases: list,
-    start_date: datetime.datetime|None = None,
-    end_date: datetime.datetime|None = None,
+    start_date: datetime.datetime | None = None,
+    end_date: datetime.datetime | None = None,
 ) -> List[dict]:
     ret = []
     for release in releases:
