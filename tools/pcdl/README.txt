@@ -10,6 +10,7 @@ PhysiCell Studio Galaxy tool.
 You will have to unzip the PhysiCell output folder before you can run
 pcdl Galaxy tools on it.
 + https://usegalaxy.eu/?tool_id=toolshed.g2.bx.psu.edu%2Frepos%2Fimgteam%2Funzip%2Funzip%2F6.0%2Bgalaxy0&version=latest
++ https://usegalaxy.org/?tool_id=toolshed.g2.bx.psu.edu%2Frepos%2Frheiland%2Fphysicell_studio%2Finteractive_tool_pcstudio%2F0.3&version=latest
 
 More information about PhysiCell, PhysiCell Studio, and PhysiCell Data Loader
 can be found here:
