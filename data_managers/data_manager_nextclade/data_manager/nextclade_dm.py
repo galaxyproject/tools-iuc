@@ -43,10 +43,9 @@ def get_database_list(default_compatibility: str) -> List[dict]:
         if "shortcuts" in db_entry:
             name = db_entry["shortcuts"][0]
         description = attributes["name"]
-        if "CY121680" in db_entry["path"] and (
-            description == "Influenza A H1N1pdm HA"
-            or description == "Influenza A H3N2 HA"
-        ):
+        if (
+            "CY121680" in db_entry["path"] and description == "Influenza A H1N1pdm HA"
+        ) or ("CY163680" in db_entry["path"] and description == "Influenza A H3N2 HA"):
             description += " (broad)"
         if name.startswith("community/"):
             description += " (community contributed)"

@@ -182,25 +182,6 @@ def generate_macros(
         write_with_indent(macro_file, dataset_selector, indent)
     indent -= indent_size
     write_with_indent(macro_file, "</xml>", indent)
-    write_with_indent(macro_file, '<xml name="output_columns">', indent)
-    indent += indent_size
-    write_with_indent(macro_file, '<conditional name="organism">', indent)
-    indent += indent_size
-    for dataset in dataset_info:
-        write_with_indent(macro_file, f'<when value="{dataset["name"]}">', indent)
-        indent += indent_size
-        columns = dataset["columns"]
-        columns_str = ",".join(columns)
-        action = (
-            f'<action name="column_names" type="metadata" default="{columns_str}"/>'
-        )
-        write_with_indent(macro_file, action, indent)
-        indent -= indent_size
-        write_with_indent(macro_file, "</when>", indent)
-    indent -= indent_size
-    write_with_indent(macro_file, "</conditional>", indent)
-    indent -= indent_size
-    write_with_indent(macro_file, "</xml>", indent)
     for name, columns in column_info.items():
         token_name = name.upper().replace("-", "_") + "_NUM_COLUMNS"
         write_with_indent(
@@ -263,10 +244,10 @@ if __name__ == "__main__":
         # to avoid issues with special characters e.g. "&" or "<"
         description = dataset[dataset_attributes_key][dataset_attributes_name_key]
         # special case for the two influenza datasets where a description is duplicated
-        if "CY121680" in dataset[dataset_name_key] and (
-            description == "Influenza A H1N1pdm HA"
-            or description == "Influenza A H3N2 HA"
+        if (("CY121680" in dataset[dataset_name_key] and description == "Influenza A H1N1pdm HA") or
+            ("CY163680" in dataset[dataset_name_key] and description == "Influenza A H3N2 HA")
         ):
+            print("ADDING BROAD DESCRIPTION FOR", name, file=sys.stderr)
             description += " (broad)"
         if name.startswith("community/"):
             description = description + " (community contributed)"
