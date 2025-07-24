@@ -244,8 +244,12 @@ if __name__ == "__main__":
         # to avoid issues with special characters e.g. "&" or "<"
         description = dataset[dataset_attributes_key][dataset_attributes_name_key]
         # special case for the two influenza datasets where a description is duplicated
-        if (("CY121680" in dataset[dataset_name_key] and description == "Influenza A H1N1pdm HA") or
-            ("CY163680" in dataset[dataset_name_key] and description == "Influenza A H3N2 HA")
+        if (
+            "CY121680" in dataset[dataset_name_key]
+            and description == "Influenza A H1N1pdm HA"
+        ) or (
+            "CY163680" in dataset[dataset_name_key]
+            and description == "Influenza A H3N2 HA"
         ):
             print("ADDING BROAD DESCRIPTION FOR", name, file=sys.stderr)
             description += " (broad)"
