@@ -20,8 +20,8 @@ def main():
     parser.add_argument('--obj_size', default='', type=str, help="Size of the objects in the images", choices=['0-25', '25-100', '100-200', '200-500', '500+'])
     parser.add_argument('--model_source', default='biapy', choices=['biapy', 'bmz', 'torchvision'], help="Source of the model.")
     parser.add_argument('--model', default='', type=str, help="Path to the model file if using a pre-trained model from BiaPy or name of the model within BioImage Model Zoo or TorchVision.")
-    parser.add_argument('--train_raw_path', default='', type=str, help="Path to the training raw data.")
-    parser.add_argument('--train_gt_path', default='', type=str, help="Path to the training ground truth data.")
+    parser.add_argument('--raw_train', default='', type=str, help="Path to the training raw data.")
+    parser.add_argument('--gt_train', default='', type=str, help="Path to the training ground truth data.")
     parser.add_argument('--test_raw_path', default='', type=str, help="Path to the testing raw data.")
     parser.add_argument('--test_gt_path', default='', type=str, help="Path to the testing ground truth data.")
 
@@ -114,10 +114,10 @@ def main():
             config["DATA"]["PATCH_SIZE"] = (obj_slices,) + obj_size
 
     # Q8, Q9, Q10, Q11 and Q12
-    if args.train_raw_path != "":
+    if args.raw_train != "":
         config["TRAIN"]["ENABLE"] = True
-        config["DATA"]["TRAIN"]["PATH"] = args.train_raw_path
-        config["DATA"]["TRAIN"]["GT_PATH"] = args.train_gt_path
+        config["DATA"]["TRAIN"]["PATH"] = args.raw_train
+        config["DATA"]["TRAIN"]["GT_PATH"] = args.gt_train
     else:
         config["TRAIN"]["ENABLE"] = False
     if args.test_raw_path != "":
