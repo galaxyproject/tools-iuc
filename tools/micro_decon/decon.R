@@ -27,7 +27,7 @@ if (opt$mode == "decon") {
     result <- decon(
         data = microbe_data,
         numb.blanks = opt$numb_blanks,
-        numb.ind = eval(parse(text=opt$numb_ind)),
+        numb.ind = eval(parse(text = opt$numb_ind)),
         taxa = opt$taxa,
         runs = opt$runs,
         thresh = opt$thresh,
@@ -55,7 +55,7 @@ if (opt$mode == "decon") {
 } else if (opt$mode == "remove_thresh") {
     result <- remove.thresh(
         data = microbe_data,
-        numb.ind = eval(parse(text=opt$numb_ind)),
+        numb.ind = eval(parse(text = opt$numb_ind)),
         taxa = opt$taxa,
         thresh = opt$thresh,
         prop.thresh = opt$prop_thresh
@@ -68,7 +68,7 @@ if (opt$mode == "decon") {
         data = microbe_data,
         output = output_data,
         numb.blanks = opt$numb_blanks,
-        numb.ind = eval(parse(text=opt$numb_ind)),
+        numb.ind = eval(parse(text = opt$numb_ind)),
         taxa = opt$taxa
     )
     write.csv(result$decon.table, "decon_table.csv", row.names = FALSE)
