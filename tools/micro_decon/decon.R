@@ -25,16 +25,16 @@ microbe_data <- read.csv(opt$data_file, header = TRUE, stringsAsFactors = FALSE,
 
 if (opt$mode == "decon") {
     result <- decon(
-      data = microbe_data,
-      numb.blanks = opt$numb_blanks,
-      numb.ind = eval(parse(text=opt$numb_ind)),
-      taxa = opt$taxa,
-      runs = opt$runs,
-      thresh = opt$thresh,
-      prop.thresh = opt$prop_thresh,
-      regression = opt$regression,
-      low.threshold = opt$low_threshold,
-      up.threshold = opt$up_threshold
+        data = microbe_data,
+        numb.blanks = opt$numb_blanks,
+        numb.ind = eval(parse(text=opt$numb_ind)),
+        taxa = opt$taxa,
+        runs = opt$runs,
+        thresh = opt$thresh,
+        prop.thresh = opt$prop_thresh,
+        regression = opt$regression,
+        low.threshold = opt$low_threshold,
+        up.threshold = opt$up_threshold
     )
     write.csv(result$decon.table, "decon_table.csv", row.names = FALSE)
     write.csv(result$reads.removed, "reads_removed.csv", row.names = FALSE)
@@ -43,33 +43,33 @@ if (opt$mode == "decon") {
     write.csv(result$OTUs.removed, "OTUs_removed.csv", row.names = FALSE)
 } else if (opt$mode == "remove_cont") {
     result <- remove.cont(
-      data = microbe_data,
-      numb.blanks = opt$numb_blanks,
-      taxa = opt$taxa,
-      runs = opt$runs,
-      regression = opt$regression,
-      low.threshold = opt$low_threshold,
-      up.threshold = opt$up_threshold
+        data = microbe_data,
+        numb.blanks = opt$numb_blanks,
+        taxa = opt$taxa,
+        runs = opt$runs,
+        regression = opt$regression,
+        low.threshold = opt$low_threshold,
+        up.threshold = opt$up_threshold
     )
     write.csv(result, "decon_table.csv", row.names = FALSE)
 } else if (opt$mode == "remove_thresh") {
     result <- remove.thresh(
-      data = microbe_data,
-      numb.ind = eval(parse(text=opt$numb_ind)),
-      taxa = opt$taxa,
-      thresh = opt$thresh,
-      prop.thresh = opt$prop_thresh
+        data = microbe_data,
+        numb.ind = eval(parse(text=opt$numb_ind)),
+        taxa = opt$taxa,
+        thresh = opt$thresh,
+        prop.thresh = opt$prop_thresh
     )
     write.csv(result, "decon_table.csv", row.names = FALSE)
 } else if (opt$mode == "decon_diff") {
     if (is.null(opt$output)) stop("Error: --output must be provided for decon.diff mode")
     output_data <- read.csv(opt$output, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
     result <- decon.diff(
-      data = microbe_data,
-      output = output_data,
-      numb.blanks = opt$numb_blanks,
-      numb.ind = eval(parse(text=opt$numb_ind)),
-      taxa = opt$taxa
+        data = microbe_data,
+        output = output_data,
+        numb.blanks = opt$numb_blanks,
+        numb.ind = eval(parse(text=opt$numb_ind)),
+        taxa = opt$taxa
     )
     write.csv(result$decon.table, "decon_table.csv", row.names = FALSE)
     write.csv(result$reads.removed, "reads_removed.csv", row.names = FALSE)
