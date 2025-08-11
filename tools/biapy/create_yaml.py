@@ -2,8 +2,32 @@ import argparse
 import yaml
 import requests
 
-def download_yaml_template(template_name="template_biax.yaml"):
-    url = f"https://raw.githubusercontent.com/BiaPyX/BiaPy/master/templates/{template_name}"
+def download_yaml_template(workflow, dims, biapy_version=""):
+    """
+    Download a YAML template for a specific workflow and dimensions.
+    
+    Parameters:    
+        workflow (str): The workflow type.
+        dims (str): The dimensions (e.g., 2d, 3d).
+        biapy_version (str): The BiaPy version to use.
+    
+    Returns:
+        dict: The YAML template as a dictionary.
+    """
+    template_dir_map = {
+        "SEMANTIC_SEG":     "semantic_segmentation",
+        "INSTANCE_SEG":     "instance_segmentation",
+        "DETECTION":        "detection",
+        "DENOISING":        "denoising",
+        "SUPER_RESOLUTION": "super-resolution", 
+        "CLASSIFICATION":   "classification",
+        "SELF_SUPERVISED":  "self-supervised",  
+        "IMAGE_TO_IMAGE":   "image-to-image",   
+    }
+    template_name = template_dir_map[workflow] + "/" + dims + "_" + template_dir_map[workflow] + ".yaml"
+
+    url = f"https://raw.githubusercontent.com/BiaPyX/BiaPy/refs/tags/{biapy_version}/templates/{template_name}"
+
     response = requests.get(url)
     if response.status_code != 200:
         raise RuntimeError(f"Failed to download YAML template: {response.status_code}")
@@ -24,31 +48,18 @@ def main():
     parser.add_argument('--gt_train', default='', type=str, help="Path to the training ground truth data.")
     parser.add_argument('--test_raw_path', default='', type=str, help="Path to the testing raw data.")
     parser.add_argument('--test_gt_path', default='', type=str, help="Path to the testing ground truth data.")
+    parser.add_argument('--biapy_version', default='', type=str, help="BiaPy version to use.")
 
     args = parser.parse_args()
 
     if args.new_config:
-        # Load the template
-        config = download_yaml_template()
-    else:
-        assert args.input_config_path != '', "Input configuration path must be specified when not creating a new config."
-        # Load the existing configuration file
-        with open(args.input_config_path, 'r') as f:
-            config = yaml.safe_load(f)
-
-    # Q1
-    if args.dims == "2d_stack":
-        config["PROBLEM"]["NDIM"] = "2D"
-        config["TEST"]["ANALIZE_2D_IMGS_AS_3D_STACK"] = True
-    elif args.dims == "2d":
-        config["PROBLEM"]["NDIM"] = "2D"
-        config["TEST"]["ANALIZE_2D_IMGS_AS_3D_STACK"] = True
-    elif args.dims == "3d":
-        config["PROBLEM"]["NDIM"] = "3D"
-        config["TEST"]["ANALIZE_2D_IMGS_AS_3D_STACK"] = False
-
-    if args.new_config:
         assert args.workflow != "", "Workflow must be specified when creating a new config."
+        assert args.dims != "", "Dimensions must be specified when creating a new config."
+        assert args.model_source != "", "Model source must be specified when creating a new config."
+        assert args.model != "", "Model must be specified when creating a new config."
+        assert args.obj_size != "", "Object size must be specified when creating a new config."
+        assert args.obj_slices != "", "Object slices must be specified when creating a new config."
+
         # Q2
         # Map input workflow values from UI to BiaPy workflow constants
         workflow_map = {
@@ -62,8 +73,26 @@ def main():
             "i2i": "IMAGE_TO_IMAGE"
         }
         workflow_type = workflow_map[args.workflow]
-        config["PROBLEM"]["TYPE"] = workflow_type
 
+        # Q1
+        if args.dims == "2d_stack":
+            ndim = "2D"
+            as_stack = True
+        elif args.dims == "2d":
+            ndim = "2D"
+            as_stack = True
+        elif args.dims == "3d":
+            ndim = "3D"
+            as_stack = False
+
+        # Load the template
+        config = download_yaml_template(workflow_type, ndim, biapy_version=args.biapy_version)
+
+        # Set the results of Q1 and Q2
+        config["PROBLEM"]["TYPE"] = workflow_type
+        config["PROBLEM"]["NDIM"] = ndim
+        config["TEST"]["ANALIZE_2D_IMGS_AS_3D_STACK"] = as_stack
+        
         # Q3, Q4 and Q5
         assert args.model_source != "", "Model source must be specified."
         if args.model_source == "biapy":
@@ -112,6 +141,16 @@ def main():
         else:
             assert obj_slices != -1, "For 3D problems, obj_slices must be specified."
             config["DATA"]["PATCH_SIZE"] = (obj_slices,) + obj_size
+    else:
+        assert args.input_config_path != '', "Input configuration path must be specified when not creating a new config."
+        # Load the existing configuration file
+        with open(args.input_config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+    assert args.raw_train != "", "Raw training data path must be specified"
+    assert args.gt_train != "", "Ground truth training data path must be specified"
+    assert args.test_raw_path != "", "Test raw data path must be specified"
+    assert args.test_gt_path != "", "Test ground truth data path must be specified"
 
     # Q8, Q9, Q10, Q11 and Q12
     if args.raw_train != "":
@@ -129,7 +168,6 @@ def main():
     else:
         config["TEST"]["ENABLE"] = False
     
-
     # Save the YAML to out_config_path
     with open(args.out_config_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
