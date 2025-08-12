@@ -55,8 +55,6 @@ def main():
     if args.new_config:
         assert args.workflow != "", "Workflow must be specified when creating a new config."
         assert args.dims != "", "Dimensions must be specified when creating a new config."
-        assert args.model_source != "", "Model source must be specified when creating a new config."
-        assert args.model != "", "Model must be specified when creating a new config."
         assert args.obj_size != "", "Object size must be specified when creating a new config."
         assert args.obj_slices != "", "Object slices must be specified when creating a new config."
 
@@ -94,14 +92,17 @@ def main():
         config["TEST"]["ANALIZE_2D_IMGS_AS_3D_STACK"] = as_stack
         
         # Q3, Q4 and Q5
-        assert args.model_source != "", "Model source must be specified."
         if args.model_source == "biapy":
             config["MODEL"]["SOURCE"] = "biapy"
-            config["MODEL"]["LOAD_CHECKPOINT"] = False
-            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
-            if "PATHS" not in config:
-                config["PATHS"] = {}
-            config["PATHS"]["CHECKPOINT_FILE"] = args.model
+            if args.model != "":
+                config["MODEL"]["LOAD_CHECKPOINT"] = True
+                config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = True
+                if "PATHS" not in config:
+                    config["PATHS"] = {}
+                config["PATHS"]["CHECKPOINT_FILE"] = args.model
+            else:
+                config["MODEL"]["LOAD_CHECKPOINT"] = False
+                config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
         elif args.model_source == "bmz":
             config["MODEL"]["SOURCE"] = "bmz"
             config["MODEL"]["LOAD_CHECKPOINT"] = False
@@ -147,10 +148,17 @@ def main():
         with open(args.input_config_path, 'r') as f:
             config = yaml.safe_load(f)
 
-    assert args.raw_train != "", "Raw training data path must be specified"
-    assert args.gt_train != "", "Ground truth training data path must be specified"
-    assert args.test_raw_path != "", "Test raw data path must be specified"
-    assert args.test_gt_path != "", "Test ground truth data path must be specified"
+        # Check checkpoints 
+        if args.model != "":
+            config["MODEL"]["SOURCE"] = "biapy"
+            config["MODEL"]["LOAD_CHECKPOINT"] = True
+            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = True
+            if "PATHS" not in config:
+                config["PATHS"] = {}
+            config["PATHS"]["CHECKPOINT_FILE"] = args.model
+        else:
+            config["MODEL"]["LOAD_CHECKPOINT"] = False
+            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
 
     # Q8, Q9, Q10, Q11 and Q12
     if args.raw_train != "":
@@ -165,6 +173,8 @@ def main():
         if args.test_gt_path != "":
             config["DATA"]["TEST"]["LOAD_GT"] = True
             config["DATA"]["TEST"]["GT_PATH"] = args.test_gt_path
+        else:
+            config["DATA"]["TEST"]["LOAD_GT"] = False
     else:
         config["TEST"]["ENABLE"] = False
     
