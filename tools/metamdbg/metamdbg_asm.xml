@@ -1,89 +1,210 @@
 <tool id="metamdbg_asm" name="metaMDBG assemble" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
   <description>Assemble long-read metagenomes (HiFi / ONT)</description>
-  <macros><import>macros.xml</import></macros>
+
+  <macros>
+    <import>macros.xml</import>
+  </macros>
   <expand macro="edam"/>
-  <requirements><requirement type="package" version="@TOOL_VERSION@">metamdbg</requirement></requirements>
+
+  <requirements>
+    <requirement type="package" version="@TOOL_VERSION@">metamdbg</requirement>
+  </requirements>
+
   <version_command>metaMDBG --version</version_command>
   <stdio><exit_code range="1:" level="fatal"/></stdio>
-
-  <command detect_errors="exit_code"><![CDATA[
+    <command detect_errors="exit_code"><![CDATA[
     mkdir -p assemblyDir ;
 
-    ## Build space-separated reads list from datasets and/or collection
+    ## Collect reads from file(s) and/or list collection (note: inputs.* because they live in a <section name="inputs">)
     #set reads_list = []
-    #if $reads
-      #for $r in $reads
+    #if $inputs.reads
+        #for $r in $inputs.reads
         #set $x = $reads_list.append($r.file_name)
-      #end for
+        #end for
     #end if
-    #if $reads_collection
-      #for $c in $reads_collection
+    #if $inputs.reads_collection
+        #for $c in $inputs.reads_collection
         #set $y = $reads_list.append($c.file_name)
-      #end for
+        #end for
     #end if
-    #set READS_ARG = " ".join($reads_list)
 
+    ## Fail fast if no reads
+    #if not $reads_list
+        echo "No input reads provided (select files or provide a list collection)." >&2 ; exit 1 ;
+    #end if
+
+    metaMDBG asm 
+        --out-dir assemblyDir
+        --threads \${GALAXY_SLOTS:-4} 
     #if $read_type == "hifi"
-      #set READ_FLAG = "--in-hifi"
+        --in-hifi 
     #else
-      #set READ_FLAG = "--in-ont"
+        --in-ont 
     #end if
+    #for $p in $reads_list
+        "$p" 
+    #end for
+    #if $assembly.kmer_size is not None and str($assembly.kmer_size) != ""
+        --kmer-size $assembly.kmer_size 
+    #end if
+    #if $assembly.density_assembly is not None and str($assembly.density_assembly) != ""
+        --density-assembly $assembly.density_assembly 
+    #end if
+    #if $assembly.max_k is not None and str($assembly.max_k) != ""
+        --max-k $assembly.max_k 
+    #end if
+    #if $assembly.min_abundance is not None and str($assembly.min_abundance) != ""
+        --min-abundance $assembly.min_abundance 
+    #end if
+    #if str($assembly.all_assembly_graph) == "true"
+        --all-assembly-graph 
+    #end if
+    #if $correction.min_read_quality is not None and str($correction.min_read_quality) != ""
+        --min-read-quality $correction.min_read_quality 
+    #end if
+    #if $correction.density_correction is not None and str($correction.density_correction) != ""
+        --density-correction $correction.density_correction 
+    #end if
+    #if $correction.min_read_identity is not None and str($correction.min_read_identity) != ""
+        --min-read-identity $correction.min_read_identity 
+    #end if
+    #if $correction.min_read_overlap is not None and str($correction.min_read_overlap) != ""
+        --min-read-overlap $correction.min_read_overlap 
+    #end if
+    #if str($correction.skip_correction) == "true"
+        --skip-correction 
+    #end if
+    ;
 
-    metaMDBG asm --out-dir assemblyDir $READ_FLAG $READS_ARG --threads ${GALAXY_SLOTS:-4} ;
-
-    ## Bundle the assembly directory (portable input for metamdbg_gfa)
+    ## Bundle for downstream graphing
     tar -C assemblyDir -czf assemblyDir.tgz . ;
-  ]]></command>
+    ]]></command>
 
   <inputs>
-    <param name="read_type" type="select" label="Read type">
-      <option value="hifi">PacBio HiFi</option>
-      <option value="ont">Nanopore R10.4+</option>
+    <param name="read_type" type="select" label="Read type (maps to --in-*)">
+      <option value="hifi">PacBio HiFi (uses --in-hifi)</option>
+      <option value="ont">Nanopore R10.4+ (uses --in-ont)</option>
     </param>
+
     <section name="inputs" title="Input reads">
-      <param name="reads" type="data" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" multiple="true" optional="true" label="FASTQ file(s)"/>
-      <param name="reads_collection" type="data_collection" collection_type="list" optional="true" label="OR: FASTQ collection (list)"/>
+      <param name="reads" type="data" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz"
+             multiple="true" optional="true"
+             label="FASTQ file(s)"
+             help="Multi-select one or more FASTQ files for (co-)assembly."/>
+      <param name="reads_collection" type="data_collection" collection_type="list"
+             optional="true"
+             label="OR: FASTQ collection (list)"
+             help="Provide a list collection of FASTQs instead of selecting files above."/>
     </section>
+
+    <section name="assembly" title="Assembly options (advanced)" expanded="false">
+        <param name="kmer_size" type="integer" optional="true"
+                label="k-mer size (--kmer-size)"
+                help="Leave blank to use metaMDBG's default."/>
+        <param name="density_assembly" type="float" optional="true"
+                label="Fraction of k-mers used for assembly (--density-assembly)"/>
+        <param name="max_k" type="integer" optional="true"
+                label="Stop after k iterations (--max-k)"/>
+        <param name="min_abundance" type="integer" optional="true"
+                label="Minimum k-min-mer abundance (--min-abundance)"/>
+        <param name="all_assembly_graph" type="boolean" value="false"
+                label="Emit assembly graph at each multi-k iteration (--all-assembly-graph)"/>
+    </section>
+
+    <section name="correction" title="Correction options (advanced)" expanded="false">
+        <param name="min_read_quality" type="integer" optional="true"
+                label="Minimum read average quality (--min-read-quality)"/>
+        <param name="density_correction" type="float" optional="true"
+                label="Fraction of k-mers used for correction (--density-correction)"/>
+        <param name="min_read_identity" type="float" optional="true"
+                label="Minimum read identity (--min-read-identity)"/>
+        <param name="min_read_overlap" type="integer" optional="true"
+                label="Minimum read overlap length (--min-read-overlap)"/>
+        <param name="skip_correction" type="boolean" value="false"
+                label="Skip read correction (--skip-correction)"/>
+    </section>
+
   </inputs>
 
   <outputs>
-    <data name="contigs" format="fasta.gz" from_work_dir="assemblyDir/contigs.fasta.gz" label="metaMDBG contigs on ${on_string}"/>
-    <data name="assembly_bundle" format="tar.gz" from_work_dir="assemblyDir.tgz" label="metaMDBG assembly bundle (tar)"/>
+    <data name="contigs" format="fasta.gz"
+          from_work_dir="assemblyDir/contigs.fasta.gz"
+          label="metaMDBG contigs on ${on_string}"/>
+    <data name="assembly_bundle" format="tar.gz"
+          from_work_dir="assemblyDir.tgz"
+          label="metaMDBG assembly bundle (tar)"/>
   </outputs>
 
   <tests>
-    <test expect_num_outputs="2">
-      <param name="read_type" value="hifi"/>
-      <param name="reads" value="hifi_reads_small.fastq.gz"/>
-      <output name="contigs">
-        <assert_contents>
-          <has_text text=">ctg"/>
-          <has_text text="length="/>
-          <has_text text="coverage="/>
-          <has_text text="circular="/>
-        </assert_contents>
-      </output>
-      <output name="assembly_bundle" ftype="tar.gz"/>
-    </test>
-  </tests>
+  <!-- Test 1: HiFi, single tiny FASTQ (defaults) -->
+  <test expect_num_outputs="2">
+    <param name="read_type" value="hifi"/>
+    <param name="reads" value="hifi_reads_small.fastq.gz"/>
+    <output name="contigs">
+      <assert_contents>
+        <has_text text=">ctg"/>
+        <has_text text="length="/>
+        <has_text text="coverage="/>
+        <has_text text="circular="/>
+      </assert_contents>
+    </output>
+    <output name="assembly_bundle" ftype="tar.gz">
+      <assert_contents>
+        <!-- Just verify it’s non-empty; tune these numbers as needed -->
+        <has_size value="1000" delta="2000000"/>
+      </assert_contents>
+    </output>
+  </test>
 
-    <help><![CDATA[
-    **metaMDBG** assembles long, accurate metagenomic reads using a minimizer-space de Bruijn graph.
-    It supports **PacBio HiFi** (`--in-hifi`) and **ONT R10.4+** (`--in-ont`) inputs.
+  <!-- Test 2: ONT via list collection + tweak a couple of knobs -->
+  <test expect_num_outputs="2">
+    <param name="read_type" value="ont"/>
+    <param name="reads_collection">
+      <collection type="list">
+        <element name="r1" value="ont_reads_small.fastq.gz"/>
+      </collection>
+    </param>
+    <section name="assembly">
+      <param name="kmer_size" value="15"/>
+      <param name="max_k" value="0"/>
+    </section>
+    <section name="correction">
+      <param name="skip_correction" value="false"/>
+    </section>
+    <output name="contigs">
+      <assert_contents>
+        <has_text text=">ctg"/>
+      </assert_contents>
+    </output>
+    <output name="assembly_bundle" ftype="tar.gz">
+      <assert_contents>
+        <has_size value="1000" delta="2000000"/>
+      </assert_contents>
+    </output>
+  </test>
+</tests>
 
-    **Inputs**
-    - One or more FASTQ files (you can multi-select) *or* a list **collection** of FASTQs.
-    - Choose the read type to map to `--in-hifi` or `--in-ont`.
+  <help><![CDATA[
+**metaMDBG** assembles long, accurate metagenomic reads using a minimizer-space de Bruijn graph and a multi-k strategy. Outputs polished contigs in `contigs.fasta.gz`. :contentReference[oaicite:5]{index=5}
 
-    **Outputs**
-    - `contigs.fasta.gz` in the output directory (`assemblyDir`).
-    - Optional `*.gfa` graph when "Generate assembly graph" is enabled.
+**Inputs**
+- One or more FASTQ files (or a list collection).
+- **Read type** selects `--in-hifi` or `--in-ont`.
 
-    **Notes**
-    - For ONT data, read-path annotations in GFA may be less accurate than for HiFi.
+**Advanced assembly options**
+- `--kmer-size` (default shown at runtime), `--density-assembly`, `--max-k`, `--min-abundance`, optional `--all-assembly-graph`. :contentReference[oaicite:6]{index=6}
 
-    More info: GitHub README and the Nature Biotechnology paper describing metaMDBG.]]>
-    </help>
+**Advanced correction options**
+- `--min-read-quality`, `--density-correction`, `--min-read-identity`, `--min-read-overlap`, `--skip-correction`. :contentReference[oaicite:7]{index=7}
+
+**Outputs**
+- `contigs.fasta.gz` in `assemblyDir/`.
+- `assemblyDir.tgz` — portable bundle for the separate **metaMDBG graph (GFA)** tool.
+
+**Tip:** Use the GFA tool’s “List k-values” mode to see valid k choices for your assembly before graphing. :contentReference[oaicite:8]{index=8}
+  ]]></help>
+
   <expand macro="citations"/>
 </tool>
+
 
