@@ -5,9 +5,13 @@
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
+    <stdio>
+        <exit_code range="1:" level="fatal"/>
+    </stdio>
+    <version_command>teloscope -v</version_command>
     <command detect_errors="exit_code"><![CDATA[
         mkdir -p output &&
-        teloscope 
+        teloscope
             --input-sequence '$input_sequence'
             --output output
             --canonical '$canonical'
@@ -17,6 +21,8 @@
             --threads \${GALAXY_SLOTS:-2}
             --min-block-length '$min_block_length'
             --max-block-distance '$max_block_distance'
+            --max-match-distance '$max_match_distance'
+            --min-block-density '$min_block_density'
             --terminal-limit '$terminal_limit'
             $out_win_repeats
             $out_gc
@@ -25,27 +31,43 @@
             $out_its
             $ultra_fast
             $verbose
-            > output/${input_sequence.name}.telo.report 
+            > output/${input_sequence.name}.telo.report
     ]]></command>
     <inputs>
-        <param argument="--input-sequence" type="data" format="fasta,fasta.gz" label="Input assembly"/>
-        <param argument="--canonical" type="text" value="TTAGGG" optional="true" label="Canonical telomeric pattern"/>
-            <sanitizer invalid_char="">
-                <valid initial="default">
-                    <add value="ACGT"/>
+        <param argument="--input-sequence" type="data" format="fasta,fasta.gz" label="Input assembly."/>
+        <param argument="--canonical" type="text" value="TTAGGG" optional="true" label="Canonical telomeric pattern.">
+            <sanitizer>
+                <valid initial="string.printable">
+                    <remove value=" "/>
+                    <remove value="\t"/>
+                    <remove value="\r"/>
+                    <remove value="\n"/>
                 </valid>
             </sanitizer>
-        <param argument="--patterns" type="text" value="TTAGGG,CCCTAA" optional="true" label="Patterns to explore (comma-separated)"/>
-            <sanitizer invalid_char="">
-                <valid initial="default">
-                    <add value="ACGTRYSWKMBDHVN,"/>
+            <validator type="regex" message="Canonical must contain only A,C,G,T.">^[ACGTacgt]+$</validator>
+        </param>
+
+        <param argument="--patterns" type="text" value="TTAGGG,CCCTAA" optional="true" label="Patterns to explore (comma-separated), IUPAC allowed.">
+            <sanitizer>
+                <valid initial="string.printable">
+                    <remove value=" "/>
+                    <remove value="\t"/>
+                    <remove value="\r"/>
+                    <remove value="\n"/>
                 </valid>
             </sanitizer>
+            <validator type="regex" message="Use IUPAC letters ACGTRYSWKMBDHVN; comma-separated.">
+                ^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+(,[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+)*$
+            </validator>
+        </param>
+
         <param argument="--window" type="integer" min="100" value="1000" optional="true" label="Sliding window size"/>
         <param argument="--step" type="integer" min="100" value="500" optional="true" label="Sliding window step"/>
-        <param argument="--min-block-length" type="integer" min="0" value="500" optional="true" label="Minimum block length"/>
-        <param argument="--max-block-distance" type="integer" min="0" value="200" optional="true" label="Maximum block distance for merging"/>
         <param argument="--terminal-limit" type="integer" min="10000" value="50000" optional="true" label="Terminal limit (bp) in contigs"/>
+        <param argument="--max-match-distance" type="integer" min="0" value="50" optional="true" label="Maximum distance (bp) for merging matches"/>
+        <param argument="--max-block-distance" type="integer" min="0" value="200" optional="true" label="Maximum block distance for merging"/>
+        <param argument="--min-block-length" type="integer" min="0" value="500" optional="true" label="Minimum block length"/>
+        <param argument="--min-block-density" type="float" min="0" max="1" value="0.5" optional="true" label="Minimum block density (0–1)"/>
 
         <param argument="--out-win-repeats" type="boolean" truevalue="--out-win-repeats" falsevalue="" checked="false" optional="true" label="Window repeat counts"/>
         <param argument="--out-gc" type="boolean" truevalue="--out-gc" falsevalue="" checked="false" optional="true" label="Window GC"/>
@@ -55,6 +77,7 @@
         <param argument="--ultra-fast" type="boolean" truevalue="--ultra-fast" falsevalue="" checked="true" optional="true" label="Ultra-fast mode (terminal regions only)"/>
         <param argument="--verbose" type="boolean" truevalue="--verbose" falsevalue="" checked="false" optional="true" label="Verbose output"/>
     </inputs>
+
     <outputs>
         <!-- BASIC OUTFILES -->
         <data name="terminal_telomeres" format="bed" from_work_dir="output/terminal_telomeres.bed" label="Terminal telomeres from ${tool.name}"/>
@@ -93,11 +116,44 @@
             <output name="telomere_blocks_noncanonical" file="telomere_blocks_noncanonical.bed"/>
         </test>
     </tests> -->
+
+    <tests>
+    <!-- 1) Contig-ends scan: terminal telomeres + stdout report -->
+    <test>
+        <param name="input_sequence" value="genome.fasta.gz" ftype="fasta.gz"/>
+        <!-- rely on default ultra_fast=true, no genome-wide flags -->
+        <output name="terminal_telomeres"/>
+        <output name="telo_report"/>
+    </test>
+
+    <!-- 2) Genome-wide scan: -g -e -r -m -i (ignore -u) -->
+    <test>
+        <param name="input_sequence" value="genome.fasta.gz" ftype="fasta.gz"/>
+        <param name="out_gc" value="true"/>
+        <param name="out_entropy" value="true"/>
+        <param name="out_win_repeats" value="true"/>
+        <param name="out_matches" value="true"/>
+        <param name="out_its" value="true"/>
+        <param name="ultra_fast" value="false"/>
+        <output name="terminal_telomeres"/>
+        <output name="interstitial_telomeres"/>
+        <output name="canonical_matches"/>
+        <output name="noncanonical_matches"/>
+        <output name="window_metrics">
+        <assert_contents>
+            <!-- At least one bedGraph-like row: chrom, start, end, value -->
+            <has_line_matching expression="^\S+\t\d+\t\d+\t"/>
+        </assert_contents>
+        </output>
+        <output name="telo_report"/>
+    </test>
+    </tests>
+
     <help><![CDATA[
-        Teloscope (from telomeres and telescope) is a tool for telomere annotation in genome assemblies. 
-        It scans for user-specified and canonical patterns across assembly paths, contigs and windows.
+        Teloscope is a tool for telomere annotation in genome assemblies. 
+        It scans for user-specified telomeric repeat patterns across assembly paths, contigs and windows.
         Teloscope annotates terminal and interstitial telomeres, canonical/noncanonical matches and genome-wide metrics such as GC content, Shannon entropy, and repeat counts.
-        Finally, it generates a detailed telomere summary report for paths, telomere statistics, and chromosome labels to assess telomere completeness.
+        It generates a detailed telomere summary report for paths, telomere statistics, and chromosome labels to assess telomere completeness.
         Teloscope can be used for both complete and fragmented assemblies, providing valuable information for genome manual curation and analysis.
     ]]></help>
     <expand macro="citations"/>
