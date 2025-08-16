@@ -1,0 +1,339 @@
+<?xml version="1.0"?>
+<tool name="index" id="metasbt_index" version="@TOOL_VERSION@+galaxy@GALAXY_VERSION@" profile="@PROFILE@" license="MIT">
+    <description>genomes with Sequence Bloom Trees or update an existing database</description>
+
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creator"/>
+    <expand macro="requirements"/>
+
+    <command detect_errors="exit_code"><![CDATA[
+#set input_dir = "./genomes"
+
+mkdir -p "${input_dir}" &&
+
+#for $genome in $genomes:
+    genome_name="\$(echo '${genome.element_identifier}' | sed 's/[^[:alnum:]_.-]/_/g')" &&
+    target_fna="${input_dir}/\${genome_name}.fna" &&
+
+    #if $genome.ext.endswith("gz"):
+        gzip -dc '${genome}' > "\${target_fna}" &&
+    #else
+        ln -s '${genome}' "\${target_fna}" &&
+    #end if
+
+    echo -e "\${target_fna}" >> "./genomes.txt" &&
+#end for
+
+#if $advanced.index_update_conditional.index_update_option == "false":
+    while IFS=$'\t' read -r genome_name genome_taxonomy; do
+        genome_name="\$(echo '\${genome_name}' | sed 's/[^[:alnum:]_.-]/_/g')" &&
+        genome_taxonomy="\$(echo '\${genome_taxonomy}' | sed 's/[^[:alnum:]_.-|]/_/g')" &&
+
+        if [ -f "${input_dir}/\${genome_name}.fna" ]; then
+            echo -e "${input_dir}/\${genome_name}.fna\t\${genome_taxonomy}" >> "${input_dir}/genomes.tsv";
+        fi
+    done < '${taxonomies}' &&
+
+    metasbt index --workdir "."
+                  --database "Database"
+                  --references "${input_dir}/genomes.tsv"
+                  --nproc "\${GALAXY_SLOTS:-4}"
+                  --pack
+
+            #if $advanced.index_update_conditional.bfs_selection.bfs_auto == "false":
+                  --filter-size '${advanced.index_update_conditional.bfs_selection.bfs_size}'
+            #else:
+                  --increase-filter-size '${advanced.index_update_conditional.bfs_selection.bfs_size_increase}'
+                  --min-kmer-occurrences '${advanced.index_update_conditional.bfs_selection.min_kmer_occurrences}'
+            #end if
+
+            #if $advanced.index_update_conditional.kmers_selection.kmers_auto == "false":
+                  --kmer-size '${advanced.index_update_conditional.kmers_selection.kmer_len}'
+            #else:
+                  --limit-kmer-size '${advanced.index_update_conditional.kmers_selection.max_kmer_len}'
+            #end if
+
+            #if $advanced.dereplication_selection.dereplication == "true":
+                  --dereplicate '${advanced.dereplication_update_conditional.distance_threshold}'
+            #end if
+
+            #if $advanced.quality_control_selection.quality_control == "true":
+                  --completeness '${advanced.quality_control_selection.completeness}'
+                  --contamination '${advanced.quality_control_selection.contamination}'
+            #end if
+
+            &&
+#else:
+    #if $advanced.index_update_conditional.database_selection.source == "cvmfs":
+        ln -s '${advanced.index_update_conditional.database_selection.db_tarball.fields.path}' "./MetaSBT-Database.tar.gz" &&
+    #else:
+        ln -s '${advanced.index_update_conditional.database_selection.db_tarball}' "./MetaSBT-Database.tar.gz" &&
+    #end if
+
+    metasbt unpack --workdir "."
+                   --database "Database"
+                   --tarball "./MetaSBT-Database.tar.gz" &&
+
+    rm "./MetaSBT-Database.tar.gz" &&
+
+    metasbt update --workdir "."
+                   --database "Database"
+                   --genomes "./genomes.txt"
+                   --nproc "\${GALAXY_SLOTS:-4}"
+                   --pack
+
+            #if $advanced.dereplication_selection.dereplication == "true":
+                   --dereplicate '${advanced.dereplication_selection.distance_threshold}'
+            #end if
+
+            #if $advanced.quality_control_selection.quality_control == "true":
+                   --completeness '${advanced.quality_control_selection.completeness}'
+                   --contamination '${advanced.quality_control_selection.contamination}'
+            #end if
+
+            &&
+#end if
+
+tail -n +3 "./Database/clusters.tsv" > clusters.tsv &&
+tail -n +3 "./Database/genomes.tsv" > genomes.tsv &&
+
+mv ./MetaSBT-Database*.tar.gz MetaSBT-Database.tar.gz
+    ]]></command>
+
+    <inputs>
+        <!-- Input genomes -->
+        <param name="genomes" format="fasta,fasta.gz" multiple="true" type="data"
+               label="Input genomes"
+               help="Select a set of input genomes." />
+
+        <!-- Optional file with mapping betweek input file names and their taxonomic label -->
+        <param name="taxonomies" format="tsv" multiple="false" type="data" optional="true"
+               label="Input table with taxonomic labels"
+               help="Optional two-columns table with the input file names and their full taxonomic labels. This is not required in case the input files are not reference genomes." />
+
+        <!-- Advanced options -->
+        <section name="advanced" expanded="true"
+                 title="Advanced options"
+                 help="Access advanced options to customize k-mer length, bloom filter size, and other settings.">
+
+            <!-- Show different options in case of index or update -->
+            <conditional name="index_update_conditional">
+                <param name="index_update_option" type="select" 
+                        label="MetaSBT database"
+                        help="When enabled, most of the advanced options are inherited from an already existing database and cannot be modified.">
+                    <option value="true">Update a MetaSBT database</option>
+                    <option value="false" selected="true">Build your own MetaSBT database from scratch</option>
+                </param>
+
+                <when value="false">
+                    <!-- Index -->
+                    <!-- Estimate a k-mer length -->
+                    <conditional name="kmers_selection">
+                        <!-- Enable k-mer length estimation -->
+                        <param name="kmers_auto" type="select" 
+                                label="K-mer length"
+                                help="Automatically estimate a proper k-mer length for the input set of genomes with Kitsune.">
+                            <option value="true" selected="true">Estimate a proper k-mer length for your set of genomes</option>
+                            <option value="false">Set a k-mer length</option>
+                        </param>
+
+                        <when value="true">
+                            <!-- Limit k-mer length -->
+                            <param name="max_kmer_len" type="integer" value="9" min="8" max="128"
+                                   label="Max k-mer length"
+                                   help="Limit the length of k-mers for the estimation of the best k-mer length with Kitsune." />
+                        </when>
+
+                        <when value="false">
+                            <!-- K-mer length -->
+                            <param name="kmer_len" type="integer" value="21" min="8" max="128"
+                                   label="Set a k-mer length"
+                                   help="Set the length of k-mers." />
+                        </when>
+                    </conditional>
+
+                    <!-- Estimate the bloom filter size -->
+                    <conditional name="bfs_selection">
+                        <!-- Enable bloom filter size estimation -->
+                        <param name="bfs_auto" type="select" 
+                                label="Bloom filter size"
+                                help="Automatically estimate the most appropriate bloom filter size that better fits with the input set of genomes with ntCard.">
+                            <option value="true" selected="true">Estimate the bloom filter size</option>
+                            <option value="false">Set a bloom filter size</option>
+                        </param>
+
+                        <when value="true">
+                            <!-- Increment the estimated bloom filter size -->
+                            <param name="bfs_size_increase" type="float" value="5" min="0" max="100"
+                                   label="Increment the bloom filter size"
+                                   help="Increment the estimated bloom filter size by this percentage in case you are planning to update the database with new genomes in future." />
+
+                            <!-- Minimum number of occurrences of k-mers computed with ntCard -->
+                            <param name="min_kmer_occurrences" type="integer" value="1" min="1"
+                                   label="Minimum k-mer occurrences"
+                                   help="Minimum number of occurrences of k-mers to be considered for the estimation of the bloom filter size and for building the bloom filter sketches." />
+                        </when>
+
+                        <when value="false">
+                            <!-- Bloom filter size -->
+                            <param name="bfs_size" type="integer" value="10000"
+                                   label="Set a bloom filter size"
+                                   help="Set a bloom filter size for building genome or sequence sketches." />
+                        </when>
+                    </conditional>
+                </when>
+
+                <when value="true">
+                    <expand macro="database"/>
+                </when>
+            </conditional>
+
+            <conditional name="dereplication_selection">
+                <!-- Enable the dereplication of input genomes -->
+                <param name="dereplication" type="select"
+                        label="Dereplication"
+                        help="Enable the dereplication of input genomes based on their ANI distance.">
+                    <option value="true">Dereplicate the input genomes</option>
+                    <option value="false" selected="true">Do not dereplicate the input genomes</option>
+                </param>
+
+                <when value="true">
+                    <!-- ANI distance threshold -->
+                    <param name="distance_threshold" type="float" value="0.01" min="0.0" max="1.0"
+                        label="Distance threshold"
+                        help="Set a threshold based on the ANI distance of the sketch representation of the input genomes versus themselves and the other genomes in the database (in case of an update)." />
+                </when>
+
+                <when value="false" />
+            </conditional>
+
+            <conditional name="quality_control_selection">
+                <!-- Enable the quality control of input genomes -->
+                <param name="quality_control" type="select"
+                        label="Quality Control"
+                        help="Filter out genomes based on their completeness and contamination.">
+                    <option value="true">Enable the quality control of input genomes</option>
+                    <option value="false" selected="true">Do not assess for the quality of genomes</option>
+                </param>
+
+                <when value="true">
+                    <!-- Completeness -->
+                    <param name="completeness" type="float" value="90.0" min="0.0" max="100.0"
+                        label="Completeness threshold"
+                        help="Set a threshold on the completeness and discard everything below this threshold." />
+
+                    <!-- Contamination -->
+                    <param name="contamination" type="float" value="5.0" min="0.0" max="100.0"
+                        label="Contamination threshold"
+                        help="Set a threshold on the contamination and discard everything above this threshold." />
+                </when>
+
+                <when value="false" />
+            </conditional>
+        </section>
+    </inputs>
+
+    <outputs>
+        <!-- Table with known and unknown clusters -->
+        <data format="tabular" name="clusters_table" label="${tool.name} on ${on_string}: clusters" from_work_dir="clusters.tsv">
+            <actions>
+                <action name="column_names" type="metadata" default="Cluster,Level,Bloom Filter Density,Number of Reference Genomes,Number of MAGs,List of Reference Genomes,List of MAGs,Cluster Centroid,Known,Assigned Taxonomy,Internal Taxonomy,Minimum pair-wise ANI,Maximum pair-wise ANI" />
+                <action name="column_types" type="metadata" default="str,str,float,int,int,str,str,str,str,str,str,float,float" />
+            </actions>
+        </data>
+
+        <!-- Table with list of genomes and their assignments -->
+        <data format="tabular" name="genomes_table" label="${tool.name} on ${on_string}: genomes" from_work_dir="genomes.tsv">
+            <actions>
+                <action name="column_names" type="metadata" default="Genome,Type,Assigned Taxonomy,Internal Taxonomy" />
+                <action name="column_types" type="metadata" default="str,str,str,str" />
+            </actions>
+        </data>
+
+        <!-- Database as compressed tarball -->
+        <data format="tar" name="database" label="${tool.name} on ${on_string}: database" from_work_dir="MetaSBT-Database.tar.gz" />
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="genomes" value="genome_1.fna.gz,genome_2.fna.gz,genome_3.fna.gz,genome_4.fna.gz,genome_5.fna.gz,genome_6.fna.gz" ftype="fasta.gz" />
+
+            <param name="advanced|index_update_conditional|index_update_option" value="true" />
+            <param name="advanced|index_update_conditional|database_selection|source" value="history" />
+            <param name="advanced|index_update_conditional|database_selection|db_tarball" ftype="tar" value="MetaSBT-Test-20250620.1.tar.gz" />
+
+            <output name="clusters_table" ftype="tabular">
+                <assert_contents>
+                    <has_text text="k__Viruses|p__Nucleocytoviricota|c__Pokkesviricetes|o__Chitovirales|f__Poxviridae|g__Orthopoxvirus|s__Monkeypox_virus" />
+                </assert_contents>
+            </output>
+
+            <output name="genomes_table" ftype="tabular">
+                <assert_contents>
+                    <has_text text="genome_1" />
+                    <has_text text="genome_2" />
+                    <has_text text="genome_3" />
+                    <has_text text="genome_4" />
+                </assert_contents>
+            </output>
+
+            <output name="database" ftype="tar">
+                <assert_contents>
+                    <has_size value="468556" delta="10000"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <test expect_num_outputs="3">
+            <param name="genomes" value="genome_1.fna.gz,genome_2.fna.gz,genome_3.fna.gz,genome_4.fna.gz,genome_5.fna.gz,genome_6.fna.gz" ftype="fasta.gz" />
+
+            <param name="advanced|index_update_conditional|index_update_option" value="true" />
+            <param name="advanced|index_update_conditional|database_selection|source" value="cvmfs" />
+            <param name="advanced|index_update_conditional|database_selection|db_tarball" value="test_db" />
+
+            <output name="clusters_table" ftype="tabular">
+                <assert_contents>
+                    <has_text text="k__Viruses|p__Nucleocytoviricota|c__Pokkesviricetes|o__Chitovirales|f__Poxviridae|g__Orthopoxvirus|s__Monkeypox_virus" />
+                </assert_contents>
+            </output>
+
+            <output name="genomes_table" ftype="tabular">
+                <assert_contents>
+                    <has_text text="genome_1" />
+                    <has_text text="genome_2" />
+                    <has_text text="genome_3" />
+                    <has_text text="genome_4" />
+                </assert_contents>
+            </output>
+
+            <output name="database" ftype="tar">
+                <assert_contents>
+                    <has_size value="468556" delta="10000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <help>
+<![CDATA[
+**What it does**
+
+MetaSBT is a scalable framework for the characterization of known and still unknown microbial genomes with Sequence Bloom Trees.
+This tool act as an interface to the `index` and `update` subroutines of MetaSBT for the generation and update of new or predefined public databases.
+
+-----
+
+.. class:: infomark
+
+Please visit the official GitHub repository_ for additional information about MetaSBT.
+Public MetaSBT Databases are available at the official MetaSBT-DBs_ repository.
+
+.. _repository: https://github.com/cumbof/MetaSBT
+.. _MetaSBT-DBs: https://github.com/cumbof/MetaSBT-DBs
+]]>
+    </help>
+
+    <expand macro="citations"/>
+</tool>
