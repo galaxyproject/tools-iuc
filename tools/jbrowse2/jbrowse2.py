@@ -566,6 +566,8 @@ class JbrowseConnector(object):
         if tracks:
             args += ["--tracks", tracks]
 
+            # Only run index if we want to index at least one
+            # If --tracks is not specified, it will index everything
             self.subprocess_check_call(args)
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
@@ -607,6 +609,9 @@ class JbrowseConnector(object):
 
         self._sort_gff(gff3, dest)
         os.unlink(gff3)
+
+        if blastOpts.get('index', 'false') in ("yes", "true", "True"):
+            self.tracksToIndex.append(trackData["label"])
 
         style_json = self._prepare_track_style(trackData)
 
@@ -708,6 +713,9 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
+        if gffOpts.get('index', 'false') in ("yes", "true", "True"):
+            self.tracksToIndex.append(trackData["label"])
+
         self._add_track(
             trackData["label"],
             trackData["key"],
@@ -723,6 +731,9 @@ class JbrowseConnector(object):
         self._sort_bed(data, dest)
 
         style_json = self._prepare_track_style(trackData)
+
+        if gffOpts.get('index', 'false') in ("yes", "true", "True"):
+            self.tracksToIndex.append(trackData["label"])
 
         self._add_track(
             trackData["label"],
