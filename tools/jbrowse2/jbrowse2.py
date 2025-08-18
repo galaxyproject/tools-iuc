@@ -471,8 +471,6 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
-        formatdetails = self._prepare_format_details(trackData)  # TODO add the options in the form if we want to used it
-
         style_json.update(formatdetails)
 
         self._add_track(
