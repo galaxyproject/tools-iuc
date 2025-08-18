@@ -497,6 +497,28 @@ class JbrowseConnector(object):
             }
 
         return style_data
+
+    def _prepare_format_details(self, xml_conf):
+        formatDetails = {
+        }
+
+        if "feature" in xml_conf["formatdetails"]:
+            feat_jexl = xml_conf["formatdetails"]["feature"]
+            for key, value in mapped_chars.items():
+                feat_jexl = feat_jexl.replace(value, key)
+            formatDetails["feature"] = feat_jexl
+
+        if "subfeature" in xml_conf["formatdetails"]:
+            sfeat_jexl = xml_conf["formatdetails"]["subfeature"]
+            for key, value in mapped_chars.items():
+                sfeat_jexl = sfeat_jexl.replace(value, key)
+            formatDetails["subfeatures"] = sfeat_jexl
+
+        if "depth" in xml_conf["formatdetails"]:
+            formatDetails["depth"] = int(xml_conf["formatdetails"]["depth"])
+
+        return {"formatDetails": formatDetails}
+
     def check_existing(self, destination):
         existing = os.path.join(destination, "config.json")
         if os.path.exists(existing):
@@ -644,6 +666,10 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
+        formatdetails = self._prepare_format_details(trackData)
+
+        style_json.update(formatdetails)
+
         self._add_track(
             trackData["label"],
             trackData["key"],
@@ -726,6 +752,10 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
+        formatdetails = self._prepare_format_details(trackData)  # TODO add the options in the form if we want to used it
+
+        style_json.update(formatdetails)
+
         self._add_track(
             trackData["label"],
             trackData["key"],
@@ -741,6 +771,10 @@ class JbrowseConnector(object):
         self._sort_gff(data, dest)
 
         style_json = self._prepare_track_style(trackData)
+
+        formatdetails = self._prepare_format_details(trackData)
+
+        style_json.update(formatdetails)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
             self.tracksToIndex.append(trackData["label"])
@@ -760,6 +794,10 @@ class JbrowseConnector(object):
         self._sort_bed(data, dest)
 
         style_json = self._prepare_track_style(trackData)
+
+        formatdetails = self._prepare_format_details(trackData)
+
+        style_json.update(formatdetails)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
             self.tracksToIndex.append(trackData["label"])
@@ -967,6 +1005,8 @@ class JbrowseConnector(object):
             outputTrackConfig["metadata"] = extra_metadata
 
             outputTrackConfig["style"] = track["style"]
+
+            outputTrackConfig["formatdetails"] = track["formatdetails"]
 
             if "menus" in track["conf"]["options"]:
                 menus = self.cs.parse_menus(track["conf"]["options"])
@@ -1329,6 +1369,9 @@ if __name__ == "__main__":
             track_conf["style_labels"] = {
                 item.tag: parse_style_conf(item)
                 for item in (track.find("options/style_labels") or [])
+            }
+            track_conf["formatdetails"] = {
+                item.tag: parse_style_conf(item) for item in (track.find("options/formatdetails") or [])
             }
 
             track_conf["conf"] = etree_to_dict(track.find("options"))
