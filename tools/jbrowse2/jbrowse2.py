@@ -455,7 +455,7 @@ class JbrowseConnector(object):
 
     def _prepare_track_style(self, xml_conf):
         style_data = {
-            "type": "LinearBasicDisplay",
+            "type": "LinearBasicDisplay",  # TODO choose a better default?
         }
 
         if "display" in xml_conf["style"]:
@@ -464,10 +464,39 @@ class JbrowseConnector(object):
 
         style_data["displayId"] = "%s_%s" % (xml_conf["label"], style_data["type"])
 
-        style_data.update(xml_conf["style"])
+        style_data.update(self._prepare_renderer_config(style_data["type"], xml_conf["style"]))
 
         return {"displays": [style_data]}
 
+    def _prepare_renderer_config(self, display_type, xml_conf):
+
+        style_data = {}
+
+        if display_type == "LinearBasicDisplay":
+
+            # Doc: https://jbrowse.org/jb2/docs/config/svgfeaturerenderer/
+            style_data["renderer"] = {
+                "type": "SvgFeatureRenderer",
+                "showLabels": xml_conf.get("show_labels", True),
+                "showDescriptions": xml_conf.get("show_descriptions", True),
+                "labels": {
+                    "name": xml_conf.get("labels_name", "jexl:get(feature,'name') || get(feature,'id')"),
+                    "description": xml_conf.get("descriptions_name", "jexl:get(feature,'note') || get(feature,'description')")
+                },
+                "displayMode": xml_conf.get("display_mode", "normal"),
+                "maxHeight": xml_conf.get("max_height", 1200),
+            }
+
+        elif display_type == "LinearArcDisplay":
+
+            # Doc: https://jbrowse.org/jb2/docs/config/arcrenderer/
+            style_data["renderer"] = {
+                "type": "ArcRenderer",
+                "label": xml_conf.get("labels_name", "jexl:get(feature,'score')"),
+                "displayMode": xml_conf.get("display_mode", "arcs"),
+            }
+
+        return style_data
     def check_existing(self, destination):
         existing = os.path.join(destination, "config.json")
         if os.path.exists(existing):
