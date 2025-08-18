@@ -1046,8 +1046,11 @@ class JbrowseConnector(object):
         - default tracks
         - ...
 
-        Different methods to do that were tested/discussed:
-        - using a defaultSession item in config.json: this proved to be difficult:
+        Now using this method:
+        https://github.com/GMOD/jbrowse-components/pull/4907
+
+        Different methods that were tested/discussed earlier:
+        - using a defaultSession item in config.json before PR 4970: this proved to be difficult:
           forced to write a full session block, including hard-coded/hard-to-guess items,
           no good way to let Jbrowse2 display a scaffold without knowing its size
         - using JBrowse2 as an embedded React component in a tool-generated html file:
@@ -1063,34 +1066,45 @@ class JbrowseConnector(object):
         https://github.com/GMOD/jbrowse-components/pull/4148
         """
 
+        refName = ""
+        start = end = None
         if data.get("defaultLocation", ""):
             loc_match = re.search(r"^(\w+):(\d+)\.+(\d+)$", data["defaultLocation"])
             if loc_match:
                 refName = loc_match.group(1)
                 start = int(loc_match.group(2))
                 end = int(loc_match.group(3))
-        elif self.assembly_ids[self.current_assembly_id] is not None:
+
+        if not refName and self.assembly_ids[self.current_assembly_id] is not None:
             refName = self.assembly_ids[self.current_assembly_id]
-            start = 0
-            end = 1000000  # TODO find a better default maybe?
+
+        if start and end:
+            loc_str = "{}:{}-{}".format(refName, start, end)
+        else:
+            loc_str = refName
 
         session_spec = {
+            "name": self.current_assembly_id,
             "views": [
                 {
-                    "assembly": self.current_assembly_id,
-                    "loc": "{}:{}-{}".format(refName, start, end),
                     "type": "LinearGenomeView",
-                    "tracks": data["tracks_on"]
+                    "init": {
+                        "assembly": self.current_assembly_id,
+                        "loc": loc_str,
+                        "tracks": data["tracks_on"]
+                    }
                 }
             ]
         }
 
-        new_index = INDEX_TEMPLATE.replace("__SESSION_SPEC__", '&session=spec-{}'.format(json.dumps(session_spec)))
+        config_path = os.path.join(self.outdir, "config.json")
+        with open(config_path, "r") as config_file:
+            config_json = json.load(config_file)
 
-        os.rename(os.path.join(self.outdir, "index.html"), os.path.join(self.outdir, "index_noview.html"))
+        config_json["defaultSession"].update(session_spec)
 
-        with open(os.path.join(self.outdir, "index.html"), 'w') as nind:
-            nind.write(new_index)
+        with open(config_path, "w") as config_file:
+            json.dump(config_json, config_file, indent=2)
 
     def add_general_configuration(self, data):
         """
