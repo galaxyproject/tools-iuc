@@ -191,7 +191,9 @@ class JbrowseConnector(object):
 
         style_data = {}
 
-        if display_type == "LinearBasicDisplay":
+        if display_type in ("LinearBasicDisplay"):
+            # TODO LinearVariantDisplay does not understand these options when written in config.json
+            # if display_type in ("LinearBasicDisplay", "LinearVariantDisplay"):
 
             # Doc: https://jbrowse.org/jb2/docs/config/svgfeaturerenderer/
             style_data["renderer"] = {
@@ -214,6 +216,23 @@ class JbrowseConnector(object):
                 "label": xml_conf.get("labels_name", "jexl:get(feature,'score')"),
                 "displayMode": xml_conf.get("display_mode", "arcs"),
             }
+
+        elif display_type == "LinearSNPCoverageDisplay":
+
+            # Does not work
+            # style_data["renderer"] = {
+            #     "type": "SNPCoverageRenderer",
+            #     "displayCrossHatches": xml_conf.get("display_cross_hatches", True),
+            # }
+
+            style_data["scaleType"] = xml_conf.get("scale_type", "linear")
+            if "min_score" in xml_conf:
+                style_data["minScore"] = xml_conf["min_score"]
+
+            if "max_score" in xml_conf:
+                style_data["maxScore"] = xml_conf["max_score"]
+
+            # Doc: https://jbrowse.org/jb2/docs/config/snpcoveragerenderer/
 
         return style_data
 
@@ -470,6 +489,8 @@ class JbrowseConnector(object):
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
 
         style_json = self._prepare_track_style(trackData)
+
+        formatdetails = self._prepare_format_details(trackData)
 
         style_json.update(formatdetails)
 
