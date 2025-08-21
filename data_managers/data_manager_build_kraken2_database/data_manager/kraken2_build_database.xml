@@ -53,48 +53,121 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">kraken2</requirement>
-        <requirement type="package" version="3.13">python</requirement>
     </requirements>
     <version_command>kraken2 -version | head -n 1 | awk '{print $NF}'</version_command>
     <command detect_errors="exit_code"><![CDATA[
-python '$__tool_directory__/kraken2_build_database.py'
-    '$out_file'
-    --database-type '$database_type.database_type'
-#if $database_type.database_type == "standard_local_build"
-    --threads \${GALAXY_SLOTS:-1}
-    --kmer-len $database_type.kmer_len
-    --minimizer-len $database_type.minimizer_len
-    --minimizer-spaces $database_type.minimizer_spaces
-    --load-factor $database_type.load_factor
-    $database_type.clean
-#else if $database_type.database_type == "standard_prebuilt"
-    --prebuilt-db '$database_type.prebuild.prebuilt_db'
-    --prebuilt-date '$database_type.prebuild.prebuilt_date'
+#import datetime
+#import re
+
+#set now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+
+mkdir '$out_file.extra_files_path' &&
+
+#if  $database_type.database_type == "standard_prebuilt" or $database_type.database_type == "special_prebuild"
+    #set prebuild_name = {
+        'viral': "Viral",
+        'minusb': "MinusB (archaea, viral, plasmid, human, UniVec_Core)",
+        'standard': "Standard-Full (archaea, bacteria, viral, plasmid, human,UniVec_Core)",
+        'standard_08gb': "Standard-8 (Standard with DB capped at 8 GB)",
+        'standard_16gb': "Standard-16 (Standard with DB capped at 16 GB)",
+        'pluspf': "PlusPF (Standard plus protozoa and fungi)",
+        'pluspf_08gb': "PlusPF-8 (PlusPF with DB capped at 8 GB)",
+        'pluspf_16gb': "PlusPF-16 (PlusPF with DB capped at 16 GB)",
+        'pluspfp': "PlusPFP (Standard plus protozoa, fungi and plant)",
+        'pluspfp_08gb': "PlusPFP-8 (PlusPFP with DB capped at 8 GB)",
+        'pluspfp_16gb': "PlusPFP-16 (PlusPFP with DB capped at 16 GB)",
+        'core_nt': "core_nt (Very large collection, inclusive of GenBank, RefSeq, TPA and PDB)"
+    }
+    #set special_name = {
+        "gtdb_genome_reps_20250609": "GTDB v226 (Bacterial and archaeal)",
+        "gtdb_genome_reps_20241109": "GTDB v220 (Bacterial and archaeal)",
+        "eupathdb48_20230407": "EuPathDB-46 (April 18, 2023)",
+        "eupathdb48_20201113": "EuPathDB-46 (November 13, 2020)"
+    }
+    #set date_url_str = str($database_type.prebuild.prebuilt_date).replace('-', '')
+    #set display_name = prebuild_name.get(str($database_type.prebuild.prebuilt_db))
+    #if not display_name
+        #set display_name = special_name[str($database_type.prebuild.prebuilt_db)+"_"+date_url_str]
+    #end if
+
+    #set database_value = "_".join([now, "standard_prebuilt", str($database_type.prebuild.prebuilt_db), str($database_type.prebuild.prebuilt_date)])
+    #set database_name = " ".join(["Prebuilt Refseq indexes: ", display_name, "(Version: ", str($database_type.prebuild.prebuilt_date), "- Downloaded:", now + ")"])
+
+    wget https://genome-idx.s3.amazonaws.com/kraken/k2_${database_type.prebuild.prebuilt_db}_${date_url_str}.tar.gz &&
+    mkdir -p '$out_file.extra_files_path'/'$database_value' &&
+    tar -xzf k2_${database_type.prebuild.prebuilt_db}_${date_url_str}.tar.gz -C '$out_file.extra_files_path'/'$database_value' &&
+
 #else if $database_type.database_type == "minikraken"
-    --minikraken2-version '$database_type.minikraken2_version'
-#else if $database_type.database_type == "special_prebuilt"
-    --prebuilt-db '$database_type.special_prebuild.prebuilt_db'
-    --prebuilt-date '$database_type.special_prebuild.prebuilt_date'
+    #set database_value = "_".join([now, "minikraken2", str($database_type.minikraken2_version), "8GB"])
+    #set database_name = " ".join(["Minikraken2", str($database_type.minikraken2_version), "(Created:", now + ")"])
+
+    wget 'https://genome-idx.s3.amazonaws.com/kraken/minikraken2_${database_type.minikraken2_version}_8GB_201904.tgz' &&
+    mkdir -p '$out_file.extra_files_path'/'$database_value' &&
+    tar -xzf 'minikraken2_${database_type.minikraken2_version}_8GB_201904.tgz' -C '$out_file.extra_files_path'/'$database_value' &&
+
+#else if $database_type.database_type == "standard_local_build"
+    #set database_value = "_".join([now, "standard", "kmer-len", str($database_type.kmer_len), "minimizer-len", str($database_type.minimizer_len), "minimizer-spaces", str($database_type.minimizer_spaces), "load-factor", str($database_type.load_factor)])
+    #set database_name = " ".join(["Standard (Local Build)", "Created:", now + ",", "kmer-len=" + str($database_type.kmer_len) + ",", "minimizer-len=" + str($database_type.minimizer_len) + ",", "minimizer-spaces=" + str($database_type.minimizer_spaces) + ")", "load-factor=" + str($database_type.load_factor) + ")"])
+
+    kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+        --standard
+        --kmer-len $database_type.kmer_len
+        --minimizer-len $database_type.minimizer_len
+        --minimizer-spaces $database_type.minimizer_spaces
+        --load-factor $database_type.load_factor
+        --db '$out_file.extra_files_path'/'$database_value' &&
+
+    #if $database_type.clean
+        kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+            --clean
+            --db '$out_file.extra_files_path'/'$database_value' &&
+    #end if
+
 #else if $database_type.database_type == "special"
-    --threads \${GALAXY_SLOTS:-1}
-    --special-database-type '$database_type.special_database_type'
-    --kmer-len $database_type.kmer_len
-    --minimizer-len $database_type.minimizer_len
-    --minimizer-spaces $database_type.minimizer_spaces
-    --load-factor $database_type.load_factor
-    $database_type.clean
+    #set special_database_names = {"rdp": "RDP", "greengenes": "Greengenes", "silva": "Silva"}
+    #set database_value = "_".join([now, str($database_type.special_database_type), "kmer-len", str($database_type.kmer_len), "minimizer-len", str($database_type.minimizer_len), "minimizer-spaces", str($database_type.minimizer_spaces), "load-factor", str($database_type.load_factor)])
+    #set database_name = " ".join([special_database_names[$database_type.special_database_type], "(Created:", now + ",", "kmer-len=" + str($database_type.kmer_len) + ",", "minimizer-len=" + str($database_type.minimizer_len) + ",", "minimizer-spaces=" + str($database_type.minimizer_spaces) + ")", "load-factor=" + str($database_type.load_factor) + ")"])
+
+    kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+        --special '$database_type.special_database_type'
+        --kmer-len $database_type.kmer_len
+        --minimizer-len $database_type.minimizer_len
+        --minimizer-spaces $database_type.minimizer_spaces
+        --load-factor $database_type.load_factor
+        --db '$out_file.extra_files_path'/'$database_value' &&
+    #if $database_type.clean
+        kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+            --clean
+            --db '$out_file.extra_files_path'/'$database_value' &&
+    #end if
+
 #else if $database_type.database_type == "custom"
-    --threads \${GALAXY_SLOTS:-1}
-    --custom-fasta '$database_type.custom_fasta'
-    --custom-database-name '$database_type.custom_database_name'
-    --custom-source-info '$database_type.custom_source_info'
-    $database_type.skip_maps
-    --kmer-len $database_type.kmer_len
-    --minimizer-len $database_type.minimizer_len
-    --minimizer-spaces $database_type.minimizer_spaces
-    --load-factor $database_type.load_factor
-    $database_type.clean
+    #set custom_database_name = re.sub(r'[^\w_.-]+', '_', str($database_type.custom_database_name)).strip('_')
+    #set database_name = " ".join([custom_database_name, "(" + str($database_type.custom_source_info) + ",", "kmer-len=" + str($database_type.kmer_len) + ",", "minimizer-len=" + str($database_type.minimizer_len) + ",", "minimizer-spaces=" + str($database_type.minimizer_spaces) + ",", "load-factor=" + str($database_type.load_factor) + ")"])
+    #set database_value = "_".join([now, custom_database_name, "kmer-len", str($database_type.kmer_len), "minimizer-len", str($database_type.minimizer_len), "minimizer-spaces", str($database_type.minimizer_spaces), "load-factor", str($database_type.load_factor)])
+
+    kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+        --download-taxonomy
+        --db '$out_file.extra_files_path'/'$database_value'
+        $database_type.skip_maps &&
+    kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+        --add-to-library '$database_type.custom_fasta'
+        --db '$out_file.extra_files_path'/'$database_value' &&
+    kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+        --build
+        --kmer-len $database_type.kmer_len
+        --minimizer-len $database_type.minimizer_len
+        --minimizer-spaces $database_type.minimizer_spaces
+        --load-factor $database_type.load_factor
+        --db '$out_file.extra_files_path'/'$database_value' &&
+    #if $database_type.clean
+        kraken2-build --threads "\${GALAXY_SLOTS:-1}"
+            --clean
+            --db '$out_file.extra_files_path'/'$database_value' &&
+    #end if
+
 #end if
+echo '{"data_tables": {"kraken2_databases": [{"value": "$database_value", "name": "$database_name", "path": "$database_value"}]}}' > '$out_file'
 ]]>
     </command>
     <inputs>
@@ -265,10 +338,15 @@ python '$__tool_directory__/kraken2_build_database.py'
             <when value="special_prebuilt">
                 <conditional name="special_prebuild">
                     <param name="special_prebuilt_db" type="select" multiple="false" label="Select pre-built database to download">
-                        <option value="gtdb_genome_reps_20241109">GTDB v220 (Bacterial and archaeal; ~497 GB) (December 13, 2024)</option>
+                        <option value="gtdb_genome_reps_20250609">GTDB v226 (Bacterial and archaeal; ~497 GB) (July, 2025)</option>
+                        <option value="gtdb_genome_reps_20241109">GTDB v220 (Bacterial and archaeal; ~644 GB) (December 13, 2024)</option>
                         <option value="eupathdb48_20230407">EuPathDB-46 (April 18, 2023)</option>
                         <option value="eupathdb48_20201113">EuPathDB-46 (November 13, 2020)</option>
                     </param>
+                    <when value="gtdb_genome_reps_20250609">
+                        <param name="prebuilt_db" type="hidden" value="gtdb_genome_reps"/>
+                        <param name="prebuilt_date" type="hidden" value="2025-06-09"/>
+                    </when>
                     <when value="gtdb_genome_reps_20241109">
                         <param name="prebuilt_db" type="hidden" value="gtdb_genome_reps"/>
                         <param name="prebuilt_date" type="hidden" value="2024-11-09"/>
