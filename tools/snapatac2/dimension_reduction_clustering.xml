@@ -13,14 +13,25 @@
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 export NUMBA_CACHE_DIR="\${TEMP:-/tmp}";
-@CMD_PREP_ADATA@
+#if $method.method == 'tl.multi_spectral'
+    cp $method.adata_rna 'anndata_rna.h5ad' &&
+    cp $method.adata_atac 'anndata_atac.h5ad' &&
+#else
+    @CMD_PREP_ADATA@
+#end if
 @CMD@
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 
 @CONF_IMPORTS@
+#if $method.method == 'tl.multi_spectral'
+rna = snap.read("anndata_rna.h5ad", backed=None)
+atac = snap.read("anndata_atac.h5ad", backed=None)
+adata_list = [rna, atac]
+#else
 @CONF_READ_INPUTS@
+#end if
 
 #if $method.method == 'tl.spectral'
     #if $method.features
@@ -53,6 +64,29 @@ snap.tl.spectral(
     weighted_by_sd = $method.weighted_by_sd,
     inplace = True
 )
+
+#else if $method.method == 'tl.multi_spectral'
+    #if $method.features
+with open('$method.features') as f:
+    features_mask = [x.lower().capitalize() == "True" for x in f.read().splitlines()]
+    #end if
+
+embedding = snap.tl.multi_spectral(
+    adatas = adata_list,
+    n_comps = $method.n_comps,
+    #if $method.features
+    features = features_mask,
+    #else
+    features = None,
+    #end if
+    weights = None,  # Will enable if requested by users
+    random_state = $method.random_state,
+    weighted_by_sd = $method.weighted_by_sd,
+)
+
+adata = atac.copy()
+adata.uns['spectral_eigenvalue_joint'] = embedding[0]
+adata.obsm['X_joint'] = embedding[1]
 
 #else if $method.method == 'tl.umap'
 snap.tl.umap(
@@ -163,6 +197,7 @@ snap.tl.aggregate_cells(
         <conditional name="method">
             <param name="method" type="select" label="Dimension reduction and Clustering">
                 <option value="tl.spectral">Perform dimension reduction using Laplacian Eigenmap, using 'tl.spectral'</option>
+                <option value="tl.multi_spectral">similar to 'tl.multi_spectral' but it can work on multiple modalities.</option>
                 <option value="tl.umap">Compute Umap, using 'tl.umap'</option>
                 <option value="pp.knn">Compute a neighborhood graph of observations, using 'pp.knn'</option>
                 <option value="tl.leiden">Cluster cells into subgroups, using 'tl.leiden'</option>
@@ -184,6 +219,16 @@ snap.tl.aggregate_cells(
                     <option value="jaccard">jaccard</option>
                     <option value="cosine" selected="true">cosine</option>
                 </param>
+                <param argument="weighted_by_sd" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to weight the result eigenvectors by the square root of eigenvalues"/>
+            </when>
+            <when value="tl.multi_spectral">
+                <param name="adata_rna" type="data" format="h5ad" label="Annotated data matrix containing RNA data"/>
+                <param name="adata_atac" type="data" format="h5ad" label="Annotated data matrix containing ATAC data"/>
+                <!-- Will enable if requested by users -->
+                <!-- <param name="weights" type="data" format="tabular" optional="true" label="Weights" help="Text file indicating weights for each modality. Each line contains only floats.If not provided, all modalities are weighted equally" /> -->
+                <param argument="n_comps" type="integer" value="30" label="Number of dimensions to keep" help="The result is insensitive to this parameter when `weighted_by_sd` is set, as long as it is large enough, e.g. 30."/>
+                <param argument="features" type="data" format="txt" optional="true" label="Text file indicating features to keep. Each line contains only word (True/False)." help="True means that the feature is kept. False means the feature is removed"/>
+                <expand macro="param_random_state"/>
                 <param argument="weighted_by_sd" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to weight the result eigenvectors by the square root of eigenvalues"/>
             </when>
             <when value="tl.umap">
@@ -309,6 +354,35 @@ snap.tl.aggregate_cells(
                 <assert_contents>
                     <has_h5_keys keys="uns/spectral_eigenvalue"/>
                     <has_h5_keys keys="obsm/X_spectral"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- tl.multi_spectral -->
+            <conditional name="method">
+                <param name="method" value="tl.multi_spectral"/>
+                <param name="adata_rna" value="snap_datasets_pbmc10k_multiome_RNA.h5ad.gz"/>
+                <param name="adata_atac" value="snap_datasets_pbmc10k_multiome_ATAC.h5ad.gz"/>
+                <param name="n_comps" value="30"/>
+                <param name="random_state" value="0"/>
+                <param name="weighted_by_sd" value="True"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.tl.multi_spectral"/>
+                    <has_text_matching expression="random_state = 0"/>
+                    <has_text_matching expression="n_comps = 30"/>
+                    <has_text_matching expression="weighted_by_sd = True"/>
+                    <has_text_matching expression="features = None"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/spectral_eigenvalue_joint"/>
+                    <has_h5_keys keys="obsm/X_joint"/>
                 </assert_contents>
             </output>
         </test>
