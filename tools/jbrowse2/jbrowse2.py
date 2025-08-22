@@ -190,9 +190,9 @@ class JbrowseConnector(object):
 
         style_data = {}
 
+        # if display_type in ("LinearBasicDisplay", "LinearVariantDisplay"):
+        # TODO LinearVariantDisplay does not understand these options when written in config.json
         if display_type in ("LinearBasicDisplay"):
-            # TODO LinearVariantDisplay does not understand these options when written in config.json
-            # if display_type in ("LinearBasicDisplay", "LinearVariantDisplay"):
 
             # Doc: https://jbrowse.org/jb2/docs/config/svgfeaturerenderer/
             style_data["renderer"] = {
