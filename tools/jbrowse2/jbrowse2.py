@@ -179,7 +179,6 @@ class JbrowseConnector(object):
 
         if "display" in xml_conf["style"]:
             style_data["type"] = xml_conf["style"]["display"]
-            del xml_conf["style"]["display"]
 
         style_data["displayId"] = "%s_%s" % (xml_conf["label"], style_data["type"])
 
@@ -639,9 +638,8 @@ class JbrowseConnector(object):
     def process_annotations(self, track, parent):
         _parent_genome = parent.attrib["label"]
         category = track["category"].replace("__pd__date__pd__", TODAY)
-        outputTrackConfig = {
-            "category": category,
-        }
+
+        track_labels = []
 
         for i, (
             dataset_path,
@@ -659,6 +657,11 @@ class JbrowseConnector(object):
                 track_human_label,
                 dataset_ext,
             )
+
+            outputTrackConfig = {
+                "category": category,
+            }
+
             outputTrackConfig["key"] = track_human_label
             # We add extra data to hash for the case of REST + SPARQL.
             if (
@@ -786,8 +789,10 @@ class JbrowseConnector(object):
             else:
                 log.warn("Do not know how to handle %s", dataset_ext)
 
-            # Return non-human label for use in other fields
-            return outputTrackConfig["label"]
+            track_labels.append(outputTrackConfig["label"])
+
+        # Return non-human label for use in other fields
+        return track_labels
 
     def add_default_session(self, data):
         """
@@ -1049,10 +1054,11 @@ if __name__ == "__main__":
 
             track_conf["conf"] = etree_to_dict(track.find("options"))
 
-            track_label = jc.process_annotations(track_conf, genome)
+            track_labels = jc.process_annotations(track_conf, genome)
 
             if track.attrib["visibility"] == "default_on":
-                default_session_data["tracks_on"].append(track_label)
+                for tlabel in track_labels:
+                    default_session_data["tracks_on"].append(tlabel)
 
             track_num += 1
 
