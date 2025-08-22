@@ -359,63 +359,6 @@ class JbrowseConnector(object):
             # If --tracks is not specified, it will index everything
             self.subprocess_check_call(args)
 
-    def _blastxml_to_gff3(self, xml, min_gap=10):
-        gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
-        cmd = [
-            "python",
-            os.path.join(INSTALLED_TO, "blastxml_to_gapped_gff3.py"),
-            "--trim",
-            "--trim_end",
-            "--include_seq",
-            "--min_gap",
-            str(min_gap),
-            xml,
-        ]
-        log.debug("cd %s && %s > %s", self.outdir, " ".join(cmd), gff3_unrebased.name)
-        subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
-        gff3_unrebased.close()
-        return gff3_unrebased.name
-
-    def add_blastxml(self, data, trackData, blastOpts, **kwargs):
-        gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts["min_gap"])
-
-        if "parent" in blastOpts and blastOpts["parent"] != "None":
-            gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
-            cmd = ["python", os.path.join(INSTALLED_TO, "gff3_rebase.py")]
-            if blastOpts.get("protein", "false") == "true":
-                cmd.append("--protein2dna")
-            cmd.extend([os.path.realpath(blastOpts["parent"]), gff3])
-            log.debug("cd %s && %s > %s", self.outdir, " ".join(cmd), gff3_rebased.name)
-            subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
-            gff3_rebased.close()
-
-            # Replace original gff3 file
-            shutil.copy(gff3_rebased.name, gff3)
-            os.unlink(gff3_rebased.name)
-
-        rel_dest = os.path.join(trackData["label"] + ".gff")
-        dest = os.path.join(self.outdir, rel_dest)
-
-        self._sort_gff(gff3, dest)
-        os.unlink(gff3)
-
-        if blastOpts.get('index', 'false') in ("yes", "true", "True"):
-            self.tracksToIndex.append(trackData["label"])
-
-        style_json = self._prepare_track_style(trackData)
-
-        formatdetails = self._prepare_format_details(trackData)
-
-        style_json.update(formatdetails)
-
-        self._add_track(
-            trackData["label"],
-            trackData["key"],
-            trackData["category"],
-            rel_dest + ".gz",
-            config=style_json,
-        )
-
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".bw")
         dest = os.path.join(self.outdir, rel_dest)
@@ -806,10 +749,6 @@ class JbrowseConnector(object):
                     track["conf"]["options"]["cram"],
                     index=real_indexes[i],
                     ext="cram",
-                )
-            elif dataset_ext == "blastxml":
-                self.add_blastxml(
-                    dataset_path, outputTrackConfig, track["conf"]["options"]["blast"]
                 )
             elif dataset_ext == "vcf":
                 self.add_vcf(dataset_path, outputTrackConfig)
