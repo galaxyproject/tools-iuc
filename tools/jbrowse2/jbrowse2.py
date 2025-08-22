@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import argparse
-import binascii
 import datetime
 import hashlib
 import json
@@ -8,9 +7,7 @@ import logging
 import os
 import re
 import shutil
-import struct
 import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
@@ -215,6 +212,13 @@ class JbrowseConnector(object):
                 "label": xml_conf.get("labels_name", "jexl:get(feature,'score')"),
                 "displayMode": xml_conf.get("display_mode", "arcs"),
             }
+
+        elif display_type == "LinearWiggleDisplay":
+
+            wig_renderer = xml_conf.get("renderer", "xyplot")
+            style_data["defaultRendering"] = wig_renderer
+
+            # Doc: https://jbrowse.org/jb2/docs/config/snpcoveragerenderer/
 
         elif display_type == "LinearSNPCoverageDisplay":
 
