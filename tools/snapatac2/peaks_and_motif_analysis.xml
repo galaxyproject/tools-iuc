@@ -123,6 +123,42 @@ snap.pl.motif_enrichment(
 )
     #end if
 
+    #if str($method_condi.network_condi.init_network) == "yes"
+from pathlib import Path
+network_dir = Path('network_dir')
+network_dir.mkdir(exist_ok=True)
+
+for cluster_id, peaks_index in marker_peaks.items():
+    print(f"Processing cluster {cluster_id} with {len(peaks_index)} peaks...")
+
+    # Convert pandas Index to list of strings
+    regions_list = peaks_index.tolist()
+
+    # Create network for this cluster
+    network = snap.tl.init_network_from_annotation(
+        regions = regions_list,
+        anno_file = $method_condi.network_condi.anno_file,
+        upstream = $method_condi.network_condi.upstream,
+        downstream = $method_condi.network_condi.downstream,
+        id_type = '$method_condi.network_condi.id_type',
+        coding_gene_only = $method_condi.network_condi.coding_gene_only
+    )
+
+    # Create plot for this cluster
+    snap.pl.network_edge_stat(
+        network = network,
+        width = $method_condi.network_condi.width,
+        height = $method_condi.network_condi.height,
+        show = False,
+        interactive = False,
+        out_file = f'network_dir/plot_network_cluster_{cluster_id}.png',
+    )
+
+    print(f"Completed cluster {cluster_id}")
+
+print("All clusters processed!")
+
+    #end if
 #else if $method_condi.method == 'tl.diff_test'
 import numpy as np
 import polars
@@ -261,6 +297,26 @@ snap.pl.regions(
                     <when value="no">
                     </when>
                 </conditional>
+                <conditional name="network_condi">
+                    <param name="init_network" type="select" label="Link CREs to genes if they are close to genes’ promoter regions?">
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </param>
+                    <when value="yes">
+                        <expand macro="param_chrom_sizes" varname="anno_file"/>
+                        <param name="upstream" type="integer" value="250000" min="0" label="Upstream extension to the transcription start site"/>
+                        <param name="downstream" type="integer" value="250000" min="0" label="Downstream extension to the transcription start site"/>
+                        <param name="id_type" type="select" label="ID type of the gene in the annotation file">
+                            <option value="gene_name">Gene name</option>
+                            <option value="gene_id">Gene ID</option>
+                            <option value="transcript_id">Transcript ID</option>
+                        </param>
+                        <param name="coding_gene_only" type="boolean" checked="true" truevalue="True" falsevalue="False" label="Retain only coding genes in the network"/>
+                        <expand macro="param_render_plot"/>
+                    </when>
+                    <when value="no">
+                    </when>
+                </conditional>
             </when>
             <when value="tl.diff_test">
                 <expand macro="param_inputs_anndata"/>
@@ -328,6 +384,18 @@ snap.pl.regions(
         <data name="out_html_motifs" format="html" from_work_dir="plot_enrichment.html" label="HTML plot from ${tool.name} (${method_condi.method}) on ${on_string} - motif_enrichment">
             <filter>(method_condi['method'] == 'tl.marker_regions' and method_condi['enrichment_condi']['motif_enrichment'] == 'yes') and method_condi['enrichment_condi']['out_file'] == 'html'</filter>
         </data>
+        <collection name="out_network" type="list" label="${tool.name} (${method_condi.method}) on ${on_string} - Network">
+            <discover_datasets pattern="__name_and_ext__" directory="network_dir/"/>
+            <filter>(method_condi['method'] == 'tl.marker_regions' and method_condi['network_condi']['init_network'] == 'yes') and method_condi['network_condi']['out_file'] != 'svg' and method_condi['network_condi']['out_file'] != 'html'</filter>
+        </collection>
+        <collection name="out_network_svg" type="list" label="${tool.name} (${method_condi.method}) on ${on_string} - Network - svg">
+            <discover_datasets pattern="__name_and_ext__" directory="network_dir/"/>
+            <filter>(method_condi['method'] == 'tl.marker_regions' and method_condi['network_condi']['init_network'] == 'yes') and method_condi['network_condi']['out_file'] == 'svg'</filter>
+        </collection>
+        <collection name="out_network_html" type="list" label="${tool.name} (${method_condi.method}) on ${on_string} - Network - html">
+            <discover_datasets pattern="__name_and_ext__" directory="network_dir/"/>
+            <filter>(method_condi['method'] == 'tl.marker_regions' and method_condi['network_condi']['init_network'] == 'yes') and method_condi['network_condi']['out_file'] == 'html'</filter>
+        </collection>
         <data name="diff_peaks" format="tabular" from_work_dir="diff_peaks.tabular" label="${tool.name} on ${on_string}: Differential peaks" >
             <filter>method_condi['method'] == 'tl.diff_test'</filter>
         </data>
@@ -495,6 +563,117 @@ snap.pl.regions(
                     <has_image_width width="700"/>
                 </assert_contents>
             </output>
+        </test>
+        <test expect_num_outputs="3">
+            <!-- tl.marker_regions + Network -->
+            <conditional name="method_condi">
+                <param name="method" value="tl.marker_regions"/>
+                <param name="adata" location="https://zenodo.org/records/12800783/files/pp.make_peak_matrix.pbmc_500_chr21.h5ad"/>
+                <param name="groupby" value="leiden"/>
+                <param name="pvalue" value="0.1"/>
+                <param name="out_file" value="png"/>
+                <expand macro="test_param_render_plot"/>
+                <conditional name="enrichment_condi">
+                    <param name="motif_enrichment" value="no"/>
+                </conditional>
+                <conditional name="network_condi">
+                    <param name="init_network" value="yes"/>
+                    <param name="anno_file" value="snap.genome.hg38"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.tl.marker_regions"/>
+                    <has_text_matching expression="snap.pl.regions"/>
+                    <has_text_matching expression="groupby = 'leiden'"/>
+                    <has_text_matching expression="pvalue = 0.1"/>
+                    <has_text_matching expression="init_network_from_annotation"/>
+                    <has_text_matching expression="anno_file = snap.genome.hg38"/>
+                    <has_text_matching expression="upstream = 250000"/>
+                    <has_text_matching expression="downstream = 250000"/>
+                    <has_text_matching expression="id_type = 'gene_name'"/>
+                    <has_text_matching expression="coding_gene_only = True"/>
+                    <has_text_matching expression="network_edge_stat"/>
+                    <expand macro="test_render_plot_matching_text"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="335,220" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="450"/>
+                    <has_image_width width="650"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_network" type="list" count="8">
+                <element name="plot_network_cluster_-1">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_0">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_1">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_2">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_3">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_4">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_5">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_6">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="300,200" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="400" delta="20"/>
+                        <has_image_width width="600" delta="20"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
         <test expect_num_outputs="3">
             <!-- tl.diff_test single_group -->
