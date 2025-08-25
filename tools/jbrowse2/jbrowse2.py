@@ -771,7 +771,7 @@ class JbrowseConnector(object):
                     dataset_path, outputTrackConfig, track["conf"]["options"]["synteny"],
                     _parent_genome
                 )
-            elif dataset_ext == "hic":
+            elif dataset_ext in ("hic", "juicebox_hic"):
                 self.add_hic(
                     dataset_path, outputTrackConfig, track["conf"]["options"]["hic"]
                 )
