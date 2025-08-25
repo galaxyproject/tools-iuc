@@ -107,15 +107,13 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, jbrowse, outdir, genomes):
+    def __init__(self, jbrowse, outdir):
         self.jbrowse = jbrowse
         self.outdir = outdir
-        self.genome_paths = genomes
-        self.tracksToIndex = []
+        self.tracksToIndex = {}
 
         # This is the id of the current assembly
         self.assembly_ids = {}
-        self.current_assembly_id = None
 
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
@@ -270,16 +268,7 @@ class JbrowseConnector(object):
                         if "name" in assembly:
                             self.assembly_ids[assembly["name"]] = None
 
-    def process_genomes(self):
-        for genome_node in self.genome_paths:
-            # We only expect one input genome per run. This for loop is just
-            # easier to write than the alternative / catches any possible
-            # issues.
-            log.debug("Processing genome", genome_node)
-            # TODO make sure we support multiple genomes + use wisely the default paramter
-            self.add_assembly(genome_node["path"], genome_node["label"])
-
-    def add_assembly(self, path, label, default=True):
+    def add_assembly(self, path, label):
         # Find a non-existing filename for the new genome
         # (to avoid colision when upgrading an existing instance)
         rel_seq_path = os.path.join(label)
@@ -308,8 +297,6 @@ class JbrowseConnector(object):
             fa_header = fa_handle.readline()[1:].strip().split(" ")[0]
 
         self.assembly_ids[uniq_label] = fa_header
-        if default:
-            self.current_assembly_id = uniq_label
 
         copied_genome = seq_path + ".fasta"
         shutil.copy(path, copied_genome)
@@ -344,25 +331,29 @@ class JbrowseConnector(object):
         return uniq_label
 
     def text_index(self):
-        # Index tracks
-        args = [
-            "jbrowse",
-            "text-index",
-            "--target",
-            self.outdir,
-            "--assemblies",
-            self.current_assembly_id,
-        ]
 
-        tracks = ",".join(self.tracksToIndex)
-        if tracks:
-            args += ["--tracks", tracks]
+        for ass in self.tracksToIndex:
+            tracks = self.tracksToIndex[ass]
+            args = [
+                "jbrowse",
+                "text-index",
+                "--target",
+                self.outdir,
+                "--assemblies",
+                ass,
+            ]
 
-            # Only run index if we want to index at least one
-            # If --tracks is not specified, it will index everything
-            self.subprocess_check_call(args)
+            tracks = ",".join(tracks)
+            if tracks:
+                args += ["--tracks", tracks]
 
-    def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
+                log.info("Running text-index on assembly {} and tracks {}".format(ass, tracks))
+
+                # Only run index if we want to index at least one
+                # If --tracks is not specified, it will index everything
+                self.subprocess_check_call(args)
+
+    def add_bigwig(self, parent, data, trackData, wiggleOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".bw")
         dest = os.path.join(self.outdir, rel_dest)
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -374,11 +365,12 @@ class JbrowseConnector(object):
             trackData["key"],
             trackData["category"],
             rel_dest,
+            parent,
             config=style_json,
         )
 
     # Anything ending in "am" (Bam or Cram)
-    def add_xam(self, data, trackData, xamOpts, index=None, ext="bam", **kwargs):
+    def add_xam(self, parent, data, trackData, xamOpts, index=None, ext="bam", **kwargs):
         index_ext = "bai"
         if ext == "cram":
             index_ext = "crai"
@@ -414,10 +406,11 @@ class JbrowseConnector(object):
             trackData["key"],
             trackData["category"],
             rel_dest,
+            parent,
             config=style_json,
         )
 
-    def add_vcf(self, data, trackData, vcfOpts={}, zipped=False, **kwargs):
+    def add_vcf(self, parent, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if zipped:
             rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
             dest = os.path.join(self.outdir, rel_dest)
@@ -445,10 +438,11 @@ class JbrowseConnector(object):
             trackData["key"],
             trackData["category"],
             rel_dest,
+            parent,
             config=style_json,
         )
 
-    def add_gff(self, data, format, trackData, gffOpts, **kwargs):
+    def add_gff(self, parent, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".gff")
         dest = os.path.join(self.outdir, rel_dest)
 
@@ -461,17 +455,20 @@ class JbrowseConnector(object):
         style_json.update(formatdetails)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
-            self.tracksToIndex.append(trackData["label"])
+            if parent['uniq_id'] not in self.tracksToIndex:
+                self.tracksToIndex[parent['uniq_id']] = []
+            self.tracksToIndex[parent['uniq_id']].append(trackData["label"])
 
         self._add_track(
             trackData["label"],
             trackData["key"],
             trackData["category"],
             rel_dest + ".gz",
+            parent,
             config=style_json,
         )
 
-    def add_bed(self, data, format, trackData, gffOpts, **kwargs):
+    def add_bed(self, parent, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".bed")
         dest = os.path.join(self.outdir, rel_dest)
 
@@ -484,17 +481,20 @@ class JbrowseConnector(object):
         style_json.update(formatdetails)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
-            self.tracksToIndex.append(trackData["label"])
+            if parent['uniq_id'] not in self.tracksToIndex:
+                self.tracksToIndex[parent['uniq_id']] = []
+            self.tracksToIndex[parent['uniq_id']].append(trackData["label"])
 
         self._add_track(
             trackData["label"],
             trackData["key"],
             trackData["category"],
             rel_dest + ".gz",
+            parent,
             config=style_json,
         )
 
-    def add_paf(self, data, trackData, pafOpts, parentgenome, **kwargs):
+    def add_paf(self, parent, data, trackData, pafOpts, parentgenome, **kwargs):
         # TODO: how to get both parent genomes.
 
         # print(trackData)
@@ -516,12 +516,13 @@ class JbrowseConnector(object):
             f"{parentgenome} v {trackData['key']}",
             trackData["category"],
             rel_dest,
+            parent,
             assemblies=[trackData['key'], parentgenome],
             config=style_json,
             trackType="SyntenyTrack",
         )
 
-    def add_hic(self, data, trackData, hicOpts, **kwargs):
+    def add_hic(self, parent, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join(trackData["label"] + ".hic")
         dest = os.path.join(self.outdir, rel_dest)
 
@@ -534,10 +535,11 @@ class JbrowseConnector(object):
             trackData["key"],
             trackData["category"],
             rel_dest,
+            parent,
             config=style_json,
         )
 
-    def add_sparql(self, url, query, query_refnames, trackData):
+    def add_sparql(self, parent, url, query, query_refnames, trackData):
         json_track_data = {
             "type": "FeatureTrack",
             "trackId": id,
@@ -548,7 +550,7 @@ class JbrowseConnector(object):
                 "queryTemplate": query,
             },
             "category": [trackData["category"]],
-            "assemblyNames": [self.current_assembly_id],
+            "assemblyNames": [parent['uniq_id']],
         }
 
         if query_refnames:
@@ -575,7 +577,7 @@ class JbrowseConnector(object):
         #     '--config', '{"queryTemplate": "%s"}' % query,
         #     url])
 
-    def _add_track(self, id, label, category, path, assemblies=[], config=None, trackType=None, load_action="inPlace"):
+    def _add_track(self, id, label, category, path, assembly, config=None, trackType=None, load_action="inPlace"):
         """
         Adds a track to config.json using Jbrowse add-track cli
 
@@ -585,10 +587,6 @@ class JbrowseConnector(object):
         With `load_action` parameter, you can ask `jbrowse add-track` to copy/move/symlink the file for you.
         Not done by default because we often need more control on file copying/symlink for specific cases (indexes, symlinks of symlinks, ...)
         """
-
-        assemblies_opt = self.current_assembly_id
-        if assemblies:
-            assemblies_opt = ",".join(assemblies)
 
         cmd = [
             "jbrowse",
@@ -604,7 +602,7 @@ class JbrowseConnector(object):
             "--trackId",
             id,
             "--assemblyNames",
-            assemblies_opt,
+            assembly['uniq_id'],
         ]
 
         if config:
@@ -640,7 +638,7 @@ class JbrowseConnector(object):
             self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"])
 
     def process_annotations(self, track, parent):
-        _parent_genome = parent.attrib["label"]
+        _parent_genome = parent["label"]
         category = track["category"].replace("__pd__date__pd__", TODAY)
 
         track_labels = []
@@ -686,7 +684,7 @@ class JbrowseConnector(object):
                 track_human_label,
                 track["category"],
                 rest_url,
-                self.current_assembly_id,
+                parent["uniq_id"],
             ]
             hashData = "|".join(hashData).encode("utf-8")
             outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_{}_{}".format(track["track_num"], i)
@@ -699,6 +697,7 @@ class JbrowseConnector(object):
             print(f"Adding track {dataset_ext}")
             if dataset_ext in ("gff", "gff3"):
                 self.add_gff(
+                    parent,
                     dataset_path,
                     dataset_ext,
                     outputTrackConfig,
@@ -706,6 +705,7 @@ class JbrowseConnector(object):
                 )
             elif dataset_ext == "bed":
                 self.add_bed(
+                    parent,
                     dataset_path,
                     dataset_ext,
                     outputTrackConfig,
@@ -713,6 +713,7 @@ class JbrowseConnector(object):
                 )
             elif dataset_ext == "bigwig":
                 self.add_bigwig(
+                    parent,
                     dataset_path, outputTrackConfig, track["conf"]["options"]["wiggle"]
                 )
             elif dataset_ext == "bam":
@@ -730,6 +731,7 @@ class JbrowseConnector(object):
                     real_indexes = [real_indexes]
 
                 self.add_xam(
+                    parent,
                     dataset_path,
                     outputTrackConfig,
                     track["conf"]["options"]["pileup"],
@@ -751,6 +753,7 @@ class JbrowseConnector(object):
                     real_indexes = [real_indexes]
 
                 self.add_xam(
+                    parent,
                     dataset_path,
                     outputTrackConfig,
                     track["conf"]["options"]["cram"],
@@ -758,21 +761,24 @@ class JbrowseConnector(object):
                     ext="cram",
                 )
             elif dataset_ext == "vcf":
-                self.add_vcf(dataset_path, outputTrackConfig)
+                self.add_vcf(parent, dataset_path, outputTrackConfig)
             elif dataset_ext == "vcf_bgzip":
-                self.add_vcf(dataset_path, outputTrackConfig, zipped=True)
+                self.add_vcf(parent, dataset_path, outputTrackConfig, zipped=True)
             elif dataset_ext == "rest":
                 self.add_rest(
+                    parent,
                     track["conf"]["options"]["rest"]["url"], outputTrackConfig
                 )
             elif dataset_ext == "paf":
                 log.debug("===== PAF =====")
                 self.add_paf(
+                    parent,
                     dataset_path, outputTrackConfig, track["conf"]["options"]["synteny"],
                     _parent_genome
                 )
             elif dataset_ext in ("hic", "juicebox_hic"):
                 self.add_hic(
+                    parent,
                     dataset_path, outputTrackConfig, track["conf"]["options"]["hic"]
                 )
             elif dataset_ext == "sparql":
@@ -785,20 +791,51 @@ class JbrowseConnector(object):
                 for key, value in mapped_chars.items():
                     sparql_query_refnames = sparql_query_refnames.replace(value, key)
                 self.add_sparql(
+                    parent,
                     track["conf"]["options"]["sparql"]["url"],
                     sparql_query,
                     sparql_query_refnames,
                     outputTrackConfig,
                 )
             else:
-                log.warn("Do not know how to handle %s", dataset_ext)
+                log.error("Do not know how to handle %s", dataset_ext)
 
             track_labels.append(outputTrackConfig["label"])
 
         # Return non-human label for use in other fields
         return track_labels
 
-    def add_default_session(self, data):
+    def add_default_view(self, genome, default_loc, tracks_on):
+
+        refName = ""
+        start = end = None
+        if default_loc:
+            loc_match = re.search(r"^(\w+):(\d+)\.+(\d+)$", default_loc)
+            if loc_match:
+                refName = loc_match.group(1)
+                start = int(loc_match.group(2))
+                end = int(loc_match.group(3))
+
+        if not refName and self.assembly_ids[genome['uniq_id']] is not None:
+            refName = self.assembly_ids[genome['uniq_id']]
+
+        if start and end:
+            loc_str = "{}:{}-{}".format(refName, start, end)
+        else:
+            loc_str = refName
+
+        view_specs = {
+            "type": "LinearGenomeView",
+            "init": {
+                "assembly": genome['uniq_id'],
+                "loc": loc_str,
+                "tracks": tracks_on
+            }
+        }
+
+        return view_specs
+
+    def add_default_session(self, default_views):
         """
         Add some default session settings: set some assemblies/tracks on/off
 
@@ -828,35 +865,11 @@ class JbrowseConnector(object):
         https://github.com/GMOD/jbrowse-components/pull/4148
         """
 
-        refName = ""
-        start = end = None
-        if data.get("defaultLocation", ""):
-            loc_match = re.search(r"^(\w+):(\d+)\.+(\d+)$", data["defaultLocation"])
-            if loc_match:
-                refName = loc_match.group(1)
-                start = int(loc_match.group(2))
-                end = int(loc_match.group(3))
-
-        if not refName and self.assembly_ids[self.current_assembly_id] is not None:
-            refName = self.assembly_ids[self.current_assembly_id]
-
-        if start and end:
-            loc_str = "{}:{}-{}".format(refName, start, end)
-        else:
-            loc_str = refName
+        session_name = ', '.join(x['init']['assembly'] for x in default_views)
 
         session_spec = {
-            "name": self.current_assembly_id,
-            "views": [
-                {
-                    "type": "LinearGenomeView",
-                    "init": {
-                        "assembly": self.current_assembly_id,
-                        "loc": loc_str,
-                        "tracks": data["tracks_on"]
-                    }
-                }
-            ]
+            "name": session_name,
+            "views": default_views
         }
 
         config_path = os.path.join(self.outdir, "config.json")
@@ -960,27 +973,20 @@ if __name__ == "__main__":
     jc = JbrowseConnector(
         jbrowse=args.jbrowse,
         outdir=args.outdir,
-        genomes=[
-            {
-                "path": os.path.realpath(x.attrib["path"]),
-                "meta": metadata_from_node(x.find("metadata")),
-                "label": x.attrib["label"],
-            }
-            for x in real_root.findall("assembly/genomes/genome")
-        ],
     )
 
-    # Process genomes
-    jc.process_genomes()
-
-    default_session_data = {
-        "tracks_on": [],
-        "style": {},
-        "style_labels": {},
-    }
+    default_views = []
 
     for assembly in real_root.findall("assembly"):
-        genome = assembly.find('genomes/genome')
+        genome_el = assembly.find('genomes/genome')
+        genome = {
+            "path": os.path.realpath(genome_el.attrib["path"]),
+            "meta": metadata_from_node(genome_el.find("metadata")),
+            "label": genome_el.attrib["label"],
+        }
+
+        log.debug("Processing genome", genome)
+        genome["uniq_id"] = jc.add_assembly(genome["path"], genome["label"])
 
         # TODO add metadata to tracks
         track_num = 0
@@ -988,6 +994,8 @@ if __name__ == "__main__":
             track_conf = {}
             track_conf["trackfiles"] = []
             track_conf["track_num"] = track_num
+
+            default_tracks_on = []
 
             is_multi_bigwig = False
             try:
@@ -1062,13 +1070,12 @@ if __name__ == "__main__":
 
             if track.attrib["visibility"] == "default_on":
                 for tlabel in track_labels:
-                    default_session_data["tracks_on"].append(tlabel)
+                    default_tracks_on.append(tlabel)
+
+            default_loc = assembly.find("genomes/defaultLocation").text
+            default_views.append(jc.add_default_view(genome, default_loc, default_tracks_on))
 
             track_num += 1
-
-    default_session_data["defaultLocation"] = real_root.find(
-        "metadata/general/defaultLocation"
-    ).text
 
     general_data = {
         "analytics": real_root.find("metadata/general/analytics").text,
@@ -1079,6 +1086,6 @@ if __name__ == "__main__":
         "font_size": real_root.find("metadata/general/font_size").text,
     }
 
-    jc.add_default_session(default_session_data)
+    jc.add_default_session(default_views)
     jc.add_general_configuration(general_data)
     jc.text_index()
