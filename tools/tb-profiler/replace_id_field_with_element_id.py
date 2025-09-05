@@ -1,7 +1,7 @@
-import os
-import sys
 import json
+import os
 import re
+import sys
 
 
 input_file = sys.argv[1]
