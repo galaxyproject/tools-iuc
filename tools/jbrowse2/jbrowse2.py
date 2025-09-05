@@ -107,13 +107,17 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, jbrowse, outdir):
+    def __init__(self, jbrowse, outdir, update):
         self.jbrowse = jbrowse
         self.outdir = outdir
+        self.update = update
+
         self.tracksToIndex = {}
 
         # This is the id of the current assembly
         self.assembly_ids = {}
+
+        self.default_views = {}
 
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
@@ -271,7 +275,7 @@ class JbrowseConnector(object):
     def add_assembly(self, path, label):
         # Find a non-existing filename for the new genome
         # (to avoid colision when upgrading an existing instance)
-        rel_seq_path = os.path.join(label)
+        rel_seq_path = os.path.join("data", label)
         seq_path = os.path.join(self.outdir, rel_seq_path)
         fn_try = 1
         while (
@@ -280,9 +284,31 @@ class JbrowseConnector(object):
             or os.path.exists(seq_path + ".fasta.gz.fai")
             or os.path.exists(seq_path + ".fasta.gz.gzi")
         ):
-            rel_seq_path = os.path.join(f"{label}{fn_try}")
+            rel_seq_path = os.path.join("data", f"{label}{fn_try}")
             seq_path = os.path.join(self.outdir, rel_seq_path)
             fn_try += 1
+
+        # Check if the assembly already exists from a previous run (--update mode)
+        if self.update:
+
+            config_path = os.path.join(self.outdir, "config.json")
+            with open(config_path, "r") as config_file:
+                config_json = json.load(config_file)
+
+                for asby in config_json['assemblies']:
+                    if asby['name'] == label:
+                        log.info("Found existing assembly from existing JBrowse2 instance, preserving it")
+
+                        self.assembly_ids[label] = ""
+
+                        # Find default views existing for this assembly
+                        if 'defaultSession' in config_json and 'views' in config_json['defaultSession']:
+                            for view in config_json['defaultSession']['views']:
+                                if 'init' in view and 'assembly' in view['init']:
+                                    if view['init']['assembly'] == label:
+                                        self.default_views[view['init']['assembly']] = view
+
+                        return label
 
         # Find a non-existing label for the new genome
         # (to avoid colision when upgrading an existing instance)
@@ -352,7 +378,7 @@ class JbrowseConnector(object):
                 self.subprocess_check_call(args)
 
     def add_bigwig(self, parent, data, trackData, wiggleOpts, **kwargs):
-        rel_dest = os.path.join(trackData["label"] + ".bw")
+        rel_dest = os.path.join("data", trackData["label"] + ".bw")
         dest = os.path.join(self.outdir, rel_dest)
         self.symlink_or_copy(os.path.realpath(data), dest)
 
@@ -373,7 +399,7 @@ class JbrowseConnector(object):
         if ext == "cram":
             index_ext = "crai"
 
-        rel_dest = os.path.join(trackData["label"] + ".%s" % ext)
+        rel_dest = os.path.join("data", trackData["label"] + f".{ext}")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -410,11 +436,11 @@ class JbrowseConnector(object):
 
     def add_vcf(self, parent, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if zipped:
-            rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
+            rel_dest = os.path.join("data", trackData["label"] + ".vcf.gz")
             dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), dest)
         else:
-            rel_dest = os.path.join(trackData["label"] + ".vcf")
+            rel_dest = os.path.join("data", trackData["label"] + ".vcf")
             dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), dest)
 
@@ -423,7 +449,7 @@ class JbrowseConnector(object):
             cmd = ["tabix", dest + ".gz"]
             self.subprocess_check_call(cmd)
 
-            rel_dest = os.path.join(trackData["label"] + ".vcf.gz")
+            rel_dest = os.path.join("data", trackData["label"] + ".vcf.gz")
 
         style_json = self._prepare_track_style(trackData)
 
@@ -441,7 +467,7 @@ class JbrowseConnector(object):
         )
 
     def add_gff(self, parent, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join(trackData["label"] + ".gff")
+        rel_dest = os.path.join("data", trackData["label"] + ".gff")
         dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_gff(data, dest)
@@ -467,7 +493,7 @@ class JbrowseConnector(object):
         )
 
     def add_bed(self, parent, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join(trackData["label"] + ".bed")
+        rel_dest = os.path.join("data", trackData["label"] + ".bed")
         dest = os.path.join(self.outdir, rel_dest)
 
         self._sort_bed(data, dest)
@@ -496,7 +522,7 @@ class JbrowseConnector(object):
         # TODO: how to get both parent genomes.
 
         # print(trackData)
-        rel_dest = os.path.join(trackData["label"] + ".paf")
+        rel_dest = os.path.join("data", trackData["label"] + ".paf")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -521,7 +547,7 @@ class JbrowseConnector(object):
         )
 
     def add_hic(self, parent, data, trackData, hicOpts, **kwargs):
-        rel_dest = os.path.join(trackData["label"] + ".hic")
+        rel_dest = os.path.join("data", trackData["label"] + ".hic")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
@@ -819,14 +845,24 @@ class JbrowseConnector(object):
         else:
             loc_str = refName
 
-        view_specs = {
-            "type": "LinearGenomeView",
-            "init": {
-                "assembly": genome['uniq_id'],
-                "loc": loc_str,
-                "tracks": tracks_on
+        # Updating an existing jbrowse instance, merge with pre-existing view
+        if self.update:
+            for existing in self.default_views.values():
+                if existing['init']['assembly'] == genome['uniq_id']:
+                    view_specs = existing
+                    if loc_str:
+                        view_specs['init']['loc'] = loc_str
+                    view_specs['init']['tracks'].extend(tracks_on)
+
+        else:
+            view_specs = {
+                "type": "LinearGenomeView",
+                "init": {
+                    "assembly": genome['uniq_id'],
+                    "loc": loc_str,
+                    "tracks": tracks_on
+                }
             }
-        }
 
         return view_specs
 
@@ -859,11 +895,11 @@ class JbrowseConnector(object):
         https://github.com/GMOD/jbrowse-components/pull/4148
         """
 
-        session_name = ', '.join(x['init']['assembly'] for x in default_views)
+        session_name = ', '.join(x['init']['assembly'] for x in default_views.values())
 
         session_spec = {
             "name": session_name,
-            "views": default_views
+            "views": list(default_views.values())
         }
 
         config_path = os.path.join(self.outdir, "config.json")
@@ -949,6 +985,7 @@ if __name__ == "__main__":
     parser.add_argument("xml", type=argparse.FileType("r"), help="Track Configuration")
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
+    parser.add_argument("--update", help="Update an existing JBrowse2 instance", action="store_true")
     parser.add_argument("--outdir", help="Output directory", default="out")
     args = parser.parse_args()
 
@@ -966,12 +1003,11 @@ if __name__ == "__main__":
     jc = JbrowseConnector(
         jbrowse=args.jbrowse,
         outdir=args.outdir,
+        update=args.update,
     )
 
-    default_views = []
-
     for assembly in real_root.findall("assembly"):
-        genome_el = assembly.find('genomes/genome')
+        genome_el = assembly.find('genome')
         genome = {
             "path": os.path.realpath(genome_el.attrib["path"]),
             "meta": metadata_from_node(genome_el.find("metadata")),
@@ -1065,8 +1101,8 @@ if __name__ == "__main__":
                 for tlabel in track_labels:
                     default_tracks_on.append(tlabel)
 
-            default_loc = assembly.find("genomes/defaultLocation").text
-            default_views.append(jc.add_default_view(genome, default_loc, default_tracks_on))
+            default_loc = assembly.find("defaultLocation").text
+            jc.default_views[genome['uniq_id']] = jc.add_default_view(genome, default_loc, default_tracks_on)
 
             track_num += 1
 
@@ -1079,6 +1115,6 @@ if __name__ == "__main__":
         "font_size": real_root.find("metadata/general/font_size").text,
     }
 
-    jc.add_default_session(default_views)
+    jc.add_default_session(jc.default_views)
     jc.add_general_configuration(general_data)
     jc.text_index()
