@@ -31,7 +31,7 @@ Here comes a hacky solution, that works (but is a bit ugly, sorry).
 
 First you need to start a Nginx server that will act as a proxy to the local Galaxy server launched by `planemo serve`. This can be done easily with a docker-compose.yml file like this:
 
-```
+```yaml
 services:
 
   proxy:
@@ -44,7 +44,7 @@ services:
 
 And the mounted `nginx.conf` file:
 
-```
+```text
 server {
     listen 80;
     server_name  ~.;
@@ -79,3 +79,7 @@ Now you can access your Planemo Galaxy instance at 2 adresses:
 
 - http://localhost:9090/ : the usual Planemo address, file uploads will work, but you can't access JBrowse2 tool output
 - http://localhost:80/ : the same Galaxy server where you *can* access JBrowse2 tool output (don't forget to add the tool in the "HTML Rendered" allow list in the admin panel)
+
+## TODO list
+
+- Reimplement auto coloring of features

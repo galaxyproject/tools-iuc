@@ -68,16 +68,16 @@ def metadata_from_node(node):
         return {}
 
     for key, value in node.findall("dataset")[0].attrib.items():
-        metadata["dataset_%s" % key] = value
+        metadata[f"dataset_{key}"] = value
 
     for key, value in node.findall("history")[0].attrib.items():
-        metadata["history_%s" % key] = value
+        metadata[f"history_{key}"] = value
 
     for key, value in node.findall("metadata")[0].attrib.items():
-        metadata["metadata_%s" % key] = value
+        metadata[f"metadata_{key}"] = value
 
     for key, value in node.findall("tool")[0].attrib.items():
-        metadata["tool_%s" % key] = value
+        metadata[f"tool_{key}"] = value
 
     # Additional Mappings applied:
     metadata[
@@ -129,14 +129,14 @@ class JbrowseConnector(object):
 
     def subprocess_check_call(self, command, output=None, cwd=True):
         if output:
-            log.debug("cd %s && %s >  %s", self.get_cwd(cwd), " ".join(command), output)
+            log.debug(f"cd {self.get_cwd(cwd)} && {' '.join(command)} > {output}")
             subprocess.check_call(command, cwd=self.get_cwd(cwd), stdout=output)
         else:
-            log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
+            log.debug(f"cd {self.get_cwd(cwd)} && {' '.join(command)}")
             subprocess.check_call(command, cwd=self.get_cwd(cwd))
 
     def subprocess_popen(self, command, cwd=True):
-        log.debug("cd %s && %s", self.get_cwd(cwd), command)
+        log.debug(f"cd {self.get_cwd(cwd)} && {command}")
         p = subprocess.Popen(
             command,
             cwd=self.get_cwd(cwd),
@@ -148,13 +148,13 @@ class JbrowseConnector(object):
         output, err = p.communicate()
         retcode = p.returncode
         if retcode != 0:
-            log.error("cd %s && %s", self.get_cwd(cwd), command)
+            log.error(f"cd {self.get_cwd(cwd)} && {command}")
             log.error(output)
             log.error(err)
-            raise RuntimeError("Command failed with exit code %s" % (retcode))
+            raise RuntimeError(f"Command failed with exit code {retcode}")
 
     def subprocess_check_output(self, command, cwd=True):
-        log.debug("cd %s && %s", self.get_cwd(cwd), " ".join(command))
+        log.debug(f"cd {self.get_cwd(cwd)} && {' '.join(command)}")
         return subprocess.check_output(command, cwd=self.get_cwd(cwd))
 
     def symlink_or_copy(self, src, dest):
@@ -175,7 +175,7 @@ class JbrowseConnector(object):
         if "display" in xml_conf["style"]:
             style_data["type"] = xml_conf["style"]["display"]
 
-        style_data["displayId"] = "%s_%s" % (xml_conf["label"], style_data["type"])
+        style_data["displayId"] = f"{xml_conf['label']}_{style_data['type']}"
 
         style_data.update(self._prepare_renderer_config(style_data["type"], xml_conf["style"]))
 
@@ -309,24 +309,22 @@ class JbrowseConnector(object):
         cmd = ["samtools", "faidx", copied_genome + ".gz"]
         self.subprocess_check_call(cmd)
 
-        self.subprocess_check_call(
-            [
-                "jbrowse",
-                "add-assembly",
-                "--load",
-                "inPlace",
-                "--name",
-                uniq_label,
-                "--type",
-                "bgzipFasta",
-                "--out",
-                self.outdir,
-                # "--target",
-                # os.path.join(self.outdir, 'config.json'),
-                "--skipCheck",
-                rel_seq_path + ".fasta.gz",
-            ]
-        )
+        cmd_jb = [
+            "jbrowse",
+            "add-assembly",
+            "--load",
+            "inPlace",
+            "--name",
+            uniq_label,
+            "--type",
+            "bgzipFasta",
+            "--out",
+            self.outdir,
+            "--skipCheck",
+            rel_seq_path + ".fasta.gz",
+        ]
+
+        self.subprocess_check_call(cmd_jb)
 
         return uniq_label
 
@@ -347,7 +345,7 @@ class JbrowseConnector(object):
             if tracks:
                 args += ["--tracks", tracks]
 
-                log.info("Running text-index on assembly {} and tracks {}".format(ass, tracks))
+                log.info(f"-----> Running text-index on assembly {ass} and tracks {tracks}")
 
                 # Only run index if we want to index at least one
                 # If --tracks is not specified, it will index everything
@@ -383,20 +381,20 @@ class JbrowseConnector(object):
         if index is not None and os.path.exists(os.path.realpath(index)):
             # xai most probably made by galaxy and stored in galaxy dirs, need to copy it to dest
             self.subprocess_check_call(
-                ["cp", os.path.realpath(index), dest + ".%s" % index_ext]
+                ["cp", os.path.realpath(index), dest + f".{index_ext}"]
             )
         else:
             # Can happen in exotic condition
             # e.g. if bam imported as symlink with datatype=unsorted.bam, then datatype changed to bam
             #      => no index generated by galaxy, but there might be one next to the symlink target
             #      this trick allows to skip the bam sorting made by galaxy if already done outside
-            if os.path.exists(os.path.realpath(data) + ".%s" % index_ext):
+            if os.path.exists(os.path.realpath(data) + f".{index_ext}"):
                 self.symlink_or_copy(
-                    os.path.realpath(data) + ".%s" % index_ext, dest + ".%s" % index_ext
+                    os.path.realpath(data) + f".{index_ext}", dest + f".{index_ext}"
                 )
             else:
                 log.warn(
-                    "Could not find a bam index (.%s file) for %s", (index_ext, data)
+                    f"Could not find a bam index (.{index_ext} file) for {data}"
                 )
 
         style_json = self._prepare_track_style(trackData)
@@ -621,7 +619,7 @@ class JbrowseConnector(object):
         # Only index if not already done
         if not os.path.exists(dest):
             # TODO: replace with jbrowse sort-gff
-            cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
+            cmd = f"gff3sort.pl --precise '{data}' | grep -v \"^$\" > '{dest}'"
             self.subprocess_popen(cmd, cwd=False)
 
             self.subprocess_check_call(["bgzip", "-f", dest], cwd=False)
@@ -654,10 +652,7 @@ class JbrowseConnector(object):
                 track_human_label = track_human_label.replace(value, key)
 
             log.info(
-                "Processing track %s / %s (%s)",
-                category,
-                track_human_label,
-                dataset_ext,
+                f"-----> Processing track {category} / {track_human_label} ({dataset_ext}, {len(dataset_path) if is_multi else 1} files)"
             )
 
             outputTrackConfig = {
@@ -687,7 +682,7 @@ class JbrowseConnector(object):
                 parent["uniq_id"],
             ]
             hashData = "|".join(hashData).encode("utf-8")
-            outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + "_{}_{}".format(track["track_num"], i)
+            outputTrackConfig["label"] = hashlib.md5(hashData).hexdigest() + f"_{track['track_num']}_{i}"
             outputTrackConfig["metadata"] = extra_metadata
 
             outputTrackConfig["style"] = track["style"]
@@ -798,7 +793,7 @@ class JbrowseConnector(object):
                     outputTrackConfig,
                 )
             else:
-                log.error("Do not know how to handle %s", dataset_ext)
+                log.error(f"Do not know how to handle {dataset_ext}")
 
             track_labels.append(outputTrackConfig["label"])
 
@@ -820,7 +815,7 @@ class JbrowseConnector(object):
             refName = self.assembly_ids[genome['uniq_id']]
 
         if start and end:
-            loc_str = "{}:{}-{}".format(refName, start, end)
+            loc_str = f"{refName}:{start}-{end}"
         else:
             loc_str = refName
 
@@ -857,7 +852,6 @@ class JbrowseConnector(object):
         - writing a session-spec inside the config.json file: this is not yet supported as of 2.10.2 (see PR 4148 below)
           a session-spec is a kind of simplified defaultSession where you don't need to specify every aspect of the session
         - passing a session-spec through URL params by embedding the JBrowse2 index.html inside an iframe
-          we selected this option
 
         Xrefs to understand the choices:
         https://github.com/GMOD/jbrowse-components/issues/2708
@@ -920,12 +914,12 @@ class JbrowseConnector(object):
         try:
             shutil.rmtree(os.path.join(destination, "test_data"))
         except OSError as e:
-            log.error("Error: %s - %s." % (e.filename, e.strerror))
+            log.error(f"Error: {e.filename} - {e.strerror}.")
 
         if not os.path.exists(os.path.join(destination, "data")):
             # It can already exist if upgrading an instance
             os.makedirs(os.path.join(destination, "data"))
-            log.info("makedir %s" % (os.path.join(destination, "data")))
+            log.info(f"makedir {os.path.join(destination, 'data')}")
 
         os.symlink("./data/config.json", os.path.join(destination, "config.json"))
 
@@ -956,7 +950,6 @@ if __name__ == "__main__":
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument("--outdir", help="Output directory", default="out")
-    parser.add_argument("--version", "-V", action="version", version="%(prog)s 0.8.0")
     args = parser.parse_args()
 
     tree = ET.parse(args.xml.name)
