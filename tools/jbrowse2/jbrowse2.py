@@ -380,6 +380,41 @@ class JbrowseConnector(object):
                 # If --tracks is not specified, it will index everything
                 self.subprocess_check_call(args)
 
+    def add_gc_content(self, parent, trackData, **kwargs):
+
+        adapter = {}
+        existing = os.path.join(self.outdir, "config.json")
+        if os.path.exists(existing):
+            with open(existing, "r") as existing_conf:
+                conf = json.load(existing_conf)
+                if "assemblies" in conf:
+                    for assembly in conf["assemblies"]:
+                        if assembly.get('name', "") == parent['uniq_id']:
+                            adapter = assembly.get('sequence', {}).get('adapter', {})
+
+        json_track_data = {
+            "type": "GCContentTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": adapter,
+            "category": [trackData["category"]],
+            "assemblyNames": [parent['uniq_id']],
+        }
+
+        style_json = self._prepare_track_style(trackData)
+
+        json_track_data.update(style_json)
+
+        self.subprocess_check_call(
+            [
+                "jbrowse",
+                "add-track-json",
+                "--target",
+                self.outdir,
+                json.dumps(json_track_data),
+            ]
+        )
+
     def add_bigwig(self, parent, data, trackData, wiggleOpts, **kwargs):
         rel_dest = os.path.join("data", trackData["label"] + ".bw")
         dest = os.path.join(self.outdir, rel_dest)
@@ -735,15 +770,15 @@ class JbrowseConnector(object):
             }
 
             outputTrackConfig["key"] = track_human_label
-            # We add extra data to hash for the case of REST + SPARQL.
+            # We add extra data to hash for the case of non-file tracks
             if (
                 "conf" in track
                 and "options" in track["conf"]
                 and "url" in track["conf"]["options"]
             ):
-                rest_url = track["conf"]["options"]["url"]
+                non_file_info = track["conf"]["options"]["url"]
             else:
-                rest_url = ""
+                non_file_info = ""
 
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
@@ -753,7 +788,7 @@ class JbrowseConnector(object):
                 str(dataset_path),
                 track_human_label,
                 track["category"],
-                rest_url,
+                non_file_info,
                 parent["uniq_id"],
             ]
             hashData = "|".join(hashData).encode("utf-8")
@@ -764,7 +799,6 @@ class JbrowseConnector(object):
 
             outputTrackConfig["formatdetails"] = track["formatdetails"]
 
-            print(f"Adding track {dataset_ext}")
             if dataset_ext in ("gff", "gff3"):
                 self.add_gff(
                     parent,
@@ -840,11 +874,6 @@ class JbrowseConnector(object):
                 self.add_vcf(parent, dataset_path, outputTrackConfig)
             elif dataset_ext == "vcf_bgzip":
                 self.add_vcf(parent, dataset_path, outputTrackConfig, zipped=True)
-            elif dataset_ext == "rest":
-                self.add_rest(
-                    parent,
-                    track["conf"]["options"]["rest"]["url"], outputTrackConfig
-                )
             elif dataset_ext == "paf":
                 log.debug("===== PAF =====")
                 self.add_paf(
@@ -871,6 +900,11 @@ class JbrowseConnector(object):
                     track["conf"]["options"]["sparql"]["url"],
                     sparql_query,
                     sparql_query_refnames,
+                    outputTrackConfig,
+                )
+            elif dataset_ext == "gc":
+                self.add_gc_content(
+                    parent,
                     outputTrackConfig,
                 )
             else:
@@ -1072,14 +1106,22 @@ if __name__ == "__main__":
         log.debug("Processing genome", genome)
         genome["uniq_id"] = jc.add_assembly(genome["path"], genome["label"])
 
+        gctrack = False
+        try:
+            gctrack_in_xml = assembly.find("options/gctrack")
+            if gctrack_in_xml is not None and parse_style_conf(gctrack_in_xml):
+                gctrack = True
+        except KeyError:
+            pass
+
+        default_tracks_on = []
+
         # TODO add metadata to tracks
         track_num = 0
         for track in assembly.findall("tracks/track"):
             track_conf = {}
             track_conf["trackfiles"] = []
             track_conf["track_num"] = track_num
-
-            default_tracks_on = []
 
             trackfiles = track.findall("files/trackFile") or []
 
@@ -1112,10 +1154,10 @@ if __name__ == "__main__":
                             )
                         )
             else:
-                # For tracks without files (rest, sparql)
+                # For tracks without files (sparql, gc)
                 track_conf["trackfiles"].append(
                     (
-                        "",  # N/A, no path for rest or sparql
+                        "",  # N/A, no path for sparql or gc
                         track.attrib["format"],
                         track.find("options/label").text,
                         {},
@@ -1160,10 +1202,10 @@ if __name__ == "__main__":
                 for tlabel in track_labels:
                     default_tracks_on.append(tlabel)
 
-            default_loc = assembly.find("defaultLocation").text
-            jc.default_views[genome['uniq_id']] = jc.add_default_view(genome, default_loc, default_tracks_on)
-
             track_num += 1
+
+        default_loc = assembly.find("defaultLocation").text
+        jc.default_views[genome['uniq_id']] = jc.add_default_view(genome, default_loc, default_tracks_on)
 
     general_data = {
         "analytics": real_root.find("metadata/general/analytics").text,
