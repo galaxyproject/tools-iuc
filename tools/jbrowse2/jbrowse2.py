@@ -220,7 +220,10 @@ class JbrowseConnector(object):
             wig_renderer = xml_conf.get("renderer", "xyplot")
             style_data["defaultRendering"] = wig_renderer
 
-            # Doc: https://jbrowse.org/jb2/docs/config/snpcoveragerenderer/
+        elif display_type == "MultiLinearWiggleDisplay":
+
+            wig_renderer = xml_conf.get("renderer", "multirowxy")
+            style_data["defaultRendering"] = wig_renderer
 
         elif display_type == "LinearSNPCoverageDisplay":
 
@@ -390,7 +393,51 @@ class JbrowseConnector(object):
             trackData["category"],
             rel_dest,
             parent,
-            config=style_json,
+            config=style_json
+        )
+
+    def add_bigwig_multi(self, parent, data_files, trackData, wiggleOpts, **kwargs):
+
+        subadapters = []
+
+        for data in data_files:
+            rel_dest = os.path.join("data", trackData["label"] + ".bw")
+            dest = os.path.join(self.outdir, rel_dest)
+            self.symlink_or_copy(os.path.realpath(data[1]), dest)
+
+            subadapters.append({
+                "type": "BigWigAdapter",
+                "name": data[0],
+                "bigWigLocation": {
+                    "uri": rel_dest,
+                    "locationType": "UriLocation"
+                }
+            })
+
+        json_track_data = {
+            "type": "MultiQuantitativeTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": {
+                "type": "MultiWiggleAdapter",
+                "subadapters": subadapters
+            },
+            "category": [trackData["category"]],
+            "assemblyNames": [parent['uniq_id']],
+        }
+
+        style_json = self._prepare_track_style(trackData)
+
+        json_track_data.update(style_json)
+
+        self.subprocess_check_call(
+            [
+                "jbrowse",
+                "add-track-json",
+                "--target",
+                self.outdir,
+                json.dumps(json_track_data),
+            ]
         )
 
     # Anything ending in "am" (Bam or Cram)
@@ -677,6 +724,8 @@ class JbrowseConnector(object):
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
 
+            is_multi = type(dataset_path) is list
+
             log.info(
                 f"-----> Processing track {category} / {track_human_label} ({dataset_ext}, {len(dataset_path) if is_multi else 1} files)"
             )
@@ -733,10 +782,16 @@ class JbrowseConnector(object):
                     track["conf"]["options"]["gff"],
                 )
             elif dataset_ext == "bigwig":
-                self.add_bigwig(
-                    parent,
-                    dataset_path, outputTrackConfig, track["conf"]["options"]["wiggle"]
-                )
+                if is_multi:
+                    self.add_bigwig_multi(
+                        parent,
+                        dataset_path, outputTrackConfig, track["conf"]["options"]["wiggle"]
+                    )
+                else:
+                    self.add_bigwig(
+                        parent,
+                        dataset_path, outputTrackConfig, track["conf"]["options"]["wiggle"]
+                    )
             elif dataset_ext == "bam":
                 real_indexes = track["conf"]["options"]["pileup"]["bam_indices"][
                     "bam_index"
@@ -1026,21 +1081,24 @@ if __name__ == "__main__":
 
             default_tracks_on = []
 
-            is_multi_bigwig = False
+            trackfiles = track.findall("files/trackFile") or []
+
+            is_multi = False
+            multi_paths = []
+            multi_type = None
             try:
-                if track.find("options/wiggle/multibigwig") and (
-                    track.find("options/wiggle/multibigwig").text == "True"
-                ):
-                    is_multi_bigwig = True
-                    multi_bigwig_paths = []
+                multi_in_xml = track.find("options/multitrack")
+                if multi_in_xml is not None and parse_style_conf(multi_in_xml):
+                    is_multi = True
+                    multi_paths = []
+                    multi_type = trackfiles[0].attrib["ext"]
             except KeyError:
                 pass
 
-            trackfiles = track.findall("files/trackFile") or []
             if trackfiles:
-                for x in track.findall("files/trackFile"):
-                    if is_multi_bigwig:
-                        multi_bigwig_paths.append(
+                for x in trackfiles:
+                    if is_multi:
+                        multi_paths.append(
                             (x.attrib["label"], os.path.realpath(x.attrib["path"]))
                         )
                     else:
@@ -1064,14 +1122,15 @@ if __name__ == "__main__":
                     )
                 )
 
-            if is_multi_bigwig:
-                metadata = metadata_from_node(x.find("metadata"))
+            if is_multi:
+                etal_tracks_nb = len(multi_paths[1:])
+                multi_label = f"{multi_paths[0][0]} + {etal_tracks_nb} other track{'s' if etal_tracks_nb > 1 else ''}"
 
                 track_conf["trackfiles"].append(
                     (
-                        multi_bigwig_paths,  # Passing an array of paths to represent as one track
-                        "bigwig_multiple",
-                        "MultiBigWig",  # Giving an hardcoded name for now
+                        multi_paths,  # Passing an array of paths to represent as one track
+                        multi_type,  # First file type
+                        multi_label,  # First file label
                         {},  # No metadata for multiple bigwig
                     )
                 )
