@@ -247,6 +247,9 @@ def main():
     else:
         config["TEST"]["ENABLE"] = False
 
+    # Always use safetensors in Galaxy
+    config["MODEL"]["OUT_CHECKPOINT_FORMAT"] = "safetensors"
+
     config = tuple_to_list(config)
 
     with open(args.out_config_path, 'w', encoding='utf-8') as f:
