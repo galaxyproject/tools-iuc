@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import csv
 import datetime
 import hashlib
 import json
@@ -60,49 +61,59 @@ INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 def metadata_from_node(node):
     metadata = {}
-    try:
-        if len(node.findall("dataset")) != 1:
-            # exit early
-            return metadata
-    except Exception:
-        return {}
 
-    for key, value in node.findall("dataset")[0].attrib.items():
-        metadata[f"dataset_{key}"] = value
+    if len(node.findall("dataset")) == 1:
 
-    for key, value in node.findall("history")[0].attrib.items():
-        metadata[f"history_{key}"] = value
+        for key, value in node.findall("dataset")[0].attrib.items():
+            metadata[f"dataset_{key}"] = value
 
-    for key, value in node.findall("metadata")[0].attrib.items():
-        metadata[f"metadata_{key}"] = value
+        for key, value in node.findall("history")[0].attrib.items():
+            metadata[f"history_{key}"] = value
 
-    for key, value in node.findall("tool")[0].attrib.items():
-        metadata[f"tool_{key}"] = value
+        for key, value in node.findall("metadata")[0].attrib.items():
+            metadata[f"metadata_{key}"] = value
 
-    # Additional Mappings applied:
-    metadata[
-        "dataset_edam_format"
-    ] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(
-        metadata["dataset_edam_format"], metadata["dataset_file_ext"]
-    )
-    metadata["history_user_email"] = '<a href="mailto:{0}">{0}</a>'.format(
-        metadata["history_user_email"]
-    )
-    metadata[
-        "history_display_name"
-    ] = '<a target="_blank" href="{galaxy}/history/view/{encoded_hist_id}">{hist_name}</a>'.format(
-        galaxy=GALAXY_INFRASTRUCTURE_URL,
-        encoded_hist_id=metadata["history_id"],
-        hist_name=metadata["history_display_name"],
-    )
-    metadata[
-        "tool_tool"
-    ] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}</a>'.format(
-        galaxy=GALAXY_INFRASTRUCTURE_URL,
-        encoded_id=metadata["dataset_id"],
-        tool_id=metadata["tool_tool_id"],
-        # tool_version=metadata['tool_tool_version'],
-    )
+        for key, value in node.findall("tool")[0].attrib.items():
+            metadata[f"tool_{key}"] = value
+
+        # Additional Mappings applied:
+        metadata[
+            "dataset_edam_format"
+        ] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(
+            metadata["dataset_edam_format"], metadata["dataset_file_ext"]
+        )
+        metadata["history_user_email"] = '<a href="mailto:{0}">{0}</a>'.format(
+            metadata["history_user_email"]
+        )
+        metadata[
+            "history_display_name"
+        ] = '<a target="_blank" href="{galaxy}/history/view/{encoded_hist_id}">{hist_name}</a>'.format(
+            galaxy=GALAXY_INFRASTRUCTURE_URL,
+            encoded_hist_id=metadata["history_id"],
+            hist_name=metadata["history_display_name"],
+        )
+        metadata[
+            "tool_tool"
+        ] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}</a>'.format(
+            galaxy=GALAXY_INFRASTRUCTURE_URL,
+            encoded_id=metadata["dataset_id"],
+            tool_id=metadata["tool_tool_id"],
+            # tool_version=metadata['tool_tool_version'],
+        )
+
+    # Load additional metadata from a TSV file if any given by user
+    bonus = node.findall("bonus")
+    if bonus and "src" in bonus[0].attrib and bonus[0].attrib["src"]:
+        with open(bonus[0].attrib["src"], "r") as bonus_tsv:
+            bonus_content = csv.reader(bonus_tsv, delimiter="\t", quotechar='"')
+            for row in bonus_content:
+                if len(row) == 2:
+                    if row[0] in metadata:
+                        log.warning(f"Overwriting existing metadata {row[0]} with value from bonus file {row[1]}")
+                    metadata[row[0]] = row[1]
+                else:
+                    log.warning(f"Skipping invalid bonus metadata line: {row}")
+
     return metadata
 
 
@@ -265,6 +276,14 @@ class JbrowseConnector(object):
 
         return {"formatDetails": formatDetails}
 
+    def _prepare_track_metadata(self, xml_conf):
+        metadata = {
+        }
+
+        metadata = xml_conf["metadata"]
+
+        return {"metadata": metadata}
+
     def check_existing(self, destination):
         existing = os.path.join(destination, "config.json")
         if os.path.exists(existing):
@@ -422,6 +441,10 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
+
         self._add_track(
             trackData["label"],
             trackData["key"],
@@ -465,6 +488,8 @@ class JbrowseConnector(object):
 
         json_track_data.update(style_json)
 
+        # TODO handle metadata somehow
+
         self.subprocess_check_call(
             [
                 "jbrowse",
@@ -507,6 +532,10 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
+
         self._add_track(
             trackData["label"],
             trackData["key"],
@@ -539,6 +568,10 @@ class JbrowseConnector(object):
 
         style_json.update(formatdetails)
 
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
+
         self._add_track(
             trackData["label"],
             trackData["key"],
@@ -559,6 +592,10 @@ class JbrowseConnector(object):
         formatdetails = self._prepare_format_details(trackData)
 
         style_json.update(formatdetails)
+
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
             if parent['uniq_id'] not in self.tracksToIndex:
@@ -585,6 +622,10 @@ class JbrowseConnector(object):
         formatdetails = self._prepare_format_details(trackData)
 
         style_json.update(formatdetails)
+
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
             if parent['uniq_id'] not in self.tracksToIndex:
@@ -617,6 +658,10 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
+
         self._add_track(
             trackData["label"],
             f"{parentgenome} v {trackData['key']}",
@@ -635,6 +680,10 @@ class JbrowseConnector(object):
         self.symlink_or_copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
+
+        track_metdata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metdata)
 
         self._add_track(
             trackData["label"],
@@ -661,6 +710,8 @@ class JbrowseConnector(object):
 
         if query_refnames:
             json_track_data["adapter"]["refNamesQueryTemplate"]: query_refnames
+
+        # TODO handle metadata somehow
 
         self.subprocess_check_call(
             [
