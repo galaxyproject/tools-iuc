@@ -768,8 +768,8 @@ class JbrowseConnector(object):
     def add_sparql(self, parent, url, query, query_refnames, trackData):
         json_track_data = {
             "type": "FeatureTrack",
-            "trackId": id,
-            "name": trackData["label"],
+            "trackId": trackData["label"],
+            "name": trackData["key"],
             "adapter": {
                 "type": "SPARQLAdapter",
                 "endpoint": {"uri": url, "locationType": "UriLocation"},
@@ -790,20 +790,9 @@ class JbrowseConnector(object):
                 "add-track-json",
                 "--target",
                 self.outdir,
-                json_track_data,
+                json.dumps(json_track_data),
             ]
         )
-
-        # TODO Doesn't work as of 1.6.4, might work in the future
-        # self.subprocess_check_call([
-        #     'jbrowse', 'add-track',
-        #     '--trackType', 'sparql',
-        #     '--name', trackData["label"],
-        #     '--category', trackData['category'],
-        #     '--target', os.path.join(self.outdir, 'data'),
-        #     '--trackId', id,
-        #     '--config', '{"queryTemplate": "%s"}' % query,
-        #     url])
 
     def _add_track(self, id, label, category, path, assembly, config=None, trackType=None, load_action="inPlace"):
         """
@@ -1031,11 +1020,10 @@ class JbrowseConnector(object):
                 sparql_query = track["conf"]["options"]["sparql"]["query"]
                 for key, value in mapped_chars.items():
                     sparql_query = sparql_query.replace(value, key)
-                sparql_query_refnames = track["conf"]["options"]["sparql"][
-                    "query_refnames"
-                ]
-                for key, value in mapped_chars.items():
-                    sparql_query_refnames = sparql_query_refnames.replace(value, key)
+                sparql_query_refnames = track["conf"]["options"]["sparql"].get("query_refnames", "")
+                if sparql_query_refnames:
+                    for key, value in mapped_chars.items():
+                        sparql_query_refnames = sparql_query_refnames.replace(value, key)
                 self.add_sparql(
                     parent,
                     track["conf"]["options"]["sparql"]["url"],
