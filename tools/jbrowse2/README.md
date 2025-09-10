@@ -83,3 +83,6 @@ Now you can access your Planemo Galaxy instance at 2 adresses:
 ## TODO list
 
 - Reimplement auto coloring of features
+- Support more plugins from https://jbrowse.org/jb2/plugin_store/
+- Support Circular view
+- Support SV inspector/spreadsheet views

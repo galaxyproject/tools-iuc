@@ -460,8 +460,9 @@ class JbrowseConnector(object):
 
         subadapters = []
 
+        sub_num = 0
         for data in data_files:
-            rel_dest = os.path.join("data", trackData["label"] + ".bw")
+            rel_dest = os.path.join("data", f"{trackData['label']}_sub{sub_num}.bw")
             dest = os.path.join(self.outdir, rel_dest)
             self.symlink_or_copy(os.path.realpath(data[1]), dest)
 
@@ -473,6 +474,7 @@ class JbrowseConnector(object):
                     "locationType": "UriLocation"
                 }
             })
+            sub_num += 1
 
         json_track_data = {
             "type": "MultiQuantitativeTrack",
