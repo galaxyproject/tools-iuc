@@ -130,6 +130,8 @@ class JbrowseConnector(object):
 
         self.default_views = {}
 
+        self.plugins = []
+
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
 
@@ -441,9 +443,9 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         self._add_track(
             trackData["label"],
@@ -532,9 +534,9 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         self._add_track(
             trackData["label"],
@@ -568,9 +570,9 @@ class JbrowseConnector(object):
 
         style_json.update(formatdetails)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         self._add_track(
             trackData["label"],
@@ -593,9 +595,9 @@ class JbrowseConnector(object):
 
         style_json.update(formatdetails)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
             if parent['uniq_id'] not in self.tracksToIndex:
@@ -623,9 +625,9 @@ class JbrowseConnector(object):
 
         style_json.update(formatdetails)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         if gffOpts.get('index', 'false') in ("yes", "true", "True"):
             if parent['uniq_id'] not in self.tracksToIndex:
@@ -658,9 +660,9 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         self._add_track(
             trackData["label"],
@@ -681,9 +683,9 @@ class JbrowseConnector(object):
 
         style_json = self._prepare_track_style(trackData)
 
-        track_metdata = self._prepare_track_metadata(trackData)
+        track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metdata)
+        style_json.update(track_metadata)
 
         self._add_track(
             trackData["label"],
@@ -692,6 +694,71 @@ class JbrowseConnector(object):
             rel_dest,
             parent,
             config=style_json,
+        )
+
+    def add_maf(self, parent, data, trackData, mafOpts, **kwargs):
+
+        # Add needed plugin
+        plugin_def = {
+            "name": "MafViewer",
+            "url": "https://unpkg.com/jbrowse-plugin-mafviewer/dist/jbrowse-plugin-mafviewer.umd.production.min.js"
+        }
+        self.plugins.append(plugin_def)
+
+        rel_dest = os.path.join("data", trackData["label"] + ".maf")
+        dest = os.path.join(self.outdir, rel_dest)
+
+        assembly_name = mafOpts.get("assembly_name", "")
+        if not assembly_name:
+            # Guess from assembly
+            assembly_name = parent['uniq_id']
+
+        self._convert_maf(data, dest, assembly_name)
+
+        # Extract samples list
+        mafs = open(data, "r").readlines()
+        mafss = [x for x in mafs if (x.startswith("s\t") or x.startswith("s "))]
+        samp = [x.split()[1] for x in mafss if len(x.split()) > 0]
+        sampu = list(dict.fromkeys(samp))
+        samples = [x.split(".")[0] for x in sampu]
+        samples.sort()
+
+        json_track_data = {
+            "type": "MafTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": {
+                "type": "MafTabixAdapter",
+                "samples": samples,
+                "bedGzLocation": {
+                    "uri": rel_dest + ".gz",
+                },
+                "index": {
+                    "location": {
+                        "uri": rel_dest + ".gz.tbi",
+                    },
+                },
+            },
+            "category": [trackData["category"]],
+            "assemblyNames": [parent['uniq_id']],
+        }
+
+        style_json = self._prepare_track_style(trackData)
+
+        json_track_data.update(style_json)
+
+        track_metadata = self._prepare_track_metadata(trackData)
+
+        json_track_data.update(track_metadata)
+
+        self.subprocess_check_call(
+            [
+                "jbrowse",
+                "add-track-json",
+                "--target",
+                self.outdir,
+                json.dumps(json_track_data),
+            ]
         )
 
     def add_sparql(self, parent, url, query, query_refnames, trackData):
@@ -777,7 +844,7 @@ class JbrowseConnector(object):
     def _sort_gff(self, data, dest):
         # Only index if not already done
         if not os.path.exists(dest):
-            # TODO: replace with jbrowse sort-gff
+            # Not using jbrowse sort-gff because it uses sort and has the problem exposed on https://github.com/tao-bioinfo/gff3sort
             cmd = f"gff3sort.pl --precise '{data}' | grep -v \"^$\" > '{dest}'"
             self.subprocess_popen(cmd, cwd=False)
 
@@ -793,6 +860,21 @@ class JbrowseConnector(object):
 
             self.subprocess_check_call(["bgzip", "-f", dest])
             self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"])
+
+    def _convert_maf(self, data, dest, assembly_name):
+        # Only convert if not already done
+        if not os.path.exists(dest):
+
+            dest_bed = dest + ".bed"
+            cmd = ["python", os.path.join(SELF_LOCATION, "maf2bed.py"), assembly_name, data, dest_bed]
+            self.subprocess_check_call(cmd, cwd=False)
+
+            cmd = ["sort", "-k1,1", "-k2,2n", dest_bed]
+            with open(dest, "w") as handle:
+                self.subprocess_check_call(cmd, output=handle)
+
+            self.subprocess_check_call(["bgzip", "-f", dest], cwd=False)
+            self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"], cwd=False)
 
     def process_annotations(self, track, parent):
         _parent_genome = parent["label"]
@@ -877,6 +959,11 @@ class JbrowseConnector(object):
                         parent,
                         dataset_path, outputTrackConfig, track["conf"]["options"]["wiggle"]
                     )
+            elif dataset_ext == "maf":
+                self.add_maf(
+                    parent,
+                    dataset_path, outputTrackConfig, track["conf"]["options"]["maf"]
+                )
             elif dataset_ext == "bam":
                 real_indexes = track["conf"]["options"]["pileup"]["bam_indices"][
                     "bam_index"
@@ -926,7 +1013,6 @@ class JbrowseConnector(object):
             elif dataset_ext == "vcf_bgzip":
                 self.add_vcf(parent, dataset_path, outputTrackConfig, zipped=True)
             elif dataset_ext == "paf":
-                log.debug("===== PAF =====")
                 self.add_paf(
                     parent,
                     dataset_path, outputTrackConfig, track["conf"]["options"]["synteny"],
@@ -1079,6 +1165,23 @@ class JbrowseConnector(object):
         with open(config_path, "w") as config_file:
             json.dump(config_json, config_file, indent=2)
 
+    def add_plugins(self, data):
+        """
+        Add plugins to the config.json file
+        """
+
+        config_path = os.path.join(self.outdir, "config.json")
+        with open(config_path, "r") as config_file:
+            config_json = json.load(config_file)
+
+        if "plugins" not in config_json:
+            config_json["plugins"] = []
+
+        config_json["plugins"].extend(data)
+
+        with open(config_path, "w") as config_file:
+            json.dump(config_json, config_file, indent=2)
+
     def clone_jbrowse(self, jbrowse_dir, destination):
         """
             Clone a JBrowse directory into a destination directory.
@@ -1167,7 +1270,6 @@ if __name__ == "__main__":
 
         default_tracks_on = []
 
-        # TODO add metadata to tracks
         track_num = 0
         for track in assembly.findall("tracks/track"):
             track_conf = {}
@@ -1269,4 +1371,5 @@ if __name__ == "__main__":
 
     jc.add_default_session(jc.default_views)
     jc.add_general_configuration(general_data)
+    jc.add_plugins(jc.plugins)
     jc.text_index()
