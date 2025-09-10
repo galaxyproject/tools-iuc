@@ -492,7 +492,9 @@ class JbrowseConnector(object):
 
         json_track_data.update(style_json)
 
-        # TODO handle metadata somehow
+        track_metadata = self._prepare_track_metadata(trackData)
+
+        json_track_data.update(track_metadata)
 
         self.subprocess_check_call(
             [
@@ -1283,6 +1285,7 @@ if __name__ == "__main__":
             is_multi = False
             multi_paths = []
             multi_type = None
+            multi_metadata = {}
             try:
                 multi_in_xml = track.find("options/multitrack")
                 if multi_in_xml is not None and parse_style_conf(multi_in_xml):
@@ -1298,6 +1301,7 @@ if __name__ == "__main__":
                         multi_paths.append(
                             (x.attrib["label"], os.path.realpath(x.attrib["path"]))
                         )
+                        multi_metadata.update(metadata_from_node(x.find("metadata")))
                     else:
                         metadata = metadata_from_node(x.find("metadata"))
                         track_conf["trackfiles"].append(
@@ -1328,7 +1332,7 @@ if __name__ == "__main__":
                         multi_paths,  # Passing an array of paths to represent as one track
                         multi_type,  # First file type
                         multi_label,  # First file label
-                        {},  # No metadata for multiple bigwig
+                        multi_metadata,  # Mix of all metadata for multiple bigwig => only last file metadata coming from galaxy + custom oness
                     )
                 )
             track_conf["category"] = track.attrib["cat"]
