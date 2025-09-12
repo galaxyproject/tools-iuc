@@ -132,6 +132,10 @@ class JbrowseConnector(object):
 
         self.plugins = []
 
+        self.use_synteny_viewer = False
+
+        self.synteny_tracks = []
+
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
 
@@ -648,36 +652,44 @@ class JbrowseConnector(object):
         )
 
     def add_paf(self, parent, data, trackData, pafOpts, parentgenome, **kwargs):
-        # TODO: how to get both parent genomes.
 
-        # print(trackData)
+        # TODO support PIF indexing jbrowse make-pif https://github.com/GMOD/jbrowse-components/pull/3859
+
         rel_dest = os.path.join("data", trackData["label"] + ".paf")
         dest = os.path.join(self.outdir, rel_dest)
 
         self.symlink_or_copy(os.path.realpath(data), dest)
 
-        # TODO: this was disabled because it was adding spurious assemblies,
-        # when one of that name already exists.
-        # added_assembly = self.add_assembly(
-        #     pafOpts["genome"], pafOpts["genome_label"], default=False
-        # )
+        json_track_data = {
+            "type": "SyntenyTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": {
+                "type": "PAFAdapter",
+                "assemblyNames": [
+                    parentgenome,
+                    parent['uniq_id'],
+                ],
+                "pafLocation": {
+                    "uri": rel_dest,
+                }
+            },
+            "category": [trackData["category"]],
+            "assemblyNames": [
+                parentgenome,
+                parent['uniq_id'],
+            ]
+        }
 
         style_json = self._prepare_track_style(trackData)
 
+        json_track_data.update(style_json)
+
         track_metadata = self._prepare_track_metadata(trackData)
 
-        style_json.update(track_metadata)
+        json_track_data.update(track_metadata)
 
-        self._add_track(
-            trackData["label"],
-            f"{parentgenome} v {trackData['key']}",
-            trackData["category"],
-            rel_dest,
-            parent,
-            assemblies=[trackData['key'], parentgenome],
-            config=style_json,
-            trackType="SyntenyTrack",
-        )
+        self.synteny_tracks.append(json_track_data)
 
     def add_hic(self, parent, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join("data", trackData["label"] + ".hic")
@@ -794,7 +806,7 @@ class JbrowseConnector(object):
             ]
         )
 
-    def _add_track(self, id, label, category, path, assembly, config=None, trackType=None, load_action="inPlace"):
+    def _add_track(self, id, label, category, path, assembly, config=None, trackType=None, load_action="inPlace", assemblies=None):
         """
         Adds a track to config.json using Jbrowse add-track cli
 
@@ -819,7 +831,7 @@ class JbrowseConnector(object):
             "--trackId",
             id,
             "--assemblyNames",
-            assembly['uniq_id'],
+            assemblies if assemblies else assembly['uniq_id'],
         ]
 
         if config:
@@ -869,8 +881,7 @@ class JbrowseConnector(object):
             self.subprocess_check_call(["bgzip", "-f", dest], cwd=False)
             self.subprocess_check_call(["tabix", "-f", "-p", "bed", dest + ".gz"], cwd=False)
 
-    def process_annotations(self, track, parent):
-        _parent_genome = parent["label"]
+    def process_annotations(self, track, parent, previous_genome):
         category = track["category"].replace("__pd__date__pd__", TODAY)
 
         track_labels = []
@@ -1009,7 +1020,7 @@ class JbrowseConnector(object):
                 self.add_paf(
                     parent,
                     dataset_path, outputTrackConfig, track["conf"]["options"]["synteny"],
-                    _parent_genome
+                    previous_genome["uniq_id"]
                 )
             elif dataset_ext in ("hic", "juicebox_hic"):
                 self.add_hic(
@@ -1044,7 +1055,7 @@ class JbrowseConnector(object):
         # Return non-human label for use in other fields
         return track_labels
 
-    def add_default_view(self, genome, default_loc, tracks_on):
+    def add_default_view_genome(self, genome, default_loc, tracks_on):
 
         refName = ""
         start = end = None
@@ -1084,6 +1095,17 @@ class JbrowseConnector(object):
 
         return view_specs
 
+    def add_default_view_synteny(self, genome_views, synteny_tracks):
+
+        # TODO support: Updating an existing jbrowse instance, merge with pre-existing view
+        view_specs = {
+            "type": "LinearSyntenyView",
+            "views": genome_views,
+            "tracks": synteny_tracks
+        }
+
+        return view_specs
+
     def add_default_session(self, default_views):
         """
         Add some default session settings: set some assemblies/tracks on/off
@@ -1113,7 +1135,10 @@ class JbrowseConnector(object):
         https://github.com/GMOD/jbrowse-components/pull/4148
         """
 
-        session_name = ', '.join(x['init']['assembly'] for x in default_views.values())
+        if self.use_synteny_viewer:
+            session_name = "Synteny"  # TODO better name
+        else:
+            session_name = ', '.join(x['init']['assembly'] for x in default_views.values())
 
         session_spec = {
             "name": session_name,
@@ -1215,6 +1240,26 @@ def parse_style_conf(item):
         return item.text
 
 
+def validate_synteny(real_root):
+
+    # TODO check when updating an existing instance too
+
+    if len(real_root.findall('assembly/tracks/track[@format="synteny"]')) == 0:
+        # No synteny data, all good
+        return False
+
+    assemblies = real_root.findall("assembly")
+
+    if len(assemblies[0].findall('tracks/track[@format="synteny"]')) > 0:
+        raise RuntimeError("You should not set a synteny track on the first genome.")
+
+    for assembly in assemblies[1:0]:
+        if len(assembly.findall('tracks/track[@format="synteny"]')) != 1:
+            raise RuntimeError("To use the synteny viewer, you should add a synteny track to each assembly, except the first one.")
+
+    return True
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument("xml", type=argparse.FileType("r"), help="Track Configuration")
@@ -1241,6 +1286,11 @@ if __name__ == "__main__":
         update=args.update,
     )
 
+    # Synteny options are special, check them first
+    jc.use_synteny_viewer = validate_synteny(real_root)
+
+    # Keep track of previous genome for synteny tracks
+    previous_genome = None
     for assembly in real_root.findall("assembly"):
         genome_el = assembly.find('genome')
         genome = {
@@ -1343,7 +1393,7 @@ if __name__ == "__main__":
 
             track_conf["conf"] = etree_to_dict(track.find("options"))
 
-            track_labels = jc.process_annotations(track_conf, genome)
+            track_labels = jc.process_annotations(track_conf, genome, previous_genome)
 
             if track.attrib["visibility"] == "default_on":
                 for tlabel in track_labels:
@@ -1352,7 +1402,17 @@ if __name__ == "__main__":
             track_num += 1
 
         default_loc = assembly.find("defaultLocation").text
-        jc.default_views[genome['uniq_id']] = jc.add_default_view(genome, default_loc, default_tracks_on)
+
+        jc.default_views[genome['uniq_id']] = jc.add_default_view_genome(genome, default_loc, default_tracks_on)
+
+        # Keep track of previous genome for synteny tracks
+        previous_genome = genome
+
+    if jc.use_synteny_viewer:
+        synteny_view = jc.add_default_view_synteny(list(jc.default_views.values()), jc.synteny_tracks)
+        jc.default_views = {
+            'synteny': synteny_view
+        }
 
     general_data = {
         "analytics": real_root.find("metadata/general/analytics").text,
