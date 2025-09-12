@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import requests
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -300,21 +301,23 @@ class JbrowseConnector(object):
                         if "name" in assembly:
                             self.assembly_ids[assembly["name"]] = None
 
-    def add_assembly(self, path, label):
-        # Find a non-existing filename for the new genome
-        # (to avoid colision when upgrading an existing instance)
-        rel_seq_path = os.path.join("data", label)
-        seq_path = os.path.join(self.outdir, rel_seq_path)
-        fn_try = 1
-        while (
-            os.path.exists(seq_path + ".fasta")
-            or os.path.exists(seq_path + ".fasta.gz")
-            or os.path.exists(seq_path + ".fasta.gz.fai")
-            or os.path.exists(seq_path + ".fasta.gz.gzi")
-        ):
-            rel_seq_path = os.path.join("data", f"{label}{fn_try}")
+    def add_assembly(self, path, label, is_remote=False):
+
+        if not is_remote:
+            # Find a non-existing filename for the new genome
+            # (to avoid colision when upgrading an existing instance)
+            rel_seq_path = os.path.join("data", label)
             seq_path = os.path.join(self.outdir, rel_seq_path)
-            fn_try += 1
+            fn_try = 1
+            while (
+                os.path.exists(seq_path + ".fasta")
+                or os.path.exists(seq_path + ".fasta.gz")
+                or os.path.exists(seq_path + ".fasta.gz.fai")
+                or os.path.exists(seq_path + ".fasta.gz.gzi")
+            ):
+                rel_seq_path = os.path.join("data", f"{label}{fn_try}")
+                seq_path = os.path.join(self.outdir, rel_seq_path)
+                fn_try += 1
 
         # Check if the assembly already exists from a previous run (--update mode)
         if self.update:
@@ -346,39 +349,66 @@ class JbrowseConnector(object):
             uniq_label = label + str(lab_try)
             lab_try += 1
 
-        # Find a default scaffold to display
-        with open(path, "r") as fa_handle:
-            fa_header = fa_handle.readline()[1:].strip().split(" ")[0]
+        if is_remote:
 
-        self.assembly_ids[uniq_label] = fa_header
+            # Find a default scaffold to display
+            with requests.get(path + ".fai", stream=True) as response:
+                response.raise_for_status()
+                first_seq = next(response.iter_lines())
+                first_seq = first_seq.decode("utf-8").split('\t')[0]
 
-        copied_genome = seq_path + ".fasta"
-        shutil.copy(path, copied_genome)
+            self.assembly_ids[uniq_label] = first_seq
 
-        # Compress with bgzip
-        cmd = ["bgzip", copied_genome]
-        self.subprocess_check_call(cmd)
+            # We assume we just need to suffix url with .fai and .gzi for indexes.
+            # TODO make this more configurable (or not, this is advanced mode)
+            cmd_jb = [
+                "jbrowse",
+                "add-assembly",
+                "--name",
+                uniq_label,
+                "--type",
+                "bgzipFasta",
+                "--out",
+                self.outdir,
+                "--skipCheck",
+                path,  # Path is an url in remote mode
+            ]
 
-        # FAI Index
-        cmd = ["samtools", "faidx", copied_genome + ".gz"]
-        self.subprocess_check_call(cmd)
+            self.subprocess_check_call(cmd_jb)
+        else:
+            # Find a default scaffold to display
+            with open(path, "r") as fa_handle:
+                fa_header = fa_handle.readline()[1:].strip().split(" ")[0]
 
-        cmd_jb = [
-            "jbrowse",
-            "add-assembly",
-            "--load",
-            "inPlace",
-            "--name",
-            uniq_label,
-            "--type",
-            "bgzipFasta",
-            "--out",
-            self.outdir,
-            "--skipCheck",
-            rel_seq_path + ".fasta.gz",
-        ]
+            self.assembly_ids[uniq_label] = fa_header
 
-        self.subprocess_check_call(cmd_jb)
+            copied_genome = seq_path + ".fasta"
+            shutil.copy(path, copied_genome)
+
+            # Compress with bgzip
+            cmd = ["bgzip", copied_genome]
+            self.subprocess_check_call(cmd)
+
+            # FAI Index
+            cmd = ["samtools", "faidx", copied_genome + ".gz"]
+            self.subprocess_check_call(cmd)
+
+            cmd_jb = [
+                "jbrowse",
+                "add-assembly",
+                "--load",
+                "inPlace",
+                "--name",
+                uniq_label,
+                "--type",
+                "bgzipFasta",
+                "--out",
+                self.outdir,
+                "--skipCheck",
+                rel_seq_path + ".fasta.gz",
+            ]
+
+            self.subprocess_check_call(cmd_jb)
 
         return uniq_label
 
@@ -1071,7 +1101,7 @@ class JbrowseConnector(object):
                 start = int(loc_match.group(2))
                 end = int(loc_match.group(3))
 
-        if not refName and self.assembly_ids[genome['uniq_id']] is not None:
+        if not refName and self.assembly_ids[genome['uniq_id']]:
             refName = self.assembly_ids[genome['uniq_id']]
 
         if start and end:
@@ -1298,14 +1328,17 @@ if __name__ == "__main__":
     previous_genome = None
     for assembly in real_root.findall("assembly"):
         genome_el = assembly.find('genome')
+
+        is_remote = genome_el.attrib.get("remote", "false") == "true"
+
         genome = {
-            "path": os.path.realpath(genome_el.attrib["path"]),
+            "path": genome_el.attrib["path"] if is_remote else os.path.realpath(genome_el.attrib["path"]),
             "meta": metadata_from_node(genome_el.find("metadata")),
             "label": genome_el.attrib["label"],
         }
 
         log.debug("Processing genome", genome)
-        genome["uniq_id"] = jc.add_assembly(genome["path"], genome["label"])
+        genome["uniq_id"] = jc.add_assembly(genome["path"], genome["label"], is_remote)
 
         gctrack = False
         try:
