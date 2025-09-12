@@ -653,26 +653,31 @@ class JbrowseConnector(object):
 
     def add_paf(self, parent, data, trackData, pafOpts, parentgenome, **kwargs):
 
-        # TODO support PIF indexing jbrowse make-pif https://github.com/GMOD/jbrowse-components/pull/3859
+        rel_dest = os.path.join("data", trackData["label"] + ".pif.gz")
 
-        rel_dest = os.path.join("data", trackData["label"] + ".paf")
         dest = os.path.join(self.outdir, rel_dest)
 
-        self.symlink_or_copy(os.path.realpath(data), dest)
+        cmd = ["jbrowse", "make-pif", "--out", dest, os.path.realpath(data)]
+        self.subprocess_check_call(cmd)
 
         json_track_data = {
             "type": "SyntenyTrack",
             "trackId": trackData["label"],
             "name": trackData["key"],
             "adapter": {
-                "type": "PAFAdapter",
+                "type": "PairwiseIndexedPAFAdapter",
                 "assemblyNames": [
                     parentgenome,
                     parent['uniq_id'],
                 ],
-                "pafLocation": {
+                "pifGzLocation": {
                     "uri": rel_dest,
-                }
+                },
+                "index": {
+                    "location": {
+                        "uri": rel_dest + ".tbi",
+                    }
+                },
             },
             "category": [trackData["category"]],
             "assemblyNames": [
