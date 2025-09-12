@@ -1141,7 +1141,7 @@ class JbrowseConnector(object):
         """
 
         if self.use_synteny_viewer:
-            session_name = "Synteny"  # TODO better name
+            session_name = "Synteny"
         else:
             session_name = ', '.join(x['init']['assembly'] for x in default_views.values())
 
