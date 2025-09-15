@@ -7,11 +7,13 @@ import json
 import logging
 import os
 import re
-import requests
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+
+import requests
+
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("jbrowse")
