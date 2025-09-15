@@ -117,6 +117,7 @@ class findOut:
         self.bedouthilo = args.bedouthilo
         self.tableoutfile = args.tableoutfile
         self.bedwin = args.minwin
+        self.bedoutzero = args.bedoutzero
         self.qlo = None
         self.qhi = None
         if args.outbeds != "outtab":
@@ -133,7 +134,7 @@ class findOut:
             self.bwlabels += ["Nolabel"] * (nbw - nlab)
         self.makeBed()
 
-    def processVals(self, bw, isTop):
+    def processVals(self, bw, isTop, isZero):
         """
         idea from http://gregoryzynda.com/python/numpy/contiguous/interval/2019/11/29/contiguous-regions.html
         Fast segmentation into regions by taking np.diff on the boolean array of over (under) cutpoint indicators in bwex.
@@ -143,10 +144,12 @@ class findOut:
         """
         if isTop:
             bwex = np.r_[False, bw >= self.bwtop, False]  # extend with 0s
+        elif isZero:
+            bwex = np.r_[False, bw == 0, False]  # extend with 0s
         else:
             bwex = np.r_[False, bw <= self.bwbot, False]
         bwexd = np.diff(bwex)
-        bwexdnz = bwexd.nonzero()[0]
+        bwexdnz = bwexd.nonzero()[0]  # start and end transition of each segment - nice!
         bwregions = np.reshape(bwexdnz, (-1, 2))
         return bwregions
 
@@ -155,10 +158,9 @@ class findOut:
         potentially multiple
         """
         bed.sort()
-        beds = ["%s\t%d\t%d\t%s\t%d" % x for x in bed]
         with open(bedfname, "w") as bedf:
-            bedf.write("\n".join(beds))
-            bedf.write("\n")
+            for b in bed:
+                bedf.write("%s\t%d\t%d\t%s\t%d\n" % b)
 
     def makeTableRow(self, bw, bwlabel, chr):
         """
@@ -191,10 +193,10 @@ class findOut:
     def makeBed(self):
         bedhi = []
         bedlo = []
+        bedzero = []
         restab = []
         bwlabels = self.bwlabels
         bwnames = self.bwnames
-        bwnames.sort()
         reshead = "bigwig\tcontig\tn\tmean\tstd\tmin\tmax\tqtop\tqbot"
         for i, bwname in enumerate(bwnames):
             bwlabel = bwlabels[i].replace(" ", "")
@@ -231,9 +233,24 @@ class findOut:
                         + histo
                     )
                 bw = bw[~np.isnan(bw)]  # some have NaN if parts of a contig not covered
+                if self.bedoutzero is not None:
+                    bwzero = self.processVals(bw, isTop=False, isZero=True)
+                    for j, seg in enumerate(bwzero):
+                        seglen = seg[1] - seg[0]
+                        if seglen >= self.bedwin:
+                            score = seglen
+                            bedzero.append(
+                                (
+                                    chr,
+                                    seg[0],
+                                    seg[1],
+                                    "%s_%d" % (bwlabel, score),
+                                    score,
+                                )
+                            )
                 if self.qhi is not None:
                     self.bwtop = np.quantile(bw, self.qhi)
-                    bwhi = self.processVals(bw, isTop=True)
+                    bwhi = self.processVals(bw, isTop=True, isZero=False)
                     for j, seg in enumerate(bwhi):
                         seglen = seg[1] - seg[0]
                         if seglen >= self.bedwin:
@@ -249,10 +266,13 @@ class findOut:
                             )
                 if self.qlo is not None:
                     self.bwbot = np.quantile(bw, self.qlo)
-                    bwlo = self.processVals(bw, isTop=False)
+                    bwlo = self.processVals(bw, isTop=False, isZero=False)
                     for j, seg in enumerate(bwlo):
+                        seglen = seg[1] - seg[0]
                         if seg[1] - seg[0] >= self.bedwin:
-                            score = -1 * np.sum(bw[seg[0]:seg[1]]) / float(seglen)
+                            score = (
+                                -1 * np.sum(bw[seg[0]:seg[1]]) / float(seglen)
+                            )
                             bedlo.append(
                                 (
                                     chr,
@@ -279,6 +299,9 @@ class findOut:
                 t.write(stable)
                 t.write("\n")
         some = False
+        if self.outbeds in ["outzero"]:
+            self.writeBed(bedzero, self.bedoutzero)
+            some = True
         if self.qlo:
             if self.outbeds in ["outall", "outlo", "outlohi"]:
                 self.writeBed(bedlo, self.bedoutlo)
@@ -307,6 +330,7 @@ if __name__ == "__main__":
     a("--bedouthi", default=None)
     a("--bedoutlo", default=None)
     a("--bedouthilo", default=None)
+    a("--bedoutzero", default=None)
     a("-w", "--bigwig", nargs="+")
     a("-n", "--bigwiglabels", nargs="+")
     a("-o", "--outbeds", default="outhilo", help="optional high and low combined bed")

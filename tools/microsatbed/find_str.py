@@ -7,6 +7,7 @@ from pyfastx import Fastx  # 0.5.2
 """
 Allows all STR or those for a subset of motifs to be written to a bed file
 Designed to build some of the microsatellite tracks from https://github.com/arangrhie/T2T-Polish/tree/master/pattern for the VGP.
+Note that there are only four possible types of dinucleotide repeat, because CA = AC = GT = TG, GA = AG = CT = TC, AT = TA, and GC = CG.
 """
 
 
@@ -22,7 +23,7 @@ def getDensity(name, bed, chrlen, winwidth):
         bin = int(b[1] / winwidth)
         d[bin] += nt
     bedg = [
-        (name, (x * winwidth), ((x + 1) * winwidth) - 1, float(d[x]))
+        (name, (x * winwidth), ((x + 1) * winwidth), float(d[x]))
         for x in range(nwin + 1)
         if (x + 1) * winwidth <= chrlen
     ]
@@ -82,13 +83,13 @@ def write_ssrs(args):
                 cbed.append(row)
         if args.bigwig:
             w = getDensity(name, cbed, chrlen, args.winwidth)
-            wig += w
-        bed += cbed
+            wig.extend(w)
+        bed.extend(cbed)
     if args.bigwig:
         wig.sort()
-        bedg = ["%s %d %d %.2f" % x for x in wig]
         with open("temp.bedg", "w") as bw:
-            bw.write("\n".join(bedg))
+            for row in wig:
+                bw.write("%s %d %d %.2f\n" % row)
         chroms = ["%s\t%s" % (x, chrlens[x]) for x in chrlens.keys()]
         with open("temp.chromlen", "w") as cl:
             cl.write("\n".join(chroms))
@@ -96,10 +97,9 @@ def write_ssrs(args):
         subprocess.run(cmd)
     else:
         bed.sort()
-        obed = ["%s\t%d\t%d\t%s_%d\t%d" % x for x in bed]
         with open(args.bed, "w") as outbed:
-            outbed.write("\n".join(obed))
-            outbed.write("\n")
+            for row in bed:
+                outbed.write("%s\t%d\t%d\t%s_%d\t%d\n" % row)
 
 
 if __name__ == "__main__":

@@ -97,6 +97,18 @@ if (!is.null(opt$filter_unstranded)) {
     }
 }
 
+if (is.null(input_gr_to_extend$exon_id)) {
+    is.exon <- which(input_gr_to_extend$type == "exon")
+    input_gr_to_extend$exon_id <- NA
+    input_gr_to_extend$exon_id[is.exon] <- paste0(
+        "EXON",
+        sprintf(
+            "%010d",
+            1:length(is.exon)
+        )
+    )
+}
+
 # Run BREW3R.r main function
 if (length(input_gr_template) > 0) {
     new_gr_exons <- extend_granges(

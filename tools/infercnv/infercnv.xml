@@ -3,11 +3,19 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="xrefs"/>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
         #if $annotation.gene_annotation == "gtf":
+            ln -s '$gtf_file' '${gtf_file.element_identifier}.${gtf_file.ext}' &&
             ## extract gene order from gtf file
-            python '$__tool_directory__/gtf_to_position_file.py' --attribute_name $attribute '$gtf_file' 'gene_order.tabular' &&
+            python '$__tool_directory__/gtf_to_position_file.py' --attribute_name $attribute '${gtf_file.element_identifier}.${gtf_file.ext}' 'gene_order.tabular' &&
+        #end if
+        #if str($input_mat.format) == "mtx":
+            mkdir matrix_10x &&
+            ln -s '$input_mat.mtx' matrix_10x/matrix.mtx &&
+            ln -s '$input_mat.mtx_genes' matrix_10x/genes.tsv &&
+            ln -s '$input_mat.mtx_barcodes' matrix_10x/barcodes.tsv &&
         #end if
         Rscript '$infercnv_script'
     ]]></command>
@@ -15,13 +23,20 @@
         <configfile name="infercnv_script">
             # InferCNV configuration file
             # This file is used to specify the parameters for the InferCNV tool
-            
+
             # load library
             library('infercnv')
 
+            #if str($input_mat.format) == "mtx":
+            library(Seurat)
+            mtx = Read10X("matrix_10x/")
+            #else:
+            mtx = '$input_mat.raw_mtx'
+            #end if
+
             # create the infercnv object
             infercnv_obj = CreateInfercnvObject(
-                                                raw_counts_matrix='$raw_mtx', # the matrix of genes (rows) vs. cells (columns) containing the raw counts
+                                                raw_counts_matrix=mtx, # the matrix of genes (rows) vs. cells (columns) containing the raw counts
                                                 #if $annotation.gene_annotation == "gtf":
                                                     gene_order_file='gene_order.tabular', # tabular file containing the positions of each gene along each chromosome in the genome.
                                                 #end if
@@ -34,15 +49,20 @@
                                                 #end if
                                                 delim="\t",
                                                 #if $max_cell:
-                                                    max_cells_per_group = $max_cell, #maximun number of cells to use per group. Default=NULL, using all cells defined in the annotations_file. 
+                                                    max_cells_per_group = $max_cell, #maximun number of cells to use per group. Default=NULL, using all cells defined in the annotations_file.
                                                 #end if
                                                 #if $max_count:
-                                                    min_max_counts_per_cell = c($min_count, $max_count), # minimum and maximum counts allowed per cell. Any cells outside this range will be removed from the counts matrix. 
+                                                    min_max_counts_per_cell = c($min_count, $max_count), # minimum and maximum counts allowed per cell. Any cells outside this range will be removed from the counts matrix.
                                                 #else
                                                     min_max_counts_per_cell = c($min_count, +Inf),
                                                 #end if
                                                 chr_exclude = c($chr_exclude) # chromosomes to exclude from the analysis
                                                 )
+
+            num_threads = as.numeric(Sys.getenv("GALAXY_SLOTS"))
+            if (is.na(num_threads) || nchar(num_threads) == 0) {
+                num_threads = 1
+            }
 
             # perform infercnv operations to reveal cnv signal
             infercnv_obj = infercnv::run(
@@ -53,6 +73,9 @@
                                 num_ref_groups = NULL, # keep this as default
                                 ref_subtract_use_mean_bounds = TRUE, # keep this as default
 
+                                # Control number of threads for multiprocessesor use
+                                num_threads = num_threads,
+
                                 ## Smoothing params
                                 window_length = $window_length,
                                 smooth_method = "$smooth_method",
@@ -60,10 +83,10 @@
                                 ## Clustering params
                                 cluster_by_groups = $cluster_by_groups,
                                 cluster_references = $cluster_references,
-                                k_obs_groups = $k_obs_groups, 
+                                k_obs_groups = $k_obs_groups,
                                 hclust_method = "$hclust_method",
                                 max_centered_threshold = 3, # keep this as default
-                                scale_data = $scale_data, 
+                                scale_data = $scale_data,
 
                                 ## HMM params
                                 HMM= $HMM,
@@ -114,7 +137,7 @@
                                 plot_steps = FALSE, # keep this as default
                                 inspect_subclusters = TRUE, # keep this as default
                                 resume_mode = TRUE, # keep this as default
-                                png_res = $png_res, 
+                                png_res = $png_res,
                                 plot_probabilities = TRUE, # keep this as default
                                 save_rds = TRUE, # keep this as default
                                 save_final_rds = TRUE, # keep this as default
@@ -142,9 +165,9 @@
             #if str($median_filter) == "true":
                 infercnv_obj_medianfiltered = infercnv::apply_median_filtering(infercnv_obj)
 
-                infercnv::plot_cnv(infercnv_obj_medianfiltered, 
+                infercnv::plot_cnv(infercnv_obj_medianfiltered,
                                 out_dir='output',
-                                output_filename='infercnv.median_filtered', 
+                                output_filename='infercnv.median_filtered',
                                 obs_title = "Observations (Cells)", # keep this as default
                                 ref_title = "References (Cells)", # keep this as default
                                 cluster_by_groups = TRUE, # keep this as default
@@ -155,7 +178,7 @@
                                 contig_cex = 1, # keep this as default
                                 x.center = mean(infercnv_obj@expr.data), # keep this as default
                                 x.range = "auto", # keep this as default
-                                hclust_method = "$hclust_method", 
+                                hclust_method = "$hclust_method",
                                 custom_color_pal = NULL, # keep this as default
                                 color_safe_pal = FALSE, # keep this as default
                                 png_res = $png_res,
@@ -169,7 +192,20 @@
         </configfile>
     </configfiles>
     <inputs>
-        <param name="raw_mtx" type="data" format="tabular" label="Raw counts matrix" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+        <conditional name="input_mat">
+            <param name="format" type="select" label="Matrix format">
+                <option value="tsv">Tabular (non-sparse matrix)</option>
+                <option value="mtx" selected="true">10x sparse matrix</option>
+            </param>
+            <when value="tsv">
+                <param name="raw_mtx" type="data" format="tabular" label="Raw counts matrix" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+            </when>
+            <when value="mtx">
+                <param name="mtx" type="data" format="mtx,tabular,txt" label="Raw counts matrix (matrix market)" help="The matrix of genes (rows) vs. cells (columns) containing the raw counts" />
+                <param name="mtx_genes" type="data" format="tabular,txt" label="Genes file" help="The genes file for matrix market matrix, a two column symbol - symbol or gene_id - symbol tab separated file" />
+                <param name="mtx_barcodes" type="data" format="tabular,txt" label="Barcodes file" help="The barcodes file for matrix market matrix, a single column file with the cell/barcode identifiers"/>
+            </when>
+        </conditional>
         <conditional name="annotation">
             <param name="gene_annotation" type="select" label="Gene annotation">
                 <option value="local">Use a gene order file: </option>
@@ -192,9 +228,9 @@
         </conditional>
         <param name="cell_annotations" type="data" format="tabular" label="Cell annotations file" help="A description of the cells, indicating the cell type classifications" />
         <param name="ref_group" type="text" label="Reference group names" optional="true" help="A vector containing the classifications of the reference (normal) cells to use for infering cnv">
-        <sanitizer>
-            <valid initial="string.printable"></valid>
-        </sanitizer>
+            <sanitizer>
+                <valid initial="string.printable"></valid>
+            </sanitizer>
         </param>
         <section name="advanced" title="Advanced parameters">
             <param name="max_cell" type="integer" min="0" optional="true" label="Maximun number of cells to use per group."/>
@@ -298,23 +334,36 @@
             <discover_datasets pattern="(?P&lt;name&gt;.+)\.png$" format="png" directory="output"/>
         </collection>
         <data name="gene_order" format="tabular" label="Gene order file" from_work_dir="gene_order.tabular">
-        <filter>annotation['gene_annotation'] == 'gtf'</filter>
+            <filter>annotation['gene_annotation'] == 'gtf'</filter>
         </data>
     </outputs>
     <tests>
         <test expect_num_outputs="2">
-            <param name="raw_mtx" value="raw_counts_matrix.tabular"/>
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="raw_counts_matrix.tabular"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="local"/>
                 <param name="gene_order" value="gene_order_file.tabular"/>
             </conditional>
             <param name="cell_annotations" value="annotations_file.tabular" />
             <param name="ref_group" value="&quot;normal&quot;" />
-            <param name="cutoff" value="1" />
-            <param name="cluster_by_groups" value="TRUE" />
-            <param name="HMM" value="TRUE" />
-            <param name="denoise" value="TRUE" />
-            <param name="analysis_mode" value="subclusters" />
+            <section name="advanced">
+                <param name="cutoff" value="1" />
+                <section name="clustering">
+                    <param name="cluster_by_groups" value="TRUE"/>
+                </section>
+                <section name="HMM">
+                    <param name="HMM" value="TRUE" />
+                </section>
+                <section name="denoise">
+                    <param name="denoise" value="TRUE" />
+                </section>
+                <section name="tumor_subclustering">
+                    <param name="analysis_mode" value="subclusters" />
+                </section>
+            </section>
             <output_collection name="infercnv_results" type="list">
                 <element name="infercnv.heatmap_thresholds" file="output/test1_infercnv.heatmap_thresholds.txt" ftype="tabular">
                     <assert_contents>
@@ -350,18 +399,93 @@
             </output_collection>
         </test>
         <test expect_num_outputs="2">
-            <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            <conditional name="input_mat">
+                <param name="format" value="mtx"/>
+                <param name="mtx" value="matrix.mtx"/>
+                <param name="mtx_genes" value="genes.tsv"/>
+                <param name="mtx_barcodes" value="barcodes.tsv"/>
+            </conditional>
+            <conditional name="annotation">
+                <param name="gene_annotation" value="local"/>
+                <param name="gene_order" value="gene_order_file.tabular"/>
+            </conditional>
+            <param name="cell_annotations" value="annotations_file.tabular" />
+            <param name="ref_group" value="&quot;normal&quot;" />
+            <section name="advanced">
+                <param name="cutoff" value="1" />
+                <section name="clustering">
+                    <param name="cluster_by_groups" value="TRUE"/>
+                </section>
+                <section name="HMM">
+                    <param name="HMM" value="TRUE" />
+                </section>
+                <section name="denoise">
+                    <param name="denoise" value="TRUE" />
+                </section>
+                <section name="tumor_subclustering">
+                    <param name="analysis_mode" value="subclusters" />
+                </section>
+            </section>
+            <output_collection name="infercnv_results" type="list">
+                <element name="infercnv.heatmap_thresholds" file="output/test1_infercnv.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="0.576008315090849"/>
+                        <has_text text="0.902155765020965"/>
+                        <has_text text="1.16307372496506"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv.observation_groupings" file="output/test1_infercnv.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="&quot;Dendrogram Group&quot; &quot;Dendrogram Color&quot; &quot;Annotation Group&quot; &quot;Annotation Color&quot;"/>
+                        <has_text text="tumor_grp_1_cell_5"/>
+                        <has_text text="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.heatmap_thresholds" file="output/test1_infercnv_subclusters.heatmap_thresholds.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="0.792686678669785"/>
+                        <has_text_matching expression="0.919329314347129"/>
+                        <has_text_matching expression="1.29925722137916"/>
+                    </assert_contents>
+                </element>
+                <element name="infercnv_subclusters.observation_groupings" file="output/test1_infercnv_subclusters.observation_groupings.txt" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="tumor_grp_1_cell_7"/>
+                        <has_text_matching expression="#8DD3C7"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="infercnv_plots" type="list">
+                <element name="infercnv" file="output/test1_infercnv.png" ftype="png" compare="sim_size"/>
+                <element name="infercnv_subclusters" file="output/test1_infercnv_subclusters.png" ftype="png" compare="sim_size"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="local"/>
                 <param name="gene_order" value="gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt"/>
             </conditional>
             <param name="cell_annotations" value="oligodendroglioma_annotations_downsampled.txt" />
             <param name="ref_group" value="&quot;Microglia/Macrophage&quot;, &quot;Oligodendrocytes (non-malignant)&quot;" />
-            <param name="cutoff" value="1" />
-            <param name="cluster_by_groups" value="TRUE" />
-            <param name="HMM" value="TRUE" />
-            <param name="denoise" value="TRUE" />
-            <param name="analysis_mode" value="subclusters" />
+            <section name="advanced">
+                <param name="cutoff" value="1" />
+                <section name="clustering">
+                    <param name="cluster_by_groups" value="TRUE"/>
+                </section>
+                <section name="HMM">
+                    <param name="HMM" value="TRUE" />
+                </section>
+                <section name="denoise">
+                    <param name="denoise" value="TRUE" />
+                </section>
+                <section name="tumor_subclustering">
+                    <param name="analysis_mode" value="subclusters" />
+                </section>
+            </section>
             <output_collection name="infercnv_results" type="list">
                 <element name="infercnv.heatmap_thresholds" file="output/test2_infercnv.heatmap_thresholds.txt" ftype="tabular">
                     <assert_contents>
@@ -397,18 +521,29 @@
             </output_collection>
         </test>
         <test expect_num_outputs="2">
-            <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="local"/>
                 <param name="gene_order" value="gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt"/>
             </conditional>
             <param name="cell_annotations" value="oligodendroglioma_annotations_downsampled.txt" />
             <param name="ref_group" value="&quot;Microglia/Macrophage&quot;, &quot;Oligodendrocytes (non-malignant)&quot;" />
-            <param name="cutoff" value="1" />
-            <param name="cluster_by_groups" value="TRUE" />
-            <param name="denoise" value="TRUE" />
-            <param name="analysis_mode" value="subclusters" />
-            <param name="median_filter" value="true" />
+            <section name="advanced">
+                <param name="cutoff" value="1" />
+                <section name="clustering">
+                    <param name="cluster_by_groups" value="TRUE"/>
+                </section>
+                <section name="denoise">
+                    <param name="denoise" value="TRUE" />
+                    <param name="median_filter" value="true" />
+                </section>
+                <section name="tumor_subclustering">
+                    <param name="analysis_mode" value="subclusters" />
+                </section>
+            </section>
             <output_collection name="infercnv_results" type="list">
                 <element name="infercnv.heatmap_thresholds" file="output/test2_infercnv.heatmap_thresholds.txt" ftype="tabular">
                     <assert_contents>
@@ -445,7 +580,10 @@
             </output_collection>
         </test>
         <test expect_num_outputs="3">
-            <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            <conditional name="input_mat">
+                <param name="format" value="tsv"/>
+                <param name="raw_mtx" value="oligodendroglioma_expression_downsampled.counts.matrix.gz"/>
+            </conditional>
             <conditional name="annotation">
                 <param name="gene_annotation" value="gtf"/>
                 <param name="gtf_file" value="test.gtf.gz"/>
@@ -453,9 +591,15 @@
             </conditional>
             <param name="cell_annotations" value="oligodendroglioma_annotations_downsampled.txt" />
             <param name="ref_group" value="&quot;Microglia/Macrophage&quot;, &quot;Oligodendrocytes (non-malignant)&quot;" />
-            <param name="cutoff" value="1" />
-            <param name="cluster_by_groups" value="TRUE" />
-            <param name="analysis_mode" value="subclusters" />
+            <section name="advanced">
+                <param name="cutoff" value="1" />
+                <section name="clustering">
+                    <param name="cluster_by_groups" value="TRUE"/>
+                </section>
+                <section name="tumor_subclustering">
+                    <param name="analysis_mode" value="subclusters" />
+                </section>
+            </section>
             <output_collection name="infercnv_results" type="list">
                 <element name="infercnv.heatmap_thresholds" file="output/test4_infercnv.heatmap_thresholds.txt" ftype="tabular">
                     <assert_contents>
@@ -490,22 +634,22 @@ InferCNV is compatible with both smart-seq2 and 10x single cell transcriptome da
 The format might look like so:
 
 ========    =============   =============   =============   =============   =============   ================
-,           MGH54_P16_F12   MGH54_P12_C10   MGH54_P11_C11   MGH54_P15_D06   MGH54_P16_A03   ...   
+,           MGH54_P16_F12   MGH54_P12_C10   MGH54_P11_C11   MGH54_P15_D06   MGH54_P16_A03   ...
 --------    -------------   -------------   -------------   -------------   -------------   ----------------
-A2M         0               0               0               0               0               ...   
+A2M         0               0               0               0               0               ...
 --------    -------------   -------------   -------------   -------------   -------------   ----------------
-A4GALT      0               0               0               0               0               ...   
+A4GALT      0               0               0               0               0               ...
 --------    -------------   -------------   -------------   -------------   -------------   ----------------
-AAAS        0               37              30              21              0               ...   
+AAAS        0               37              30              21              0               ...
 --------    -------------   -------------   -------------   -------------   -------------   ----------------
-AACS        0               0               0               0               2               ...   
+AACS        0               0               0               0               2               ...
 --------    -------------   -------------   -------------   -------------   -------------   ----------------
-AADAT       0               0               0               0               0               ...   
+AADAT       0               0               0               0               0               ...
 --------    -------------   -------------   -------------   -------------   -------------   ----------------
-...         ...             ...             ...             ...             ...             ...   
+...         ...             ...             ...             ...             ...             ...
 ========    =============   =============   =============   =============   =============   ================
 
-The matrix can be provided as a tabular file.  (sparse matrices are also supported)
+The matrix can be provided as a tabular file, or ideally, as a 10x matrix market (sparse) format, as what the Seurat Read10x method expects (matrix.mtx, genes.tsv, barcodes.tsv).
 
 
 **Sample annotation file**
@@ -560,7 +704,7 @@ UBE2J2          chr1    1189289 1209265
 
 .. class:: infomark
 
-Every gene in the counts matrix to be analyzed should have the corresponding gene name and location info provided in this gene ordering file. 
+Every gene in the counts matrix to be analyzed should have the corresponding gene name and location info provided in this gene ordering file.
 
 
 .. class:: infomark
@@ -590,7 +734,7 @@ Note, only those genes that exist in both the counts matrix and the gene orderin
 
 .. class:: infomark
 
-**Note:** 
+**Note:**
 By default, inferCNV operates at the level of whole samples, such as all cells defined as a certain cell type derived from a single patient. This is the fastest way to run inferCNV, but often not the optimal way, as a given tumor sample may have subpopulations with varied patterns of CNV.
 By setting "analysis_mode" to "subclusters", inferCNV will attempt to partition cells into groups having consistent patterns of CNV. CNV prediction (via HMM) would then be performed at the level of the subclusters rather than whole samples.
 
