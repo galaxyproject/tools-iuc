@@ -137,10 +137,10 @@ class JbrowseConnector(object):
 
         self.synteny_tracks = []
 
+        self.clone_jbrowse(self.jbrowse, self.outdir)
+
         # If upgrading, look at the existing data
         self.check_existing(self.outdir)
-
-        self.clone_jbrowse(self.jbrowse, self.outdir)
 
     def get_cwd(self, cwd):
         if cwd:
@@ -295,7 +295,55 @@ class JbrowseConnector(object):
                 if "assemblies" in conf:
                     for assembly in conf["assemblies"]:
                         if "name" in assembly:
-                            self.assembly_ids[assembly["name"]] = None
+
+                            # Look for a default scaffold
+                            default_seq = None
+                            if 'defaultSession' in conf and 'views' in conf['defaultSession']:
+                                for view in conf['defaultSession']['views']:
+                                    if 'init' in view and 'assembly' in view['init'] and 'loc' in view['init']:
+                                        if view['init']['assembly'] == assembly["name"]:
+                                            default_seq = view['init']['loc'].split(":")[0]
+                                    if "views" in view:
+                                        subviews = view["views"]
+                                        for subview in subviews:
+                                            if 'init' in subview and 'assembly' in subview['init'] and 'loc' in subview['init']:
+                                                if subview['init']['assembly'] == assembly["name"]:
+                                                    default_seq = subview['init']['loc'].split(":")[0]
+
+                            self.assembly_ids[assembly["name"]] = default_seq
+
+    def _load_old_genome_views(self):
+
+        views = {}
+
+        config_path = os.path.join(self.outdir, "config.json")
+        with open(config_path, "r") as config_file:
+            config_json = json.load(config_file)
+
+            # Find default synteny views existing from a previous jbrowse dataset
+            if 'defaultSession' in config_json and 'views' in config_json['defaultSession']:
+                for view in config_json['defaultSession']['views']:
+                    if view['type'] != "LinearSyntenyView":
+                        if 'init' in view and 'assembly' in view['init']:
+                            views[view['init']['assembly']] = view
+
+        return views
+
+    def _load_old_synteny_views(self):
+
+        views = []
+
+        config_path = os.path.join(self.outdir, "config.json")
+        with open(config_path, "r") as config_file:
+            config_json = json.load(config_file)
+
+            # Find default synteny views existing from a previous jbrowse dataset
+            if 'defaultSession' in config_json and 'views' in config_json['defaultSession']:
+                for view in config_json['defaultSession']['views']:
+                    if view['type'] == "LinearSyntenyView":
+                        views.append(view)
+
+        return views
 
     def add_assembly(self, path, label, is_remote=False):
 
@@ -324,15 +372,15 @@ class JbrowseConnector(object):
 
                 for asby in config_json['assemblies']:
                     if asby['name'] == label:
-                        log.info("Found existing assembly from existing JBrowse2 instance, preserving it")
-
-                        self.assembly_ids[label] = ""
 
                         # Find default views existing for this assembly
                         if 'defaultSession' in config_json and 'views' in config_json['defaultSession']:
                             for view in config_json['defaultSession']['views']:
                                 if 'init' in view and 'assembly' in view['init']:
                                     if view['init']['assembly'] == label:
+
+                                        log.info("Found existing assembly from existing JBrowse2 instance, preserving it")
+
                                         self.default_views[view['init']['assembly']] = view
 
                         return label
@@ -356,7 +404,6 @@ class JbrowseConnector(object):
             self.assembly_ids[uniq_label] = first_seq
 
             # We assume we just need to suffix url with .fai and .gzi for indexes.
-            # TODO make this more configurable (or not, this is advanced mode)
             cmd_jb = [
                 "jbrowse",
                 "add-assembly",
@@ -543,8 +590,6 @@ class JbrowseConnector(object):
                 json.dumps(json_track_data),
             ]
         )
-
-        # TODO support remote
 
     # Anything ending in "am" (Bam or Cram)
     def add_xam(self, parent, data, trackData, xamOpts, index=None, ext="bam", **kwargs):
@@ -1197,15 +1242,17 @@ class JbrowseConnector(object):
             loc_str = refName
 
         # Updating an existing jbrowse instance, merge with pre-existing view
+        view_specs = None
         if self.update:
             for existing in self.default_views.values():
-                if existing['init']['assembly'] == genome['uniq_id']:
-                    view_specs = existing
-                    if loc_str:
-                        view_specs['init']['loc'] = loc_str
-                    view_specs['init']['tracks'].extend(tracks_on)
+                if len(existing) and existing["type"] == "LinearGenomeView":
+                    if existing['init']['assembly'] == genome['uniq_id']:
+                        view_specs = existing
+                        if loc_str:
+                            view_specs['init']['loc'] = loc_str
+                        view_specs['init']['tracks'].extend(tracks_on)
 
-        else:
+        if view_specs is None:  # Not updating, or updating from synteny
             view_specs = {
                 "type": "LinearGenomeView",
                 "init": {
@@ -1218,8 +1265,6 @@ class JbrowseConnector(object):
         return view_specs
 
     def add_default_view_synteny(self, genome_views, synteny_tracks):
-
-        # TODO support: Updating an existing jbrowse instance, merge with pre-existing view
 
         # Add json for cached synteny tracks
         # We cache them because we need to know the target genome uniq_id
@@ -1307,11 +1352,11 @@ class JbrowseConnector(object):
         if self.use_synteny_viewer:
             session_name = "Synteny"
         else:
-            session_name = ', '.join(x['init']['assembly'] for x in default_views.values())
+            session_name = ', '.join(x['init']['assembly'] for x in default_views)
 
         session_spec = {
             "name": session_name,
-            "views": list(default_views.values())
+            "views": default_views
         }
 
         config_path = os.path.join(self.outdir, "config.json")
@@ -1410,8 +1455,6 @@ def parse_style_conf(item):
 
 
 def validate_synteny(real_root):
-
-    # TODO check when updating an existing instance too
 
     if len(real_root.findall('assembly/tracks/track[@format="synteny"]')) == 0:
         # No synteny data, all good
@@ -1582,9 +1625,18 @@ if __name__ == "__main__":
 
     if jc.use_synteny_viewer:
         synteny_view = jc.add_default_view_synteny(list(jc.default_views.values()), jc.synteny_tracks)
-        jc.default_views = {
-            'synteny': synteny_view
-        }
+
+        views_for_session = jc._load_old_synteny_views()
+
+        views_for_session.append(synteny_view)
+    else:
+        old_views = jc._load_old_genome_views()
+
+        for old_view in old_views:
+            if old_view not in jc.default_views:
+                jc.default_views[old_view] = old_views[old_view]
+
+        views_for_session = list(jc.default_views.values())
 
     general_data = {
         "analytics": real_root.find("metadata/general/analytics").text,
@@ -1595,7 +1647,7 @@ if __name__ == "__main__":
         "font_size": real_root.find("metadata/general/font_size").text,
     }
 
-    jc.add_default_session(jc.default_views)
+    jc.add_default_session(views_for_session)
     jc.add_general_configuration(general_data)
     jc.add_plugins(jc.plugins)
     jc.text_index()
