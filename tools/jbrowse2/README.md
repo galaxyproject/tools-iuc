@@ -88,5 +88,3 @@ Now you can access your Planemo Galaxy instance at 2 adresses:
 - Support SV inspector/spreadsheet views
 - Investigate using CSI indexing instead of TBI for large chromosomes (https://github.com/GMOD/jbrowse-components/issues/4565#issuecomment-2361153737)
 - Synteny: add support for .out (MashMap) .chain (UCSC), .delta (mummer) and .anchors (mcscan) inputs
-- Support refNameAliases for assemblies
-- Support cytobands for assemblies

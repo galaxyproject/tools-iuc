@@ -347,7 +347,7 @@ class JbrowseConnector(object):
 
         return views
 
-    def add_assembly(self, path, label, is_remote=False):
+    def add_assembly(self, path, label, is_remote=False, cytobands=None, ref_name_aliases=None):
 
         if not is_remote:
             # Find a non-existing filename for the new genome
@@ -387,6 +387,18 @@ class JbrowseConnector(object):
 
                         return label
 
+        # Copy ref alias file if any
+        if ref_name_aliases:
+            copied_ref_name_aliases = seq_path + ".aliases"
+            shutil.copy(ref_name_aliases, copied_ref_name_aliases)
+            copied_ref_name_aliases = rel_seq_path + ".aliases"
+
+        # Copy cytobands file if any
+        if cytobands:
+            copied_cytobands = seq_path + ".cytobands"
+            shutil.copy(cytobands, copied_cytobands)
+            copied_cytobands = rel_seq_path + ".cytobands"
+
         # Find a non-existing label for the new genome
         # (to avoid colision when upgrading an existing instance)
         lab_try = 1
@@ -416,8 +428,15 @@ class JbrowseConnector(object):
                 "--out",
                 self.outdir,
                 "--skipCheck",
-                path,  # Path is an url in remote mode
             ]
+
+            if ref_name_aliases:
+                cmd_jb.extend([
+                    "--refNameAliases",
+                    copied_ref_name_aliases,
+                ])
+
+            cmd_jb.append(path)  # Path is an url in remote mode
 
             self.subprocess_check_call(cmd_jb)
         else:
@@ -450,12 +469,49 @@ class JbrowseConnector(object):
                 "--out",
                 self.outdir,
                 "--skipCheck",
-                rel_seq_path + ".fasta.gz",
             ]
+
+            if ref_name_aliases:
+                cmd_jb.extend([
+                    "--refNameAliases",
+                    copied_ref_name_aliases,
+                ])
+
+            cmd_jb.append(rel_seq_path + ".fasta.gz")
 
             self.subprocess_check_call(cmd_jb)
 
+        if cytobands:
+            self.add_cytobands(uniq_label, copied_cytobands)
+
         return uniq_label
+
+    def add_cytobands(self, assembly_name, cytobands_path):
+
+        config_path = os.path.join(self.outdir, "config.json")
+        with open(config_path, "r") as config_file:
+            config_json = json.load(config_file)
+
+        config_data = {}
+
+        config_data["cytobands"] = {
+            "adapter": {
+                "type": "CytobandAdapter",
+                "cytobandLocation": {
+                    "uri": cytobands_path
+                }
+            }
+        }
+
+        filled_assemblies = []
+        for assembly in config_json["assemblies"]:
+            if assembly["name"] == assembly_name:
+                assembly.update(config_data)
+            filled_assemblies.append(assembly)
+        config_json["assemblies"] = filled_assemblies
+
+        with open(config_path, "w") as config_file:
+            json.dump(config_json, config_file, indent=2)
 
     def text_index(self):
 
@@ -1514,16 +1570,18 @@ if __name__ == "__main__":
             "label": genome_el.attrib["label"],
         }
 
-        log.debug("Processing genome", genome)
-        genome["uniq_id"] = jc.add_assembly(genome["path"], genome["label"], is_remote)
+        cytobands = None
+        cytobands_el = genome_el.find("cytobands")
+        if cytobands_el is not None and "path" in cytobands_el.attrib:
+            cytobands = cytobands_el.attrib["path"]
 
-        gctrack = False
-        try:
-            gctrack_in_xml = assembly.find("options/gctrack")
-            if gctrack_in_xml is not None and parse_style_conf(gctrack_in_xml):
-                gctrack = True
-        except KeyError:
-            pass
+        ref_name_aliases = None
+        ref_name_aliases_el = genome_el.find("ref_name_aliases")
+        if ref_name_aliases_el is not None and "path" in ref_name_aliases_el.attrib:
+            ref_name_aliases = ref_name_aliases_el.attrib["path"]
+
+        log.debug("Processing genome", genome)
+        genome["uniq_id"] = jc.add_assembly(genome["path"], genome["label"], is_remote, cytobands, ref_name_aliases)
 
         default_tracks_on = []
 
