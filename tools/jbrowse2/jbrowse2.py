@@ -189,7 +189,7 @@ class JbrowseConnector(object):
 
     def _prepare_track_style(self, xml_conf):
         style_data = {
-            "type": "LinearBasicDisplay",  # TODO choose a better default?
+            "type": "LinearBasicDisplay",  # No ideal default, but should be overwritten anyway
         }
 
         if "display" in xml_conf["style"]:
@@ -979,7 +979,7 @@ class JbrowseConnector(object):
         if query_refnames:
             json_track_data["adapter"]["refNamesQueryTemplate"]: query_refnames
 
-        # TODO handle metadata somehow
+        # TODO handle metadata somehow for sparql too
 
         self.subprocess_check_call(
             [
@@ -1238,7 +1238,7 @@ class JbrowseConnector(object):
                     outputTrackConfig,
                     zipped=True
                 )
-            elif dataset_ext == "paf":
+            elif dataset_ext == "paf":  # https://fr.wikipedia.org/wiki/Paf_le_chien
                 self.add_paf(
                     parent,
                     dataset_path,
