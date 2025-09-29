@@ -113,6 +113,8 @@ def main():
                         output_handle.write("STUDY\t" + study_accession + "\n")
                         output_handle.write("SAMPLE\t" + sample_accession + "\n")
                         output_handle.write("FASTA\t" + sample_alias + '.fasta.gz' + "\n")
+                        output_handle.write("AGP\t" + sample_alias + '.agp' + "\n")
+                        output_handle.write("CHROMOSOME_LIST\t" + sample_alias + '.tsv' + "\n")
 
                     found_metadata = True
                     written_manifests_out.write(manifest_path + '\n')
