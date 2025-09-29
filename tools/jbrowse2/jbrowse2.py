@@ -826,42 +826,66 @@ class JbrowseConnector(object):
 
             adapter = "pif"
 
-        json_track_data = {
-            "type": "SyntenyTrack",
-            "trackId": trackData["label"],
-            "name": trackData["key"],
-            "adapter": {
+        if trackData["style"]["display"] == "LinearBasicDisplay":
+            # Normal style track
+
+            json_track_data = {
+                "type": "SyntenyTrack",
+                "trackId": trackData["label"],
+                "name": trackData["key"],
+                "adapter": {
+                    "type": "PairwiseIndexedPAFAdapter",
+                    "pifGzLocation": {
+                        "uri": rel_dest,
+                    },
+                    "index": {
+                        "location": {
+                            "uri": rel_dest + ".tbi",
+                        }
+                    },
+                },
+                "category": [trackData["category"]],
+                "assemblyNames": [parent['uniq_id']],
+            }
+        else:
+            # Synteny viewer
+
+            json_track_data = {
+                "type": "SyntenyTrack",
+                "trackId": trackData["label"],
+                "name": trackData["key"],
+                "adapter": {
+                    "assemblyNames": [
+                        parent['uniq_id'],
+                        "",  # Placeholder until we know the next genome id
+                    ],
+                },
+                "category": [trackData["category"]],
                 "assemblyNames": [
                     parent['uniq_id'],
                     "",  # Placeholder until we know the next genome id
-                ],
-            },
-            "category": [trackData["category"]],
-            "assemblyNames": [
-                parent['uniq_id'],
-                "",  # Placeholder until we know the next genome id
-            ]
-        }
+                ]
+            }
 
-        if adapter == "pif":
-            json_track_data["adapter"].update({
-                "type": "PairwiseIndexedPAFAdapter",
-                "pifGzLocation": {
-                    "uri": rel_dest,
-                },
-                "index": {
-                    "location": {
-                        "uri": rel_dest + ".tbi",
-                    }
-                },
-            })
-        else:
-            json_track_data["adapter"].update({
-                "type": "PAFAdapter",
-                "pafLocation": {
-                    "uri": rel_dest,
-                },
-            })
+            if adapter == "pif":
+                json_track_data["adapter"].update({
+                    "type": "PairwiseIndexedPAFAdapter",
+                    "pifGzLocation": {
+                        "uri": rel_dest,
+                    },
+                    "index": {
+                        "location": {
+                            "uri": rel_dest + ".tbi",
+                        }
+                    },
+                })
+            else:
+                json_track_data["adapter"].update({
+                    "type": "PAFAdapter",
+                    "pafLocation": {
+                        "uri": rel_dest,
+                    },
+                })
 
         style_json = self._prepare_track_style(trackData)
 
@@ -871,7 +895,18 @@ class JbrowseConnector(object):
 
         json_track_data.update(track_metadata)
 
-        self.synteny_tracks.append(json_track_data)
+        if trackData["style"]["display"] == "LinearBasicDisplay":
+            self.subprocess_check_call(
+                [
+                    "jbrowse",
+                    "add-track-json",
+                    "--target",
+                    self.outdir,
+                    json.dumps(json_track_data),
+                ]
+            )
+        else:
+            self.synteny_tracks.append(json_track_data)
 
     def add_hic(self, parent, data, trackData, hicOpts, **kwargs):
         if trackData['remote']:
@@ -1520,11 +1555,13 @@ def validate_synteny(real_root):
 
     assemblies = real_root.findall("assembly")
 
-    if len(assemblies[-1].findall('tracks/track[@format="synteny"]')) > 0:
+    if len(assemblies[-1].findall('tracks/track[@format="synteny"]')) > 0 and \
+       assemblies[-1].find('tracks/track[@format="synteny"]/options/style/display').text == "LinearSyntenyDisplay":
         raise RuntimeError("You should not set a synteny track on the last genome.")
 
     for assembly in assemblies[1:0]:
-        if len(assembly.findall('tracks/track[@format="synteny"]')) != 1:
+        if len(assembly.findall('tracks/track[@format="synteny"]')) != 1 and \
+           assembly.find('tracks/track[@format="synteny"]/options/style/display').text == "LinearSyntenyDisplay":
             raise RuntimeError("To use the synteny viewer, you should add a synteny track to each assembly, except the last one.")
 
     return True
