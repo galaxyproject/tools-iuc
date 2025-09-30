@@ -83,7 +83,7 @@ Now you can access your Planemo Galaxy instance at 2 adresses:
 ## TODO list
 
 - Support more display options (bug: https://github.com/GMOD/jbrowse-components/issues/5148)
-- Reimplement auto coloring of features
+- Reimplement auto coloring of features (custom plugin like https://jbrowse.org/jb2/docs/config_guides/customizing_feature_colors/ ?)
 - Support more plugins from https://jbrowse.org/jb2/plugin_store/
 - Support Circular view
 - Support SV inspector/spreadsheet views
