@@ -116,9 +116,9 @@ def main():
                         agp_path = os.path.join("./fasta", sample_alias + ".agp")
                         if os.path.exists(agp_path):
                             output_handle.write("AGP\t" + sample_alias + ".agp\n")
-                        chr_list_path = os.path.join("./fasta", sample_alias + ".tsv")
+                        chr_list_path = os.path.join("./fasta", sample_alias + ".tsv.gz")
                         if os.path.exists(chr_list_path):
-                            output_handle.write("CHROMOSOME_LIST\t" + sample_alias + ".tsv\n")
+                            output_handle.write("CHROMOSOME_LIST\t" + sample_alias + ".tsv.gz\n")
 
                     found_metadata = True
                     written_manifests_out.write(manifest_path + '\n')
