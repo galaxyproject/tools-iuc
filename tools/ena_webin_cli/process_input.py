@@ -115,6 +115,14 @@ def main():
                         output_handle.write("FASTA\t" + sample_alias + '.fasta.gz' + "\n")
                         output_handle.write("AGP\t" + sample_alias + '.agp' + "\n")
                         output_handle.write("CHROMOSOME_LIST\t" + sample_alias + '.tsv' + "\n")
+                        output_handle.write("FASTA\t" + sample_alias + '.fasta.gz' + "\n")
+                        agp_path = os.path.join("./fasta", sample_alias + ".agp")
+                        if os.path.exists(agp_path):
+                            output_handle.write("AGP\t" + sample_alias + ".agp\n")
+                        chr_list_path = os.path.join("./fasta", sample_alias + ".tsv")
+                        if os.path.exists(chr_list_path):
+                            output_handle.write("CHROMOSOME_LIST\t" + sample_alias + ".tsv\n")
+                        
 
                     found_metadata = True
                     written_manifests_out.write(manifest_path + '\n')
