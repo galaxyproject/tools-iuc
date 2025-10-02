@@ -119,7 +119,6 @@ def main():
                         chr_list_path = os.path.join("./fasta", sample_alias + ".tsv")
                         if os.path.exists(chr_list_path):
                             output_handle.write("CHROMOSOME_LIST\t" + sample_alias + ".tsv\n")
-                        
 
                     found_metadata = True
                     written_manifests_out.write(manifest_path + '\n')
