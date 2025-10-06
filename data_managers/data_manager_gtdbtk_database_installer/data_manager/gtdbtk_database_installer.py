@@ -182,8 +182,8 @@ def create_data_manager_entry(database_name, release, file_path):
     data_manager_entry["value"] = (
         f"{database_name.replace(' ', '_').lower()}_release_{release}_downloaded_{time}"
     )
-    if release == "mocked":
-        data_manager_entry["name"] = f"Mocked GTBD DB version R226"
+    if release == "mocked_226":
+        data_manager_entry["name"] = f"Mocked GTBD DB (226)"
     else:
         data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
     data_manager_entry["path"] = file_path
