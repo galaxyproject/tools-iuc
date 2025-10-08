@@ -4,7 +4,9 @@
         <import>snpEff_macros.xml</import>
     </macros>
     <requirements>
-        <expand macro="requirement" />
+        <expand macro="requirement">
+            <requirement type="package" version="9.5">coreutils</requirement>
+        </expand>
     </requirements>
     <expand macro="stdio" />
     <expand macro="version_command" />
@@ -47,14 +49,22 @@
         #if $intervals     ### fix this for multiple dataset input
           -interval intervals.bed
         #end if
-        #if $statsFile:
-          -stats '$statsFile'
-        #end if
-        #if $csvStats:
-            -csvStats '$csvFile'
-        #end if
         #if str($chr).strip() != '':
           -chr '$chr'
+        #end if
+        #if $generate_stats or $generate_gene_stats or $csvStats:
+          #if $csvStats:
+            $csvStats snpeff_stats.csv
+          #end if
+          #if $generate_stats or ($generate_gene_stats and not $csvStats):
+            ## the base name passed in via the -csvStats or the -s option also determines the name of the genes.txt file
+            ## so in the absence of the first we need the second to have a consistent name of the genes.txt file
+            -s snpeff_stats.html
+          #end if
+        #else:
+          ## when no stats output is requested by the user, we can make things a little more efficient
+          ## by telling snpEff that it doesn't have to write even the default (html and genes.txt) ones.
+          -noStats
         #end if
           $noLog
         ## Regulation names can include parentheses: H3K4me3-MSC_(VB)_enriched_sites
@@ -88,17 +98,15 @@
           '$snpDb.genome_version'
         #end if
         '$input' > '$snpeff_output'
-        #if $statsFile:
-            &&
-            #import os
-            #if $csvStats:
-                #set $genes_file = str($csvFile) + '.genes.txt'
-            #else
-                #set $genes_file = str($statsFile) + '.genes.txt'
-            #end if
-            #set $genes_file_name = os.path.split($genes_file)[-1]
-            mkdir '$statsFile.files_path' &&
-            mv '$genes_file' '#echo os.path.join($statsFile.files_path, $genes_file_name)#'
+        #if $generate_gene_stats:
+          ## remove the first, unnecessary comment line from the output
+          && tail -n+2 snpeff_stats.genes.txt > genes.txt
+        #end if
+        #if $generate_stats:
+          ## independently of whether the user asked for the gene.txt file,
+          ## we need to add it to files_path because the stats html report links to it.
+          && mkdir '$statsFile.files_path' &&
+          mv snpeff_stats.genes.txt $statsFile.files_path
         #end if
     ]]></command>
     <inputs>
@@ -114,7 +122,8 @@
             <option value="bedAnn">BED annotations</option>
         </param>
         <param argument="-csvStats" type="boolean" truevalue="-csvStats" falsevalue="" checked="false" label="Create CSV report?" help="Useful for downstream analyses and report generation" />
-        <param argument="-noStats" name="generate_stats" type="boolean" truevalue="" falsevalue="-noStats" checked="true" label="Produce Summary Stats?" help="Generates an HTML summary of results"/>
+        <param name="generate_stats" type="boolean" checked="true" label="Produce Summary Stats?" help="Generates an HTML summary of results"/>
+        <param name="generate_gene_stats" type="boolean" label="Produce Gene Statistics output?" help="Generates a table of effects per gene as an extra output"/>
         <conditional name="snpDb">
             <param name="genomeSrc" type="select" label="Genome source">
                 <!-- These options are referenced in the help section of SnpEff download tool. If you change them, change help of SnpEff download as well -->
@@ -127,14 +136,15 @@
                 <param name="genomeVersion" type="select" label="Genome">
                     <!--GENOME    DESCRIPTION-->
                     <options from_data_table="snpeffv_genomedb">
-                            <filter type="static_value" name="snpeff_version" value="@SNPEFF_VERSION@" column="1"/>
-                            <filter type="unique_value" column="2" />
+                        <filter type="regexp" column="1" value="@COMPATIBLE_DB_VERSIONS_REGEX@" />
+                        <filter type="unique_value" column="2" />
                     </options>
                 </param>
                 <section name="reg_section" expanded="false" title="Regulation options">
                     <param name="regulation" type="select" display="checkboxes" multiple="true" label="Non-coding and regulatory annotation" help="These are available for only a few genomes">
                         <options from_data_table="snpeffv_regulationdb">
-                            <filter type="param_value" ref="genomeVersion" key="genome" column="2" />
+                            <filter type="regexp" column="1" value="@COMPATIBLE_DB_VERSIONS_REGEX@" />
+                            <filter type="param_value" ref="genomeVersion" column="2" />
                             <filter type="unique_value" column="3" />
                         </options>
                     </param>
@@ -142,7 +152,7 @@
             </when>
             <when value="history">
                 <param name="snpeff_db" type="data" format="snpeffdb" label="@SNPEFF_VERSION@ Genome Data">
-                    <validator type="expression" message="This version of SnpEff will only work with @SNPEFF_VERSION@ genome databases">value is not None and value.metadata.snpeff_version == "@SNPEFF_VERSION@"</validator>
+                    <validator type="expression" message="This version of SnpEff will only work with @COMPATIBLE_DB_VERSIONS_STRING@ genome databases">value.metadata.snpeff_version in @COMPATIBLE_DB_VERSIONS@</validator>
                 </param>
                 <section name="reg_section" expanded="false" title="Regulation options">
                     <!-- From metadata -->
@@ -160,7 +170,7 @@
             </when>
             <when value="custom">
                 <param name="snpeff_db" type="data" format="snpeffdb" label="@SNPEFF_VERSION@ Genome Data">
-                    <validator type="expression" message="This version of SnpEff will only work with @SNPEFF_VERSION@ genome databases">value is not None and value.metadata.snpeff_version == "@SNPEFF_VERSION@"</validator>
+                    <validator type="expression" message="This version of SnpEff will only work with @COMPATIBLE_DB_VERSIONS_STRING@ genome databases">value.metadata.snpeff_version in @COMPATIBLE_DB_VERSIONS@</validator>
                 </param>
                 <param name="codon_table" type="select" label="Select genetic code for this sequence" help="If this sequence uses non-standard genetic code, select one from these options">
                     <option selected="true" value="Standard">Standard</option>
@@ -188,7 +198,7 @@
                     <option value="Trematode_Mitochondrial">Trematode_Mitochondrial</option>
                     <option value="Scenedesmus_obliquus_Mitochondrial">Scenedesmus_obliquus_Mitochondrial</option>
                     <option value="Thraustochytrium_Mitochondrial">Thraustochytrium_Mitochondrial</option>
-            </param>
+                </param>
             </when>
         </conditional>
         <param name="udLength" argument="-ud" type="select" label="Upstream / Downstream length">
@@ -328,22 +338,43 @@
                 <when input="outputConditional.outputFormat" value="bedAnn" format="bed" />
             </change_format>
         </data>
-        <data name="statsFile" format="html" label="${tool.name} on ${on_string} - HTML stats">
+        <data name="statsFile" format="html" label="${tool.name} on ${on_string} - HTML stats" from_work_dir="snpeff_stats.html">
             <filter>generate_stats</filter>
         </data>
-        <data name="csvFile" format="csv" label="${tool.name} on ${on_string} - CSV stats">
+        <data name="genes_file" format="tabular" label="${tool.name} on ${on_string} - Gene stats" from_work_dir="genes.txt">
+            <filter>generate_gene_stats</filter>
+        </data>
+        <data name="csvFile" format="txt" label="${tool.name} on ${on_string} - CSV stats" from_work_dir="snpeff_stats.csv">
             <filter>csvStats</filter>
         </data>
     </outputs>
     <tests>
+        <test expect_num_outputs="1">
+            <param name="input" ftype="vcf" value="input.vcf"/>
+            <param name="inputFormat" value="vcf"/>
+            <param name="outputFormat" value="vcf"/>
+            <conditional name="snpDb">
+                <param name="genomeSrc" value="cached"/>
+                <param name="genomeVersion" value="ebola_zaire"/>
+            </conditional>
+            <param name="udLength" value="0"/>
+            <param name="generate_stats" value="false"/>
+            <output name="snpeff_output">
+                <assert_contents>
+                    <has_text_matching expression="KJ660346.1\t572\t.*missense_variant" />
+                    <has_text_matching expression="KJ660346.1\t1024\t.*synonymous_variant" />
+                </assert_contents>
+            </output>
+        </test>
         <test expect_num_outputs="2">
             <param name="input" ftype="vcf" value="input.vcf"/>
             <param name="inputFormat" value="vcf"/>
             <param name="outputFormat" value="vcf"/>
-            <param name="genomeSrc" value="named"/>
-            <param name="genome_version" value="ebola_zaire"/>
+            <conditional name="snpDb">
+                <param name="genomeSrc" value="cached"/>
+                <param name="genomeVersion" value="ebola_zaire"/>
+            </conditional>
             <param name="udLength" value="0"/>
-            <param name="generate_stats" value="true"/>
             <output name="snpeff_output">
                 <assert_contents>
                     <has_text_matching expression="KJ660346.1\t572\t.*missense_variant" />
@@ -356,14 +387,39 @@
                 </assert_contents>
             </output>
         </test>
+        <test expect_num_outputs="2">
+            <param name="input" ftype="vcf" value="input.vcf"/>
+            <param name="inputFormat" value="vcf"/>
+            <param name="outputFormat" value="vcf"/>
+            <conditional name="snpDb">
+                <param name="genomeSrc" value="cached"/>
+                <param name="genomeVersion" value="ebola_zaire"/>
+            </conditional>
+            <param name="udLength" value="0"/>
+            <param name="generate_stats" value="false"/>
+            <param name="generate_gene_stats" value="true"/>
+            <output name="snpeff_output">
+                <assert_contents>
+                    <has_text_matching expression="KJ660346.1\t572\t.*missense_variant" />
+                    <has_text_matching expression="KJ660346.1\t1024\t.*synonymous_variant" />
+                </assert_contents>
+            </output>
+            <output name="genes_file">
+                <assert_contents>
+                    <has_text text="#GeneName"/>
+                </assert_contents>
+            </output>
+        </test>
         <!-- Test interval option-->
         <test expect_num_outputs="2">
             <param name="input" ftype="vcf" value="input.vcf"/>
             <param name="inputFormat" value="vcf"/>
             <param name="outputFormat" value="vcf"/>
-            <param name="genomeSrc" value="named"/>
-            <param name="interval" value="intervals.bed"/>
-            <param name="genome_version" value="ebola_zaire"/>
+            <conditional name="snpDb">
+                <param name="genomeSrc" value="cached"/>
+                <param name="genomeVersion" value="ebola_zaire"/>
+            </conditional>
+            <param name="intervals" value="intervals.bed"/>
             <param name="udLength" value="0"/>
             <param name="generate_stats" value="false"/>
             <param name="csvStats" value="true"/>
