@@ -1,11 +1,10 @@
-import json
 import os
 import re
 import sys
 
 
 input_file = sys.argv[1]
-input_id=sys.argv[2]
+input_id = sys.argv[2]
 
 safe_file_name = re.sub(r'[^\w\-_\.]', '_', input_id)
 
