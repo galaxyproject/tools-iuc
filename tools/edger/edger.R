@@ -431,6 +431,9 @@ for (i in seq_along(factor_list)) {
     colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)
 }
 
+# Ensure column names are syntactically valid
+colnames(design) <- make.names(colnames(design))
+
 # Calculating normalising factor, estimating dispersion
 data <- calcNormFactors(data, method = opt$normOpt)
 
