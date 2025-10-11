@@ -773,6 +773,54 @@ class JbrowseConnector(object):
             remote=trackData['remote']
         )
 
+    def add_gtf(self, parent, data, format, trackData, gffOpts, **kwargs):
+        # Not a super recommended format
+        # https://github.com/GMOD/jbrowse-components/pull/2389
+        # https://github.com/GMOD/jbrowse-components/issues/3876
+        if trackData['remote']:
+            rel_dest = data
+        else:
+            rel_dest = os.path.join("data", trackData["label"] + ".gtf")
+            dest = os.path.join(self.outdir, rel_dest)
+            shutil.copy(os.path.realpath(data), dest)
+
+        json_track_data = {
+            "type": "FeatureTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": {
+                "type": "GtfAdapter",
+                "gtfLocation": {
+                    "uri": rel_dest,
+                    "locationType": "UriLocation"
+                },
+            },
+            "category": [trackData["category"]],
+            "assemblyNames": [parent['uniq_id']],
+        }
+
+        style_json = self._prepare_track_style(trackData)
+
+        formatdetails = self._prepare_format_details(trackData)
+
+        style_json.update(formatdetails)
+
+        track_metadata = self._prepare_track_metadata(trackData)
+
+        style_json.update(track_metadata)
+
+        json_track_data.update(style_json)
+
+        self.subprocess_check_call(
+            [
+                "jbrowse",
+                "add-track-json",
+                "--target",
+                self.outdir,
+                json.dumps(json_track_data),
+            ]
+        )
+
     def add_bed(self, parent, data, format, trackData, gffOpts, **kwargs):
         if trackData['remote']:
             rel_dest = data
@@ -1180,6 +1228,14 @@ class JbrowseConnector(object):
                     outputTrackConfig,
                     track["conf"]["options"]["gff"],
                 )
+            elif dataset_ext in ("gtf"):
+                self.add_gtf(
+                    parent,
+                    dataset_path,
+                    dataset_ext,
+                    outputTrackConfig,
+                    track["conf"]["options"]["gff"],
+                )
             elif dataset_ext == "bed":
                 self.add_bed(
                     parent,
@@ -1308,7 +1364,7 @@ class JbrowseConnector(object):
                     outputTrackConfig,
                 )
             else:
-                log.error(f"Do not know how to handle {dataset_ext}")
+                raise RuntimeError(f"Do not know how to handle dataset of type '{dataset_ext}'")
 
             track_labels.append(outputTrackConfig["label"])
 
@@ -1710,7 +1766,8 @@ if __name__ == "__main__":
 
             track_labels = jc.process_annotations(track_conf, genome)
 
-            if track.attrib["visibility"] == "default_on":
+            if track.attrib["visibility"] == "default_on" and \
+               (track_conf["format"] != "synteny" or track_conf["style"]["display"] != "LinearSyntenyDisplay"):
                 for tlabel in track_labels:
                     default_tracks_on.append(tlabel)
 
