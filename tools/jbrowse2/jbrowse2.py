@@ -31,7 +31,9 @@ mapped_chars = {
     "}": "__cc__",
     "@": "__at__",
     "#": "__pd__",
-    "": "__cn__",
+    "\n": "__cn__",
+    "\r": "__cr__",
+    "\t": "__tc__",
 }
 
 
@@ -62,6 +64,14 @@ def etree_to_dict(t):
 INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 
+def unsanitize(input):
+
+    for key, value in mapped_chars.items():
+        input = input.replace(value, key)
+
+    return input
+
+
 def metadata_from_node(node):
     metadata = {}
 
@@ -74,7 +84,7 @@ def metadata_from_node(node):
             metadata[f"history_{key}"] = value
 
         for key, value in node.findall("metadata")[0].attrib.items():
-            metadata[f"metadata_{key}"] = value
+            metadata[f"metadata_{key}"] = unsanitize(value)
 
         for key, value in node.findall("tool")[0].attrib.items():
             metadata[f"tool_{key}"] = value
@@ -265,15 +275,11 @@ class JbrowseConnector(object):
         }
 
         if "feature" in xml_conf["formatdetails"]:
-            feat_jexl = xml_conf["formatdetails"]["feature"]
-            for key, value in mapped_chars.items():
-                feat_jexl = feat_jexl.replace(value, key)
+            feat_jexl = unsanitize(xml_conf["formatdetails"]["feature"])
             formatDetails["feature"] = feat_jexl
 
         if "subfeature" in xml_conf["formatdetails"]:
-            sfeat_jexl = xml_conf["formatdetails"]["subfeature"]
-            for key, value in mapped_chars.items():
-                sfeat_jexl = sfeat_jexl.replace(value, key)
+            sfeat_jexl = unsanitize(xml_conf["formatdetails"]["subfeature"])
             formatDetails["subfeatures"] = sfeat_jexl
 
         if "depth" in xml_conf["formatdetails"]:
@@ -1163,8 +1169,7 @@ class JbrowseConnector(object):
             extra_metadata,
         ) in enumerate(track["trackfiles"]):
             # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
-            for key, value in mapped_chars.items():
-                track_human_label = track_human_label.replace(value, key)
+            track_human_label = unsanitize(track_human_label)
 
             is_multi = type(dataset_path) is list
 
@@ -1344,13 +1349,10 @@ class JbrowseConnector(object):
                     track["conf"]["options"]["hic"]
                 )
             elif dataset_ext == "sparql":
-                sparql_query = track["conf"]["options"]["sparql"]["query"]
-                for key, value in mapped_chars.items():
-                    sparql_query = sparql_query.replace(value, key)
+                sparql_query = unsanitize(track["conf"]["options"]["sparql"]["query"])
                 sparql_query_refnames = track["conf"]["options"]["sparql"].get("query_refnames", "")
                 if sparql_query_refnames:
-                    for key, value in mapped_chars.items():
-                        sparql_query_refnames = sparql_query_refnames.replace(value, key)
+                    sparql_query_refnames = unsanitize(sparql_query_refnames)
                 self.add_sparql(
                     parent,
                     track["conf"]["options"]["sparql"]["url"],
