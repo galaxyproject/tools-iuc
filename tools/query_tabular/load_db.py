@@ -328,4 +328,4 @@ def create_index(conn, table_name, index_name, index_columns, unique=False):
         c.close()
     except Exception as e:
         print('Failed: %s err: %s' % (index_def, e), file=sys.stderr)
-        raise(e)
+        raise e

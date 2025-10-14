@@ -1,8 +1,8 @@
 <tool id="diffbind" name="DiffBind" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description> differential binding analysis of ChIP-Seq peak data</description>
     <macros>
-        <token name="@TOOL_VERSION@">2.10.0</token>
-        <token name="@VERSION_SUFFIX@">1</token>
+        <token name="@TOOL_VERSION@">3.12.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">22.05</token>
     </macros>
     <xrefs>
@@ -11,9 +11,8 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">bioconductor-diffbind</requirement>
-        <requirement type="package" version="3.5.1">r-base</requirement>
-        <requirement type="package" version="1.20.3">r-getopt</requirement>
-        <requirement type="package" version="0.2.20">r-rjson</requirement>
+        <requirement type="package" version="1.20.4">r-getopt</requirement>
+        <requirement type="package" version="4.0.16">bioconductor-edger</requirement>
     </requirements>
     <stdio>
         <regex match="Execution halted"
@@ -71,7 +70,7 @@ echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanil
         #for $ctrl in $g.bamcontrol:
             #set $ctrl_name = re.sub('[^\w\-]', '_', str($ctrl.element_identifier))
             #set $ctrl_file = $ctrl_name + "-bamcontrol.bam"
-            #set ctrl_index = $ctrl_name + "-bamcontrol.bai"
+            #set $ctrl_index = $ctrl_name + "-bamcontrol.bai"
             #if $ctrl_file not in json.dumps($temp_factor):
                 ln -s '${ctrl}' '${ctrl_file}' &&
                 ln -s '${ctrl.metadata.bam_index}' '${ctrl_index}' &&
@@ -94,13 +93,15 @@ Rscript '$__tool_directory__/diffbind.R'
 
     -i '#echo json.dumps(temp_factor_names)#'
     -o '$outfile'
+    -m '$method'
     -t $th
     -f $out.format
     -p '$plots'
-
-    #if $scorecol:
-        -n "$scorecol"
+    -O $minoverlap
+    #if $use_blacklist:
+        -B
     #end if
+    -n $scorecol
     #if $lowerbetter:
         -l "$lowerbetter"
     #end if
@@ -138,8 +139,17 @@ Rscript '$__tool_directory__/diffbind.R'
             <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM files" help="Specify the Read BAM files used in the Peak calling. The input order of the BAM files for the samples MUST match the input order of the peaks files."/>
             <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM files" help="If specifying a control BAM file, all samples are required to specify one, see Help section below. The input order of the BAM files for the samples MUST match the input order of the peaks files."/>
         </repeat>
-
-        <param name="scorecol" type="integer" min="0" value="8" label="Score Column" help="Column in peak files that contains peak scores. Default: 8 (narrowPeak)">
+        <param name="method" type="select" label="Underlying method by which to analyze differential binding affinity">
+            <option value="DBA_DESEQ2" selected="True">DESeq2</option>
+            <option value="DBA_EDGER">edgeR</option>
+        </param>
+        <param name="use_blacklist" type="boolean" truevalue="True" falsevalue="" checked="False" label="Filters peak intervals that overlap a blacklist from ENCODE" help="Works with human, mouse, worm and fly. Assembly version is determined from the BAM files." />
+        <param name="minoverlap" type="integer" min="1" value="2" label="Only include peaks in at least this many peaksets in the main binding matrix">
+            <sanitizer>
+                <valid initial="string.digits"/>
+            </sanitizer>
+        </param>
+        <param name="scorecol" type="integer" min="0" value="5" label="Score Column" help="Column in peak files that contains peak scores. Default: 5 (narrowPeak)">
             <sanitizer>
                 <valid initial="string.digits"/>
             </sanitizer>
@@ -226,6 +236,28 @@ Rscript '$__tool_directory__/diffbind.R'
                 </assert_contents>
             </output>
         </test>
+        <!-- Ensure EDGER works -->
+        <test expect_num_outputs="3">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+            </repeat>
+            <param name="scorecol" value="5" />
+            <param name="method" value="DBA_EDGER" />
+            <param name="format" value="interval"/>
+            <param name="pdf" value="True" />
+            <param name="binding_matrix" value="True" />
+            <param name="rscript" value="False"/>
+            <output name="outfile" ftype="interval" value="out_diffbind_edger.interval" />
+            <output name="plots" value="out_plots_edger.pdf" compare="sim_size" />
+            <output name="binding_matrix" value="out_binding_matrix_edger.tab" />
+        </test>
         <!-- Ensure control BAMs input works -->
         <test expect_num_outputs="1">
             <repeat name="rep_group">
@@ -275,6 +307,40 @@ Rscript '$__tool_directory__/diffbind.R'
             <param name="scorecol" value="5" />
             <param name="format" value="tabular"/>
             <output name="outfile" ftype="tabular" file="out_diffbind.tab" />
+        </test>
+        <!-- Ensure minoverlap works -->
+        <test expect_num_outputs="1">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+            </repeat>
+            <param name="minoverlap" value="1" />
+            <param name="scorecol" value="5" />
+            <param name="format" value="tabular"/>
+            <output name="outfile" ftype="tabular" file="out_diffbind_minoverlap1.tab" />
+        </test>
+        <!-- Ensure blacklist filtering works -->
+        <test expect_num_outputs="1">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+            </repeat>
+            <param name="use_blacklist" value="True"/>
+            <param name="scorecol" value="5" />
+            <param name="format" value="tabular"/>
+            <output name="outfile" ftype="tabular" file="out_diffbind_blacklist.tab" />
         </test>
     </tests>
     <help><![CDATA[
@@ -420,11 +486,11 @@ Example - **BED format**:
     =====  ======  ======  ========  =====  ======
     Chrom  Start   End     Name      Score  Strand
     =====  ======  ======  ========  =====  ======
-    chr18  394599  396513  DiffBind    0      \.  
-    chr18  111566  112005  DiffBind    0      \.  
-    chr18  346463  347342  DiffBind    0      \.  
-    chr18  399013  400382  DiffBind    0      \.  
-    chr18  371109  372102  DiffBind    0      \.  
+    chr18  394599  396513  DiffBind    0      \.
+    chr18  111566  112005  DiffBind    0      \.
+    chr18  346463  347342  DiffBind    0      \.
+    chr18  399013  400382  DiffBind    0      \.
+    chr18  371109  372102  DiffBind    0      \.
     =====  ======  ======  ========  =====  ======
 
 Example - **Tabular format**:

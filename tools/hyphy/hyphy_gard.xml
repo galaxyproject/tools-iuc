@@ -6,10 +6,9 @@
     <expand macro="bio_tools"/>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-        ln -s '$input_file' input.$input_file.extension &&
-        #set $input_file = 'input.%s' % $input_file.extension
-        @HYPHYMPI@ gard
-            --alignment ./$input_file
+        @SYMLINK_FILES_NO_TREE@
+       @HYPHYMPI@ gard
+            --alignment $input_file
             --type '$datatype.value'
             #if str($datatype.value) == 'codon':
                 --code '$datatype.gencodeid'
@@ -20,14 +19,22 @@
                 --rv '$rate_cond.rate'
                 --rate-classes '$rate_cond.rate_classes'
             #end if
-            --output '$translated'
+            #if $advanced_options.max_breakpoints:
+                --max-breakpoints '$advanced_options.max_breakpoints'
+            #end if
+            #if $advanced_options.mode:
+                --mode '$advanced_options.mode'
+            #end if
+            ENV="TOLERATE_NUMERICAL_ERRORS=1;" 
+            --output '$gard_output_json'
             --output-lf '$gard_output'
+            > gard_stdout.md 
         @ERRORS@
     ]]></command>
     <inputs>
-        <param name="input_file" type="data" format="fasta,fasta.gz,nex" label="Input FASTA or NEXUS file" />
+        <param name="input_file" type="data" format="fasta,fasta.gz,nex" label="Input FASTA or NEXUS file" help="Input FASTA or NEXUS file." />
         <conditional name="datatype">
-            <param argument="--type" name="value" type="select" label="Alignment kind">
+            <param argument="--type" name="value" type="select" label="Alignment kind" help="Select the type of data to perform screening on.">
                 <option value="nucleotide">Nucleotide</option>
                 <option value="amino-acid">Amino acid</option>
                 <option value="codon">Codon</option>
@@ -41,72 +48,84 @@
             </when>
         </conditional>
         <conditional name="rate_cond">
-            <param argument="--rv" name="rate" type="select" label="Rate variation">
+            <param argument="--rv" name="rate" type="select" label="Rate variation" help="Specify how site-to-site rate variation should be modeled.">
                 <option value="">None</option>
                 <option value="GDD">General Discrete</option>
                 <option value="Gamma">Beta-Gamma</option>
             </param>
             <when value=""/>
             <when value="GDD">
-                <param argument="--rate-classes" type="integer" value="2" min="2" max="6" label="Rate classes" />
+                <param argument="--rate-classes" type="integer" value="2" min="2" max="6" label="Rate classes" help="The number of discrete rate classes to use for modeling site-to-site rate variation." />
             </when>
             <when value="Gamma">
-                <param argument="--rate-classes" type="integer" value="2" min="2" max="6" label="Rate classes" />
+                <param argument="--rate-classes" type="integer" value="2" min="2" max="6" label="Rate classes" help="The number of discrete rate classes to use for modeling site-to-site rate variation." />
             </when>
         </conditional>
+        <section name="advanced_options" title="Advanced Options" expanded="false">
+            <param argument="--max-breakpoints" type="integer" value="10000" min="1" max="10000" label="Maximum number of breakpoints to consider" help="The maximum number of breakpoints the genetic algorithm will consider during its search."/>
+            <param argument="--mode" type="select" label="Run mode" help="Select the run mode for GARD. 'Normal' uses default optimization and convergence settings, while 'Faster' reduces precision and relaxes convergence for quicker results.">
+                <option value="Normal">Normal</option>
+                <option value="Faster">Faster</option>
+            </param>
+        </section>
     </inputs>
     <outputs>
         <data name="gard_output" format="nex" />
-        <data name="translated" format="hyphy_results.json" label="${tool.name} on ${on_string}: Translated" />
+        <data name="gard_output_json" format="hyphy_results.json" label="${tool.name} on ${on_string}: gard_output_json" />
+        <data name="gard_md_report" format="markdown" from_work_dir="gard_stdout.md" label="GARD Report (Markdown) for ${tool.name} on ${on_string}" />
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="3">
             <param name="input_file" ftype="fasta" value="gard-in1.fa"/>
             <output name="gard_output" file="gard-out1.nex" compare="sim_size"/>
-            <output name="translated" file="gard-out1.json" compare="sim_size"/>
+            <output name="gard_output_json">
+                 <assert_contents>
+                    <has_text text='"potentialBreakpoints":21'/>
+                </assert_contents>
+            </output>
+            <output name="gard_md_report">
+                <assert_contents>
+                    <has_text text="Done with 2 breakpoint analysis."/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
-
 GARD : Genetic Algorithms for Recombination Detection.
 ======================================================
 
-What does this do?
-------------------
+**What does this do?**
 
-This tools screens an alignment of sequences for evidence of recombination in one or more sequences.
+This tool screens an alignment of sequences for evidence of recombination in one or more sequences.
 The main idea is that if sufficient recombination has occurred, then no single phylogenetic tree will
 properly fit the entire length of the alignment and instead a separate tree will be preferred for each *nonrecombinant* segment.
 
-Brief description
------------------
+**Methodology**
 
-This analysis implements a heuristic approach to screening alignments of sequences for
-recombination, by using the CHC genetic algorithm (GA) to search for
-phylogenetic incongruence among different partitions of the data. The
-number of partitions is determined using a step-up procedure, while the
-placement of breakpoints is searched for with the GA. The best fitting
-model (based on c-AIC) is returned; and additional post-hoc tests run to
-distinguish topological incongruence from rate-variation.
+GARD (Genetic Algorithm for Recombination Detection) implements a heuristic approach to screening alignments of sequences for recombination. It uses the CHC genetic algorithm to search for phylogenetic incongruence among different partitions of the data. The number of partitions is determined using a step-up procedure, while the placement of breakpoints is searched for with the GA. The best fitting model (based on c-AIC) is returned; and additional post-hoc tests run to distinguish topological incongruence from rate-variation.
 
-For each identified breakpoint, the support for its placement is calculated, and for each
-non-recombinant fragment, a phylogenetic tree is inferred (using neighbor joining) and returned.
+**The Intuition**
 
-Input
------
+Imagine you have a long DNA sequence, and you suspect that different parts of this sequence might have evolved under different evolutionary histories due to recombination events. If you try to build a single phylogenetic tree for the entire sequence, it might not accurately represent the relationships between the organisms.
+
+GARD addresses this by looking for "breakpoints" in the sequence where the evolutionary history changes. It uses a genetic algorithm to efficiently search for these breakpoints and then infers separate phylogenetic trees for each segment between the breakpoints. This allows for a more accurate understanding of the evolutionary history of recombinant sequences.
+
+**Input**
 
 A *FASTA* sequence alignment
 
-Output
-------
+**Output**
 
 A JSON file with analysis results (http://hyphy.org/resources/json-fields.pdf).
 
 A custom visualization module for viewing these results is available (see http://vision.hyphy.org/GARD for an example)
 
+A Markdown file with a summary of the analysis.
 
-Tool options
-------------
+**Further reading**
+
+
+**Tool options**
 ::
 
 
@@ -130,23 +149,22 @@ Tool options
     --model             The substitution model to use (for protein alignments).
                         default value: JTT
 
-    --rv                The discrete distribution to use for modeling site to site rate variation.
-
-                        None [default]
-                            No rate variation. This is the fastest option in terms of run time, but
-                            using it can result in false positives if there is significant site-to-site
-                            rate variation
-                        GDD
-                            Use the general discrete distribution on N bins
-                        Beta-Gamma
-                            Use a discretized gamma with weights partitioned by a discretized beta
-                            (see doi.org/10.1093/molbev/msi009)
+    --rv                Site to site rate variation.
+                        None: Constant rates.
+                        Gamma: Unit mean gamma distribution discretized into N rates.
+                        GDD: General discrete distribution on N rates.
 
     --rate-classes      How many site rate classes to use (if GDD or Beta-Gamma are selected)
                         default value: 4
 
+    --max-breakpoints   Maximum number of breakpoints to consider.
 
-    ]]></help>
+    --mode              Run mode.
+                        Normal: Default optimization and convergence settings.
+                        Faster: Reduce individual optimization precision and relax convergence settings.
+
+    ]]>
+    </help>
     <expand macro="citations">
         <citation type="doi">10.1093/molbev/msl051</citation>
     </expand>
