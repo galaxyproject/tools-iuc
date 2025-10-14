@@ -330,6 +330,8 @@ if (file.exists(opt$contrastData)) {
 }
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
+# Convert colons to dots to match design matrix column name processing
+contrast_data <- gsub(":", ".", contrast_data, fixed = TRUE)
 
 bcv_pdf <- make_out("bcvplot.pdf")
 bcv_png <- make_out("bcvplot.png")
