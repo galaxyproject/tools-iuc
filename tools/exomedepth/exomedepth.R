@@ -59,10 +59,11 @@ for (i in 1:nsamples) {
     # Now create the ExomeDepth object for the CNVs call
     all.exons <- suppressWarnings(suppressMessages(
         new("ExomeDepth",
-        test = exome_count_mat[, i],
-        reference = my_reference_selected,
-        formula = "cbind(test,reference)~1"
-    )))
+            test = exome_count_mat[, i],
+            reference = my_reference_selected,
+            formula = "cbind(test,reference)~1"
+        )
+    ))
 
     # Now call the CNVs
     result <- try(all.exons <- suppressMessages(CallCNVs(

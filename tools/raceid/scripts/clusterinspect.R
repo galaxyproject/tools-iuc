@@ -1,11 +1,11 @@
 #!/usr/bin/env R
-VERSION <- "0.5"  # nolint
+VERSION <- "0.5" # nolint
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) != 1) {
-     message(paste("VERSION:", VERSION))
-     stop("Please provide the config file")
+    message(paste("VERSION:", VERSION))
+    stop("Please provide the config file")
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
@@ -49,15 +49,18 @@ do.plotting <- function(sc) { # nolint
 }
 
 
-do.inspect.symbolmap <- function(sc) {  # nolint
+do.inspect.symbolmap <- function(sc) { # nolint
     if (!is.null(plotsym.use.typeremoveregex)) {
-        plotsym$types <- sub(plotsym.use.typeremoveregex, "",
-                             colnames(sc@ndata))
+        plotsym$types <- sub(
+            plotsym.use.typeremoveregex, "",
+            colnames(sc@ndata)
+        )
 
         if (!is.null(plotsym.use.typeremoveregex.subselect)) {
             plotsym$subset <- plotsym$types[grep(
-                                          plotsym.use.typeremoveregex.subselect,
-                                          plotsym$types)]
+                plotsym.use.typeremoveregex.subselect,
+                plotsym$types
+            )]
         }
     }
     plotsym$fr <- FALSE
@@ -68,16 +71,16 @@ do.inspect.symbolmap <- function(sc) {  # nolint
     print(do.call(mtext, c("Symbols FR", test)))
 }
 
-do.inspect.diffgene <- function(sc) {  # nolint
+do.inspect.diffgene <- function(sc) { # nolint
 
-    getSubNames <- function(lob, sc) {  # nolint
+    getSubNames <- function(lob, sc) { # nolint
         use_names <- NULL
         if (!is.null(lob$manual)) {
             use_names <- lob$manual
-        }else if (!is.null(lob$regex)) {
+        } else if (!is.null(lob$regex)) {
             nm <- colnames(sc@ndata)
             use_names <- nm[grep(lob$regex, nm)]
-        }else if (!is.null(lob$cln)) {
+        } else if (!is.null(lob$cln)) {
             use_names <- names(sc@cpart)[sc@cpart %in% lob$cln]
         }
         if (is.null(use_names)) {
@@ -98,7 +101,7 @@ do.inspect.diffgene <- function(sc) {  # nolint
 }
 
 
-do.inspect.genesofinterest <- function(sc) {  # nolint
+do.inspect.genesofinterest <- function(sc) { # nolint
     if (is.null(plotexp$n)) { ## No title, and one gene? Use gene name
         if (length(plotexp$g) == 1) {
             plotexp$n <- plotexp$g

@@ -13,8 +13,8 @@
 # Rscript ${__tool_directory__}/lineagespot_verbose.R --in_vcf ${__tool_directory__}/test-data/extdata/vcf-files --in_gff3 ${__tool_directory__}/test-data/extdata/NC_045512.2_annot.gff3 --in_ref ${__tool_directory__}/test-data/extdata/ref --in_voc "B.1.617.2, B.1.1.7, B.1.351, P.1" --in_threshold 0.8
 # Set up R error handling to go to stderr
 options(show.error.messages = FALSE, error = function() {
-  cat(geterrmessage(), file = stderr())
-  q("no", 1, FALSE)
+    cat(geterrmessage(), file = stderr())
+    q("no", 1, FALSE)
 })
 
 # Import required libraries
@@ -22,9 +22,9 @@ options(show.error.messages = FALSE, error = function() {
 library_path <- .libPaths()
 
 suppressPackageStartupMessages({
-  library("getopt", lib.loc = library_path)
-  library("data.table", lib.loc = library_path)
-  library("lineagespot", lib.loc = library_path)
+    library("getopt", lib.loc = library_path)
+    library("data.table", lib.loc = library_path)
+    library("lineagespot", lib.loc = library_path)
 })
 
 
@@ -36,24 +36,26 @@ args <- commandArgs(trailingOnly = TRUE)
 # Get options using the spec as defined by the enclosed list
 # Read the options from the default: commandArgs(TRUE)
 option_specification <- matrix(c(
-  "in_vcf", "vcf",     1, "character",
-  "in_gff3", "gff3",   1, "character",
-  "in_ref", "ref",     1, "character",
-  "in_voc", "voc",     2, "character",
-  "in_threshold", "thr", 2, "double"
+    "in_vcf", "vcf", 1, "character",
+    "in_gff3", "gff3", 1, "character",
+    "in_ref", "ref", 1, "character",
+    "in_voc", "voc", 2, "character",
+    "in_threshold", "thr", 2, "double"
 ), byrow = TRUE, ncol = 4)
 
 options <- getopt(option_specification)
 
 if (!is.null(options$in_voc) && is.character(options$in_voc)) {
-  options$in_voc <- unlist(strsplit(options$in_voc, split = ","))
+    options$in_voc <- unlist(strsplit(options$in_voc, split = ","))
 }
 
-result <- lineagespot(vcf_folder = options$in_vcf,
-                      ref_folder = options$in_ref,
-                      gff3_path = options$in_gff3,
-                      voc =  options$in_voc,
-                      AF_threshold = options$in_threshold)
+result <- lineagespot(
+    vcf_folder = options$in_vcf,
+    ref_folder = options$in_ref,
+    gff3_path = options$in_gff3,
+    voc = options$in_voc,
+    AF_threshold = options$in_threshold
+)
 
 
 # Write output to new file which will be recognized by Galaxy

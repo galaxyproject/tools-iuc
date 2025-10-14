@@ -1,0 +1,309 @@
+<tool id="rasusa" name="rasusa" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="22.05">
+    <description>Randomly subsample reads to a specified coverage</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@FORMATS@">fastqsanger,fastqsanger.gz,fasta,fasta.gz</token>
+        <xml name="size_units">
+            <option value="b">bases</option>
+            <option value="k">Kilo bases</option>
+            <option value="m">Mega bases</option>
+            <option value="g">Giga bases</option>
+            <option value="t">Tera bases</option>
+        </xml>
+        <xml name="params_fastq">
+            <conditional name="subsample">
+                <param name="type" type="select" label="Subsample reads based on">
+                    <option value="coverage">Coverage</option>
+                    <option value="num_bases">Number of bases</option>
+                    <option value="num_reads">Number of reads</option>
+                    <option value="frac_reads" selected="true">Fraction of reads</option>
+                </param>
+                <when value="coverage">
+                    <param name="genome_size_unit" type="select" label="Specify genome size in">
+                        <expand macro="size_units" />
+                    </param>
+                    <param name="genome_size" type="float" min="0" value="" label="Genome size to calculate coverage with respect to"/>
+                    <param argument="--coverage" type="float" min="0" value="" label="The desired coverage to subsample the reads to"/>
+                </when>
+                <when value="num_bases">
+                    <param name="num_bases_unit" type="select" label="Specify number of bases in">
+                        <expand macro="size_units" />
+                    </param>
+                    <param name="bases" type="float" min="0" value="" label="Explicitly set the number of bases required"/>
+                </when>
+                <when value="num_reads">
+                    <param argument="--num" type="integer" value="" min="1"/>
+                </when>
+                <when value="frac_reads">
+                    <param argument="--frac" type="float" value="0.1" min="0" max="1"/>
+                </when>
+            </conditional>
+        </xml>
+        <token name="@FASTQ_SUBSAMPLE_OPTIONS@"><![CDATA[
+#if str( $subsample.type ) == "coverage":
+--genome-size '$subsample.genome_size$subsample.genome_size_unit'
+--coverage $subsample.coverage
+#elif str( $subsample.type ) == "num_bases":
+--bases '$subsample.bases$subsample.num_bases_unit'
+#elif str( $subsample.type ) == "num_reads":
+--num $subsample.num
+#elif str( $subsample.type ) == "frac_reads":
+--frac $subsample.frac
+#end if
+#if $r1_ext.endswith(".gz") or $r2_ext.endswith(".gz")
+--output-type g
+#end if    ]]>
+    </token>
+    </macros>
+    <xrefs>
+        <xref type='bio.tools'>rasusa</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">rasusa</requirement>
+        <requirement type="package" version="1.20">samtools</requirement>
+    </requirements>
+
+    <command detect_errors="exit_code"><![CDATA[
+#if str( $input.input_selector ) == "aligned":
+ln -s '$bam' 'input.bam' &&
+ln -s '$bam.metadata.bam_index' 'input.bam.bai' &&
+rasusa aln
+--coverage $input.coverage
+--step-size $input.step_size
+#else:
+rasusa reads
+#end if
+
+#if $seed
+-s $seed
+#end if
+
+#if str( $input.input_selector ) == "paired":
+    #set r1_ext = $input.reads1.extension
+    #set r2_ext = $input.reads2.extension
+-o 'paired_out1.$r1_ext'
+-o 'paired_out2.$r2_ext'
+@FASTQ_SUBSAMPLE_OPTIONS@
+'${input.reads1}'
+'${input.reads2}' &&
+mv 'paired_out1.$r1_ext' '$paired_output1' &&
+mv 'paired_out2.$r2_ext' '$paired_output2'
+
+#elif str( $input.input_selector ) == "paired_collection":
+    #set r1_ext = $input.collection.forward.extension
+    #set r2_ext = $input.collection.reverse.extension
+-o 'paired_out1.$r1_ext'
+-o 'paired_out2.$r2_ext'
+@FASTQ_SUBSAMPLE_OPTIONS@
+'${input.collection.forward}'
+'${input.collection.reverse}' &&
+mv 'paired_out1.$r1_ext' '${collection_output.forward}' &&
+mv 'paired_out2.$r2_ext' '${collection_output.reverse}'
+
+#elif str( $input.input_selector ) == "single":
+    #set r1_ext = $input.reads.extension
+-o 'single_out.$r1_ext'
+@FASTQ_SUBSAMPLE_OPTIONS@
+'${input.reads}' &&
+mv 'single_out.$r1_ext' '$single_output'
+
+#elif str( $input.input_selector ) == "aligned":
+'input.bam' | samtools sort --no-PG -@ 1 -T '\${TMPDIR:-.}' -O bam -o '$bam_output' -
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="input_selector" type="select" label="Single or Paired-end reads" help="Select between paired and single end data">
+                <option value="paired">Paired-end FASTQ</option>
+                <option value="single">Single-end FASTQ</option>
+                <option value="paired_collection">Paired FASTQ Collection</option>
+                <option value="aligned">BAM file of aligned reads</option>
+            </param>
+            <when value="paired">
+                <param name="reads1" type="data" format="@FORMATS@" label="Select first set of reads" help="Specify dataset with forward reads"/>
+                <param name="reads2" type="data" format="@FORMATS@" label="Select second set of reads" help="Specify dataset with reverse reads"/>
+                <expand macro="params_fastq" />
+            </when>
+            <when value="single">
+                <param name="reads" type="data" format="@FORMATS@" label="Select fasta/fastq dataset" help="Specify dataset with single reads"/>
+                <expand macro="params_fastq" />
+            </when>
+            <when value="paired_collection">
+                <param name="collection" format="@FORMATS@" type="data_collection" collection_type="paired" label="Select a paired collection"/>
+                <expand macro="params_fastq" />
+            </when>
+            <when value="aligned">
+                <param name="bam" format="sam,bam" type="data" label="Select BAM file(s) with alignments"/>
+                <param argument="--coverage" type="integer" min="0" optional="true" value="" label="The desired depth of coverage to subsample the alignment to"/>
+                <param type="integer" argument="--step-size" value="100" label="When a region has less than the desired coverage, the step size to move along the chromosome to find more reads."
+                    help="The lowest of the step and the minimum end coordinate of the reads in the region will be used. This parameter can have a significant impact on the runtime of the subsampling process."/>
+            </when>
+        </conditional>
+        <param type="integer" argument="--seed" optional="true" label="Random seed to use"/>
+    </inputs>
+    <outputs>
+        <data name="paired_output1" label="${tool.name} on ${on_string}: paired-end r1" format_source="reads1">
+            <filter>input['input_selector'] == "paired"</filter>
+        </data>
+        <data name="paired_output2" label="${tool.name} on ${on_string}: paired-end R2" format_source="reads2">
+            <filter>input['input_selector'] == "paired"</filter>
+        </data>
+        <data name="single_output" label="${tool.name} on ${on_string}: single-end" format_source="reads">
+            <filter>input['input_selector'] == 'single'</filter>
+        </data>
+        <collection name="collection_output" type="paired" label="${tool.name} on ${on_string}: paired-collection">
+            <filter>input['input_selector'] == "paired_collection"</filter>
+            <data name="forward" label="${tool.name} on ${input.collection.forward.name}: paired-end r1" format_source="collection['forward']"/>
+            <data name="reverse" label="${tool.name} on ${input.collection.reverse.name}: paired-end R2" format_source="collection['reverse']"/>
+        </collection>
+        <data name="bam_output" label="${tool.name} on ${on_string}: BAM" format="bam">
+            <filter>input['input_selector'] == 'aligned'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <!-- test 1: single-end fastq by coverage in bases -->
+            <conditional name="input">
+                <param name="input_selector" value="single"/>
+                <param name="reads" value="r1.fastq.gz"/>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="coverage"/>
+                <param name="genome_size_unit" value="b"/>
+                <param name="genome_size" value="1000"/>
+                <param name="coverage" value="1"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="single_output" value="single_by_coverage_b.fastq.gz" ftype="fastqsanger.gz"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test 2: paired-end fastq by coverage in kb -->
+            <conditional name="input">
+                <param name="input_selector" value="paired"/>
+                <param name="reads1" value="r1.fastq.gz"/>
+                <param name="reads2" value="r2.fastq.gz"/>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="coverage"/>
+                <param name="genome_size_unit" value="k"/>
+                <param name="genome_size" value="1"/>
+                <param name="coverage" value="1"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="paired_output1" value="paired1_by_coverage_k.fastq.gz" ftype="fastqsanger.gz"/>
+            <output name="paired_output2" value="paired2_by_coverage_k.fastq.gz" ftype="fastqsanger.gz"/>
+        </test>
+        <test expect_num_outputs="3">
+            <!-- test 3: paired-collection fastq by coverage in mb -->
+            <conditional name="input">
+                <param name="input_selector" value="paired_collection"/>
+                <param name="collection">
+                    <collection type="paired">
+                        <element name="forward" value="r1.fastq.gz"/>
+                        <element name="reverse" value="r2.fastq.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="coverage"/>
+                <param name="genome_size_unit" value="m"/>
+                <param name="genome_size" value="0.001"/>
+                <param name="coverage" value="1"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output_collection name="collection_output" type="paired">
+                <element name="forward" file="paired1_by_coverage_m.fastq.gz" ftype="fastqsanger.gz"/>
+                <element name="reverse" file="paired2_by_coverage_m.fastq.gz" ftype="fastqsanger.gz"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 4: single-end fasta by coverage in gb -->
+            <conditional name="input">
+                <param name="input_selector" value="single"/>
+                <param name="reads" value="r1.fasta.gz"/>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="coverage"/>
+                <param name="genome_size_unit" value="g"/>
+                <param name="genome_size" value="0.001"/>
+                <param name="coverage" value="0.001"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="single_output" value="single_end_by_coverage_g.fasta" ftype="fasta.gz"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test 5: paired-end fastq by number of bases -->
+            <conditional name="input">
+                <param name="input_selector" value="paired"/>
+                <param name="reads1" value="r1.fastq"/>
+                <param name="reads2" value="r2.fastq"/>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="num_bases"/>
+                <param name="num_bases_unit" value="k"/>
+                <param name="bases" value="2"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="paired_output1" value="paired1_by_num_bases_k.fastq" ftype="fastqsanger"/>
+            <output name="paired_output2" value="paired2_by_num_bases_k.fastq" ftype="fastqsanger"/>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test 6: paired-end fasta by number of reads -->
+            <conditional name="input">
+                <param name="input_selector" value="paired"/>
+                <param name="reads1" value="r1.fasta.gz"/>
+                <param name="reads2" value="r2.fasta.gz"/>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="num_reads"/>
+                <param name="num" value="5"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="paired_output1" value="paired1_by_num_reads.fasta.gz" ftype="fasta.gz"/>
+            <output name="paired_output2" value="paired2_by_num_reads.fasta.gz" ftype="fasta.gz"/>
+        </test>
+        <test expect_num_outputs="3">
+            <!-- test 7: paired-collection fasta by fraction reads -->
+            <conditional name="input">
+                <param name="input_selector" value="paired_collection"/>
+                <param name="collection">
+                    <collection type="paired">
+                        <element name="forward" value="r1.fasta"/>
+                        <element name="reverse" value="r2.fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="subsample">
+                <param name="type" value="frac_reads"/>
+                <param name="frac" value="0.6"/>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output_collection name="collection_output" type="paired">
+                <element name="forward" file="paired1_by_frac_reads.fasta" ftype="fasta"/>
+                <element name="reverse" file="paired2_by_frac_reads.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 8: bam input -->
+            <conditional name="input">
+                <param name="input_selector" value="aligned"/>
+                <param name="bam" value="input.bam" />
+            </conditional>
+            <param name="coverage" value="1"/>
+            <param name="seed" value="1"/>
+            <output name="bam_output" value="output.bam" ftype="bam"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Randomly subsample reads to a specified coverage. Rasusa provides a random subsample of a read file (FASTA or FASTQ), with two ways of
+specifying the size of the subset:
+
+* takes a genome size and the desired coverage
+* takes a target number of bases (nucleotides) or fraction of reads to be sampled
+    ]]></help>
+    <citations>
+        <citation type="doi">10.21105/joss.03941</citation>
+    </citations>
+</tool>

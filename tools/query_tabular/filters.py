@@ -11,7 +11,7 @@ class LineFilter(object):
     def __init__(self, source, filter_dict):
         self.source = source
         self.filter_dict = filter_dict
-        self.func = lambda i, l: l.rstrip('\r\n') if l else None
+        self.func = lambda i, line: line.rstrip('\r\n') if line else None
         self.src_lines = []
         self.src_line_cnt = 0
 
@@ -28,23 +28,23 @@ class LineFilter(object):
         if filter_dict['filter'] == 'regex':
             rgx = re.compile(filter_dict['pattern'])
             if filter_dict['action'] == 'exclude_match':
-                self.func = lambda i, l: l if not rgx.match(l) else None
+                self.func = lambda i, line: line if not rgx.match(line) else None
             elif filter_dict['action'] == 'include_match':
-                self.func = lambda i, l: l if rgx.match(l) else None
+                self.func = lambda i, line: line if rgx.match(line) else None
             elif filter_dict['action'] == 'exclude_find':
-                self.func = lambda i, l: l if not rgx.search(l) else None
+                self.func = lambda i, line: line if not rgx.search(line) else None
             elif filter_dict['action'] == 'include_find':
-                self.func = lambda i, l: l if rgx.search(l) else None
+                self.func = lambda i, line: line if rgx.search(line) else None
         elif filter_dict['filter'] == 'select_columns':
             cols = [int(c) - 1 for c in filter_dict['columns']]
-            self.func = lambda i, l: self.select_columns(l, cols)
+            self.func = lambda i, line: self.select_columns(line, cols)
         elif filter_dict['filter'] == 'select_column_slices':
             cols = [x if isinstance(x, int) else [y if y is not None else None for y in [xint(k) for k in x.split(':')]] for x in [xint(c) for c in filter_dict['columns']]]
             if all([isinstance(x, int) for x in cols]):
-                self.func = lambda i, l: self.select_columns(l, cols)
+                self.func = lambda i, line: self.select_columns(line, cols)
             else:
                 cols = [slice(x[0], x[1], x[2] if len(x) > 2 else None) if isinstance(x, list) else x for x in cols]
-                self.func = lambda i, l: self.select_slices(l, cols)
+                self.func = lambda i, line: self.select_slices(line, cols)
         elif filter_dict['filter'] == 'replace':
             p = filter_dict['pattern']
             r = filter_dict['replace']
@@ -54,32 +54,32 @@ class LineFilter(object):
                                               'append',
                                               'before',
                                               'after']:
-                self.func = lambda i, l: '\t'.join(
+                self.func = lambda i, line: '\t'.join(
                     [x if j != c else re.sub(p, r, x)
-                     for j, x in enumerate(l.split('\t'))])
+                     for j, x in enumerate(line.split('\t'))])
             else:
                 a = 0 if filter_dict['add'] == 'prepend'\
                     else min(0, c - 1) if filter_dict['add'] == 'before'\
                     else c + 1 if filter_dict['add'] == 'after'\
                     else None
-                self.func = lambda i, l: self.replace_add(l, p, r, c, a)
+                self.func = lambda i, line: self.replace_add(line, p, r, c, a)
         elif filter_dict['filter'] == 'prepend_line_num':
-            self.func = lambda i, l: '%d\t%s' % (i, l)
+            self.func = lambda i, line: '%d\t%s' % (i, line)
         elif filter_dict['filter'] == 'append_line_num':
-            self.func = lambda i, l: '%s\t%d' % (l.rstrip('\r\n'), i)
+            self.func = lambda i, line: '%s\t%d' % (line.rstrip('\r\n'), i)
         elif filter_dict['filter'] == 'prepend_text':
             s = filter_dict['column_text']
-            self.func = lambda i, l: '%s\t%s' % (s, l)
+            self.func = lambda i, line: '%s\t%s' % (s, line)
         elif filter_dict['filter'] == 'append_text':
             s = filter_dict['column_text']
-            self.func = lambda i, l: '%s\t%s' % (l.rstrip('\r\n'), s)
+            self.func = lambda i, line: '%s\t%s' % (line.rstrip('\r\n'), s)
         elif filter_dict['filter'] == 'skip':
             cnt = filter_dict['count']
-            self.func = lambda i, l: l if i > cnt else None
+            self.func = lambda i, line: line if i > cnt else None
         elif filter_dict['filter'] == 'normalize':
             cols = [int(c) - 1 for c in filter_dict['columns']]
             sep = filter_dict['separator']
-            self.func = lambda i, l: self.normalize(l, cols, sep)
+            self.func = lambda i, line: self.normalize(line, cols, sep)
 
     def __iter__(self):
         return self
