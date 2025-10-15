@@ -7,23 +7,24 @@
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         @SYMLINK_FILES@
-        ln -s '$bgm_output' ${input_file}.BGM.json &&
-        hyphy bgm
+        ENV="TOLERATE_NUMERICAL_ERRORS=1;" @HYPHYMP@ bgm
             --alignment $input_file
             @INPUT_TREE@
-            --run_type $datatype.value
+            --type $datatype.value
             #if $datatype.value == "codon":
                 --code '$datatype.gencodeid'
             #end if
-            #if $datatype.value == "protein":
+            #if $datatype.value == "amino-acid":
                 --baseline_model '$datatype.baseline_model'
             #end if
             @branch_options@
-            --chain '$chain_length'
-            --burn_in '$burn_in'
+            --steps '$chain_length'
+            --burn-in '$burn_in'
             --samples '$samples'
-            --parents '$parents'
-            --min_subs '$min_subs'
+            --max-parents '$parents'
+            --min-subs '$min_subs'
+            --output '$bgm_output'
+            > bgm_stdout.md
         @ERRORS@
     ]]></command>
     <inputs>
@@ -43,107 +44,145 @@
             </when>
         </conditional>
         <expand macro="branches"/>
-        <param argument="--chain" name="chain_length" type="integer" value="100000" min="0" max="1000000000" label="Length of MCMC chain"/>
-        <param argument="--burn_in" type="integer" value="10000" min="0" max="1000000000" label="Number of samples to discard for burn-in"/>
-        <param argument="--samples" type="integer" value="100" min="0" max="100" label="Number of steps to extract from chain sample"/>
-        <param argument="--max-parents" name="parents" type="integer" value="1" min="1" max="3" label="Maximum number of parents allowed per node" />
-        <param argument="--min-subs" type="integer" value="1" min="1" max="100000" label="Minimum number of ubstitutions per site to be included in the analysis" />
+        <section name="advanced_options" title="Advanced Options" expanded="false">
+            <param argument="--steps" name="chain_length" type="integer" value="100000" min="0" max="1000000000" label="Length of MCMC chain" help="The total number of steps in the MCMC simulation."/>
+            <param argument="--burn-in" type="integer" value="10000" min="0" max="1000000000" label="Number of samples to discard for burn-in" help="The initial portion of the MCMC chain is often discarded to allow the simulation to converge to the posterior distribution."/>
+            <param argument="--samples" type="integer" value="100" min="0" max="100000" label="Number of steps to extract from chain sample" help="The number of samples to draw from the MCMC chain after the burn-in period."/>
+            <param argument="--max-parents" name="parents" type="integer" value="1" min="1" max="3" label="Maximum number of parents allowed per node" help="This parameter controls the complexity of the graphical model. It sets the maximum number of other sites that can directly influence a given site."/>
+            <param argument="--min-subs" type="integer" value="1" min="1" max="1000" label="Minimum number of substitutions per site to be included in the analysis" help="Sites with very few substitutions provide little information for detecting co-evolution. This parameter allows you to filter out such low-complexity sites from the analysis."/>
+        </section>
     </inputs>
     <outputs>
         <data name="bgm_output" format="hyphy_results.json" />
+        <data name="bgm_md_report" format="markdown" from_work_dir="bgm_stdout.md" label="BGM Report (Markdown) for ${tool.name} on ${on_string}" />
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_file" ftype="fasta" value="bgm-in1.fa"/>
             <param name="input_nhx" ftype="nhx" value="bgm-in1.nhx"/>
-            <output name="bgm_output" file="bgm-out1.json" compare="sim_size"/>
+            <conditional name="datatype">
+                <param name="value" value="codon"/>
+                <param name="gencodeid" value="Universal"/>
+            </conditional>
+            <output name="bgm_output">
+                <assert_contents>
+                    <has_text text="Probability that site 2 is conditionally dependent on site 1"/>
+                    <has_text text="analysis"/>
+                </assert_contents>
+            </output>
+            <output name="bgm_md_report">
+                <assert_contents>
+                    <has_text text="Analysis Description"/>
+                    <has_text text="BGM analysis summary on 9 sites each with at least 1 substitutions"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="fasta" value="fade-in1.fa"/>
+            <param name="input_nhx" ftype="nhx" value="fade-in1.nhx"/>
+            <conditional name="datatype">
+                <param name="value" value="amino-acid"/>
+                <param name="baseline_model" value="LG"/>
+            </conditional>
+            <output name="bgm_output">
+                <assert_contents>
+                     <has_text text='"samples":100'/>
+                     <has_text text="Probability that sites 1 and 2 are not conditionally independent"/>
+                </assert_contents>
+            </output>
+            <output name="bgm_md_report">
+                <assert_contents>
+                    <has_text text="pairs  of conditionally dependent sites found"/>
+                    <has_text text="## BGM analysis summary on 149 sites each with at least 1 substitutions."/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="fasta" value="bgm-in1.fa"/>
+            <param name="input_nhx" ftype="nhx" value="bgm-in1.nhx"/>
+            <conditional name="datatype">
+                <param name="value" value="nucleotide"/>
+            </conditional>
+            <output name="bgm_output">
+                <assert_contents>
+                     <has_text text='"samples":100'/>
+                     <has_text text="Probability that sites 1 and 2 are not conditionally independent"/>
+                </assert_contents>
+            </output>
+            <output name="bgm_md_report">
+                <assert_contents>
+                     <has_text text=">type => nucleotide"/>
+                     <has_text text="BGM analysis summary on 24 sites each with at least 1 substitutions"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
 
-BGM : Bayesian Graphical Models
-===============================
+BGM : Bayesian Graphical Models for Co-evolving Sites
+=====================================================
 
-What does this do?
-------------------
+**What does this do?**
 
-This tools identifies groups of sites in the alignments that experience substitutions along the same branches,
-i.g. *co-evolve*.
+This tool identifies groups of sites in a sequence alignment that appear to be co-evolving. Co-evolving sites are those that experience substitutions along the same branches of a phylogenetic tree more often than expected by chance. This pattern of correlated substitutions can imply a functional or structural relationship between the sites. For example, a destabilizing mutation at one site might be compensated for by a mutation at another site to preserve the protein's structure or function.
 
-Brief description
------------------
+**How does it work?**
 
-GM (Bayesian Graphical Model) uses a maximum likelihood ancestral state
-reconstruction to map substitution (non-synonymous only for coding data)
-events to branches in the phylogeny and then analyzes the joint
-distribution of the substitution map using a Bayesian graphical model
-(network). Next, a Markov chain Monte Carlo analysis is used to generate
-a random sample of network structures from the posterior distribution
-given the data. Each node in the network represents a site in the
-alignment, and links (edges) between nodes indicate high posterior
-support for correlated substitutions at the two sites over time, which
-implies coevolution.
+BGM employs a Bayesian Graphical Model to uncover these dependencies. The core idea is to represent each site in the alignment as a node in a graph. The algorithm then seeks to find the edges (links) between these nodes that represent statistically significant correlations in substitution patterns.
 
+The process involves several steps:
 
-Input
------
+1.  **Ancestral State Reconstruction:** First, the method reconstructs the evolutionary history of the sequences using maximum likelihood. This allows the tool to map substitution events to specific branches of the phylogenetic tree. For coding data, only non-synonymous substitutions (those that change the amino acid) are considered.
 
-1. A *FASTA* sequence alignment.
-2. A phylogenetic tree in the *Newick* format
+2.  **Bayesian Graphical Model:** The joint distribution of these substitution maps is then analyzed using a Bayesian graphical model. This model represents the probability of the observed substitution patterns given a particular network of dependencies between sites.
 
-Note: the names of sequences in the alignment must match the names of the sequences in the tree.
+3.  **MCMC Sampling:** To explore the vast space of possible network structures, BGM uses a Markov Chain Monte Carlo (MCMC) analysis. This method generates a random sample of network structures from the posterior distribution, meaning it finds the networks that are most likely given the data.
 
-Output
-------
+4.  **Identifying Co-evolving Sites:** The links (edges) that appear most frequently in the sampled networks are the ones with the highest posterior support. These links connect the sites that are most likely to be co-evolving.
 
-A JSON file with analysis results (http://hyphy.org/resources/json-fields.pdf).
+**Input**
 
-A custom visualization module for viewing these results is available (see http://vision.hyphy.org/BGM for an example)
+*   A multiple sequence alignment in FASTA or NEXUS format.
+*   A phylogenetic tree in Newick format. The names of the sequences in the alignment must match the names of the tips in the tree.
 
-Further reading
----------------
+**Output**
 
-http://hyphy.org/methods/selection-methods/#BGM
+*   **JSON file:** A JSON file containing the detailed results of the analysis, including the posterior probabilities of the links between sites. (See http://hyphy.org/resources/json-fields.pdf for a description of the fields).
+*   **Markdown report:** A summary report in Markdown format.
 
+A custom visualization module for viewing BGM results is available at http://vision.hyphy.org/BGM.
 
-Tool options
-------------
-::
+**Tool Options**
 
-    --branches          Which branches should be tested for selection?
-                            All [default] : test all branches
+*   **Type of data:** The type of sequence data in the alignment file.
+    *   `nucleotide`: For DNA or RNA sequences.
+    *   `amino-acid`: For protein sequences.
+    *   `codon`: For coding DNA sequences. This is the default.
 
-                            Internal : test only internal branches (suitable for
-                            intra-host pathogen evolution for example, where terminal branches
-                            may contain polymorphism data)
+*   **Genetic code:** If using codon data, the genetic code to use for translation.
 
-                            Leaves: test only terminal (leaf) branches
+*   **Substitution model:** If using amino-acid data, the substitution model to use.
 
-                            Unlabeled: if the Newick string is labeled using the {} notation,
-                            test only branches without explicit labels
-                            (see http://hyphy.org/tutorials/phylotree/)
+*   **Set of branches to test:** The set of branches in the phylogeny to consider for the analysis.
+    *   `All branches`: (Default) Use all branches in the tree.
+    *   `Internal branches`: Use only the internal branches. This can be useful for studying pathogen evolution within a host, for example, where terminal branches might represent polymorphism rather than fixed differences.
+    *   `Leaf branches`: Use only the terminal (leaf) branches.
+    *   `Unlabeled branches`: If the Newick tree is annotated with labels, use only the branches that do not have a label.
+    *   `Custom`: Specify a custom set of branches by providing a label.
 
-    --max-parents      The maximum number of parents allowed per node, i.e. how many sites
-                       can directly influence substitution patterns at another site
-                       Increasing this number scales complexity nonlinearly
-	                    default value: 1
+*   **Length of MCMC chain:** The total number of steps in the MCMC simulation. A longer chain will explore the space of possible networks more thoroughly but will take longer to run.
 
-    --min-subs         The minium number of substitutions per site to include it in the analysis
-                       Filter low complexity (too few substitution) sites
-	                     default value: 1
+*   **Number of samples to discard for burn-in:** The initial portion of the MCMC chain is often discarded to allow the simulation to converge to the posterior distribution. This parameter specifies the number of initial samples to discard.
 
-    --chains           How many MCMC chains to run (does not apply to Variational-Bayes)
-                            default value: 5
+*   **Number of steps to extract from chain sample:** The number of samples to draw from the MCMC chain after the burn-in period. These samples are used to estimate the posterior probabilities of the links.
 
-    --steps            MCMC chain length (does not apply to Variational-Bayes)
-                            default value: 100,000
+*   **Maximum number of parents allowed per node:** This parameter controls the complexity of the graphical model. It sets the maximum number of other sites that can directly influence a given site. Increasing this number can reveal more complex dependency networks but also significantly increases the computational complexity.
 
-    --burn-in          MCMC chain burn in (does not apply to Variational-Bayes)
-                            default value: 10,000
+*   **Minimum number of substitutions per site:** Sites with very few substitutions provide little information for detecting co-evolution. This parameter allows you to filter out such low-complexity sites from the analysis.
 
-    --samples          MCMC samples to draw (does not apply to Variational-Bayes)
-                            default value: 100
+**Further Reading**
 
+For more information, please see the HyPhy documentation: http://hyphy.org/methods/selection-methods/#BGM
 
     ]]></help>
     <expand macro="citations">
