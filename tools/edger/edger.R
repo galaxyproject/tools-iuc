@@ -330,6 +330,8 @@ if (file.exists(opt$contrastData)) {
 }
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
+# Convert colons to dots to match design matrix column name processing
+contrast_data <- gsub(":", ".", contrast_data, fixed = TRUE)
 
 bcv_pdf <- make_out("bcvplot.pdf")
 bcv_png <- make_out("bcvplot.png")
@@ -430,6 +432,9 @@ design <- model.matrix(formula, factors)
 for (i in seq_along(factor_list)) {
     colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)
 }
+
+# Ensure column names are syntactically valid
+colnames(design) <- make.names(colnames(design))
 
 # Calculating normalising factor, estimating dispersion
 data <- calcNormFactors(data, method = opt$normOpt)
