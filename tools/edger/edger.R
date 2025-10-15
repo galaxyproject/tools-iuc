@@ -88,6 +88,21 @@ unmake_names <- function(string) {
 # Sanitise file base names coming from factors or contrasts
 sanitise_basename <- function(string) {
     string <- gsub("[/^]", "_", string)
+    
+    # If string is longer than 200 characters, truncate intelligently
+    if (nchar(string) > 200) {
+        # Keep first 80 characters, last 80 characters, and add hash in middle
+        start_part <- substr(string, 1, 80)
+        end_part <- substr(string, nchar(string) - 79, nchar(string))
+        
+        # Create a simple hash of the full string using built-in functions
+        hash_input <- utf8ToInt(string)
+        hash_value <- sum(hash_input * seq_along(hash_input)) %% 99999999
+        hash_str <- sprintf("%08d", hash_value)
+        
+        string <- paste0(start_part, "_", hash_str, "_", end_part)
+    }
+    
     return(string)
 }
 
