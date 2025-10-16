@@ -8,6 +8,7 @@ import os
 # Metadata encoding/decoding
 # -------------------------------
 
+
 def encode_metadata(obj):
     """
     Recursively encode Python objects into tensors:
@@ -25,6 +26,7 @@ def encode_metadata(obj):
     else:
         data = pickle.dumps(obj)
         return torch.tensor(list(data), dtype=torch.uint8)
+
 
 def decode_metadata(obj):
     """
@@ -48,6 +50,7 @@ def decode_metadata(obj):
 # Flatten/unflatten for SafeTensors
 # -------------------------------
 
+
 def flatten_dict(d, parent_key='', sep='/'):
     items = {}
     for k, v in d.items():
@@ -57,6 +60,7 @@ def flatten_dict(d, parent_key='', sep='/'):
         else:
             items[new_key] = v
     return items
+
 
 def unflatten_dict(d, sep='/'):
     result = {}
@@ -68,31 +72,22 @@ def unflatten_dict(d, sep='/'):
         target[keys[-1]] = v
     return result
 
+
 # -------------------------------
 # Save .pt as SafeTensors
 # -------------------------------
 
-if  __name__ == "__main__":
+if __name__ == "__main__":
     FILE_PATH = sys.argv[1]
     if FILE_PATH.endswith('.pt'):
         checkpoint = torch.load("model.pt", map_location="cpu")
         encoded = encode_metadata(checkpoint)
         flat = flatten_dict(encoded)
-        save_file(flat, os.path.join(os.path.dirname(sys.argv[1]),"model.safetensors"))
+        save_file(flat, os.path.join(os.path.dirname(sys.argv[1]), "model.safetensors"))
         print("Saved restorable SafeTensors file!")
     else:
         loaded_flat = load_file("model_restorable.safetensors")
         loaded_nested = unflatten_dict(loaded_flat)
         restored_checkpoint = decode_metadata(loaded_nested)
-        torch.save(restored_checkpoint, os.path.join(os.path.dirname(sys.argv[1]),"model.pt"))
+        torch.save(restored_checkpoint, os.path.join(os.path.dirname(sys.argv[1]), "model.pt"))
         print("Saved restored checkpoint as model_restored.pt!")
-
-
-
-# -------------------------------
-# Load back the checkpoint
-# -------------------------------
-
-
-
-# Now restored_checkpoint should be equivalent to the original checkpoint
