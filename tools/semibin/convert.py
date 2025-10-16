@@ -2,6 +2,7 @@ import sys
 import torch
 import pickle
 from safetensors.torch import save_file, load_file
+import os
 
 # -------------------------------
 # Metadata encoding/decoding
@@ -77,13 +78,13 @@ if  __name__ == "__main__":
         checkpoint = torch.load("model.pt", map_location="cpu")
         encoded = encode_metadata(checkpoint)
         flat = flatten_dict(encoded)
-        save_file(flat, "model_restorable.safetensors")
+        save_file(flat, os.path.join(os.path.dirname(sys.argv[1]),"model.safetensors"))
         print("Saved restorable SafeTensors file!")
     else:
         loaded_flat = load_file("model_restorable.safetensors")
         loaded_nested = unflatten_dict(loaded_flat)
         restored_checkpoint = decode_metadata(loaded_nested)
-        torch.save(restored_checkpoint, "model_restored.pt")
+        torch.save(restored_checkpoint, os.path.join(os.path.dirname(sys.argv[1]),"model.pt"))
         print("Saved restored checkpoint as model_restored.pt!")
 
 
