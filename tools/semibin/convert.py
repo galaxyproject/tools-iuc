@@ -1,8 +1,9 @@
 import sys
-import torch
-import pickle
-from safetensors.torch import save_file, load_file
 import os
+import pickle
+
+import torch
+from safetensors.torch import load_file, save_file
 
 # -------------------------------
 # Metadata encoding/decoding
