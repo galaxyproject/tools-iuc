@@ -112,13 +112,23 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         self.amrfinderplus_db_path = f'{self._output_dir}/{self._db_name}'
         os.makedirs(self.amrfinderplus_db_path)
 
+        if self._amrfinderplus_version == "latest":
+          self.get_amrfinderplus_version()
+
         amrfinderplus_ftp_path = f"ftp://{self._login}:" \
-                                 f"{self._password}@{self._ncbi_ftp_url}/" \
-                                 f"{self._ncbi_database_path}/" \
-                                 f"{self._amrfinderplus_version}/" \
-                                 f"{self._amrfinderplus_date_version}"
+                                   f"{self._password}@{self._ncbi_ftp_url}/" \
+                                   f"{self._ncbi_database_path}/" \
+                                   f"{self._amrfinderplus_version}/" \
+                                   f"{self._amrfinderplus_date_version}"
+
+        if self._amrfinderplus_version == "3.12":
+          taxa_group_file = "taxgroup.tab"
+          test_dna_fasta = "AMR_DNA-Escherichia"
+        else:
+          taxa_group_file = "taxgroup.tsv" 
+          test_dna_fasta = "AMR_DNA-Escherichia.fa"
         if self.test_mode is True:
-            file_list = ["AMR_DNA-Escherichia", "version.txt", "taxgroup.tab", "database_format_version.txt"]
+            file_list = [test_dna_fasta, "version.txt", taxa_group_file, "database_format_version.txt"]
             output_option = "-O"
             for file in file_list:
                 self.subprocess_cmd("wget",
@@ -153,7 +163,11 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         Extract le list of species which have file in the database
         return: a filtered species list of available species in the database
         """
-        taxa_group_path = Path(f"{self.amrfinderplus_db_path}/taxgroup.tab")
+        if self._amrfinderplus_version == "3.12":
+          taxa_group_file = "taxgroup.tab"
+        else:
+          taxa_group_file = "taxgroup.tsv" 
+        taxa_group_path = Path(f"{self.amrfinderplus_db_path}/{taxa_group_file}")
         if Path.exists(taxa_group_path):
             taxa_table = pd.read_table(taxa_group_path)
             taxa_table.columns = ["taxgroup", "gpipe_taxgroup", "number_of_nucl_ref_genes"]
@@ -164,16 +178,21 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
                 taxa_df = taxa_df.taxgroup
             self.species_list = list(taxa_df)
         else:
-            print("taxgroup.tab file is missing to list available species")
+            print(f"{taxa_group_file} file is missing to list available species")
 
     def make_blastdb(self):
         """
         Index fasta file for blast
         """
         self.extract_filelist_makeblast()
-        nucl_file_db_list = [f'{self.amrfinderplus_db_path}/AMR_DNA-{specie}' for specie in self.species_list]
-        amr_dna = f'{self.amrfinderplus_db_path}/AMR_CDS'
-        amr_prot = f'{self.amrfinderplus_db_path}/AMRProt'
+        if self._amrfinderplus_version == "3.12":
+            nucl_file_db_list = [f'{self.amrfinderplus_db_path}/AMR_DNA-{specie}' for specie in self.species_list]
+            amr_dna = f'{self.amrfinderplus_db_path}/AMR_CDS'
+            amr_prot = f'{self.amrfinderplus_db_path}/AMRProt'
+        else:
+            nucl_file_db_list = [f'{self.amrfinderplus_db_path}/AMR_DNA-{specie}.fa' for specie in self.species_list]
+            amr_dna = f'{self.amrfinderplus_db_path}/AMR_CDS.fa'
+            amr_prot = f'{self.amrfinderplus_db_path}/AMRProt.fa'
         os.chdir(self.amrfinderplus_db_path)
         if Path(amr_dna).exists():
             nucl_file_db_list.append(amr_dna)
