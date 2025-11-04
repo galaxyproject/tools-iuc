@@ -10,11 +10,11 @@ from urllib.request import HTTPError, Request, urlopen
 # urls for from where to downlaod ref data
 urls = {
     # This url might not work since it is stored on a third party server which sometimes has it troubles
-    '1':{
+    '1': {
         'path': "http://srv00.recas.ba.infn.it/webshare/brunofosso/kMetaShot_reference.h5",
         'release_date': "2022-07-31"
     },
-    '2':{
+    '2': {
         'path': "https://zenodo.org/records/17375120/files/kMetaShot_bacteria_archaea_2025-05-22.h5",
         'release_date': "2025-05-22"
     },
@@ -22,7 +22,7 @@ urls = {
 
 
 def is_urlfile(url):
-    #check if file exist
+    # check if file exist
     try:
         r = urlopen(url)  # response
         return r.getcode() < 400
@@ -66,7 +66,7 @@ def create_data_manager_entry(release, file_path, test):
         data_manager_entry["path"] = file_path
         data_manager_entry["version"] = release
         return data_manager_entry
-    
+
     data_manager_entry = {}
     data_manager_entry["value"] = urls['release']['release_date']
     data_manager_entry["name"] = f"kMetaShot reference data {urls['release']['release_date']}"
@@ -96,7 +96,7 @@ def download(release, test, out_file):
         data_manager_json["data_tables"]["kmetashot"] = [
             create_data_manager_entry(release, file_path, test)
         ]
-    else:    
+    else:
         data_manager_json = {"data_tables": {}}
 
         url = urls[release]["path"]
