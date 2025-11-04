@@ -7,8 +7,9 @@ import sys
 from urllib.parse import urlparse
 from urllib.request import HTTPError, Request, urlopen
 
-#urls for from where to downlaod ref data
+# urls for from where to downlaod ref data
 urls = {
+    # This url might not work since it is stored on a third party server which sometimes has it troubles
     '1':{
         'path': "http://srv00.recas.ba.infn.it/webshare/brunofosso/kMetaShot_reference.h5",
         'release_date': "2022-07-31"
@@ -33,7 +34,7 @@ def url_download(url, target_directory):
 
     # download the url
     url_parts = urlparse(url)
-    tarball = os.path.abspath(
+    ref_data = os.path.abspath(
         os.path.join(target_directory, os.path.basename(url_parts.path))
     )
     src = None
@@ -41,7 +42,7 @@ def url_download(url, target_directory):
     try:
         req = Request(url)
         src = urlopen(req)
-        with open(tarball, "wb") as dst:
+        with open(ref_data, "wb") as dst:
             while True:
                 chunk = src.read(2**16)  # Read in 64 KB chunks instead of 1 KB
                 if chunk:
@@ -57,10 +58,17 @@ def url_download(url, target_directory):
     return target_directory
 
 
-def create_data_manager_entry(database_name, release, file_path):
+def create_data_manager_entry(release, file_path, test):
+    if test:
+        data_manager_entry = {}
+        data_manager_entry["value"] = urls['release']['release_date']
+        data_manager_entry["name"] = f"kMetaShot reference data {urls['release']['release_date']} - TEST"
+        data_manager_entry["path"] = file_path
+        data_manager_entry["version"] = release
+        return data_manager_entry
+    
     data_manager_entry = {}
-    data_manager_entry["value"] = ( urls['release']['release_date']
-    )
+    data_manager_entry["value"] = urls['release']['release_date']
     data_manager_entry["name"] = f"kMetaShot reference data {urls['release']['release_date']}"
     data_manager_entry["path"] = file_path
     data_manager_entry["version"] = release
@@ -76,18 +84,26 @@ def download(release, test, out_file):
     os.makedirs(target_directory)
 
     if test:
-        # make use of the test to check if all urls exists
-        for _version, items in urls.items():
-            for url in items.values():
-                assert is_urlfile(url)
+        # make use of the test to check if the this url is valid
+        url = urls[release]["path"]
 
-    data_manager_json = {"data_tables": {}}
+        assert is_urlfile(url)
 
-    url = urls[release]["path"]
-    file_path = url_download(url, target_directory)
-    data_manager_json["data_tables"]["kmetashot"] = [
-        create_data_manager_entry("Full Database", release, file_path)
-    ]
+        data_manager_json = {"data_tables": {}}
+
+        url = urls[release]["path"]
+        file_path = 'test/kMetaShot_bacteria_archaea_2025-05-22.h5'
+        data_manager_json["data_tables"]["kmetashot"] = [
+            create_data_manager_entry(release, file_path, test)
+        ]
+    else:    
+        data_manager_json = {"data_tables": {}}
+
+        url = urls[release]["path"]
+        file_path = url_download(url, target_directory)
+        data_manager_json["data_tables"]["kmetashot"] = [
+            create_data_manager_entry(release, file_path, test)
+        ]
 
     # store in dedicated metadata table
     with open(out_file, "w") as fh:
