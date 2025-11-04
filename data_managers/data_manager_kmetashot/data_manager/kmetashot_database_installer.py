@@ -61,15 +61,15 @@ def url_download(url, target_directory):
 def create_data_manager_entry(release, file_path, test):
     if test:
         data_manager_entry = {}
-        data_manager_entry["value"] = urls['release']['release_date']
-        data_manager_entry["name"] = f"kMetaShot reference data {urls['release']['release_date']} - TEST"
+        data_manager_entry["value"] = urls[release]['release_date']
+        data_manager_entry["name"] = f"kMetaShot reference data {urls[release]['release_date']} - TEST"
         data_manager_entry["path"] = file_path
         data_manager_entry["version"] = release
         return data_manager_entry
 
     data_manager_entry = {}
-    data_manager_entry["value"] = urls['release']['release_date']
-    data_manager_entry["name"] = f"kMetaShot reference data {urls['release']['release_date']}"
+    data_manager_entry["value"] = urls[release]['release_date']
+    data_manager_entry["name"] = f"kMetaShot reference data {urls[release]['release_date']}"
     data_manager_entry["path"] = file_path
     data_manager_entry["version"] = release
     return data_manager_entry
