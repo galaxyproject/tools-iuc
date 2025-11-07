@@ -2,20 +2,21 @@
     <description>index builder</description>
     <macros>
         <token name="@TOOL_VERSION@">1.10.1</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@VERSION_SUFFIX@">1</token>
         <token name="@PROFILE@">24.0</token>
         <token name="@IDX_VERSION@">q7</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">salmon</requirement>
     </requirements>
+    <version_command><![CDATA[salmon --no-version-check --version | cut -d" " -f2]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
-        ## salmon uses one thread to much 
+        ## salmon uses one thread to much
+        ## https://github.com/COMBINE-lab/salmon/issues/993
         SLOTS=\$(( \${GALAXY_SLOTS:-12} > 1 ? \${GALAXY_SLOTS:-12} - 1 : 1 ));
 
         ## https://combine-lab.github.io/alevin-tutorial/2019/selective-alignment/
         ## https://salmon.readthedocs.io/en/latest/salmon.html#preparing-transcriptome-indices-mapping-based-mode
-        
         #for $transcripts in $transcriptome.fields.path.split(",")
             (zcat '$transcripts' 2>/dev/null || cat '$transcripts') >> gentrome.fa &&
         #end for
@@ -25,7 +26,7 @@
 
         mkdir '$out_file.extra_files_path' &&
 
-        salmon index
+        salmon --no-version-check index
             -k $kmer_size
             -t gentrome.fa
             -d decoys.txt
@@ -37,14 +38,20 @@
         cp '$dmjson' '$out_file'
     ]]></command>
     <configfiles>
-        <configfile name="dmjson"><![CDATA[{
+        <configfile name="dmjson"><![CDATA[#slurp
+#import os
+#def combine(strings, sep):
+    #set lcp = os.path.commonprefix(strings)
+    #set value = lcp + sep.join([s[len(lcp):] for s in strings])
+    #return $value
+#end def
 #if str($sequence_id).strip() == ""
-    #set sequence_id = $transcriptome.fields.value
+    #set sequence_id = $combine($transcriptome.fields.value.split(","), "_")
 #end if
 #if str($sequence_name).strip() == ""
-    #set sequence_name = $transcriptome.fields.name
+    #set sequence_name = $combine($transcriptome.fields.name.split(","), " + ")
 #end if
-
+{
   "data_tables":{
     "salmon_indexes_versioned":[
       {
@@ -59,14 +66,14 @@
 }]]></configfile>
     </configfiles>
     <inputs>
-        <param label="Transcriptome sequences" name="transcriptome" optional="false" type="select">
+        <param label="Transcriptome sequences" name="transcriptome" optional="false" multiple="true" type="select">
             <options from_data_table="transcriptomes" />
         </param>
         <param label="Genome" name="all_fasta_source" optional="false" type="select">
-            <options from_data_table="all_fasta" />
+            <options from_data_table="all_fasta"/>
         </param>
-        <param name="sequence_name" type="text" value="" label="Name of sequence" />
-        <param name="sequence_id" type="text" value="" label="ID for sequence" />
+        <param name="sequence_name" type="text" value="" label="Name of sequence" help="default: common prefix of the transcriptome names plus the non-common parts joined by ' + '" />
+        <param name="sequence_id" type="text" value="" label="ID for sequence" help="default: common prefix of the transcriptome IDs plus the non-common parts joined by '_'"/>
         <param name="kmer_size" type="integer" optional='true' value="31" max="32" label="The size of the k-mer on which the index is built"
                     help="There is a tradeoff here between the distinctiveness of the k-mers and their robustness to errors. The shorter the k-mers, the more robust they will be to errors in the reads, but the longer the k-mers, the more distinct they will be.  We generally recommend using a k-mer size of at least 20. MUST BE AN ODD VALUE ">
             <validator type="expression" message="Only odd values">value % 2 == 1</validator>
@@ -78,32 +85,44 @@
     </outputs>
     <tests>
         <test>
-            <param name="transcriptome" value="phiX174"/>
+            <param name="transcriptome" value="phiX1741,phiX1742"/>
             <param name="all_fasta_source" value="phiX174"/>
-            <param name="sequence_name" value="sequence_name"/>
-            <param name="sequence_id" value="sequence_id"/>
             <output name="out_file">
                 <assert_contents>
                     <has_text text='"salmon_indexes_versioned"' />
                     <has_text text='"dbkey": "phiX174"' />
-                    <has_text text='"name": "sequence_name"' />
-                    <has_text text='"value": "sequence_id"' />
+                    <has_text text='"name": "phiX174: 1 + 2"' />
+                    <has_text text='"value": "phiX1741_2"' />
                     <has_text text='"version": "q7"' />
                     <has_text text='"path":' />
                 </assert_contents>
             </output>
         </test>
         <test>
-            <param name="transcriptome" value="phiX174"/>
+            <param name="transcriptome" value="phiX1741"/>
             <param name="all_fasta_source" value="phiX174"/>
-            <param name="sequence_name" value=""/>
-            <param name="sequence_id" value=""/>
             <output name="out_file">
                 <assert_contents>
                     <has_text text='"salmon_indexes_versioned"' />
                     <has_text text='"dbkey": "phiX174"' />
-                    <has_text text='"name": "phiX174"' />
-                    <has_text text='"value": "phiX174"' />
+                    <has_text text='"name": "phiX174: 1"' />
+                    <has_text text='"value": "phiX1741"' />
+                    <has_text text='"version": "q7"' />
+                    <has_text text='"path":' />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="transcriptome" value="phiX1741"/>
+            <param name="all_fasta_source" value="phiX174"/>
+            <param name="sequence_name" value="name_override"/>
+            <param name="sequence_id" value="value_override"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text='"salmon_indexes_versioned"' />
+                    <has_text text='"dbkey": "phiX174"' />
+                    <has_text text='"name": "name_override"' />
+                    <has_text text='"value": "value_override"' />
                     <has_text text='"version": "q7"' />
                     <has_text text='"path":' />
                 </assert_contents>
