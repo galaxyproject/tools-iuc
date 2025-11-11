@@ -1,14 +1,18 @@
 <tool id="bmtagger" name="bmtagger" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
-    <description></description>
+    <description>remove contaminant reads</description>
     <macros>
         <token name="@TOOL_VERSION@">3.101</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">25.0</token>
+
+        <xml name="assert">
+            <assert_contents>
+                <has_n_lines n="2668"/>
+            </assert_contents>
+        </xml>
         <xml name="element_assert" tokens="name,ftype" token_decompress="false">
             <element name="@NAME@" ftype="@FTYPE@" decompress="@DECOMPRESS@">
-                <assert_contents>
-                    <has_n_lines n="2668"/>
-                </assert_contents>
+                <expand macro="assert"/>
             </element>
         </xml>
     </macros>
@@ -22,21 +26,29 @@
     <command detect_errors="exit_code"><![CDATA[
         set -eo pipefail;
         #set gz = False
-        #if $reads.has_single_item
-            #if $reads.single_item.ext.endswith(".gz")
-                gunzip -c '$reads.single_item' > forward &&
-                #set gz = True
-            #else
-                ln -s '$reads.single_item' forward &&
+        #set fasta = False
+        #if $sequences.type == "single"
+            #if $sequences.reads.ext.startswith("fasta")
+                #set fasta = True
             #end if
-        #else
-            #if $reads.forward.ext.endswith(".gz")
-                gunzip -c '$reads.forward' > forward &&
-                gunzip -c '$reads.reverse' > reverse &&
+            #if $sequences.reads.ext.endswith(".gz")
+                gunzip -c '$sequences.reads' > forward &&
                 #set gz = True
             #else
-                ln -s '$reads.forward' forward &&
-                ln -s '$reads.reverse' reverse &&
+                ln -s '$sequences.reads' forward &&
+            #end if
+
+        #else
+            #if $sequences.reads.forward.ext.startswith("fasta")
+                #set fasta = True
+            #end if
+            #if $sequences.reads.forward.ext.endswith(".gz")
+                gunzip -c '$sequences.reads.forward' > forward &&
+                gunzip -c '$sequences.reads.reverse' > reverse &&
+                #set gz = True
+            #else
+                ln -s '$sequences.reads.forward' forward &&
+                ln -s '$sequences.reads.reverse' reverse &&
             #end if
         #end if
 
@@ -64,9 +76,9 @@
         #end if
 
         bmtagger.sh
-            -q #if $reads.single_item.ext.startswith("fasta") then 0 else 1#
+            -q #if $fasta then 0 else 1#
             -1 forward
-            #if not $reads.has_single_item
+            #if $sequences.type == "paired"
                 -2 reverse
             #end if
             -b '${reference}.bitmask'
@@ -79,10 +91,8 @@
             -o host_ids
             &&
 
-        echo $test &&
-
         extract_fullseq host_ids -keep -fastq 
-        #if $reads.has_single_item
+        #if $sequences.type == "single"
             -single
         #else
             -mate1
@@ -91,23 +101,31 @@
         #if $gz
             | gzip -c
         #end if
-        #if $reads.has_single_item
-            ## > '$out_single'
-            > '$out.single_item'
+        #if $sequences.type == "single"
+            > '$out_single'
         #else
-            ## > '$out_pair.forward'
-            > '$out.forward'
+            > '$out_pair.forward'
             &&
             extract_fullseq host_ids -keep -fastq -mate2 'reverse' 
             #if $gz
                 | gzip -c
             #end if
-            ## > '$out_pair.reverse'
-            > '$out.reverse'
+            > '$out_pair.reverse'
         #end if
     ]]></command>
     <inputs>
-        <param name="reads" type="data_collection" collection_type="paired_or_unpaired" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Paired reads"/>
+        <conditional name="sequences">
+            <param name="type" type="select" label="Sequence type">
+                <option value="single">Single end data</option>
+                <option value="paired">Paired end data</option>
+            </param>
+            <when value="single">
+                <param name="reads" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Single end reads"/>
+            </when>
+            <when value="paired">
+                <param name="reads" type="data_collection" collection_type="paired" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Paired end reads" />
+            </when>
+        </conditional>
         <conditional name="host">
             <param name="source" type="select" label="Host data source">
                 <option value="cached">Precomputed indices</option>
@@ -128,90 +146,95 @@
         <param name="test" type="hidden"/>
     </inputs>
     <outputs>
-        <collection name="out" type="paired_or_unpaired" structured_like="reads" format_source="reads"/>
-        <!-- <data name="out_single" format_source="reads" label="${tool.name} on ${on_string}">
-            <filter>len(reads.collection.elements)==1</filter>
+        <data name="out_single" format_source="reads" label="${tool.name} on ${on_string}">
+            <filter>sequences["type"] == "single"</filter>
         </data>
         <collection name="out_pair" type="paired" label="${tool.name} on ${on_string}: pairs">
             <data name="forward" format_source="reads" />
             <data name="reverse" format_source="reads" />
-            <filter>len(reads.collection.elements)==2</filter>
-        </collection> -->
+            <filter>sequences["type"] == "paired"</filter>
+        </collection>
     </outputs>
     <tests>
         <!-- single input, cached reference -->
-        <test expect_num_outputs="2">
-            <param name="reads">
-                <collection type="paired_or_unpaired" name="reads">
-                    <element name="unpaired" value="host_and_contaminant.fq1.fq" ftype="fastqsanger" />
-                </collection>
-            </param>
+        <test expect_num_outputs="1">
+            <conditional name="sequences">
+                <param name="type" value="single"/>
+                <param name="reads" value="host_and_contaminant.fq1.fq" ftype="fastqsanger"/>
+            </conditional>
             <param name="test" value="true"/>
-            <output_collection name="out" count="1">
-                <expand macro="element_assert" name="unpaired" ftype="fastqsanger"/>
-            </output_collection>
-
+            <output name="out_single" ftype="fastqsanger">
+                <expand macro="assert"/>
+            </output>
         </test>
         <!-- paired input, cached reference -->
         <test expect_num_outputs="3">
-            <param name="reads">
-                <collection type="paired_or_unpaired" name="reads">
-                    <element name="forward" value="host_and_contaminant.fq1.fq" ftype="fastqsanger"/>
-                    <element name="reverse" value="host_and_contaminant.fq2.fq" ftype="fastqsanger" />
-                </collection>
-            </param>
+            <conditional name="sequences">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired_or_unpaired" name="reads">
+                        <element name="forward" value="host_and_contaminant.fq1.fq" ftype="fastqsanger"/>
+                        <element name="reverse" value="host_and_contaminant.fq2.fq" ftype="fastqsanger"/>
+                    </collection>
+                </param>
+            </conditional>
             <param name="test" value="true"/>
-            <output_collection name="out" count="2">
+            <output_collection name="out_pair" count="2">
                 <expand macro="element_assert" name="forward" ftype="fastqsanger"/>
                 <expand macro="element_assert" name="reverse" ftype="fastqsanger"/>
             </output_collection>
         </test>
         <!-- gz input, cached reference -->
         <test expect_num_outputs="3">
-            <param name="reads">
-                <collection type="paired_or_unpaired" name="reads">
-                    <element name="forward" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
-                    <element name="reverse" value="host_and_contaminant.fq2.fq.gz" ftype="fastqsanger.gz" />
-                </collection>
-            </param>
+            <conditional name="sequences">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired_or_unpaired" name="reads">
+                        <element name="forward" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="host_and_contaminant.fq2.fq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
             <param name="test" value="true"/>
-            <output_collection name="out" count="2">
+            <output_collection name="out_pair" count="2">
                 <expand macro="element_assert" name="forward" ftype="fastqsanger.gz" decompress="true"/>
                 <expand macro="element_assert" name="reverse" ftype="fastqsanger.gz" decompress="true"/>
             </output_collection>
         </test>
 
         <!-- single gz input, fasta reference -->
-        <test expect_num_outputs="2">
-            <param name="reads">
-                <collection type="paired_or_unpaired" name="reads">
-                    <element name="unpaired" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz" />
-                </collection>
-            </param>
+        <test expect_num_outputs="1">
+            <conditional name="sequences">
+                <param name="type" value="single"/>
+                <param name="reads" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
             <conditional name="host">
                 <param name="source" value="history"/>
                 <param name="sequence" value="host.fa" ftype="fasta"/>
             </conditional>
             <param name="test" value="true"/>
-            <output_collection name="out" count="1">
-                <expand macro="element_assert" name="unpaired" ftype="fastqsanger.gz" decompress="true"/>
-            </output_collection>
+            <output name="out_single" ftype="fastqsanger.gz" decompress="true">
+                <expand macro="assert"/>
+            </output>
         </test>
 
         <!-- gz input, gzipped fasta reference -->
         <test expect_num_outputs="3">
-            <param name="reads">
-                <collection type="paired_or_unpaired" name="reads">
-                    <element name="forward" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
-                    <element name="reverse" value="host_and_contaminant.fq2.fq.gz" ftype="fastqsanger.gz" />
-                </collection>
-            </param>
+            <conditional name="sequences">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired_or_unpaired" name="reads">
+                        <element name="forward" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="host_and_contaminant.fq2.fq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
             <conditional name="host">
                 <param name="source" value="history"/>
                 <param name="sequence" value="host.fa.gz" ftype="fasta.gz"/>
             </conditional>
             <param name="test" value="true"/>
-            <output_collection name="out"  count="2">
+            <output_collection name="out_pair" count="2">
                 <expand macro="element_assert" name="forward" ftype="fastqsanger.gz" decompress="true"/>
                 <expand macro="element_assert" name="reverse" ftype="fastqsanger.gz" decompress="true"/>
             </output_collection>
