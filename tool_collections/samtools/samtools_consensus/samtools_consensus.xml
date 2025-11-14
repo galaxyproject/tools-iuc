@@ -1,0 +1,613 @@
+<tool id="samtools_consensus" name="Samtools consensus" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>generate consensus from a SAM, BAM or CRAM file</description>
+    <macros>
+        <import>macros.xml</import>
+        <import>macros_tool_specific.xml</import>
+        <token name="@REF_DATA@">
+            ## additional reference data
+            #if $use_ref:
+                -T "\$reffa"
+            #end if
+        </token>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @ADDTHREADS@
+        ## prepare reference data
+        @PREPARE_FASTA_IDX@
+        @PREPARE_IDX@
+
+        samtools consensus infile
+        -f '$format'
+        -@ \$addthreads
+
+        ##### preprocessing options
+        --min-MQ $preprocessing_options.minimum_MQ 
+        --min-BQ $preprocessing_options.minimum_BQ
+
+        ### try macro 
+        #set $std_filters = ''
+        #set $filter = $preprocessing_options.inclusive_filter
+        @FLAGS@
+        #set $std_filters = $std_filters + " --rf %s" % str($flags)
+        #set $filter = $preprocessing_options.exclusive_filter
+        @FLAGS@
+        #set $std_filters = $std_filters + " --ff %s" % str($flags)
+        $std_filters
+
+        ##### consensus Options
+        -m '$consensus_options.mode'
+        ### simple options
+        #if str($consensus_options.mode) == "simple":
+            $consensus_options.settings.use_qual
+            -c $consensus_options.settings.c
+            -H $consensus_options.settings.H
+        ### bayesian options
+        #else
+            ### use predefined options
+            #if str($consensus_options.settings.config_cond.config_param) != "manual":
+                --config $consensus_options.settings.config_param
+            ### manually set parameters
+            #else
+                -C $consensus_options.settings.C
+                #if str($consensus_options.settings.config_cond.mq_cond.mq_param) == "--use-MQ":
+                    $consensus_options.settings.config_cond.mq_cond.mq_param
+                    $consensus_options.settings.config_cond.mq_cond.adj_mq
+                    --NM-halo $consensus_options.settings.config_cond.mq_cond.mismatch_window
+                    --low-MQ $consensus_options.settings.config_cond.mq_cond.low_mq
+                    --high-MQ $consensus_options.settings.config_cond.mq_cond.high_mq
+                    --scale-MQ $consensus_options.settings.config_cond.mq_cond.scale_mq
+                #end if
+                --P-het $consensus_options.settings.config_cond.p_het
+                --P-indel $consensus_options.settings.config_cond.p_indel
+                --het-scale $consensus_options.settings.config_cond.hetero_scale
+                $consensus_options.settings.config_cond.hom_fix
+                #if $consensus_options.settings.config_cond.hom_score:
+                    --homopoly-score $consensus_options.settings.config_cond.hom_score
+                #end if
+                #if str($consensus_options.settings.config_cond.calibration_cond.calibration_param) != "file":
+                    --qual-calibration '$consensus_options.settings.config_cond.calibration_param'
+                #else
+                    #if $consensus_options.settings.config_cond.calibration_cond.calibration_file:
+                        --qual-calibration '$consensus_options.settings.config_cond.calibration_cond.calibration_file'
+                    #end if
+                #end if
+            #end if
+        #end if
+
+        ### global options
+        --min-depth $global_settings.minimum_depth
+        #set reg = '%s:%s-%s' % (str($$global_settings.reg), str($$global_settings.start), str($$global_settings.end))
+        -r "${reg}"
+
+
+        @REF_DATA@
+
+        ##### Output Options
+        -l $output_options.line_len
+        $output_options.all
+        --show-del $output_options.show_deletions        
+        --show-ins $output_options.show_insertions
+        $output_options.ambig
+        $output_options.mark_insertions
+        > $output_file
+    ]]></command>
+    <!-- Parameters -->
+    <inputs>
+        <!-- Basic options -->
+        <param name="input" type="data" format="sam,bam,cram" label="BAM file"/>
+        <param argument="--format" type="select" label="Output file type" help="Produce format FMT, with 'fastq', 'fasta' and 'pileup' as permitted options.">
+            <option value="fasta" selected="true">FASTA</option>
+            <option value="fastq">FASTQ</option>
+            <option value="pileup">Pileup</option>
+        </param>
+        <!-- Preprocessing options (reads) -->
+        <section name="preprocessing_options" title="Preprocessing Options" expanded="no">
+            <param name="minimum_MQ" argument="--min-MQ" type="integer" value="0" min="0" label="Minimum mapping quality" help="Filters out reads with a mapping quality below specified value"/>
+            <param name="minimum_BQ" argument="--min-BQ" type="integer" value="0" min="0" label="Minimum base quality" help="Filters out bases with a base quality below specified value"/>
+            <!-- Use macro for inclusive and axclusive flags -->
+            <expand macro="inclusive_filter_macro" token_argument="--rf"/>
+            <expand macro="exclusive_filter_macro" token_argument="--ff"/>
+        </section>
+        <!-- Consensus options Condetional -->
+        <conditional name="consensus_options">
+            <param argument="--mode" type="select" label="Select the consensus algorithm" help="Choose the consensus algorithm. 'Simple' uses base counts to call consensus, 'Bayesian' applies a probabilistic model (Gap5) for higher accuracy, and 'Bayesian 1.16' reproduces the behavior of samtools consensus v1.16 for compatibility.">
+                <option value="simple">Simple</option>
+                <option value="bayesian" selected="true">Bayesian (Gap5)</option>
+                <option value="bayesian_116">Bayesian 1.16</option>
+            </param>
+            <!-- simple mode options -->
+            <when value="simple">
+                <section name="settings" title="Settings" expanded="no">
+                    <param name="use_qual" argument="-q" type="boolean" truevalue="-q" falsevalue="" checked="false" label="Weight by base quality" help="Base counts are weighted by their Phred quality scores instead of counting each base equally. Improves consensus accuracy by giving higher weight to more confident base calls."/>
+                    <param argument="-c" type="float" value="0.75" min="0" max="1" label="Minimum consensus fraction" help="Require at least C fraction of bases agreeing with the most likely consensus call to emit that base type. Failing this check will output 'N'"/>
+                    <param argument="-H" type="float" value="0.15" min="0" max="1" label="Heterozygous fraction threshold" help="Report a heterozygous base in the consensus if the second most frequent base occurs at least H fraction of the most common base. (Requires --ambig)"/>
+                </section>
+            </when>
+            <!-- bayesian mode options -->
+            <when value="bayesian">
+                <expand macro="bayesian_settings_macro"/>
+            </when>
+            <!-- bayesian 1.16 mode options -->
+            <when value="bayesian_116">
+                <expand macro="bayesian_settings_macro"/>
+            </when>
+        </conditional>
+        <!-- Gloabl Settings -->
+        <section name="global_settings" title="Global Settings" expanded="no">
+            <param name="minimum_depth" argument="--min-depth" type="integer" value="1" label="Minimum depth" help="The minimum depth required to make a call. Failing this depth check will produce consensus 'N', or absent if it is an insertion. Note this check is performed after filtering by flags and mapping/base quality"/>
+            <!-- region -->
+            <repeat name="reg_repeat" title="region" min="0" max="1">
+                <param name="reg" type="text" optional="false" format="fasta" label="Region"/>
+                <param name="start" type="integer" format="fasta" optional="true" label="Start"/>
+                <param name="end" type="integer" format="fasta" optional="true" label="End"/>
+            </repeat>
+            <!-- use contional ref macro -->
+             <expand macro="optional_reference" token_argument="--reference" token_help="Select a reference genome to guide consensus generation."/>
+        </section>
+        <!-- Output Options -->
+        <section name="output_options" title="Output Options" expanded="no">
+            <param name="line_len" argument="-l" type="integer" value="70" label="Maximum line lenght" help="The maximum line length of line-wrapped fasta and fastq formats. Set to -1 for no line wrapping."/>
+            <param name="all" argument="-a" type="boolean" truevalue="-a" falsevalue="" checked="false" label="Output all positions" help="Output absolutely all positions, including references with no data aligned against them"/>
+            <param name="show_deletions" argument="--show-del" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Show deletions" help="Whether to show deletions as '*' (if checked) or to omit from the output (if left unchecked)"/>
+            <param name="show_insertions" argument="--show-ins" label="Show insertions" type="boolean" truevalue="yes" falsevalue="no" checked="true"  help="Whether to show insertions in the consensus"/>
+            <param argument="--ambig" type="boolean" truevalue="--ambig" falsevalue="" checked="false" label="IUPAC ambiguity codes" help="Enables IUPAC ambiguity codes in the consensus output. Without this the output will be limited to A, C, G, T, N and *"/>
+            <param name="mark_insertions" argument="--mark-ins" type="boolean" truevalue="--mark-ins" falsevalue="" checked="false" label="Mark insertions" help="Mark insertions by adding an underscore before every inserted base, plus a corresponding character in the quality for fastq format. When used in conjunction with '-a' and '--show-del', this permits an easy derivation of the consensus to reference coordinate mapping"/>
+        </section>
+    </inputs>
+    <!-- Outputs -->
+    <outputs>
+        <data name="output_file" format="fasta">
+            <change_format>
+                <when input="format" value="fasta" format="fasta" />
+                <when input="format" value="fastq" format="fastq" />
+                <when input="format" value="pileup" format="pileup" />
+            </change_format>
+        </data>
+    </outputs>
+    <!-- Tests -->
+    <tests>
+        <!-- 1) test format-->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.bam" ftype="bam" />
+            <param name="format" value="fasta"/>
+            <section name="output_options">
+                <param name="line_len" value="70"/>
+            </section>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression=">LR743429.1"/>
+                    <has_n_lines n="156"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test pre-processing Options -->
+        <!-- 2) test min BQ and min MQ -->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam" />
+            <section name="preprocessing_options">
+                <param name="minimum_BQ" value="1"/>
+                <param name="minimum_MQ" value="21"/>
+            </section>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="GGTTTTATAAAANAATTAAGTCTACAGAGCAACTA"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3) test include flags -rf -->
+        <test expect_num_outputs="1">
+            <param name="input" value="ex1.bam" ftype="bam" />
+            <section name="preprocessing_options">
+                <param name="inclusive_filter" value="2"/>
+            </section>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_size size="3k" delta="1k"/>
+                    <has_n_lines n="46"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test simple mode options -->
+        <!-- 4) test use qual-->
+        <test expect_num_outputs="1">
+            <param name="input" value="ex1.bam" ftype="bam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="simple"/>
+                <section name="settings">
+                    <param name="use_qual" value="true"/>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="CAAAAATAAAGAAAAAANTTTTAAAAATGAACAGAGCTTTCAAGAAGTATGAGATTATGTAAAGTAACTG"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 5) test minimum call fraction -->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="simple"/>
+                <section name="settings">
+                    <param name="c" value="0.9"/>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="AGGTTTTATNAAANAANTAANTCTACAGAGCAACTA"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 6) test minimum hetro fraction -->
+        <test expect_num_outputs="1">
+            <param name="input" value="test.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="simple"/>
+                <section name="settings">
+                    <param name="c" value="0.5"/>
+                    <param name="H" value="0.1"/>
+                </section>
+            </conditional>
+            <section name="output_options">
+                <param name="ambig" value="true"/>
+            </section>   
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="MACGTACGTA"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 7) test cutoff -->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam"/>
+                <conditional name="consensus_options">
+                    <param name="mode" value="bayesian"/>
+                    <section name="settings">
+                        <conditional name="config_cond">
+                            <param name="config_param" value="manual"/>
+                            <param name="C" value="5"/>
+                        </conditional>
+                    </section>
+                </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="TTAGATAAAGAGGATAGCTGTAGGCTCAGCGCCAT"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 8) test use MQ defaults -->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <conditional name="mq_cond">
+                            <param name="mq_param" value="--use-MQ"/>
+                        </conditional>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NNAGATAAAGAGGATAGCNNNNNNNNCAGCNNNNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 9) test P-indel -->
+        <test expect_num_outputs="1">
+            <param name="input" value="consen1c.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian_116"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <param name="p_indel" value="0.01"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="CCTTTAACGAATTTCC"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 10) test P-het -->
+        <test expect_num_outputs="1">
+            <param name="input" value="consen1c.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian_116"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <param name="p_indel" value="0.01"/>
+                        <param name="p_het" value="0.01"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NNTTTNNNGNNTTTNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 11) test low-high-MQ -->
+        <test expect_num_outputs="1">
+            <param name="input" value="consen1c.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian_116"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <conditional name="mq_cond">
+                            <param name="mq_param" value="--use-MQ"/>
+                            <param name="low_mq" value="0"/>
+                            <param name="high_mq" value="60"/>
+                        </conditional>
+                        <param name="p_indel" value="0.01"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="AAAAACCAACCAAAAA"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 12) test het scale -->
+        <test expect_num_outputs="1">
+            <param name="input" value="consen1c.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <param name="p_indel" value="0.2"/>
+                        <param name="hetero_scale" value="4"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NNTTTNNNGNNTTTNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test homopoly fix -->
+        <test expect_num_outputs="1">
+            <param name="input" value="ex1.bam" ftype="bam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <param name="hom_fix" value="true"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="CAGCCTGGCTGTGGGGGNCGCAGTGGCTGAGGGGTGNAGAGCCGAGTCACGGGGTTGCCAGCACAGGGGC"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 13) test homopoly score -->
+        <test expect_num_outputs="1">
+            <param name="input" value="ex1.bam" ftype="bam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                        <param name="hom_score" value="0.3"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="CAGCCTGGCTGTGGGGGNCGCAGTGGCTGAGGGGTGNAGAGCCGAGTCACGGGGTTGCCAGCACAGGGGC"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 14) test pre defined settings -->
+        <test expect_num_outputs="1">
+            <param name="input" value="consen1c.sam" ftype="sam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="ultima"/>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NNNNNNNNNNNNNNNNNNNNNNNNNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test quality calibration -->
+        <test expect_num_outputs="1">
+            <param name="input" value="ex1.bam" ftype="bam"/>
+            <conditional name="consensus_options">
+                <param name="mode" value="bayesian"/>
+                <section name="settings">
+                    <conditional name="config_cond">
+                        <param name="config_param" value="manual"/>
+                            <conditional name="calibration_cond">
+                                <param name="calibration_param" value=":hifi"/>
+                            </conditional>
+                    </conditional>
+                </section>
+            </conditional>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="TTTGNTNNANCCCCTTGCAACAACCTTGAGAACCCCAGGGAATTTGTCAATGTCAGGGAAGGAGCATTTT"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Global Settings 
+        test min depth -->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam"/>
+            <section name="global_settings">
+                <param name="minimum_depth" value="2"/>
+            </section>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NGGTTTTATAAAANAANTAAGTCTACAGAGCAACTN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test region -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.bam" ftype="bam"/>
+            <section name="global_settings">
+                <repeat name="reg_repeat">
+                    <param name="reg" value="LR743429.1"/>
+                    <param name="start" value="1700"/>
+                    <param name="end" value="1900"/>
+                </repeat>
+            </section>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="CCACCAAACAATCTGTTGTGGCTCTAGGGTCGCAGGAAGGTGCATTGCACCAAGCTCTGGCCGGAGCGAT"/>
+                    <has_size size="216" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test reference file -->
+        <test expect_num_outputs="1">
+            <param name="input" value="consen1c.sam" ftype="sam"/>
+            <section name="global_settings">
+                <conditional name="addref_cond">
+                    <param name="addref_select" value="history" />
+                    <param name="ref" value="consen1c.fa" />
+                </conditional>
+            </section>
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NNNNNNNNNNTTAGGGNNNNNNNNNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Output Options 
+        test show deletions -->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam" />
+            <section name="output_options">
+                <param name="show_deletions" value="true"/>
+            </section>            
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_text text="NNAGATAAAGAGGATAGCNN******NNNNN**NCAGCNNNNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test show insertions-->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam" />
+            <section name="output_options">
+                <param name="show_insertions" value="false"/>
+            </section>            
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="NNAGATAAGATAGCNNNNNNNNCAGCNNNNN"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test all parameter-->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.bam" ftype="bam" />
+            <param name="format" value="fasta"/>
+            <section name="output_options">
+                <param name="line_len" value="70"/>
+                <param name="all" value="true"/>
+            </section>            
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression=">LR743429.1"/>
+                    <has_n_lines n="157"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test ambiguity-->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam" />
+            <section name="output_options">
+                <param name="ambig" value="true"/>
+            </section>            
+            <output name="output_file" ftype="fasta">
+                <assert_contents>
+                    <has_text text="Y"/>
+                    <has_text text="W"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test mark insertions-->
+        <test expect_num_outputs="1">
+            <param name="input" value="toy.sam" ftype="sam" />
+            <param name="format" value="fastq"/>
+            <section name="output_options">
+                <param name="mark_insertions" value="true"/>
+            </section>            
+            <output name="output_file" ftype="fastq">
+                <assert_contents>
+                    <has_text text="!!BB.BBB_$_5_$_55BBB$5!!!!!!!!5555!!!!!"/>
+                    <has_n_lines n="8"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+  
+Generate a consensus sequence from a SAM, BAM, or CRAM file based on the alignment records.
+
+**Mode**
+
+Available modes are “simple” (frequency counting) and “bayesian” (Gap5-based) methods.
+The default is bayesian.
+For compatibility with Samtools v1.16 (which did not distinguish error types), you can use “bayesian 1.16” to reproduce the legacy behavior.
+
+For compatibility with older versions of Samtools (v1.16), the “bayesian_116” mode reproduces the previous consensus behavior, which does not distinguish between substitution and indel errors.
+
+**Bayesian configuration presets**  
+
+- **manual** – Manually set all parameters.  
+- **hiseq** – Uses Illumina HiSeq calibration: `--qual-calibration :hiseq`.  
+- **hifi** – PacBio HiFi preset:  
+  `--qual-calibration :hifi --homopoly-fix 0.3 --low-MQ 5 --scale-MQ 1.5 --het-scale 0.37`  
+- **r10.4_sup** – Oxford Nanopore R10.4 super accuracy preset:  
+  `--qual-calibration :r10.4_sup --homopoly-fix 0.3 --low-MQ 5 --scale-MQ 1.5 --het-scale 0.37`  
+- **r10.4_dup** – Oxford Nanopore R10.4 duplex preset:  
+  `--qual-calibration :r10.4_dup --homopoly-fix 0.3 --low-MQ 5 --scale-MQ 1.5 --het-scale 0.37`  
+- **ultima** – Ultima Genomics preset:  
+  `--qual-calibration :ultima --homopoly-fix 0.3 --low-MQ 10 --scale-MQ 2 --het-scale 0.37`  
+    ]]></help>
+    <expand macro="citations"/>
+    <creator>
+        <organization name="Galaxy Europe"/>
+        <person givenName="Ahmad" familyName="Mahagna" url="https://github.com/Smkingsize"/>
+        <person givenName="Saim" familyName="Momin" url="https://github.com/SaimMomin12"/>
+    </creator>
+</tool>
