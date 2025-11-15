@@ -1,0 +1,237 @@
+<tool id="rdeval" name="rdeval" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Multithreaded read analysis and manipulation tool.</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    #import re
+    #set $mangled_inputs = []
+    #for $input in $input_reads
+        #set $mangled_base = re.sub(r"[^\w\-\s]", "_", str($input.element_identifier))
+        #set $mangled_input = $mangled_base + "." + str($input.ext)
+        #silent $mangled_inputs.append($mangled_input)
+        ln -s '$input' '$mangled_input' &&
+    #end for
+    #if $output_options.output_type.type_selector == "combined_reads"
+        ln -s '$reads_outfile' 'output.${output_type.format_selector}' &&
+    #end if
+	rdeval --input-reads
+    #for $input in $mangled_inputs
+        '$input'
+    #end for
+	#if $expected_gsize
+		'$expected_gsize'
+	#end if
+	#if $include_list
+		--include-list '$include_list'
+    #end if
+	#if $exclude_list
+		--exclude-list '$exclude_list'
+    #end if
+    #if $filter
+		--filter '$filter'
+    #end if
+		--sample '$sample'
+	#if $input_subsample.seed_selector == "yes"
+		--random-seed '$random_seed'
+	#end if
+	#if $input_compress.compress_selector == "yes"
+		--homopolymer-compress '$homopolymer_compress'
+	#end if
+    #if $stats_flavor.flavor_selector == "stats"
+        #if $sequence_report
+            --sequence-report
+        #end if
+    #else if $stats_flavor.flavor_selector == "quality"
+		--quality '$quality'
+    #else if $stats_flavor.flavor_selector == "size"
+		--out-size '$out_size'
+    #end if
+    #if $output_options.output_type.type_selector == "rd_file"
+        #if $md5
+            --md5
+        #end if
+        -o output.rd
+    #else if $output_options.output_type.type_selector == "combined_reads"
+        -o 'output.${output_type.format_selector}'
+    #end if
+		--verbose
+		--tabular
+		--threads \${GALAXY_SLOTS:-2}
+		> '$stats_outfile'
+	]]></command>
+    <inputs>
+        <param argument="--input-reads" type="data" format="bam,cram,fasta,fasta.gz,fastq,fastq.gz" multiple="true" label="Input dataset" help="BAM, CRAM, FASTA, FASTQ, or RD files"/>
+        <param name="expected_gsize" type="integer" label="Expected Genome Size" optional="true" help="Integer (e.g., 3000000000 for human)."/>
+        <section name="input_filter" title="Filter input reads" expanded="false">
+            <param argument="--include-list" type="data" format="txt" optional="true" label="File containing headers to include"/>
+            <param argument="--exclude-list" type="data" format="txt" optional="true" label="File containing headers to exclude"/>
+            <param argument="--filter" type="text" optional="true" label="filter" help="e.g. l&gt;1000 &amp; q&gt;20"/>
+        </section>
+        <section name="input_subsample" title="Subsample input reads" expanded="false">
+            <param argument="--sample" type="float" min="0" max="1" value="1" label="fraction of reads to subsample"/>
+            <conditional name="random_seed">
+                <param name="seed_selector" type="select" label="supply random seed to make subsampling reproducible">
+                    <option value="no" selected="true">no</option>
+                    <option value="yes">yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param argument="--random-seed" type="integer" min="0" value="0" label="random seed to make subsampling reproducible"/>
+                </when>
+            </conditional>
+        </section>
+        <conditional name="input_compress">
+            <param name="compress_selector" type="select" label="Compress homopolymers">
+                <option value="no" selected="true">no</option>
+                <option value="yes">yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param argument="--homopolymer-compress" type="integer" min="0" value="0" label="Compress homopolymers longer than n in the input"/>
+            </when>
+        </conditional>
+        <section name="output_options" title="Output options">
+            <conditional name="stats_flavor">
+                <param name="flavor_selector" type="select" label="Stats output">
+                    <option value="stats" selected="true">Stats</option>
+                    <option value="quality">Quality</option>
+                    <option value="size">Size</option>
+                </param>
+                <when value="stats">
+                    <param argument="--sequence-report" type="boolean" checked="false" label="Per read sequence report"/>
+                </when>
+                <when value="quality">
+                    <param argument="--quality" type="select" optional="true" label="quality type">
+                        <option value="q" selected="true">Average quality for each read</option>
+                        <option value="a">Both length and quality for each read</option>
+                    </param>
+                </when>
+                <when value="size">
+                    <param argument="--out-size" type="select" optional="true" label="size list type">
+                        <option value="u" selected="true">unsorted</option>
+                        <option value="s">sorted</option>
+                        <option value="h">histogram</option>
+                        <option value="c">inverse cumulative table</option>
+                    </param>
+                </when>
+            </conditional>
+            <conditional name="output_type">
+                <param name="type_selector" type="select" label="output type">
+                    <option value="rd_file" selected="true">RD file</option>
+                    <option value="combined_reads">Combined reads</option>
+                </param>
+                <when value="combined_reads">
+                    <param name="format_selector" type="select" optional="true" label="Output format">
+                        <option value="fasta.gz" selected="true">fasta</option>
+                        <option value="fastq.gz">fastq</option>
+                        <option value="bam">bam</option>
+                        <option value="cram">cram</option>
+                    </param>
+                </when>
+                <when value="rd_file">
+                    <param argument="--md5" type="boolean" checked="false" label="Print md5 of .rd files"/>
+                </when>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="stats_outfile" format="tabular" label="Rdeval summary"/>
+        <data name="rd_outfile" from_work_dir="output.rd" format="binary" label="RD File">
+            <filter>output_options["output_type"]["type_selector"] == "rd_file"</filter>
+        </data>
+        <data name="reads_outfile" format="binary" label="Output reads">
+            <filter>output_options["output_type"]["type_selector"] == "combined_reads"</filter>
+            <change_format>
+                <when input="format_selector" value="fasta.gz" format="fasta.gz"/>
+                <when input="format_selector" value="fastq.gz" format="fastq.gz"/>
+                <when input="format_selector" value="bam" format="bam"/>
+                <when input="format_selector" value="cram" format="cram"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_reads" value="test1.fasta.gz" ftype="fasta.gz"/>
+            <output name="stats_outfile" file="output1.tabular" ftype="tabular"/>
+            <output name="rd_outfile" ftype="binary">
+                <assert_contents>
+                    <has_size size="109" delta="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_reads" value="test1.fastq.gz" ftype="fastq.gz"/>
+            <output name="stats_outfile" file="output1.tabular" ftype="tabular" lines_diff="2"/>
+            <output name="rd_outfile" ftype="binary">
+                <assert_contents>
+                    <has_size size="128" delta="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_reads" value="test2.bam" ftype="bam"/>
+            <section name="output_options">
+                <conditional name="output_type">
+                    <param name="type_selector" value="combined_reads"/>
+                    <param name="format_selector" value="fastq.gz"/>
+                </conditional>
+            </section>
+            <output name="stats_outfile" file="output2.tabular" ftype="tabular"/>
+            <output name="reads_outfile" file="output2.fastq.gz" ftype="fastq.gz"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+What it does
+============
+
+**rdeval** accepts an arbitrary number of sequencing files and optionally **filters**, **subsamples**, and/or **compresses homopolymers** within the reads. The retained reads can be saved in multiple formats, and metrics on these reads can be stored in a '*sketch*' file. Statistics can then be efficiently retrieved from these sketch files for further processing.
+
+.. image:: pipeline.svg
+
+Filtering
+=========
+
+Input reads can be filtered using one of the three methods listed below, applied sequentially in the specified order.
+
+1. Retain reads whose header lines are listed in the include dataset.
+2. Discard reads whose header lines are listed in the exclude dataset.
+3. Retain reads that match the provided filter expression.
+
+The filter expression can be used to select reads based on read length (l), average read quality (q), or a combination of both. The grammar for constructing filter expressions is outlined below:
+
+     * filter-expression ::= <length-expression> | <quality-expression> | <length-expression> <combination-operator> <quality-expression> | <quality-expression> <combination-operator> <length-expression>
+     * length-expression ::= "l" <comparison-operator> <integer>
+     * quality-expression ::= "q" <comparison-operator> <integer>
+     * combination-operator := "&" | "|"
+     * comparison-operator ::= "<" | "=" | ">"
+     * integer ::= <digit> | <digit><integer>
+     * digit ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+
+Retain reads longer than 10 base pairs
+
+    l>10
+
+Retain reads with average quality greather than 20
+
+     q>20
+
+Retain reads longer than 10 base pairs with average quality greather than 20
+
+     l>10 & q>20
+
+.. _sampling-label:
+
+Sub-sampling
+============
+
+4. Retain a subsample of the reads by specifying the fraction to be kept. Use the *random seed* option to keep subsampling reproducible.
+
+Homopolymer Compression
+=======================
+
+5. Runs of repeated nucleotides in each read are collapsed, with any associated quality data discarded. For example, CAGGCTTT would become CAGCT.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
