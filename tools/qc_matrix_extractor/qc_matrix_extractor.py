@@ -6,14 +6,16 @@ import os
 import sys
 import pandas as pd
 
-#### Logging function ####
+
+# Logging function #
 def log(msg, log_file=None):
     if log_file:
         with open(log_file, "a") as f:
             f.write(msg + "\n")
     print(msg)
 
-#### CLI parsing ####
+
+# CLI parsing #
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Galaxy-safe QC matrix extractor"
@@ -27,7 +29,8 @@ def parse_args():
     parser.add_argument("--list", action="store_true", help="List all available columns in the input file and exit")
     return parser.parse_args()
 
-#### QC decision function ####
+
+# QC decision function #
 def qc_decision(row, thresholds):
     for metric, thresh in thresholds.items():
         if metric == "Contam_pct":
@@ -38,34 +41,34 @@ def qc_decision(row, thresholds):
                 return "Fail"
     return "Pass"
 
-#### Main ####
+
+# Main #
 def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     log_file = os.path.join(args.outdir, "qc_tool.log")
 
-    #### Load TSV ####
     try:
         df = pd.read_csv(args.input, sep="\t")
     except Exception as e:
         print(f"ERROR: Cannot read input file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    #### List columns and exit ####
+    # List columns and exit #
     if args.list:
         print("\nAvailable columns in the input file:\n")
         for col in df.columns:
             print(f" - {col}")
         sys.exit(0)
 
-    #### Parse thresholds JSON ####
+    # Parse thresholds JSON #
     try:
         QC_THRESHOLDS = json.loads(args.thresholds)
     except json.JSONDecodeError as e:
         print(f"ERROR: Cannot parse thresholds JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
-    #### Rename MultiQC columns to Galaxy-safe names ####
+    # Rename MultiQC columns to Galaxy-safe names #
     rename_map = {
         "qualimap_bamqc-total_reads": "Total_reads",
         "qualimap_bamqc-mapped_reads": "Mapped_reads",
@@ -78,11 +81,11 @@ def main():
     }
     df.rename(columns=rename_map, inplace=True)
 
-    #### Calculate contamination automatically ####
+    # Calculate contamination automatically #
     if "Kraken_top1_pct" in df.columns:
         df["Contam_pct"] = 100 - df["Kraken_top1_pct"]
 
-    #### Automatic read count scaling ####
+    # Automatic read count scaling #
     for col in ["Total_reads", "Mapped_reads"]:
         if col in df.columns:
             max_val = df[col].max()
@@ -92,14 +95,14 @@ def main():
             else:
                 log(f"{col} appears to be in raw counts — no scaling applied", log_file)
 
-    #### Optional derived reads ####
+    # Optional derived reads #
     if args.derive_reads:
         if "Total_reads" in df.columns and "Kraken_top1_pct" in df.columns:
             df["MTB_reads"] = df["Total_reads"] * df["Kraken_top1_pct"] / 100
         if "Total_reads" in df.columns and "Kraken_unclassified_pct" in df.columns:
             df["Unclassified_reads"] = df["Total_reads"] * df["Kraken_unclassified_pct"] / 100
 
-    #### QC decisions ####
+    # QC decisions #
     if QC_THRESHOLDS:
         df["QC_status"] = df.apply(lambda row: qc_decision(row, QC_THRESHOLDS), axis=1)
         for metric, thresh in QC_THRESHOLDS.items():
@@ -109,12 +112,12 @@ def main():
             else:
                 df[col_name] = df.get(metric, 0) >= thresh
 
-    #### Columns selection ####
+    # Columns selection #
     ALLOWED_COLUMNS = [
-        "Sample","Total_reads","Mapped_reads","Mapping_pct","Median_depth",
-        "Coverage_gte_10x_pct","GC_pct","Kraken_top1_pct","Kraken_unclassified_pct",
-        "Contam_pct","QC_status","Total_reads_pass","Coverage_gte_10x_pct_pass",
-        "Contam_pct_pass","MTB_reads","Unclassified_reads"
+        "Sample", "Total_reads", "Mapped_reads", "Mapping_pct", "Median_depth",
+        "Coverage_gte_10x_pct", "GC_pct", "Kraken_top1_pct", "Kraken_unclassified_pct",
+        "Contam_pct", "QC_status", "Total_reads_pass", "Coverage_gte_10x_pct_pass",
+        "Contam_pct_pass", "MTB_reads", "Unclassified_reads"
     ]
 
     if args.attributes and args.attributes.lower() != "none":
@@ -129,11 +132,11 @@ def main():
 
     df = df[cols_to_keep]
 
-    #### Round numeric columns ####
+    # Round numeric columns #
     numeric_cols = df.select_dtypes(include="number").columns
     df[numeric_cols] = df[numeric_cols].round(args.round)
 
-    #### Save outputs ####
+    # Save outputs #
     tsv_out = os.path.join(args.outdir, "QC_matrix_multiqc.tsv")
     csv_out = os.path.join(args.outdir, "QC_matrix_multiqc.csv")
     df.to_csv(tsv_out, sep="\t", index=False)
@@ -141,6 +144,7 @@ def main():
     log("QC matrix saved successfully!", log_file)
     log(f"TSV: {tsv_out}", log_file)
     log(f"CSV: {csv_out}", log_file)
+
 
 if __name__ == "__main__":
     main()
