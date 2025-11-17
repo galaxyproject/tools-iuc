@@ -1,4 +1,4 @@
-<tool id="fastp" name="fastp" version="@TOOL_VERSION@+galaxy2" profile="23.1">
+<tool id="fastp" name="fastp" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.1">
     <description>fast all-in-one preprocessing for FASTQ files</description>
     <macros>
         <import>macros.xml</import>
@@ -149,6 +149,14 @@ $filter_options.low_complexity_filter.enable_low_complexity_filter
 #end if
 
 
+## Duplicate analysis / deduplication
+
+$duplicated_reads.handling_options.eval_dups
+#if not str($duplicated_reads.handling_options.eval_dups):
+    $duplicated_reads.handling_options.dedup
+#end if
+
+
 ## Read Modification Options
 
 ## PolyG tail trimming, useful for NextSeq/NovaSeq data
@@ -273,7 +281,18 @@ $read_mod_options.base_correction_options.correction
                 <param name="complexity_threshold" argument="-Y" type="integer" optional="true" label="Complexity threshold" help="Threshold for low complexity filter (0~100). Default is 30, which means 30% complexity is required."/>
             </section>
         </section>
-
+        <section name="duplicated_reads" title="Duplicated Reads Options">
+            <conditional name="handling_options">
+                <param name="eval_dups" type="select" label="Enable duplicated reads analysis" help="If enabled, calculate and report read duplication statistics. Enabling this is also a prerequisite for optional deduplication of reads. Duplicate detection relies exclusively on exact identity between read sequences (both for SE and PE data). It also increases tool memory requirements and running time moderately. NOTE: the default (no duplication analysis) is different from the command-line tool.">
+                    <option value="">Enable</option>
+                    <option value="--dont_eval_duplication" selected="true">Disable (--dont_eval_duplication)</option>
+                </param>
+                <when value="--dont_eval_duplication" />
+                <when value="">
+                    <param argument="--dedup" type="boolean" truevalue="--dedup" falsevalue="" label="Drop duplicate reads/pairs"/>
+                </when>
+            </conditional>
+        </section>
         <!-- Read Modification Options -->
         <section name="read_mod_options" title="Read Modification Options">
             <conditional name="polyg_tail_trimming">
@@ -312,7 +331,7 @@ $read_mod_options.base_correction_options.correction
 
             <section name="cutting_by_quality_options" title="Per read cutting by quality options" expanded="True">
                 <conditional name="cut_front_select">
-                    <param argument="--cut_front" type="select" truevalue="--cut_front" falsevalue="" checked="false" label="Cut by quality in front (5')" help="Enable per read cutting by quality in front (5'), default is disabled (WARNING: this will interfere deduplication for both PE/SE data).">
+                    <param argument="--cut_front" type="select" truevalue="--cut_front" falsevalue="" checked="false" label="Cut by quality in front (5')" help="Enable per read cutting by quality in front (5'). (WARNING: this will interfere with deduplication of both PE/SE data if performed with downstream tools.)">
                         <option value="--cut_front">Yes</option>
                         <option value="" selected="true">No</option>
                     </param>
@@ -324,7 +343,7 @@ $read_mod_options.base_correction_options.correction
                     </when>
                 </conditional>
                 <conditional name="cut_tail_select">
-                    <param argument="--cut_tail" type="select" truevalue="--cut_tail" falsevalue="" checked="false" label="Cut by quality in tail (3')" help="Enable per read cutting by quality in tail (3'), default is disabled (WARNING: this will interfere deduplication for SE data).">
+                    <param argument="--cut_tail" type="select" truevalue="--cut_tail" falsevalue="" checked="false" label="Cut by quality in tail (3')" help="Enable per read cutting by quality in tail (3'). (WARNING: this will interfere with deduplication of SE data if performed with downstream tools.)">
                         <option value="--cut_tail">Yes</option>
                         <option value="" selected="true">No</option>
                     </param>
@@ -336,7 +355,7 @@ $read_mod_options.base_correction_options.correction
                     </when>
                 </conditional>
                 <conditional name="cut_right_select">
-                    <param argument="--cut_right" type="select" truevalue="--cut_right" falsevalue="" checked="false" label="Cut by quality in tail (3')" help="Move a sliding window from front to tail, if meet one window with mean quality &lt; threshold, drop the bases in the window and the right part, and then stop.">
+                    <param argument="--cut_right" type="select" truevalue="--cut_right" falsevalue="" checked="false" label="Cut by quality in tail (3')" help="Move a sliding window from front to tail, if meet one window with mean quality &lt; threshold, drop the bases in the window and the right part, and then stop. (WARNING: this will interfere with deduplication of SE data if performed with downstream tools.)">
                         <option value="--cut_right">Yes</option>
                         <option value="" selected="true">No</option>
                     </param>
@@ -396,11 +415,13 @@ $read_mod_options.base_correction_options.correction
             <output name="report_html">
                 <assert_contents>
                     <has_text text="fastp report"/>
+                    <not_has_text text="duplication rate:"/>
                 </assert_contents>
             </output>
             <output name="report_json">
                 <assert_contents>
                     <has_text text="fastp report"/>
+                    <not_has_text text="&quot;duplication&quot;:"/>
                 </assert_contents>
             </output>
         </test>
@@ -421,6 +442,7 @@ $read_mod_options.base_correction_options.correction
             <output name="report_html">
                 <assert_contents>
                     <has_text text="fastp report"/>
+                    <not_has_text text="duplication rate:"/>
                 </assert_contents>
             </output>
             <output_collection name="output_paired_coll" type="paired">
@@ -532,19 +554,28 @@ $read_mod_options.base_correction_options.correction
                 </assert_contents>
             </output>
         </test>
-        <!-- 8. Ensure JSON report output works -->
-        <test expect_num_outputs="2">
+        <!-- 8. Ensure enabling duplicate analysis works -->
+        <test expect_num_outputs="3">
             <conditional name="single_paired">
                 <param name="single_paired_selector" value="single"/>
                 <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             </conditional>
-            <section name="output_options">
-                <param name="report_html" value="False"/>
+            <section name="duplicated_reads">
+                <conditional name="handling_options">
+                    <param name="eval_dups" value=""/>
+                </conditional>
             </section>
             <output name="out1" ftype="fastqsanger" file="out1.fq"/>
+            <output name="report_html">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                    <has_text text="duplication rate:"/>
+                </assert_contents>
+            </output>
             <output name="report_json">
                 <assert_contents>
                     <has_text text="fastp report"/>
+                    <has_text text="&quot;duplication&quot;:"/>
                 </assert_contents>
             </output>
         </test>
@@ -792,6 +823,29 @@ $read_mod_options.base_correction_options.correction
                 </assert_contents>
             </output>
         </test>
+        <!-- 18. Ensure deduplication works -->
+        <test expect_num_outputs="2">
+            <conditional name="single_paired">
+                <param name="single_paired_selector" value="single"/>
+                <param name="in1" ftype="fastqsanger" value="R1_with_dup.fq"/>
+            </conditional>
+            <section name="duplicated_reads">
+                <conditional name="handling_options">
+                    <param name="eval_dups" value=""/>
+                    <param name="dedup" value="true"/>
+                </conditional>
+            </section>
+            <section name="output_options">
+                <param name="report_html" value="false"/>
+            </section>
+            <output name="out1" ftype="fastqsanger" file="out1.fq"/>
+            <output name="report_json">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                    <has_text text="&quot;duplication&quot;:"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -803,7 +857,7 @@ afford high performance.
 
 *Features*
 
-1. Filter out bad reads (too low quality, too short, or too many N...)
+1. Filter out bad (too low quality, too short, or too many N...) and/or duplicate reads
 
 2. Cut low quality bases for per read in its 5' and 3' by evaluating the mean quality from a sliding window (like Trimmomatic but faster)
 
