@@ -1,0 +1,712 @@
+<tool id="panta" name="PanTA" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>Efficient inference of large prokaryotic pangenomes with PanTA</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir out &&
+        #import re, os
+        #set input_directory = 'input_directory'
+        mkdir $input_directory &&
+
+        #if $input_type.input_type_selector == "gff":
+            #for gff in $input_type.input_gff
+                #set $filename = '%s.gff' % re.sub('[^\w_-]', '_', str($gff.element_identifier))
+                cp '$gff' '$input_directory/$filename' &&
+            #end for
+        #elif $input_type.input_type_selector == "tsv":
+            #set $filename = '%s.tsv' % re.sub('[^\w_-]', '_', str($input_type.input_tsv.element_identifier))
+            cp '$input_type.input_tsv' '$input_directory/$filename' &&
+        #end if
+
+        #if $mode.select_mode == "main":
+            panta main
+                #if $input_type.input_type_selector == "gff":
+                    -g $input_directory/*.gff
+                #elif $input_type.input_type_selector == "tsv":
+                    -f $input_directory/*.tsv
+                #end if
+                -o out
+                $dont_split
+                --blast '$blast'
+                --identity '$identity'
+                --LD '$LD'
+                --AL '$AL'
+                --AS '$AS'
+                --evalue '$evalue'
+                --threads "\${GALAXY_SLOTS:-8}"
+                --table '$table'
+                #if $alignment != 'None':
+                    --alignment '$alignment'
+                #end if
+            && tar -czf collection_dir.tar.gz -C out .
+
+        #elif $mode.select_mode == "add":
+            mkdir -p extracted_dir &&
+            ln -s $collection_dir collection_dir.tar.gz &&
+            tar --strip-components=1 -xzf collection_dir.tar.gz -C extracted_dir &&
+            panta add
+                #if $input_type.input_type_selector == "gff":
+                    -g $input_directory/*.gff
+                #elif $input_type.input_type_selector == "tsv":
+                    -f $input_directory/*.tsv
+                #end if
+                -c extracted_dir
+                $dont_split
+                --blast '$blast'
+                --identity '$identity'
+                --LD '$LD'
+                --AL '$AL'
+                --AS '$AS'
+                --evalue '$evalue'
+                --threads "\${GALAXY_SLOTS:-8}"
+                --table '$table'
+                #if $alignment != 'None':
+                    --alignment '$alignment'
+                #end if
+                && cp -r extracted_dir/* out
+            #end if
+    ]]></command>
+
+    <inputs>
+        <conditional name="mode">
+            <param label="Select mode" name="select_mode" type="select">
+                <option selected="true" value="main">Use PanTA main</option>
+                <option value="add">Use PanTA add</option>
+            </param>
+            <when value="main"/>
+            <when value="add">
+                <param name="collection_dir" type="data" format="tar,tar.gz" label="Previous collection directory"/>
+            </when>
+        </conditional>
+        <conditional name="input_type">
+            <param name="input_type_selector" type="select" label="Choose the input format">
+                <option value="gff" selected="true">GFF File</option>
+                <option value="tsv">TSV File</option>
+            </param>
+            <when value="gff">
+                <param type="data_collection" name="input_gff" format="gff3" collection_type="list" label="Select input files to analyze" help="Select the files you wish to analyze with PanTA"/>
+            </when>
+            <when value="tsv">
+                <param type="data" name="input_tsv" format="tsv,tabular" multiple="false" label="Select input file to analyze" help="Select the file you wish to analyze with PanTA"/>
+            </when>
+        </conditional>
+        <param argument="--dont-split" type="boolean" truevalue="--dont-split" falsevalue="" label="Dont split" help="Decide for or against splitting paralog clusters"/>
+        <param argument="--blast" type="select" label="Alignment method" help="Method for all-against-all alignment (default: diamond)">
+            <option value="diamond" selected="True">Diamond</option>
+            <option value="blast">Blast</option>
+        </param>
+        <param argument="--identity" type="float" value="0.7" label="Minimum percentage identity" help="Set the minimum percentage identity"/>
+        <param argument="--LD" type="float" value="0.7" label="Length difference cutoff" help="Set the length difference cutoff between two sequences"/>
+        <param argument="--AL" type="float" value="0" label="Alignment coverage for the longer sequence" help="Set the alignment coverage for the longer sequence"/>
+        <param argument="--AS" type="float" value="0" label="Alignment coverage for the shorter sequence" help="Set the alignment coverage for the shorter sequence"/>
+        <param argument="--evalue" type="float" value="1e-06" label="Blast evalue" help="Maximum expected value for reporting hits and lower values are stricter"/>
+        <param argument="--table" type="integer" value="" label="Codon table" help="Set the codon table"/>
+        <param argument="--alignment" type="select" label="Run alignment for each gene cluster">
+            <option value="None" selected="True">None</option>
+            <option value="nucleotide">Nucleotide</option>
+            <option value="protein">Protein</option>
+        </param>
+    </inputs>
+
+    <outputs>
+        <!--Basic PanTA main outputs -->
+        <data format="json" name="annotated_clusters" label="${tool.name} on ${on_string} : Annotated Clusters" from_work_dir="out/annotated_clusters.json"/>
+        <data format="tsv" name="blast_output" label="${tool.name} on ${on_string} : BLAST" from_work_dir="out/blast.tsv"/>
+        <data format="json" name="clusters" label="${tool.name} on ${on_string} : Clusters" from_work_dir="out/clusters.json"/>
+        <data format="csv" name="gene_annotation" label="${tool.name} on ${on_string} : Gene Annotation" from_work_dir="out/gene_annotation.csv"/>
+        <data format="csv" name="gene_position" label="${tool.name} on ${on_string} : Gene Position" from_work_dir="out/gene_position.csv"/>
+        <data format="csv" name="gene_presence_absence" label="${tool.name} on ${on_string} : Gene Presence Absence" from_work_dir="out/gene_presence_absence.csv"/>
+        <data format="txt" name="gene_presence_absence_Rtab" label="${tool.name} on ${on_string} : Gene Presence Absence Rtab" from_work_dir="out/gene_presence_absence.Rtab"/>
+        <data format="fasta" name="representative_clusters_nucl" label="${tool.name} on ${on_string} : Representative Clusters Nucl" from_work_dir="out/representative_clusters_nucl.fasta"/>
+        <data format="fasta" name="representative_clusters_prot" label="${tool.name} on ${on_string} : Representative Clusters Prot" from_work_dir="out/representative_clusters_prot.fasta"/>
+        <data format="fasta" name="representative" label="${tool.name} on ${on_string} : Representative FASTA" from_work_dir="out/representative.fasta"/>
+        <data format="json" name="samples" label="${tool.name} on ${on_string} : Samples" from_work_dir="out/samples.json"/>
+        <data format="txt" name="summary_statistics" label="${tool.name} on ${on_string} : Summary Statistics" from_work_dir="out/summary_statistics.txt"/>
+        
+        <!--Alignment outputs -->
+        <data format="fasta" name="core_gene_alignment" label="${tool.name} on ${on_string} : Core Gene Alignment" from_work_dir="out/core_gene_alignment.aln.gz">
+            <filter> ['alignment'] != 'None' </filter>
+        </data>
+        <data format="fasta" name="pan_genome_reference" label="${tool.name} on ${on_string} : Pan Genome Reference" from_work_dir="out/pan_genome_reference.fna">
+            <filter> ['alignment'] != 'None' </filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <!--Test 01: Basic PanTA main test for gff files: Tests the basic command for PanTA main -->
+        <test expect_num_outputs="14">
+            <conditional name="mode">
+                <param name="select_mode" value="main"/>
+            </conditional>
+            <conditional name="input_type">
+                <param name="input_type_selector" value="gff"/>
+                <param name="input_gff">
+                    <collection type="list">
+                        <element name="GCA_021342655.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021342655.1.gff"/>
+                        <element name="GCA_021534865.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021534865.1.gff"/>
+                        <element name="GCA_021697815.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021697815.1.gff"/>
+                        <element name="GCA_021890555.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021890555.1.gff"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="table" value="10"/>
+            <output name="annotated_clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000093.1-5475-cds-WP_000557454.1"/>
+                    <has_n_lines n="96508" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="blast_output" ftype="tsv">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000101.1-3-cds-WP_233337042.1"/>
+                    <has_n_lines n="30680" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021890555.1-NZ_JAKLOD010000002.1-4878-cds-L3T02_RS24235"/>
+                    <has_n_lines n="24266" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation" ftype="csv">
+                <assert_contents>
+                    <has_text text="IclR family transcriptional regulator,6"/>
+                    <has_n_lines n="19712" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_position" ftype="csv">
+                <assert_contents>
+                    <has_text text="1-NZ_JAJTPH010000010.1-23-cds-LXO36_RS13380"/>
+                    <has_n_lines n="195" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="7682" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence_Rtab" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="7682" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_nucl" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GGTCTGCCCCACCGGCATCGACATTCGCGACGGCCTGCAGATCGAGTGCATTGGTTGCGC"/>
+                    <has_n_lines n="124180" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_prot" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GLPHRHRHSRRPADRVHWLRRLHRCLRQHHGQDGLPQGPDQLHNRTQSFRTEDPSAAPTP"/>
+                    <has_n_lines n="49014" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative" ftype="fasta">
+                <assert_contents>
+                    <has_text text="RIEGSVWPKSIRGSTPKVRGTCQIERAASESPHFMRFHVACPHCGEEQYLKFGDKETPFGLKWTPDDPSSVFYLCEHNACVIRQQELDFTDARYICEKTGIWTRDGILWFSSSGEEIEPPDSVTFHIWTAYSPFTTWVQIVKDWMKTKGDTGKRKTFVNTTLGETWEAKIGERPDAEVMAERKEHYSAPVPDRVAYLTAGIDSQLDRYEMRVWGWGPGEESWLIDRQIIMGRHDDEQTLLRVDEAINKTYTRRNGAEMS"/>
+                    <has_n_lines n="18795" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="samples" ftype="json">
+                <assert_contents>
+                    <has_n_lines n="22" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="summary_statistics" ftype="txt">
+                <assert_contents>
+                    <has_text text="Soft core genes"/>
+                    <has_n_lines n="6" delta='3'/>
+                </assert_contents>
+            </output>
+        </test> 
+        
+        <!--Test 2: PanTA main test for gff files: Tests the 'dont_split' parameter -->
+        <test expect_num_outputs="14">
+            <conditional name="mode">
+                <param name="select_mode" value="main"/>
+            </conditional>
+            <conditional name="input_type">
+                <param name="input_type_selector" value="gff"/>
+                <param name="input_gff">
+                    <collection type="list">
+                        <element name="GCA_021342655.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021342655.1.gff"/>
+                        <element name="GCA_021534865.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021534865.1.gff"/>
+                        <element name="GCA_021697815.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021697815.1.gff"/>
+                        <element name="GCA_021890555.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021890555.1.gff"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="table" value="10"/>
+            <param name="dont_split" value="true"/>
+            <output name="annotated_clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000093.1-5475-cds-WP_000557454.1"/>
+                    <has_n_lines n="90588" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="blast_output" ftype="tsv">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000101.1-3-cds-WP_233337042.1"/>
+                    <has_n_lines n="30680" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021890555.1-NZ_JAKLOD010000002.1-4878-cds-L3T02_RS24235"/>
+                    <has_n_lines n="24266" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation" ftype="csv">
+                <assert_contents>
+                    <has_text text="IclR family transcriptional regulator,6"/>
+                    <has_n_lines n="19712" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_position" ftype="csv">
+                <assert_contents>
+                    <has_text text="1-NZ_JAJTPH010000010.1-23-cds-LXO36_RS13380"/>
+                    <has_n_lines n="195" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="7089" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence_Rtab" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="7089" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_nucl" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GGTCTGCCCCACCGGCATCGACATTCGCGACGGCCTGCAGATCGAGTGCATTGGTTGCGC"/>
+                    <has_n_lines n="115793" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_prot" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GLPHRHRHSRRPADRVHWLRRLHRCLRQHHGQDGLPQGPDQLHNRTQSFRTEDPSAAPTP"/>
+                    <has_n_lines n="45624" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative" ftype="fasta">
+                <assert_contents>
+                    <has_text text="RIEGSVWPKSIRGSTPKVRGTCQIERAASESPHFMRFHVACPHCGEEQYLKFGDKETPFGLKWTPDDPSSVFYLCEHNACVIRQQELDFTDARYICEKTGIWTRDGILWFSSSGEEIEPPDSVTFHIWTAYSPFTTWVQIVKDWMKTKGDTGKRKTFVNTTLGETWEAKIGERPDAEVMAERKEHYSAPVPDRVAYLTAGIDSQLDRYEMRVWGWGPGEESWLIDRQIIMGRHDDEQTLLRVDEAINKTYTRRNGAEMS"/>
+                    <has_n_lines n="18795" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="samples" ftype="json">
+                <assert_contents>
+                    <has_n_lines n="22" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="summary_statistics" ftype="txt">
+                <assert_contents>
+                    <has_text text="Soft core genes"/>
+                    <has_n_lines n="6" delta='3'/>
+                </assert_contents>
+            </output>
+        </test> 
+        
+        <!--Test 3: PanTA main test for gff files: The 'alignment' parameter -->
+        <test expect_num_outputs="14">
+            <conditional name="mode">
+                <param name="select_mode" value="main"/>
+            </conditional>
+            <conditional name="input_type">
+                <param name="input_type_selector" value="gff"/>
+                <param name="input_gff">
+                    <collection type="list">
+                        <element name="GCA_021342655.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021342655.1.gff"/>
+                        <element name="GCA_021534865.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021534865.1.gff"/>
+                        <element name="GCA_021697815.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021697815.1.gff"/>
+                        <element name="GCA_021890555.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021890555.1.gff"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="table" value="10"/>
+            <param name="alignment" value="nucleotide"/>
+            <output name="annotated_clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000093.1-5475-cds-WP_000557454.1"/>
+                    <has_n_lines n="96508" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="blast_output" ftype="tsv">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000101.1-3-cds-WP_233337042.1"/>
+                    <has_n_lines n="30680" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021890555.1-NZ_JAKLOD010000002.1-4878-cds-L3T02_RS24235"/>
+                    <has_n_lines n="24266" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation" ftype="csv">
+                <assert_contents>
+                    <has_text text="IclR family transcriptional regulator,6"/>
+                    <has_n_lines n="19712" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_position" ftype="csv">
+                <assert_contents>
+                    <has_text text="1-NZ_JAJTPH010000010.1-23-cds-LXO36_RS13380"/>
+                    <has_n_lines n="195" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="7681" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence_Rtab" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="7681" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_nucl" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GGTCTGCCCCACCGGCATCGACATTCGCGACGGCCTGCAGATCGAGTGCATTGGTTGCGC"/>
+                    <has_n_lines n="124180" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_prot" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GLPHRHRHSRRPADRVHWLRRLHRCLRQHHGQDGLPQGPDQLHNRTQSFRTEDPSAAPTP"/>
+                    <has_n_lines n="49014" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative" ftype="fasta">
+                <assert_contents>
+                    <has_text text="RIEGSVWPKSIRGSTPKVRGTCQIERAASESPHFMRFHVACPHCGEEQYLKFGDKETPFGLKWTPDDPSSVFYLCEHNACVIRQQELDFTDARYICEKTGIWTRDGILWFSSSGEEIEPPDSVTFHIWTAYSPFTTWVQIVKDWMKTKGDTGKRKTFVNTTLGETWEAKIGERPDAEVMAERKEHYSAPVPDRVAYLTAGIDSQLDRYEMRVWGWGPGEESWLIDRQIIMGRHDDEQTLLRVDEAINKTYTRRNGAEMS"/>
+                    <has_n_lines n="18795" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="samples" ftype="json">
+                <assert_contents>
+                    <has_n_lines n="22" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="summary_statistics" ftype="txt">
+                <assert_contents>
+                    <has_text text="Soft core genes"/>
+                    <has_n_lines n="6" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="core_gene_alignment" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="96130" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="pan_genome_reference" ftype="fasta">
+                <assert_contents>
+                    <has_text text="AAAGGCGTTTGGTATATAACGATGCCAG"/>
+                    <has_n_lines n="84292" delta='3'/>
+                </assert_contents>
+            </output>
+        </test> 
+        
+        <!--Test 4: Basic PanTA add test for gff files: Tests the basic command for PanTA add -->
+        <test expect_num_outputs="14">
+            <conditional name="mode">
+                <param name="select_mode" value="add"/>
+                <param name="collection_dir" location="https://zenodo.org/records/16568442/files/collection_dir.tar.gz" ftype="tar.gz"/>
+            </conditional>
+            <conditional name="input_type">
+                <param name="input_type_selector" value="gff"/> 
+                <param name="input_gff">
+                    <collection type="list">
+                        <element name="GCA_021342735.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021342735.1.gff"/>
+                        <element name="GCA_021725855.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021725855.1.gff"/>
+                        <element name="GCA_021890695.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021890695.1.gff"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="table" value="10"/>
+            <output name="annotated_clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000093.1-5475-cds-WP_000557454.1"/>
+                    <has_n_lines n="118811" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="blast_output" ftype="tsv">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000101.1-3-cds-WP_233337042.1"/>
+                    <has_n_lines n="38245" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021890555.1-NZ_JAKLOD010000002.1-4878-cds-L3T02_RS24235"/>
+                    <has_n_lines n="39790" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation" ftype="csv">
+                <assert_contents>
+                    <has_text text="IclR family transcriptional regulator,6"/>
+                    <has_n_lines n="33564" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_position" ftype="csv">
+                <assert_contents>
+                    <has_text text="1-NZ_JAJTPH010000010.1-23-cds-LXO36_RS13380"/>
+                    <has_n_lines n="363" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="8523" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence_Rtab" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="8523" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_nucl" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GGTCTGCCCCACCGGCATCGACATTCGCGACGGCCTGCAGATCGAGTGCATTGGTTGCGC"/>
+                    <has_n_lines n="136572" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_prot" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GLPHRHRHSRRPADRVHWLRRLHRCLRQHHGQDGLPQGPDQLHNRTQSFRTEDPSAAPTP"/>
+                    <has_n_lines n="53952" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative" ftype="fasta">
+                <assert_contents>
+                    <has_text text="RIEGSVWPKSIRGSTPKVRGTCQIERAASESPHFMRFHVACPHCGEEQYLKFGDKETPFGLKWTPDDPSSVFYLCEHNACVIRQQELDFTDARYICEKTGIWTRDGILWFSSSGEEIEPPDSVTFHIWTAYSPFTTWVQIVKDWMKTKGDTGKRKTFVNTTLGETWEAKIGERPDAEVMAERKEHYSAPVPDRVAYLTAGIDSQLDRYEMRVWGWGPGEESWLIDRQIIMGRHDDEQTLLRVDEAINKTYTRRNGAEMS"/>
+                    <has_n_lines n="29001" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="samples" ftype="json">
+                <assert_contents>
+                    <has_n_lines n="37" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="summary_statistics" ftype="txt">
+                <assert_contents>
+                    <has_text text="Soft core genes"/>
+                    <has_n_lines n="6" delta='3'/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!--Test 5: Basic PanTA add test for gff files: Tests the 'dont_split' parameter -->
+        <test expect_num_outputs="14">
+            <conditional name="mode">
+                <param name="select_mode" value="add"/>
+                <param name="collection_dir" location="https://zenodo.org/records/16568442/files/collection_dir.tar.gz" ftype="tar.gz"/>
+            </conditional>
+            <conditional name="input_type">
+                <param name="input_type_selector" value="gff"/> 
+                <param name="input_gff">
+                    <collection type="list">
+                        <element name="GCA_021342735.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021342735.1.gff"/>
+                        <element name="GCA_021725855.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021725855.1.gff"/>
+                        <element name="GCA_021890695.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021890695.1.gff"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="table" value="10"/>
+            <param name="dont_split" value="true"/>
+            <output name="annotated_clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000093.1-5475-cds-WP_000557454.1"/>
+                    <has_n_lines n="111811" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="blast_output" ftype="tsv">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000101.1-3-cds-WP_233337042.1"/>
+                    <has_n_lines n="38245" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021890555.1-NZ_JAKLOD010000002.1-4878-cds-L3T02_RS24235"/>
+                    <has_n_lines n="39790" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation" ftype="csv">
+                <assert_contents>
+                    <has_text text="IclR family transcriptional regulator,6"/>
+                    <has_n_lines n="33564" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_position" ftype="csv">
+                <assert_contents>
+                    <has_text text="1-NZ_JAJTPH010000010.1-23-cds-LXO36_RS13380"/>
+                    <has_n_lines n="363" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="7825" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence_Rtab" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="7825" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_nucl" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GGTCTGCCCCACCGGCATCGACATTCGCGACGGCCTGCAGATCGAGTGCATTGGTTGCGC"/>
+                    <has_n_lines n="126631" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_prot" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GLPHRHRHSRRPADRVHWLRRLHRCLRQHHGQDGLPQGPDQLHNRTQSFRTEDPSAAPTP"/>
+                    <has_n_lines n="49946" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative" ftype="fasta">
+                <assert_contents>
+                    <has_text text="RIEGSVWPKSIRGSTPKVRGTCQIERAASESPHFMRFHVACPHCGEEQYLKFGDKETPFGLKWTPDDPSSVFYLCEHNACVIRQQELDFTDARYICEKTGIWTRDGILWFSSSGEEIEPPDSVTFHIWTAYSPFTTWVQIVKDWMKTKGDTGKRKTFVNTTLGETWEAKIGERPDAEVMAERKEHYSAPVPDRVAYLTAGIDSQLDRYEMRVWGWGPGEESWLIDRQIIMGRHDDEQTLLRVDEAINKTYTRRNGAEMS"/>
+                    <has_n_lines n="29001" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="samples" ftype="json">
+                <assert_contents>
+                    <has_n_lines n="37" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="summary_statistics" ftype="txt">
+                <assert_contents>
+                    <has_text text="Soft core genes"/>
+                    <has_n_lines n="6" delta='3'/>
+                </assert_contents>
+            </output>
+        </test> 
+        
+        <!--Test 6: Basic PanTA add test for gff files: Tests the 'alignment' parameter -->
+        <test expect_num_outputs="14">
+            <conditional name="mode">
+                <param name="select_mode" value="add"/>
+                <param name="collection_dir" location="https://zenodo.org/records/16568442/files/collection_dir.tar.gz" ftype="tar.gz"/>
+            </conditional>
+            <conditional name="input_type">
+                <param name="input_type_selector" value="gff"/> 
+                <param name="input_gff">
+                    <collection type="list">
+                        <element name="GCA_021342735.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021342735.1.gff"/>
+                        <element name="GCA_021725855.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021725855.1.gff"/>
+                        <element name="GCA_021890695.1.gff" location="https://zenodo.org/records/16568442/files/GCA_021890695.1.gff"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="table" value="10"/>
+            <param name="alignment" value="nucleotide"/>
+            <output name="annotated_clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000093.1-5475-cds-WP_000557454.1"/>
+                    <has_n_lines n="118811" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="blast_output" ftype="tsv">
+                <assert_contents>
+                    <has_text text="GCA_021342655.1-NZ_JAJTPH010000101.1-3-cds-WP_233337042.1"/>
+                    <has_n_lines n="38245" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="clusters" ftype="json">
+                <assert_contents>
+                    <has_text text="GCA_021890555.1-NZ_JAKLOD010000002.1-4878-cds-L3T02_RS24235"/>
+                    <has_n_lines n="39790" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation" ftype="csv">
+                <assert_contents>
+                    <has_text text="IclR family transcriptional regulator,6"/>
+                    <has_n_lines n="33564" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_position" ftype="csv">
+                <assert_contents>
+                    <has_text text="1-NZ_JAJTPH010000010.1-23-cds-LXO36_RS13380"/>
+                    <has_n_lines n="363" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="8523" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="gene_presence_absence_Rtab" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="8523" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_nucl" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GGTCTGCCCCACCGGCATCGACATTCGCGACGGCCTGCAGATCGAGTGCATTGGTTGCGC"/>
+                    <has_n_lines n="136572" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative_clusters_prot" ftype="fasta">
+                <assert_contents>
+                    <has_text text="GLPHRHRHSRRPADRVHWLRRLHRCLRQHHGQDGLPQGPDQLHNRTQSFRTEDPSAAPTP"/>
+                    <has_n_lines n="53952" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="representative" ftype="fasta">
+                <assert_contents>
+                    <has_text text="RIEGSVWPKSIRGSTPKVRGTCQIERAASESPHFMRFHVACPHCGEEQYLKFGDKETPFGLKWTPDDPSSVFYLCEHNACVIRQQELDFTDARYICEKTGIWTRDGILWFSSSGEEIEPPDSVTFHIWTAYSPFTTWVQIVKDWMKTKGDTGKRKTFVNTTLGETWEAKIGERPDAEVMAERKEHYSAPVPDRVAYLTAGIDSQLDRYEMRVWGWGPGEESWLIDRQIIMGRHDDEQTLLRVDEAINKTYTRRNGAEMS"/>
+                    <has_n_lines n="29001" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="samples" ftype="json">
+                <assert_contents>
+                    <has_n_lines n="37" delta='3'/>
+                </assert_contents>
+            </output>
+            <output name="summary_statistics" ftype="txt">
+                <assert_contents>
+                    <has_text text="Soft core genes"/>
+                    <has_n_lines n="6" delta='3'/>
+                </assert_contents>
+            </output>
+        </test> 
+    </tests>
+    <help><![CDATA[
+
+PanTA builds the pangenome of a large collection of genomes and adds a set of new genomes to an existing pangenome without rebuilding the accumulated pangenome from scratch. PanTA takes as input a list of genome assemblies and their annotations. It extracts the protein-coding regions as specified by the annotations and translates them into protein sequences. PanTA then generates output reports according to the standards set out by Roary, which include a spreadsheet detailing the presence and absence of each gene in each isolate as well as a summary of pangenome statistics.
+
+**INPUTS**
+
+- A collection of gff3 files or a tsv file. 
+
+**OUTPUTS**
+
+- annotated_clusters.json
+- blast.tsv
+- clusters.json
+- gene_annotation.csv
+- gene_position.csv
+- gene_presence_absence.csv
+- gene_presence_absence.Rtab
+- representative_clusters_nucl.fasta
+- representative_clusters_prot.fasta
+- representative.fasta
+- samples.json
+- summary_statistics.txt
+- core_gene_alignment.aln.gz (requires alignment option)
+- pan_genome_reference.fna (requires alignment option)
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.6084/m9.figshare.23724705</citation>
+    </citations>
+    <expand macro="creator"/>
+</tool>

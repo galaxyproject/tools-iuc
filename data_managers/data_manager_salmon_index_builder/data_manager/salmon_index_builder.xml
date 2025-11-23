@@ -1,42 +1,130 @@
-<tool id="salmon_index_builder_data_manager" name="Salmon" tool_type="manage_data" version="1.3.0" profile="19.01">
+<tool id="salmon_index_builder_data_manager" name="Salmon" tool_type="manage_data" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="24.0">
     <description>index builder</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.10.1</token>
+        <token name="@VERSION_SUFFIX@">1</token>
+        <token name="@PROFILE@">24.0</token>
+        <token name="@IDX_VERSION@">q7</token>
+    </macros>
     <requirements>
-        <requirement type="package" version="1.3.0">salmon</requirement>
-        <requirement type="package" version="3.7">python</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">salmon</requirement>
     </requirements>
-   <macros>
-       <token name="@IDX_VERSION@">q7</token>
-   </macros>
+    <version_command><![CDATA[salmon --no-version-check --version | cut -d" " -f2]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
-        python '$__tool_directory__/salmon_index_builder.py' --output '${out_file}'
-            --fasta_filename '${all_fasta_source.fields.path}'
-            --fasta_dbkey '${all_fasta_source.fields.dbkey}'
-            --fasta_description '${all_fasta_source.fields.name}'
-            --kmer_size "${kmer_size}"
-            --data_table_name salmon_indexes_versioned
-            --index_version @IDX_VERSION@
-        ]]>
-    </command>
+        ## salmon uses one thread to much
+        ## https://github.com/COMBINE-lab/salmon/issues/993
+        SLOTS=\$(( \${GALAXY_SLOTS:-12} > 1 ? \${GALAXY_SLOTS:-12} - 1 : 1 ));
+
+        ## https://combine-lab.github.io/alevin-tutorial/2019/selective-alignment/
+        ## https://salmon.readthedocs.io/en/latest/salmon.html#preparing-transcriptome-indices-mapping-based-mode
+        #for $transcripts in $transcriptome.fields.path.split(",")
+            (zcat '$transcripts' 2>/dev/null || cat '$transcripts') >> gentrome.fa &&
+        #end for
+        (zcat '$all_fasta_source.fields.path' 2>/dev/null || cat '$all_fasta_source.fields.path') >> gentrome.fa &&
+
+        (zcat '$all_fasta_source.fields.path' 2>/dev/null || cat '$all_fasta_source.fields.path') | awk '{if($1 ~ /^>/) print $1}' | cut -c2- | tr -d " " > decoys.txt &&
+
+        mkdir '$out_file.extra_files_path' &&
+
+        salmon --no-version-check index
+            -k $kmer_size
+            -t gentrome.fa
+            -d decoys.txt
+            -i '$out_file.extra_files_path'
+            -p "\$SLOTS"
+            $gencode
+            &&
+
+        cp '$dmjson' '$out_file'
+    ]]></command>
+    <configfiles>
+        <configfile name="dmjson"><![CDATA[#slurp
+#import os
+#def combine(strings, sep):
+    #set lcp = os.path.commonprefix(strings)
+    #set value = lcp + sep.join([s[len(lcp):] for s in strings])
+    #return $value
+#end def
+#if str($sequence_id).strip() == ""
+    #set sequence_id = $combine($transcriptome.fields.value.split(","), "_")
+#end if
+#if str($sequence_name).strip() == ""
+    #set sequence_name = $combine($transcriptome.fields.name.split(","), " + ")
+#end if
+{
+  "data_tables":{
+    "salmon_indexes_versioned":[
+      {
+        "value": "$sequence_id",
+        "dbkey": "$all_fasta_source.fields.dbkey",
+        "name": "$sequence_name",
+        "path": "$out_file.extra_files_path",
+        "version": "@IDX_VERSION@"
+      }
+    ]
+  }
+}]]></configfile>
+    </configfiles>
     <inputs>
-        <param label="Source FASTA Sequence" name="all_fasta_source" type="select">
-            <options from_data_table="all_fasta" />
+        <param label="Transcriptome sequences" name="transcriptome" optional="false" multiple="true" type="select">
+            <options from_data_table="transcriptomes" />
         </param>
-        <param name="sequence_name" type="text" value="" label="Name of sequence" />
-        <param name="sequence_id" type="text" value="" label="ID for sequence" />
-        <param name="kmer_size" type="integer" optional='true' value="21" max="32" label="The size of the k-mer on which the index is built"
-                    help="There is a tradeoff here between the distinctiveness of the k-mers and their robustness to errors. The shorter the k-mers, the more robust they will be to errors in the reads, but the longer the k-mers, the more distinct they will be.  We generally recommend using a k-mer size of at least 20. MUST BE AN ODD VALUE "/>
+        <param label="Genome" name="all_fasta_source" optional="false" type="select">
+            <options from_data_table="all_fasta"/>
+        </param>
+        <param name="sequence_name" type="text" value="" label="Name of sequence" help="default: common prefix of the transcriptome names plus the non-common parts joined by ' + '" />
+        <param name="sequence_id" type="text" value="" label="ID for sequence" help="default: common prefix of the transcriptome IDs plus the non-common parts joined by '_'"/>
+        <param name="kmer_size" type="integer" optional='true' value="31" max="32" label="The size of the k-mer on which the index is built"
+                    help="There is a tradeoff here between the distinctiveness of the k-mers and their robustness to errors. The shorter the k-mers, the more robust they will be to errors in the reads, but the longer the k-mers, the more distinct they will be.  We generally recommend using a k-mer size of at least 20. MUST BE AN ODD VALUE ">
+            <validator type="expression" message="Only odd values">value % 2 == 1</validator>
+        </param>
+        <param name="gencode" type="boolean" label="Transcript sequences are in gencode format" truevalue="--gencode" falsevalue="" checked="false" help="Will split  the transcript name at the first '|' character. These reduced names will be used in the output  and when looking for these transcripts in a gene to transcript GTF."/>
     </inputs>
     <outputs>
         <data name="out_file" format="data_manager_json" />
     </outputs>
     <tests>
         <test>
+            <param name="transcriptome" value="phiX1741,phiX1742"/>
             <param name="all_fasta_source" value="phiX174"/>
-            <param name="sequence_name" value="sequence_name"/>
-            <param name="sequence_id" value="sequence_id"/>
             <output name="out_file">
                 <assert_contents>
-                    <has_line line='{"data_tables": {"salmon_indexes_versioned": [{"dbkey": "phiX174", "name": "sequence_name", "path": "sequence_id", "value": "sequence_id", "version": "q7"}]}}' />
+                    <has_text text='"salmon_indexes_versioned"' />
+                    <has_text text='"dbkey": "phiX174"' />
+                    <has_text text='"name": "phiX174: 1 + 2"' />
+                    <has_text text='"value": "phiX1741_2"' />
+                    <has_text text='"version": "q7"' />
+                    <has_text text='"path":' />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="transcriptome" value="phiX1741"/>
+            <param name="all_fasta_source" value="phiX174"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text='"salmon_indexes_versioned"' />
+                    <has_text text='"dbkey": "phiX174"' />
+                    <has_text text='"name": "phiX174: 1"' />
+                    <has_text text='"value": "phiX1741"' />
+                    <has_text text='"version": "q7"' />
+                    <has_text text='"path":' />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="transcriptome" value="phiX1741"/>
+            <param name="all_fasta_source" value="phiX174"/>
+            <param name="sequence_name" value="name_override"/>
+            <param name="sequence_id" value="value_override"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text='"salmon_indexes_versioned"' />
+                    <has_text text='"dbkey": "phiX174"' />
+                    <has_text text='"name": "name_override"' />
+                    <has_text text='"value": "value_override"' />
+                    <has_text text='"version": "q7"' />
+                    <has_text text='"path":' />
                 </assert_contents>
             </output>
         </test>
@@ -45,7 +133,11 @@
 <![CDATA[
 .. class:: infomark
 
-**Notice:** If you leave name, description, or id blank, it will be generated automatically.
+Indices are constructed as described here: https://combine-lab.github.io/alevin-tutorial/2019/selective-alignment/
+        
+See also https://salmon.readthedocs.io/en/latest/salmon.html#preparing-transcriptome-indices-mapping-based-mode
+
+**Notice:** If you leave name, description, or id blank, it the dbkey of the genome will be used.
 ]]>
     </help>
     <citations>
