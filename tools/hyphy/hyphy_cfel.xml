@@ -6,43 +6,63 @@
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         @SYMLINK_FILES@
-        hyphy contrast-fel
+        @HYPHYMPI@ contrast-fel
+            --alignment $input_file
+            @INPUT_TREE@
             --code '$gencodeid'
             #for $i, $branch in enumerate($branch_repeat):
                 --branch-set '$branch.branch_label'
             #end for
-            --srv '$srv'
-            --permutations '$permutations'
+            --srv '$advanced_settings.srv'
+            --permutations '$advanced_settings.permutations'
             --pvalue '$pvalue'
             --qvalue '$qvalue'
+            #if $advanced_settings.limit_to_sites:
+                --limit-to-sites '$advanced_settings.limit_to_sites'
+            #end if
+            #if $advanced_settings.save_lf_for_sites:
+                --save-lf-for-sites '$advanced_settings.save_lf_for_sites'
+            #end if
+            #if $advanced_settings.intermediate_fits:
+                --intermediate-fits intermediate_fits.json
+            #end if
+            --kill-zero-lengths $advanced_settings.kill_zero_lengths
             --output '$cfel_output'
-            $input_file
-            @INPUT_TREE@
+            > cfel_stdout.md 
         @ERRORS@
     ]]></command>
     <inputs>
         <expand macro="inputs"/>
         <expand macro="gencode"/>
         <repeat name="branch_repeat" title="Branch set" min="1">
-            <param argument="--branch-set" name="branch_label" type="text" value="Test" optional="false" label="Label for set">
+            <param argument="--branch-set" name="branch_label" type="text" value="Test" optional="false" label="Label for set" help="The label for the branches to be tested. &quot;Terminal branches&quot;, &quot;Internal branches&quot;, &quot;Random set of branches&quot;, and &quot;Unlabeled branches&quot; are choices that exist in addition to the label sets in the Newick tree.">
                 <sanitizer invalid_char="">
                     <valid initial="default" />
                 </sanitizer>
             </param>
         </repeat>
-        <param argument="--permutations" type="boolean" truevalue="Yes" falsevalue="No" label="Perform permutation significance tests"/>
-        <param argument="--pvalue" type="float" value=".05" min="0" max="1" label="Significance value for site-tests"/>
-        <param argument="--qvalue" type="float" value=".2" min="0" max="1" label="Significance value for FDR reporting"/>
-        <param argument="--srv" type="select" label="Include synonymous rate variation" help = "Allow synonymous rates to vary from site to site">
-            <option value="Yes">Yes (recommended)</option>
-            <option value="No">No</option>
-        </param>
+
+        <param argument="--pvalue" type="float" value=".05" min="0" max="1" label="Significance value for site-tests" help="Significance value for site-tests"/>
+        <param argument="--qvalue" type="float" value=".2" min="0" max="1" label="Significance value for FDR reporting" help="Significance value for FDR reporting"/>
+
+        <section name="advanced_settings" title="Advanced Options" expanded="false">
+            <param argument="--limit-to-sites" type="text" optional="true" label="Limit analysis to specific sites" help="Only analyze sites whose 1-based indices match the following list (null to skip)"/>
+            <param argument="--save-lf-for-sites" type="text" optional="true" label="Save likelihood function snapshots for sites" help="For sites whose 1-based indices match the following list, write out likelihood function snapshots (null to skip)"/>
+            <param name="intermediate_fits" type="boolean" truevalue="Yes" falsevalue="No" label="Save intermediate fits" help="Use/save parameter estimates from 'initial-guess' model fits to a JSON file"/>
+            <param argument="--srv" type="select" label="Include synonymous rate variation" help = "Allow synonymous rates to vary from site to site">
+                <option value="Yes">Yes (recommended)</option>
+                <option value="No">No</option>
+            </param>
+            <param argument="--permutations" type="boolean" truevalue="Yes" falsevalue="No" label="Perform permutation significance tests" help="Perform permutation significance tests"/>
+            <expand macro="kill_zero_lengths_param"/>
+        </section>
     </inputs>
     <outputs>
         <data name="cfel_output" format="hyphy_results.json" />
+        <data name="cfel_md_report" format="markdown" from_work_dir="cfel_stdout.md" label="CFEL Report (Markdown) for ${tool.name} on ${on_string}" />
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_file" ftype="fasta" value="absrel-in1.fa"/>
             <param name="input_nhx" ftype="nhx" value="absrel-in1.nhx"/>
             <repeat name="branch_repeat">
@@ -51,14 +71,97 @@
             <repeat name="branch_repeat">
                 <param name="branch_label" value="Terminal branches" />
             </repeat>
-            <output name="cfel_output" file="cfel-out1.json" compare="sim_size"/>
+            <output name="cfel_output">
+                <assert_contents>
+                    <has_text text="beta (internal)"/>
+                    <has_text text="branch attributes"/>
+                </assert_contents>
+            </output>
+            <output name="cfel_md_report">
+                <assert_contents>
+                    <has_text text="Selected 4 branches in group _leaf_ : `Pig, Cow, Baboon, Rat`"/>
+                    <has_text text="Permutation p-value"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
 Contrast-FEL : A Test for Differences in Selective Pressures at Individual Sites among Clades and Sets of Branches
 ==================================================================================================================
 
-A number of evolutionary hypotheses can be tested by comparing selective pressures among sets of branches in a phylogenetic tree. When the question of interest is to identify specific sites within genes that may be evolving differently, a common approach is to perform separate analyses on subsets of sequences and compare parameter estimates in a post hoc fashion. This approach is statistically suboptimal and not always applicable. Here, we develop a simple extension of a popular fixed effects likelihood method in the context of codon-based evolutionary phylogenetic maximum likelihood testing, Contrast-FEL. It is suitable for identifying individual alignment sites where any among the K≥2 sets of branches in a phylogenetic tree have detectably different ω ratios, indicative of different selective regimes. Using extensive simulations, we show that Contrast-FEL delivers good power, exceeding 90% for sufficiently large differences, while maintaining tight control over false positive rates, when the model is correctly specified. We conclude by applying Contrast-FEL to data from five previously published studies spanning a diverse range of organisms and focusing on different evolutionary questions.
+Brief description
+-----------------
+
+Contrast-FEL (Fixed Effects Likelihood) is a statistical method designed to identify individual sites within genes that experience different selective pressures among various clades or sets of branches in a phylogenetic tree. It extends the traditional Fixed Effects Likelihood (FEL) method to detect differences in ω ratios (the ratio of nonsynonymous to synonymous substitution rates) using a likelihood-ratio test.
+
+The intuition behind Contrast-FEL is that if different evolutionary pressures are acting on different parts of a phylogenetic tree, then the ω ratios at specific sites might vary significantly between these groups of branches. For example, a site might be under strong purifying selection in one clade but under positive selection in another. Contrast-FEL allows for the direct comparison of these selective regimes at a site-by-site level.
+
+This method is particularly useful for testing evolutionary hypotheses that involve comparing selective pressures among predefined sets of branches. It provides site-level resolution for comparing selective pressures, which is often lacking in other approaches. Simulations have shown that Contrast-FEL offers good power and maintains control over false positive rates when the model is correctly specified.
+
+Methodology and Intuition
+-------------------------
+
+Contrast-FEL operates by comparing evolutionary rates at individual sites across different predefined branch sets in a phylogenetic tree. The core idea is to detect shifts in selective pressure (quantified by the ω ratio, dN/dS) that are specific to certain lineages or clades.
+
+1.  **Site-wise Likelihood Calculation:** For each site in the alignment, Contrast-FEL estimates the synonymous (α) and nonsynonymous (β) substitution rates. Crucially, it estimates a separate nonsynonymous rate (β) for each specified branch set, while the synonymous rate (α) is shared across all branches. This allows for direct comparison of selective pressures.
+
+2.  **Hypothesis Testing:** The method then performs a likelihood-ratio test (LRT) for each site. The null hypothesis is that the ω ratios are the same across all specified branch sets for that site. The alternative hypothesis is that at least one branch set has a significantly different ω ratio.
+
+3.  **Permutation Testing (Optional):** To account for potential biases and improve the robustness of significance calls, Contrast-FEL can perform permutation tests. In this approach, branch labels are permuted across the tree, and the analysis is re-run multiple times. This generates an empirical null distribution of LRT statistics, which can then be used to calculate more accurate p-values.
+
+4.  **False Discovery Rate (FDR) Control:** To address the multiple testing problem inherent in site-wise analyses, Contrast-FEL applies a False Discovery Rate (FDR) correction (e.g., Benjamini-Hochberg procedure) to the p-values. This helps to control the proportion of false positives among the significant sites.
+
+5.  **Interpretation of ω Ratios:**
+
+    *   **ω < 1 (Purifying Selection):** Nonsynonymous mutations are deleterious and are removed by selection.
+    *   **ω = 1 (Neutral Evolution):** Nonsynonymous mutations are neither advantageous nor deleterious.
+    *   **ω > 1 (Positive Selection):** Nonsynonymous mutations are advantageous and are favored by selection.
+
+By comparing the site-specific ω ratios among different branch sets, Contrast-FEL can pinpoint sites that have undergone adaptive evolution (positive selection) or strong functional constraint (purifying selection) in specific lineages, providing insights into the evolutionary history and functional divergence of genes.
+
+Input
+-----
+
+1. A *FASTA* sequence alignment.
+2. A phylogenetic tree in the *Newick* format
+
+Note: the names of sequences in the alignment must match the names of the sequences in the tree.
+
+Output
+------
+
+A JSON file with analysis results.
+
+A Markdown file with a summary of the analysis.
+
+Tool options
+------------
+::
+
+    --code              Which genetic code to use.
+
+    --branch-set        The set of branches to use for testing.
+
+    --srv               Include synonymous rate variation in the model.
+                        Yes (recommended): Allow synonymous rates to vary from site to site.
+                        No: Do not allow synonymous rates to vary from site to site.
+
+    --permutations      Perform permutation significance tests.
+
+    --p-value           Significance value for site-tests.
+
+    --q-value           Significance value for FDR reporting.
+
+    Advanced parameters
+    ...................
+
+    --limit-to-sites    Only analyze sites whose 1-based indices match the following list (null to skip).
+
+    --save-lf-for-sites For sites whose 1-based indices match the following list, write out likelihood function snapshots (null to skip).
+
+    --intermediate-fits Use/save parameter estimates from 'initial-guess' model fits to a JSON file.
+
+    --kill-zero-lengths Automatically delete internal zero-length branches for computational efficiency.
 ]]>
 
     </help>
