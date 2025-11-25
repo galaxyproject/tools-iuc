@@ -2,284 +2,246 @@
 
 #########################################################################################
 # This script detect circular contigs by looking for exact identical k-mer at the two
-# ends on a cadre sequence of the sequences prodvide in fasta file. In order to be able
-# to predict genes spanning the orgin of circular contigs, the first 1,000 nucleotides
-# of each circular contigs are dulicated and added at the contig's end.
+# ends of the sequences provided in fasta file. In order to be able to predict genes
+# spanning the origin of circular contigs, the first 1,000 nucleotides of each circular
+# contigs are duplicated and added at the contig's end.
 #
 # Inspired by Simon Roux work for Metavir2 (2014) and Corentin Hochart work in PlasSuite
 #
 #########################################################################################
 
 import argparse
-import re
-import sys
-import tempfile
-import textwrap
+import logging
 from pathlib import Path
 
+from Bio import SeqIO
 
-def error(message):
+log_levels = {
+    0: logging.CRITICAL,
+    1: logging.ERROR,
+    2: logging.WARN,
+    3: logging.INFO,
+    4: logging.DEBUG,
+}
+logging.basicConfig(level=log_levels[3])
+logger = logging.getLogger()
+
+
+def setup_logger(verbosity: int) -> None:
     """
-    Print an error message to stderr and exit the program with a non-zero status.
+    Configure the logger based on verbosity level.
 
-    Args:
-        message (str): The error message to display.
+    :param verbosity: verbosity level
     """
-    print(f"{sys.argv[0]} (error): {message}. Execution halted.", file=sys.stderr)
-    sys.exit(1)
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        level=log_levels.get(verbosity, logging.INFO),
+    )
 
 
-def warning(message, verbose):
+def find_occurrences(s, substring) -> list:
     """
-    Print a warning message to stderr if verbose mode is enabled.
+    Find all starting positions of a substring in a string
 
-    Args:
-        message (str): The warning message to display.
-        verbose (bool): If True, the message will be printed.
+    :param s: String to be searched
+    :param substring: Substring to search in s
     """
-    if verbose:
-        print(f"{sys.argv[0]} (info): {message}", file=sys.stderr)
+    return [i for i in range(len(s)) if s.startswith(substring, i)]
 
 
-def fasta_format(seq):
+def is_circular(sequence, length, pos) -> bool:
     """
-    Format sequence into lines of 60 characters each.
+    Determines if a sequence is circular by comparing segments starting at `start_pos`.
 
-    Args:
-        seq (str): sequence to format.
+    A sequence is considered circular if the `length` elements at the beginning of the sequence match the `length`
+    elements starting at `start_pos` in the sequence. This is useful for detecting repeating patterns or cycles
+    in sequences.
+
+    :param sequence: The input sequence
+    :param length: The number of elements to compare for circularity.
+    :param pos: The starting index in the sequence to begin the comparison.
+
+    :return bool: True if circular, False otherwise
     """
-    return textwrap.wrap(seq, width=60, break_on_hyphens=False)
-
-
-def one_line_fasta(input_fp, output_fp):
-    """
-    Convert FASTA file to a format with sequences on single lines.
-
-    Args:
-        input_fp (Path): path to input FASTA file
-        output_fp (Path): path to output FASTA file
-    """
-    with input_fp.open("r") as infile, output_fp.open("w") as outfile:
-        for line in infile:
-            if line.startswith(">"):
-                outfile.write(f"\n{line}")  # Newline before header
-            else:
-                outfile.write(line.rstrip("\n"))  # Remove newline and concatenate
-        outfile.write("\n")  # Final newline (like END in awk)
-
-
-def find_kmer_occurrences(begin, end):
-    """
-    Find all starting positions of 'begin' in 'end'.
-
-    Args:
-        begin ():
-        end ():
-    """
-    pattern = re.compile(re.escape(begin))
-    return [match.start() + len(begin) for match in pattern.finditer(end)]
-
-
-def is_circular(line_chars, scale, pos):
-    """
-    Check if the sequence is circular by comparing segments.
-
-    Args:
-        line_chars (list): Sequence characters
-        scale ( ): Starting k-mer
-        pos ():
-
-    Returns:
-        bool: True if circular, False otherwise
-    """
-    for i in range(scale):
-        if line_chars[i] != line_chars[pos + i]:
+    for i in range(length):
+        if sequence[i] != sequence[pos + i]:
             return False
     return True
 
 
-def process_sequence(
-    line,
-    header,
-    verbose,
-    kmer_length=10,
-    cadre_length=0,
-    duplicate_nucleotides=1000,
+def check_circularity(seq_record, subseq_length=10) -> int:
+    """
+    Process a single sequence to detect circularity and return the overlap length if circular.
+
+    :param seq_record: SeqRecord object
+    :param subseq_length: Length of 3' fragment to check on the 5' end
+
+    :return: overlap length if circular, 0 otherwise
+    """
+    seq_len = len(seq_record)
+
+    if seq_len < subseq_length:
+        logging.error(f"Sequence too short ({seq_len}bp): {seq_record.id}")
+        return 0
+
+    begin = "".join(seq_record[:subseq_length])
+    end = "".join(seq_record[subseq_length:])
+    positions = [x + subseq_length for x in find_occurrences(end, begin)]
+
+    for pos in positions:
+        overlap_length = seq_len - pos
+        if is_circular(seq_record, overlap_length, pos):
+            return overlap_length
+    return 0
+
+
+def extend_sequence(
+    seq_record,
+    overlap_length,
+    duplication_length=1000,
 ):
     """
-    Process a single sequence to detect circularity and modify if needed.
+    Extends the 5' end of a sequence by duplicating a fragment from the 3' end.
 
-    Args:
-        line ():
-        header ():
-        verbose ():
-        kmer_length ():
-        cadre_length ():
-        duplicate_nucleotides ():
+    This function is useful for simulating circular sequences by extending the 5' end
+    with a fragment from the 3' end, based on the specified `overlap_length` and `duplication_length`.
 
-    Returns:
-        : True if circular, False otherwise
+    :param seq_record: The input sequence record to be extended.
+    :param overlap_length: The length of the overlapping segment that was previously identified as circular.
+    :param duplication_length: The length of the 3' end fragment to duplicate and add to the 5' end.
+
+    :return: The modified sequence record with the extended 5' end.
     """
-    try:
-        line_chars = list(line)
-        seq_len = len(line_chars)
-
-        if seq_len < kmer_length:
-            warning(f"Short sequence ({seq_len}bp): {header}", verbose)
-            return None, None
-
-        # Determine cadre length
-        if cadre_length == 0 or cadre_length > seq_len - kmer_length:
-            cadre_length = seq_len - kmer_length
-
-        # Extract begin and end
-        begin = "".join(line_chars[:kmer_length])
-        end_part = line_chars[-cadre_length:]  # [::-1]
-        end_str = "".join(end_part)
-
-        # Find all positions where 'begin' appears in the reversed end part
-        end_positions = find_kmer_occurrences(begin, end_str)
-
-        if not end_positions:
-            return None, None
-
-        # Check for circularity at each position
-        status = False
-        for pos in end_positions:
-            scale = len(line_chars) - pos
-            if is_circular(line_chars, scale, pos):
-                status = True
-
-        if not status:
-            return None, None
-
-        # Modify the sequence
-        modified_seq = line_chars[: len(line_chars) - scale]
-
-        if len(modified_seq) < duplicate_nucleotides:
-            modified_seq += modified_seq
-        else:
-            modified_seq += line_chars[:duplicate_nucleotides]
-
-        return header, "".join(modified_seq)
-    except Exception as e:
-        error(f"Error processing sequence {header}: {e}")
+    # Remove the overlapping segment from the 3' end
+    modified_seq = seq_record.seq[: len(seq_record.seq) - overlap_length]
+    # Duplicate the first `duplication_length` nucleotides from the original sequence
+    # and append them to the 5' end of the modified sequence
+    if len(modified_seq) < duplication_length:
+        # If the modified sequence is shorter than `duplication_length`,
+        # duplicate the entire modified sequence
+        extension = modified_seq
+    else:
+        # Otherwise, duplicate the first `duplication_length` nucleotides
+        extension = seq_record.seq[:duplication_length]
+    # Combine the modified sequence with the duplicated fragment
+    extended_seq = modified_seq + extension
+    # Update the sequence in the SeqRecord object
+    seq_record.seq = extended_seq
+    return seq_record
 
 
 def detect_circular(
     fasta_in,
     fasta_out,
     id_out,
-    kmer_length=10,
-    cadre_length=0,
-    duplicate_nucleotides=1000,
-    verbose=False,
+    subseq_length=10,
+    duplication_length=1000,
 ):
     """
-    Detect and process circular sequences.
+    Detect and process circular sequences in a FASTA file.
 
-    Args:
-        fasta_in (Path): Input FASTA file
-        fasta_out (Path): Output FASTA file with modifications
-        id_out (Path): File to record identifiers of circular sequences
-        kmer_length (int): Length of k-mer to search for
-        cadre_length (int): Length of sequence end to inspect
-        duplicate_nucleotides (int): Number of nucleotides to duplicate at the end
-        verbose (bool): Enable verbose output
+    This function reads sequences from `fasta_in`, checks for circularity,
+    extends circular sequences, and writes the results to `fasta_out` and `id_out`.
+
+    :param fasta_in: Path to the input FASTA file.
+    :param fasta_out: Path to the output FASTA file for extended circular sequences.
+    :param id_out: Path to the output file for recording IDs of circular sequences.
+    :param subseq_length: Length of the 3' fragment to check for circularity.
+    :param duplication_length: Length of the 3' fragment to duplicate and add to the 5' end.
     """
-    tmp_file = tempfile.NamedTemporaryFile(mode="w", delete=False)
-    one_line_fasta(fasta_in, Path(tmp_file.name))
+    records = []
+    ids = []
+    try:
+        with fasta_in.open("r") as fasta_in_f:
+            for seq_record in SeqIO.parse(fasta_in_f, "fasta"):
+                overlap_length = check_circularity(
+                    seq_record,
+                    subseq_length=subseq_length,
+                )
+                if overlap_length > 0:
+                    records.append(
+                        extend_sequence(
+                            seq_record,
+                            overlap_length,
+                            duplication_length,
+                        )
+                    )
+                    ids.append(seq_record.id)
+    except Exception as e:
+        logging.error(f"Error processing {fasta_in}: {e}")
+        raise
 
-    with Path(tmp_file.name).open("r") as infile, fasta_out.open(
-        "w"
-    ) as fasta_output, id_out.open("w") as id_output:
+    if not records:
+        logging.warning("Warning: No circular sequences found.")
 
-        sequence = ""
-        header = ""
-        for line in infile.readlines():
-            # print(line)
-            # Read header
-            if line.startswith(">"):
-                header = line[1:].strip()
-                sequence = ""
-                continue
-            else:
-                sequence = line.strip()
-
-            # Process the sequence
-            header, modified_seq = process_sequence(
-                sequence,
-                header,
-                verbose=verbose,
-                kmer_length=kmer_length,
-                cadre_length=cadre_length,
-                duplicate_nucleotides=duplicate_nucleotides,
-            )
-
-            if modified_seq:
-                # Write to output files
-                id_output.write(f"{header}\n")
-
-                fasta_output.write(f">{header}\n")
-                formatted = fasta_format(modified_seq)
-                for line in formatted:
-                    fasta_output.write(f"{line}\n")
-
-    # Clean up temporary file
-    Path(tmp_file.name).unlink()
+    try:
+        with fasta_out.open("w") as fasta_out_f:
+            SeqIO.write(records, fasta_out_f, "fasta")
+        with id_out.open("w") as id_out_f:
+            id_out_f.write("\n".join(ids) + "\n")
+    except IOError as e:
+        logging.error(f"Error writing output files: {e}")
+        raise
 
 
 def main():
     """
     Main function to detect circular contigs in a FASTA file.
 
-    This function parses command-line arguments, reads the input FASTA file,
-    processes each sequence to detect circular contigs, and prints the results.
-    It handles both verbose and non-verbose modes, and can optionally print only circular sequences.
-
-    Command-line arguments:
-        --fasta-in: Path to the input FASTA file (required).
-        --kmer-length: Length of the k-mer used to identify circular sequences (default: 10).
-        --cadre: Length of the fragment at the sequence 5' end to inspect for k-mer identity.
-                 If 0, the entire sequence is screened (default: 0).
-        --only_circular: If set, only circular sequences are printed.
-        --verbose: If set, warning messages are printed during execution.
-        --output: Path to output file
-
-    The function processes each sequence in the FASTA file, checks for circularity,
-    and prints the results in FASTA format, with circular sequences marked in the header.
+    This function parses command-line arguments, launches function to read the input
+    FASTA file, process each sequence to detect circular contigs, and generate the
+    output files.
     """
     parser = argparse.ArgumentParser(
-        description="Detect circular contigs by k-mer matching."
+        description="""
+            Detect circular contigs by looking for exact identical subsequences at the two
+            ends of the sequences provided in a FASTA file and output the circular contigs
+            extended on 5' end by duplication of the first nucleotides on 3' end to be able
+            to predict genes spanning the origin of circular contigs.
+        """
     )
     parser.add_argument("--fasta-in", required=True, help="Input FASTA file")
     parser.add_argument(
-        "--kmer-length", type=int, default=10, help="Length of k-mer (default: 10)"
-    )
-    parser.add_argument(
-        "--cadre-length",
+        "--subseq-length",
         type=int,
-        default=0,
-        help="Inspect fragment length (default: 0)",
+        default=10,
+        help="Length of 3' fragment to check on the 5' end (default: 10)",
     )
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
-    parser.add_argument("--fasta-out", required=True, help="Output FASTA file")
     parser.add_argument(
-        "--id-out", required=True, help="File to write circular sequence IDs"
+        "--duplication-length",
+        type=int,
+        default=1000,
+        help="Length of the 3' end fragment to duplicate and add on the 5' end (default: 1000)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        type=int,
+        default=3,
+        choices=log_levels.keys(),
+        help="Verbosity level (0=CRITICAL, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG)",
+    )
+    parser.add_argument(
+        "--fasta-out",
+        required=True,
+        help="Output FASTA file with extended circular contigs",
+    )
+    parser.add_argument(
+        "--id-out", required=True, help="Output TXT file with circular sequence IDs"
     )
 
     args = parser.parse_args()
+    setup_logger(args.verbose)
 
-    warning("Starting script execution.", args.verbose)
+    logging.info("Starting script execution.")
     detect_circular(
         Path(args.fasta_in),
         Path(args.fasta_out),
         Path(args.id_out),
-        kmer_length=args.kmer_length,
-        cadre_length=args.cadre_length,
-        verbose=args.verbose,
+        subseq_length=args.subseq_length,
+        duplication_length=args.duplication_length,
     )
-    warning("Script execution completed.", args.verbose)
+    logging.info("Script execution completed.")
 
 
 if __name__ == "__main__":
