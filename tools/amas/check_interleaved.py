@@ -110,11 +110,9 @@ def main():
     
     # Determine overall status
     if all(interleaved_status):
-        print("True")
-        return 0
+        return 0  # Exit code 0 = interleaved
     else:
-        print("False")
-        return 0
+        return 1  # Exit code 1 = sequential
 
 if __name__ == '__main__':
     sys.exit(main())
