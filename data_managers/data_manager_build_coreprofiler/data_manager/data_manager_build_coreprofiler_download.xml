@@ -1,7 +1,7 @@
 <tool id="data_manager_build_coreprofiler" name="Download and build CoreProfiler scheme" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" tool_type="manage_data" profile="@PROFILE@">
     <description></description>
     <macros>
-        <token name="@TOOL_VERSION@">1.1.4</token>
+        <token name="@TOOL_VERSION@">1.1.7</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">22.05</token>
         <xml name="version_command">
@@ -28,20 +28,46 @@
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 #set $scheme_name = str($coreprofiler_scheme_select).split('-')[0]
+#set $scheme_db = str($coreprofiler_scheme_select).split('-')[3]
+
+#set $db_version = str($db_version)
 
 mkdir -p '$out_file.extra_files_path' &&
-mkdir -p coreprofiler_${scheme_name}/scheme_$scheme_name/ &&
+mkdir -p coreprofiler_${scheme_name}_${db_version}/scheme_$scheme_name/ &&
+#if $db_version == "token_version"
+        source "$COREPROFILER_SECRETS_PATH" &&
+        if [[ -z "$COREPROFILER_CONSUMER_TOKEN" || -z "$COREPROFILER_CONSUMER_SECRET" || -z "$COREPROFILER_ACCESS_TOKEN" || -z "$COREPROFILER_ACCESS_SECRET" ]]; then
+            echo "Error: Missing required bash variables for CoreProfiler authentication." >&2
+            echo "Please set the following variables before running this tool:" >&2
+            echo "  COREPROFILER_CONSUMER_TOKEN" >&2
+            echo "  COREPROFILER_CONSUMER_SECRET" >&2
+            echo "  COREPROFILER_ACCESS_TOKEN" >&2
+            echo "  COREPROFILER_ACCESS_SECRET" >&2
+            echo "Please refer to the data manager help section for more information on how to generate these tokens." >&2
+        fi &&
+#end if
 
-coreprofiler db download 
-    -s $scheme_name
-    -o coreprofiler_${scheme_name}/scheme_$scheme_name &&
-
+    coreprofiler db download 
+        -s $scheme_name
+        -o coreprofiler_${scheme_name}_${db_version}/scheme_$scheme_name
+        ## Used only for test 
+        #if str($hide_test) == 'true':
+            -t
+        #end if
+        ##
+#if $db_version == "token_version"
+        -k "$COREPROFILER_CONSUMER_TOKEN"
+        -ks "$COREPROFILER_CONSUMER_SECRET"
+        -a "$COREPROFILER_ACCESS_TOKEN"
+        -as "$COREPROFILER_ACCESS_SECRET"
+#end if
+&&
 coreprofiler db makeblastdb
-    -s coreprofiler_${scheme_name}/scheme_$scheme_name 
+    -s coreprofiler_${scheme_name}_${db_version}/scheme_$scheme_name 
     -n $scheme_name 
-    -p coreprofiler_${scheme_name}/db_$scheme_name &&
+    -p coreprofiler_${scheme_name}_${db_version}/db_$scheme_name &&
 
-mv coreprofiler_${scheme_name} '$out_file.extra_files_path' &&
+mv coreprofiler_${scheme_name}_${db_version} '$out_file.extra_files_path' &&
 
 cp '$dmjson' '$out_file'
     ]]></command>
@@ -54,21 +80,30 @@ cp '$dmjson' '$out_file'
 #set $scheme_loci = str($coreprofiler_scheme_select).split('-')[2]
 #set $scheme_db = str($coreprofiler_scheme_select).split('-')[3]
 
+#set $db_version = str($db_version)
+
 {
     "data_tables":{
     "coreprofiler_scheme":[
     {
-        "value": "coreprofiler_downloaded_#echo date.today().strftime('%d%m%Y')#-${scheme_name}-${scheme_desc}-${scheme_loci}-${scheme_db}",
-        "name": "${scheme_name}: ${scheme_desc} [${scheme_loci} loci] (${scheme_db})",
-        "path": "coreprofiler_${scheme_name}",
-        "database": "coreprofiler_${scheme_name}/db_${scheme_name}/${scheme_name}.fasta",
-        "scheme": "coreprofiler_${scheme_name}/scheme_${scheme_name}"
+        "value": "coreprofiler_downloaded_#echo date.today().strftime('%d%m%Y')#-${scheme_name}-${scheme_desc}-${scheme_loci}-${scheme_db}-${db_version}",
+        "name": "${scheme_name}: ${scheme_desc} [${scheme_loci} loci] (${scheme_db}-${db_version})",
+        "path": "coreprofiler_${scheme_name}_${db_version}",
+        "database": "coreprofiler_${scheme_name}_${db_version}/db_${scheme_name}/${scheme_name}.fasta",
+        "scheme": "coreprofiler_${scheme_name}_${db_version}/scheme_${scheme_name}"
     }
     ]
 }
         }]]></configfile>
     </configfiles>
     <inputs>
+            <param name="db_version" type="select" label="Select if you want latest version from pubMLST or BigsDB using tokens" help="If you choose latest, you will have to provide tokens and secrets to access the database following the procedure describe in the documentation." >
+                <option value="token" selected="true">Latest version from pubMLST or BigsDB, you will need to set bash variables for tokens and secrets as described in the documentation.</option>
+                <option value="no_token">No need of tokens but it will download the previous version, not the latest version, from pubMLST or BigsDB or if you want a database from Enterobase</option>
+            </param>
+        <!-- used only for tests, limit download scheme to 50 locus -->
+        <param name="hide_test" type="hidden" value=""/>
+        <!-- -->
         <param name="coreprofiler_scheme_select" type="select" label="CoreProfiler available scheme" help="Choose a schema from a reference platform supported in CoreProfiler">                   
             <option value="bordetella_1-cgMLST_genus-1415-BIGSdb">bordetella_1: cgMLST_genus [1415 loci] (BIGSdb)</option>
             <option value="bordetella_4-cgMLST_pertussis-2038-BIGSdb">bordetella_4: cgMLST_pertussis [2038 loci] (BIGSdb)</option>
@@ -128,15 +163,47 @@ cp '$dmjson' '$out_file'
     </outputs>
     <tests>
         <test expect_num_outputs="1">
+            <param name="hide_test" value="true"/>
             <param name="coreprofiler_scheme_select" value="borrelia_3-cgMLST-639-pubmlst" />
+            <param name="db_version" value="no_token"/>
             <output name="out_file">
                 <assert_contents>
                     <has_text text='"coreprofiler_scheme":'/>
-                    <has_text_matching expression='"value": "coreprofiler_downloaded_[0-9]{8}-borrelia_3-cgMLST-639-pubmlst"'/>
-                    <has_text text='"name": "borrelia_3: cgMLST [639 loci] (pubmlst)'/>
-                    <has_text text='"path": "coreprofiler_borrelia_3"'/>
-                    <has_text text='"database": "coreprofiler_borrelia_3/db_borrelia_3/borrelia_3.fasta"'/>
-                    <has_text text='"scheme": "coreprofiler_borrelia_3/scheme_borrelia_3"'/>
+                    <has_text_matching expression='"value": "coreprofiler_downloaded_[0-9]{8}-borrelia_3-cgMLST-639-pubmlst-no_token"'/>
+                    <has_text text='"name": "borrelia_3: cgMLST [639 loci] (pubmlst-no_token)"'/>
+                    <has_text text='"path": "coreprofiler_borrelia_3_no_token"'/>
+                    <has_text text='"database": "coreprofiler_borrelia_3_no_token/db_borrelia_3/borrelia_3.fasta"'/>
+                    <has_text text='"scheme": "coreprofiler_borrelia_3_no_token/scheme_borrelia_3"'/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="hide_test" value="true"/>
+            <param name="coreprofiler_scheme_select" value="yersinia_1-Yersinia_cgMLST-500-BIGSdb" />
+            <param name="db_version" value="no_token"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text='"coreprofiler_scheme":'/>
+                    <has_text_matching expression='"value": "coreprofiler_downloaded_[0-9]{8}-yersinia_1-Yersinia_cgMLST-500-BIGSdb-no_token"'/>
+                    <has_text text='"name": "yersinia_1: Yersinia_cgMLST [500 loci] (BIGSdb-no_token)"'/>
+                    <has_text text='"path": "coreprofiler_yersinia_1_no_token"'/>
+                    <has_text text='"database": "coreprofiler_yersinia_1_no_token/db_yersinia_1/yersinia_1.fasta"'/>
+                    <has_text text='"scheme": "coreprofiler_yersinia_1_no_token/scheme_yersinia_1"'/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="hide_test" value="true"/>
+            <param name="coreprofiler_scheme_select" value="escherichia_v1-cgMLST-2513-enterobase" />
+            <param name="db_version" value="no_token"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text='"coreprofiler_scheme":'/>
+                    <has_text_matching expression='"value": "coreprofiler_downloaded_[0-9]{8}-escherichia_v1-cgMLST-2513-enterobase-no_token"'/>
+                    <has_text text='"name": "escherichia_v1: cgMLST [2513 loci] (enterobase-no_token)"'/>
+                    <has_text text='"path": "coreprofiler_escherichia_v1_no_token"'/>
+                    <has_text text='"database": "coreprofiler_escherichia_v1_no_token/db_escherichia_v1/escherichia_v1.fasta"'/>
+                    <has_text text='"scheme": "coreprofiler_escherichia_v1_no_token/scheme_escherichia_v1"'/>
                 </assert_contents>
             </output>
         </test>
@@ -147,6 +214,81 @@ This tool downloads and builds the **CoreProfiler** scheme.
 You can find the list of available scheme, as well as the reference platforms supported by CoreProfiler, in the <a href="https://gitlab.com/ifb-elixirfr/abromics/coreprofiler/-/blob/main/README.md?ref_type=heads#basic-usage" target="_blank">CoreProfiler documentation</a>.
 
 Please refer to this page for details on how to use the tool and which schema options are available.
+
+Use Galaxy's data manager framework to download and install new CoreProfiler schemes :
+
+If you want to use a scheme from enterobase, you do not need to provide any token or secret.
+
+However, if you want to use a scheme from **pubMLST** or **BigsDB**, you will need to follow a procedure before launching the data manager.
+
+BIGSdb and PubMLST platforms require OAuth1 authentication to access and download the most up-to-date schemes.
+While authentication is not strictly mandatory, skipping it may result in downloading outdated schemes.
+
+This authentication involves two types of tokens:
+
+ * Consumer tokens : permanent tokens used to initiate the authentication flow.
+
+ * Access tokens : tokens required to download a scheme.
+
+Procedure for pubMLST schemes (example with borrelia_3-cgMLST-639-pubmlst) :
+
+1. Create an account on the <a href="https://pubmlst.org/bigsdb" target="_blank">pubMLST</a> website.
+2. Generate a consumer token and secret from your account settings (My account > API keys > Enter key name > Submit).
+3. On your account page, go to Database registrations, check all databases and register.
+4. Download <a href="https://gitlab.com/ifb-elixirfr/abromics/coreprofiler" target="_blank">coreprofiler</a> locally and run the following command to obtain your access token and secret
+
+Replace the placeholders with your scheme of interest (example : borrelia_3) your actual consumer token and secret :
+
+"""
+coreprofiler db get_request_tokens --scheme <SCHEME_NAME> --consumer_key <YOUR_CONSUMER_TOKEN> --consumer_secret <YOUR_CONSUMER_SECRET>
+"""
+
+This command will provide you with a URL to visit in order to authorize client software to access your account. 
+
+After authorizing, it will give you a verification code that you need to enter in the command line prompt.
+
+It will then return your access token and secret.
+
+5. Provide the consumer token, consumer secret, access token, and access secret in the data manager tool by setting this bash variables in a txt file : 
+
+"""
+export COREPROFILER_CONSUMER_TOKEN="<YOUR_CONSUMER_TOKEN>"
+export COREPROFILER_CONSUMER_SECRET="<YOUR_CONSUMER_SECRET>"
+export COREPROFILER_ACCESS_TOKEN="<YOUR_ACCESS_TOKEN>"
+export COREPROFILER_ACCESS_SECRET="<YOUR_ACCESS_SECRET>"
+"""
+
+6. Set the path to this txt file in your environment by making an environment variable (example : export COREPROFILER_SECRETS_PATH="/path/to/your/secret_file.txt").
+
+Procedure for BigsDB (example with bordetella_1-cgMLST_genus-1415-BIGSdb):
+
+1. Create an account on the <a href="https://bigsdb.pasteur.fr/cgi-bin/bigsdb/bigsdb.pl?page=registration" target="_blank">BigsDB</a> website.
+2. Ask for a consumer token and secret by sending a mail to bigsdb@pasteur.fr (object "API client key").
+3. On your account page, go to Database registrations, check all databases and register.
+4. Download <a href="https://gitlab.com/ifb-elixirfr/abromics/coreprofiler" target="_blank">coreprofiler</a> locally and run the following command to obtain your access token and secret
+
+Replace the placeholders with your scheme of interest (example : bordetella_1) your actual consumer token and secret :
+
+"""
+coreprofiler db get_request_tokens --scheme <SCHEME_NAME> --consumer_key <YOUR_CONSUMER_TOKEN> --consumer_secret <YOUR_CONSUMER_SECRET>
+"""
+
+This command will provide you with a URL to visit in order to authorize client software to access your account. 
+
+After authorizing, it will give you a verification code that you need to enter in the command line prompt.
+
+It will then return your access token and secret.
+
+5. Provide the consumer token, consumer secret, access token, and access secret in the data manager tool by setting this bash variables in a txt file : 
+
+"""
+export COREPROFILER_CONSUMER_TOKEN="<YOUR_CONSUMER_TOKEN>"
+export COREPROFILER_CONSUMER_SECRET="<YOUR_CONSUMER_SECRET>"
+export COREPROFILER_ACCESS_TOKEN="<YOUR_ACCESS_TOKEN>"
+export COREPROFILER_ACCESS_SECRET="<YOUR_ACCESS_SECRET>"
+"""
+
+6. Set the path to this txt file in your environment by making an environment variable (example : export COREPROFILER_SECRETS_PATH="/path/to/your/secret_file.txt").
     ]]></help>
     <citations>
         <citation type="doi">10.3390/microorganisms10020292</citation>
