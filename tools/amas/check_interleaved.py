@@ -50,8 +50,8 @@ def check_nexus_interleaved(filepath):
                 if content.startswith('begin'):
                     words = content.split()
                     if len(words) > 1 and (
-                            words[1].startswith('data') or
-                            words[1].startswith('characters')):
+                            words[1].startswith('data')
+                            or words[1].startswith('characters')):
                         in_data_block = True
                 continue
 
