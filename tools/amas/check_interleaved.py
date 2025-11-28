@@ -2,14 +2,13 @@
 Helper script to check if AMAS input files are interleaved.
 """
 import argparse
-import io
 import re
 import sys
 
 
 def check_phylip_interleaved(filepath):
     """Check if PHYLIP file is interleaved."""
-    with io.open(filepath) as f:
+    with open(filepath, encoding='utf-8') as f:
         # First line is header: ntax nchar
         header = next(f).strip().split()
         ntax = int(header[0])
@@ -29,7 +28,7 @@ def check_nexus_interleaved(filepath):
     ntax = None
     seq_lines = 0
 
-    with io.open(filepath, 'r') as f:
+    with open(filepath, encoding='utf-8') as f:
         for line in f:
             content = line.strip().lower()
 
