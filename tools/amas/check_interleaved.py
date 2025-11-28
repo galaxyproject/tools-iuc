@@ -8,65 +8,63 @@ import sys
 
 def check_phylip_interleaved(filepath):
     """Check if PHYLIP file is interleaved."""
-    seq_lines = 0
+    with io.open(filepath) as f:
+        # First line is header: ntax nchar
+        header = next(f).strip().split()
+        ntax = int(header[0])
 
-    with io.open(filepath, 'r') as f:
-        for i, line in enumerate(f):
-            # First line is header: ntax nchar
-            if i==0:
-                header = line[0].split()
-                ntax = int(header[0])
-            elif seq_lines > ntax:
-                return True
-            else:
-                if line.strip():
-                    seq_lines += 1
-        
+        for idx, line in enumerate(f, 1):
+            if line.strip():
+                if idx > ntax:
+                    return True
+
         return False
 
 def check_nexus_interleaved(filepath):
     """Check if NEXUS file is interleaved."""
-    block_flag = False
-    seq_flag = False
+    in_data_block = False
+    in_matrix = False
+    ntax = None
     seq_lines = 0
-
+    
     with io.open(filepath, 'r') as f:
         for line in f:
-            content = line.lower().strip()
-
+            content = line.strip().lower()
+            
             if not content:
                 continue
-
-            if seq_flag:
-                # Could shorten this to just `if content == 'end;':`
-                if content == 'end;' and (seq_lines == ntax):
-                    return False
-                if content and content != ';':
-                    seq_lines += 1
-                if seq_lines > ntax:
-                    return True
-
-            split_content = content.split()
-
-            if block_flag:
-                if split_content[0] == 'dimensions':
-                    # Will check for 'ntax=(int)'; position may not always be the same
-                    ntax = int(re.search(r'ntax=(\d+)', content).group(1))
-
-                elif split_content[0] == 'format':
-                    # NOTE: may be other ways interleave can be expressed in Format
-                    # Will match 'interleave', 'interleave;', 'interleave=yes', 'interleave=yes;'
-                    if re.search(r'\binterleave(;|=yes|=yes;)?\b', content):
-                        return True
-                
-                elif split_content[0] == 'matrix':
-                    seq_flag = True
             
-            # Need to make sure the block isn't a TAXA block that contains taxa info but no sequence info
-            if split_content[0] == 'begin':
-                if (split_content[1] == 'data;') or (split_content[1] == 'characters;'):
-                    block_flag = True
-
+            if in_matrix:
+                if content == 'end;':
+                    return seq_lines != ntax if ntax else False
+                
+                if content != ';':
+                    seq_lines += 1
+                    if ntax and seq_lines > ntax:
+                        return True
+                continue
+            
+            if not in_data_block:
+                if content.startswith('begin'):
+                    words = content.split()
+                    if len(words) > 1 and (words[1].startswith('data') or 
+                                           words[1].startswith('characters')):
+                        in_data_block = True
+                continue
+            
+            if content.startswith('dimensions') and ntax is None:
+                match = re.search(r'ntax=(\d+)', content)
+                if match:
+                    ntax = int(match.group(1))
+            
+            elif content.startswith('format'):
+                if re.search(r'\binterleave(?:;|=yes;?)?\b', content):
+                    return True
+            
+            elif content.startswith('matrix'):
+                in_matrix = True
+    
+    return False
 
 def check_fasta_interleaved(filepath):
     """FASTA files are not interleaved."""
