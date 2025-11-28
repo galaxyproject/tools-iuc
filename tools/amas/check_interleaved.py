@@ -1,85 +1,72 @@
 """
 Helper script to check if AMAS input files are interleaved.
-Returns simple boolean and format info.
 """
-import sys
 import argparse
 import io
 import re
+import sys
 
 def check_phylip_interleaved(filepath):
     """Check if PHYLIP file is interleaved."""
+    seq_lines = 0
+
     with io.open(filepath, 'r') as f:
-        lines = [l.strip() for l in f if l.strip()]
-    
-    if len(lines) < 2:
+        for i, line in enumerate(f):
+            # First line is header: ntax nchar
+            if i==0:
+                header = line[0].split()
+                ntax = int(header[0])
+            elif seq_lines > ntax:
+                return True
+            else:
+                if line.strip():
+                    seq_lines += 1
+        
         return False
-    
-    # First line is header: ntax nchar
-    header = lines[0].split()
-    if len(header) != 2:
-        return False
-    
-    try:
-        ntax = int(header[0])
-    except:
-        return False
-    
-    data_lines = lines[1:]
-    
-    # If we have more data lines than ntax, it's interleaved
-    if len(data_lines) > ntax:
-        return True
-    
-    return False
 
 def check_nexus_interleaved(filepath):
     """Check if NEXUS file is interleaved."""
+    block_flag = False
+    seq_flag = False
+    seq_lines = 0
+
     with io.open(filepath, 'r') as f:
-        content = f.read().lower()
-    
-    # Primary check: Look for explicit interleave keyword
-    # Matches: 'interleave', 'interleave;', 'interleave=yes'
-    # Not match: 'interleave=no'
-    # NOTE: may be other ways interleave can be expressed in Format
-    pattern = r'\binterleave(;|=yes)?\b'
-    if re.search(pattern, content):
-        return True
-    
-    # Backup check: Parse dimensions and count data lines
-    # Look for dimensions: "Dimensions ntax=10 nchar=234"
-    dim_match = re.search(r'dimensions\s+ntax=(\d+)\s+nchar=(\d+)', 
-                          content)
-    if not dim_match:
-        return False
-    
-    ntax = int(dim_match.group(1))
-    
-    # Find Matrix section
-    matrix_match = re.search(r'\bmatrix\b', content)
-    if not matrix_match:
-        return False
-    
-    matrix_start = matrix_match.end()
-    
-    # Find END; after matrix
-    end_match = re.search(r'\bend\s*;', content[matrix_start:])
-    if not end_match:
-        return False
-    
-    matrix_end = matrix_start + end_match.start()
-    
-    matrix_content = content[matrix_start:matrix_end]
-    
-    lines = matrix_content.split('\n')
-    data_line_count = 0
-    for line in lines:
-        stripped = line.strip()
-        if stripped and stripped != ';':
-            data_line_count += 1
-    
-    # If more data lines than ntax, it's interleaved
-    return data_line_count > ntax
+        for line in f:
+            content = line.lower().strip()
+
+            if not content:
+                continue
+
+            if seq_flag:
+                # Could shorten this to just `if content == 'end;':`
+                if content == 'end;' and (seq_lines == ntax):
+                    return False
+                if content and content != ';':
+                    seq_lines += 1
+                if seq_lines > ntax:
+                    return True
+
+            split_content = content.split()
+
+            if block_flag:
+                if split_content[0] == 'dimensions':
+                    # Will check for 'ntax=(int)'; position may not always be the same
+                    ntax = int(re.search(r'ntax=(\d+)', content).group(1))
+
+                elif split_content[0] == 'format':
+                    # NOTE: may be other ways interleave can be expressed in Format
+                    # Will match 'interleave', 'interleave;', 'interleave=yes', 'interleave=yes;'
+                    if re.search(r'\binterleave(;|=yes|=yes;)?\b', content):
+                        return True
+                
+                elif split_content[0] == 'matrix':
+                    seq_flag = True
+            
+            # Need to make sure the block isn't a TAXA block that contains taxa info but no sequence info
+            if split_content[0] == 'begin':
+                if (split_content[1] == 'data;') or (split_content[1] == 'characters;'):
+                    block_flag = True
+
 
 def check_fasta_interleaved(filepath):
     """FASTA files are not interleaved."""
@@ -96,19 +83,18 @@ def main():
     
     args = parser.parse_args()
     
-    # Check all files
     interleaved_status = []
     for filepath in args.input_files:
         if args.format == 'phylip':
             is_interleaved = check_phylip_interleaved(filepath)
         elif args.format == 'nexus':
             is_interleaved = check_nexus_interleaved(filepath)
-        else:  # fasta
+        else:
             is_interleaved = check_fasta_interleaved(filepath)
         
         interleaved_status.append(is_interleaved)
     
-    # Determine overall status
+    # NOTE: Do we need to check all files?
     if all(interleaved_status):
         return 0  # Exit code 0 = interleaved
     else:
