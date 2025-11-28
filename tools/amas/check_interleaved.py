@@ -6,6 +6,7 @@ import io
 import re
 import sys
 
+
 def check_phylip_interleaved(filepath):
     """Check if PHYLIP file is interleaved."""
     with io.open(filepath) as f:
@@ -20,55 +21,59 @@ def check_phylip_interleaved(filepath):
 
         return False
 
+
 def check_nexus_interleaved(filepath):
     """Check if NEXUS file is interleaved."""
     in_data_block = False
     in_matrix = False
     ntax = None
     seq_lines = 0
-    
+
     with io.open(filepath, 'r') as f:
         for line in f:
             content = line.strip().lower()
-            
+
             if not content:
                 continue
-            
+
             if in_matrix:
                 if content == 'end;':
                     return seq_lines != ntax if ntax else False
-                
+
                 if content != ';':
                     seq_lines += 1
                     if ntax and seq_lines > ntax:
                         return True
                 continue
-            
+
             if not in_data_block:
                 if content.startswith('begin'):
                     words = content.split()
-                    if len(words) > 1 and (words[1].startswith('data') or 
-                                           words[1].startswith('characters')):
+                    if len(words) > 1 and (
+                            words[1].startswith('data') or
+                            words[1].startswith('characters')):
                         in_data_block = True
                 continue
-            
+
             if content.startswith('dimensions') and ntax is None:
                 match = re.search(r'ntax=(\d+)', content)
                 if match:
                     ntax = int(match.group(1))
-            
+
             elif content.startswith('format'):
                 if re.search(r'\binterleave(?:;|=yes;?)?\b', content):
                     return True
-            
+
             elif content.startswith('matrix'):
                 in_matrix = True
-    
+
     return False
+
 
 def check_fasta_interleaved(filepath):
     """FASTA files are not interleaved."""
     return False
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -76,11 +81,11 @@ def main():
     )
     parser.add_argument('input_files', nargs='+', help='Input sequence files')
     parser.add_argument('--format', required=True,
-                       choices=['fasta', 'phylip', 'nexus'],
-                       help='Input format')
-    
+                        choices=['fasta', 'phylip', 'nexus'],
+                        help='Input format')
+
     args = parser.parse_args()
-    
+
     interleaved_status = []
     for filepath in args.input_files:
         if args.format == 'phylip':
@@ -89,14 +94,15 @@ def main():
             is_interleaved = check_nexus_interleaved(filepath)
         else:
             is_interleaved = check_fasta_interleaved(filepath)
-        
+
         interleaved_status.append(is_interleaved)
-    
+
     # NOTE: Do we need to check all files?
     if all(interleaved_status):
         return 0  # Exit code 0 = interleaved
     else:
         return 1  # Exit code 1 = sequential
+
 
 if __name__ == '__main__':
     sys.exit(main())
