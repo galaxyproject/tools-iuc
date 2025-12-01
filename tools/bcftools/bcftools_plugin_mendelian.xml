@@ -1,15 +1,14 @@
 <tool name="bcftools @EXECUTABLE@" id="bcftools_plugin_@PLUGIN_ID@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>plugin Count Mendelian consistent / inconsistent genotypes</description>
     <macros>
-        <token name="@EXECUTABLE@">mendelian</token>
+        <token name="@EXECUTABLE@">mendelian2</token>
         <token name="@PLUGIN_ID@">mendelian</token>
         <import>macros.xml</import>
     </macros>
-    <expand macro="bio_tools" />  
+    <expand macro="bio_tools" />
     <expand macro="requirements" />
     <expand macro="version_command" />
     <command detect_errors="aggressive"><![CDATA[
-@PREPARE_ENV@
 @PREPARE_INPUT_FILE@
 #set $section = $sec_restrict
 @PREPARE_TARGETS_FILE@
@@ -32,25 +31,12 @@ bcftools plugin @EXECUTABLE@
 ## Plugin section
 #set $section = $sec_plugin
 #if $section.trios.trios_src == 'trio':
-  --trio "${section.trios.mother},${section.trios.father},${section.trios.child}"
+  --pfm '${section.trios.num_x}:${section.trios.child},${section.trios.mother},${section.trios.father}'
 #elif $section.trios.trios_src == 'trio_file':
-  --trio-file "$section.trios.trio_file"
+  --ped '$section.trios.trio_file'
 #end if
-#if $section.mode:
- #set $modes =  str($section.mode).split(',')
- #if 'count' in $modes:
-  --count
- #end if
- #if 'delete' in $modes:
-  --delete
- #end if
- #if '+' in $modes:
-  --list '+'
- #end if
- #if 'x' in $modes:
-  --list x
- #end if
-#end if
+#set $modes =  "".join(str($section.mode).split(','))
+-m $modes
 2> tmp_stderr
 > '$output_file'
 && cat tmp_stderr
@@ -59,8 +45,8 @@ bcftools plugin @EXECUTABLE@
     <inputs>
         <expand macro="macro_input" />
         <section name="sec_restrict" expanded="false" title="Restrict to">
-            <expand macro="macro_restrict" />
-            <expand macro="macro_restrict" type="target" label_type="Target" />
+            <expand macro="macro_region_restrict" />
+            <expand macro="macro_target_restrict" />
             <expand macro="macro_include" />
             <expand macro="macro_exclude" />
         </section>
@@ -68,23 +54,28 @@ bcftools plugin @EXECUTABLE@
             <!-- trios -->
             <conditional name="trios">
                 <param name="trios_src" type="select" label="Sample relationship">
-                    <option value="trio">trio - mother,father,child</option>
-                    <option value="trio_file">trios file</option>
+                    <option value="trio">trio - mother,father,child (--pfm)</option>
+                    <option value="trio_file">trios file - specify 1 or more trios in PED format (--ped)</option>
                 </param>
                 <when value="trio">
-                   <param name="mother" type="text" value="" label="name of mother"/>
-                   <param name="father" type="text" value="" label="name of father"/>
-                   <param name="child" type="text" value="" label="name of child"/>
+                   <param name="mother" type="text" value="" label="Mother sample name (as it appears in the input)"/>
+                   <param name="father" type="text" value="" label="Father sample name (as it appears in the input)"/>
+                   <param name="child" type="text" value="" label="Child sample name (as it appears in the input)"/>
+                   <param name="num_x" type="boolean" truevalue="1X" falsevalue="2X" label="Male child?" help="This information is used to judge inheritance patterns of X-chromosomal mutations correctly."/>
                 </when>
                 <when value="trio_file">
-                    <param name="trio_file" type="data" format="txt" label="Trio File" help="List of trios, one per line" />
+                    <param name="trio_file" type="data" format="tabular" label="Sample information in PED format" help="This input dataset can describe one or several family trios. See the tool help below for more information on PED format." />
                 </when>
             </conditional>
-            <param name="mode" type="select" label="Action" multiple="true" min="1">
-                <option value="count">count the number of consistent sites</option>
-                <option value="delete">delete inconsistent genotypes (set to './.')</option>
-                <option value="+">list consistent sites (+)</option>
-                <option value="x">list inconsistent sites (x)</option>
+            <param name="mode" type="select" multiple="true" optional="false" label="Output mode" help="Output mode. Multiple modes can be combined and the drop modes take precedence.">
+                <option value="a" selected="true">add INFO -> MERR annotation with the number of inconsistent trios (a)</option>
+                <option value="d">delete (i.e., set to "./.") genotypes in inconsistent trios (d)</option>
+                <option value="e">output sites with at least one erroneous trio (e)</option>
+                <option value="E">drop sites with at least one erroneous trio (E)</option>
+                <option value="g">output sites with at least one good (i.e. with non-missing and consistent genotypes) trio (g)</option>
+                <option value="m">output sites with missing genotypes in at least one trio (m)</option>
+                <option value="M">drop sites with missing genotypes in at least one trio (M)</option>
+                <option value="S">drop sites skipped for various reasons when collecting stats (S)</option>
             </param>
         </section>
         <expand macro="macro_select_output_type" />
@@ -96,11 +87,15 @@ bcftools plugin @EXECUTABLE@
         <test>
             <!-- This is just a test on a random file, should have a real test case -->
             <param name="input_file" ftype="vcf" value="convert.vcf" />
-            <param name="trios_src" value="trio" />
-            <param name="mother" value="NA00001" />
-            <param name="father" value="NA00002" />
-            <param name="child" value="NA00006" />
-            <param name="mode" value="delete" />
+            <section name="sec_plugin">
+                <conditional name="trios">
+                    <param name="trios_src" value="trio" />
+                    <param name="mother" value="NA00001" />
+                    <param name="father" value="NA00002" />
+                    <param name="child" value="NA00006" />
+                </conditional>
+                <param name="mode" value="d" />
+            </section>
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -111,11 +106,15 @@ bcftools plugin @EXECUTABLE@
         <test>
             <!-- This is just a test on a random file, should have a real test case -->
             <param name="input_file" ftype="vcf" value="convert.vcf" />
-            <param name="trios_src" value="trio" />
-            <param name="mother" value="NA00001" />
-            <param name="father" value="NA00002" />
-            <param name="child" value="NA00006" />
-            <param name="mode" value="x" />
+            <section name="sec_plugin">
+                <conditional name="trios">
+                    <param name="trios_src" value="trio" />
+                    <param name="mother" value="NA00001" />
+                    <param name="father" value="NA00002" />
+                    <param name="child" value="NA00006" />
+                </conditional>
+                <param name="mode" value="e" />
+            </section>
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -124,13 +123,49 @@ bcftools plugin @EXECUTABLE@
                 </assert_contents>
             </output>
         </test>
-
     </tests>
 
     <help><![CDATA[
 =====================================
  bcftools @EXECUTABLE@ plugin
 =====================================
+
+
+Describing sample relationships (family trios) in PED format
+------------------------------------------------------------
+
+A PED file is simply a tabular text file (columns can be separated by either
+spaces or TABs, but not a mixture of the two within the same file) with the
+header::
+
+#family_id    name     paternal_id    maternal_id    sex
+
+and optional additional columns. The actual column names in the header are not
+fixed, but there have to be at least six columns that are interpreted as
+detailed next.
+
+Subsequent lines describe one sample from the VCF input dataset each, where
+
+- *family_id* is an alphanumeric identifier of a family
+
+  This column has to be present, but is ignored by this plugin
+
+- *name* is the identifier of the sample described by the line
+
+- *paternal_id* is the identifier of the sample's father
+
+- *maternal_id* is the identifier of the sample's mother
+
+- *sex* is a numeric code (1=male, 2=female) for the sample's sex
+
+An example minimal PED file describing a single family-trio with a female child could look like this::
+
+  #family_id    name    paternal_id    maternal_id    sex
+  0             NA00001 0              0              1
+  0             NA00002 0              0              2
+  0             NA00003 NA00001        NA00002        2
+
+where 0 is used as a placeholder for the paternal_id/maternal_id values in the records of the father and mother.
 
 @REGIONS_HELP@
 @TARGETS_HELP@
