@@ -96,11 +96,16 @@ def main():
 
         interleaved_status.append(is_interleaved)
 
-    # NOTE: Do we need to check all files?
-    if all(interleaved_status):
-        return 0  # Exit code 0 = interleaved
+    interleaved_status = list(set(interleaved_status))
+    if len(interleaved_status) > 1:
+        raise Exception("Error: Input files are a mix of interleaved/sequential formats")
+
+    if interleaved_status[0]:
+        print(f"{args.format}-int")
     else:
-        return 1  # Exit code 1 = sequential
+        print(args.format)
+
+    return 0
 
 
 if __name__ == '__main__':
