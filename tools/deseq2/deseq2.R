@@ -69,7 +69,13 @@ spec <- matrix(c(
     "use_beta_priors", "d", 0, "logical",
     "alpha_ma", "A", 1, "numeric",
     "prefilter", "P", 0, "logical",
-    "prefilter_value", "V", 1, "numeric"
+    "prefilter_value", "V", 1, "numeric",
+    "sample_sheet_mode", "S", 0, "logical",
+    "sample_sheet", "g", 1, "character",
+    "factor_columns", "j", 1, "character",
+    "reference_level", "R", 1, "character",
+    "target_level", "T", 1, "character",
+    "collection_files", "C", 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -85,8 +91,8 @@ if (is.null(opt$outfile)) {
     cat("'outfile' is required\n")
     q(status = 1)
 }
-if (is.null(opt$factors)) {
-    cat("'factors' is required\n")
+if (is.null(opt$factors) && is.null(opt$sample_sheet_mode)) {
+    cat("'factors' is required when not using sample_sheet_mode\n")
     q(status = 1)
 }
 
@@ -120,10 +126,105 @@ trim <- function(x) gsub("^\\s+|\\s+$", "", x)
 
 # switch on if 'factors' was provided:
 library("rjson")
-parser <- newJSONParser()
-parser$addData(opt$factors)
-factor_list <- parser$getObject()
-filenames_to_labels <- fromJSON(opt$files_to_labels)
+
+if (!is.null(opt$sample_sheet_mode)) {
+    # Sample sheet mode: build factor_list from sample sheet
+    filenames_to_labels <- fromJSON(opt$files_to_labels)
+
+    # Read sample sheet
+    sample_sheet <- read.table(opt$sample_sheet, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+
+    # Parse factor columns (comma-separated column numbers, 1-indexed)
+    factor_col_nums <- as.integer(strsplit(opt$factor_columns, ",")[[1]])
+    factor_col_names <- colnames(sample_sheet)[factor_col_nums]
+
+    # Parse collection files
+    collection_files <- strsplit(opt$collection_files, ",")[[1]]
+
+    # First column of sample sheet should contain sample identifiers
+    sample_id_col <- colnames(sample_sheet)[1]
+
+    # Build factor_list structure
+    factor_list <- list()
+    for (i in seq_along(factor_col_names)) {
+        factor_name <- factor_col_names[i]
+
+        # Group files by factor level, preserving the order of first appearance
+        level_to_files <- list()
+        level_order <- character(0)  # Track order of first appearance
+        for (file in collection_files) {
+            element_id <- filenames_to_labels[[basename(file)]]
+            # Find matching row in sample sheet
+            matching_row <- which(sample_sheet[[sample_id_col]] == element_id)
+            if (length(matching_row) > 0) {
+                level <- sample_sheet[[factor_name]][matching_row[1]]
+                if (!(level %in% names(level_to_files))) {
+                    level_to_files[[level]] <- character(0)
+                    level_order <- c(level_order, level)  # Record order of first appearance
+                }
+                level_to_files[[level]] <- c(level_to_files[[level]], file)
+            }
+        }
+
+        # Get all levels in order of first appearance (not alphabetically sorted)
+        all_levels <- level_order
+
+        # Handle reference and target levels for primary factor (first factor)
+        # By default, the first level encountered becomes the reference
+        if (i == 1) {
+            if (!is.null(opt$reference_level) && nchar(opt$reference_level) > 0) {
+                ref_level <- trim(opt$reference_level)
+                # Validate that reference level exists
+                if (!(ref_level %in% all_levels)) {
+                    cat(paste0("Error: Reference level '", ref_level, "' not found in factor '", factor_name, "'. Available levels: ", paste(all_levels, collapse = ", "), "\n"))
+                    q(status = 1)
+                }
+            } else {
+                # Default: use first level encountered in sample sheet as reference
+                ref_level <- all_levels[1]
+            }
+
+            if (!is.null(opt$target_level) && nchar(opt$target_level) > 0) {
+                target_level <- trim(opt$target_level)
+                # Validate that target level exists
+                if (!(target_level %in% all_levels)) {
+                    cat(paste0("Error: Target level '", target_level, "' not found in factor '", factor_name, "'. Available levels: ", paste(all_levels, collapse = ", "), "\n"))
+                    q(status = 1)
+                }
+                # For single comparison: reference first, then target
+                levels_to_use <- c(ref_level, target_level)
+            } else {
+                # Use all levels with reference first, then others in order of appearance
+                other_levels <- all_levels[all_levels != ref_level]
+                levels_to_use <- c(ref_level, other_levels)
+            }
+        } else {
+            # For secondary factors, use all levels in order of appearance
+            levels_to_use <- all_levels
+        }
+
+        # Build factor structure in the order specified by levels_to_use
+        # The levels are already in the correct order (reference first, then others)
+        # which matches what DESeq2 expects
+        factor_levels <- list()
+        for (level in levels_to_use) {
+            if (level %in% names(level_to_files)) {
+                level_entry <- list()
+                level_entry[[level]] <- level_to_files[[level]]
+                factor_levels[[length(factor_levels) + 1]] <- level_entry
+            }
+        }
+
+        factor_list[[length(factor_list) + 1]] <- list(factor_name, factor_levels)
+    }
+} else {
+    # Original mode: factors provided directly
+    parser <- newJSONParser()
+    parser$addData(opt$factors)
+    factor_list <- parser$getObject()
+    filenames_to_labels <- fromJSON(opt$files_to_labels)
+}
+
 factors <- sapply(factor_list, function(x) x[[1]])
 primary_factor <- factors[1]
 filenames_in <- unname(unlist(factor_list[[1]][[2]]))
