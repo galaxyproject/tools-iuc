@@ -1,0 +1,174 @@
+<tool id="mfa_train" name="MFA Train" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>train a new acoustic model from a corpus</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        @PREPARE_ENV@
+
+        ## 1. Prepare Corpus
+        mkdir -p corpus_dir &&
+        #if $corpus_source.ext == 'zip':
+            unzip -q '$corpus_source' -d corpus_dir &&
+        #else:
+            tar -xf '$corpus_source' -C corpus_dir &&
+        #end if
+
+        ## 2. Prepare Dictionary
+        #if $dictionary_type.source == 'history':
+            ln -s '$dictionary_type.dictionary_file' input_dictionary.txt &&
+            #set $dict_arg = 'input_dictionary.txt'
+        #else:
+            #set $dict_arg = $dictionary_type.builtin_dictionary.fields.path
+        #end if
+
+        ## 3. Prepare Config (Optional)
+        #if $config_file:
+            ln -s '$config_file' config.yaml &&
+        #end if
+
+        ## 4. Prepare G2P for OOVs (Optional)
+        #if $g2p_section.use_g2p == 'yes':
+            #if $g2p_section.g2p_source.source == 'history':
+                ln -s '$g2p_section.g2p_source.g2p_file' input_g2p.zip &&
+                #set $g2p_arg = 'input_g2p.zip'
+            #else:
+                #set $g2p_arg = $g2p_section.g2p_source.builtin_g2p.fields.path
+            #end if
+        #end if
+
+        ## 5. Run Training
+        ## Syntax: mfa train [OPTIONS] CORPUS_DIRECTORY DICTIONARY_PATH OUTPUT_MODEL_PATH
+        mfa train
+            corpus_dir
+            $dict_arg
+            '$output_model'
+            --job_name 'mfa_train_job'
+            --clean
+            --num_jobs "\${GALAXY_SLOTS:-4}"
+            #if $config_file:
+                --config_path config.yaml
+            #end if
+            #if $g2p_section.use_g2p == 'yes':
+                --g2p_model_path $g2p_arg
+            #end if
+            #if $speaker_characters:
+                --speaker_characters '$speaker_characters'
+            #end if
+            $phone_set_type
+
+    ]]></command>
+
+    <inputs>
+        <param name="corpus_source" type="data" format="zip,tar,tar.gz" label="Corpus Archive" help="Archive containing audio and transcripts." />
+
+        <conditional name="dictionary_type">
+            <param name="source" type="select" label="Dictionary Source">
+                <option value="builtin" selected="true">Use a built-in MFA Dictionary</option>
+                <option value="history">Upload from History</option>
+            </param>
+            <when value="builtin">
+                <param name="builtin_dictionary" type="select" label="Select Dictionary">
+                    <options from_data_table="mfa_dictionary">
+                        <column name="value" index="0"/>
+                        <column name="dbkey" index="1"/>
+                        <column name="name" index="2"/>
+                        <column name="path" index="3"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="dictionary_file" type="data" format="txt" label="Dictionary File" />
+            </when>
+        </conditional>
+
+        <conditional name="g2p_section">
+            <param name="use_g2p" type="select" label="Use G2P for Out-of-Vocabulary words?" help="If provided, MFA will automatically generate pronunciations for words missing from the dictionary during training.">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes, specify G2P model</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <conditional name="g2p_source">
+                    <param name="source" type="select" label="G2P Model Source">
+                        <option value="builtin" selected="true">Use a built-in MFA Model</option>
+                        <option value="history">Upload from History</option>
+                    </param>
+                    <when value="builtin">
+                        <param name="builtin_g2p" type="select" label="Select G2P Model">
+                            <options from_data_table="mfa_g2p">
+                                <column name="value" index="0"/>
+                                <column name="dbkey" index="1"/>
+                                <column name="name" index="2"/>
+                                <column name="path" index="3"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="g2p_file" type="data" format="zip" label="G2P Model File" />
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+        <param name="config_file" type="data" format="yaml" optional="true" label="Configuration File (YAML)" help="Optional. Advanced users can upload a YAML file to customize training parameters (e.g., hidden states, gaussian counts)." />
+        
+        <param name="phone_set_type" type="select" label="Phone Set Type" help="Specifies the phone set used in the dictionary. 'AUTO' usually works best.">
+            <option value="" selected="true">Auto-detect</option>
+            <option value="--phone_set_type IPA">IPA</option>
+            <option value="--phone_set_type ARPA">ARPA</option>
+            <option value="--phone_set_type PINYIN">PINYIN</option>
+        </param>
+
+        <param name="speaker_characters" type="integer" value="0" min="0" label="Speaker Characters" help="Number of characters at the start of filenames to use as speaker ID (0 = use directory structure)." />
+        
+    </inputs>
+
+    <outputs>
+        <data name="output_model" format="zip" label="${tool.name} on ${on_string}: Trained Acoustic Model" />
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="corpus_source" value="test_corpus.zip" ftype="zip" />
+            
+            <conditional name="dictionary_type">
+                <param name="source" value="history" />
+                <param name="dictionary_file" value="test_dict.txt" />
+            </conditional>
+            
+            <conditional name="g2p_section">
+                <param name="use_g2p" value="no" />
+            </conditional>
+            
+            <output name="output_model" file="trained_model.zip" compare="sim_size" delta="10000" />
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**Montreal Forced Aligner: Train**
+
+This tool trains a new **Acoustic Model** from scratch using your specific dataset.
+
+**When to use this?**
+
+Use this if the pre-trained models (English, French, etc.) perform poorly on your data, or if you are working with a language that has no pre-trained model available.
+
+**Requirements**
+
+1.  **Corpus:** Sufficient amount of audio (at least 1-2 hours is recommended for basic results, 10+ hours for good results).
+2.  **Dictionary:** A pronunciation dictionary covering the words in your corpus.
+
+**Advanced: OOV Handling**
+
+If your corpus contains words not in the dictionary, you can provide a **G2P Model**. MFA will attempt to generate pronunciations for these missing words on the fly, preventing the training from failing.
+
+**Output**
+
+* A `.zip` file containing the new Acoustic Model. You can use this output in the **MFA Align** tool.
+
+    ]]></help>
+    <expand macro="creators" />
+    <expand macro="citations" />
+</tool>

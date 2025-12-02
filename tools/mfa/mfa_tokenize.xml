@@ -1,0 +1,150 @@
+<tool id="mfa_tokenize" name="MFA Tokenize" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>split text into words using a tokenizer model (e.g., for Japanese/Chinese)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        @PREPARE_ENV@
+
+        ## 1. Prepare Corpus
+        mkdir -p corpus_dir &&
+        #if $corpus_source.ext == 'zip':
+            unzip -q '$corpus_source' -d corpus_dir &&
+        #else:
+            tar -xf '$corpus_source' -C corpus_dir &&
+        #end if
+
+        ## 2. Prepare Tokenizer
+        #if $tokenizer_type.source == 'history':
+            ln -s '$tokenizer_type.tokenizer_file' input_tokenizer.zip &&
+            #set $tok_arg = 'input_tokenizer.zip'
+        #else:
+            #set $tok_arg = $tokenizer_type.builtin_tokenizer.fields.path
+        #end if
+
+        ## 3. Prepare Dictionary (Optional)
+        ## Providing a dictionary helps the tokenizer resolve ambiguities.
+        #if $dictionary_type.use_dictionary == 'yes':
+            #if $dictionary_type.dict_source.source == 'history':
+                ln -s '$dictionary_type.dict_source.dictionary_file' input_dictionary.txt &&
+                #set $dict_arg = 'input_dictionary.txt'
+            #else:
+                #set $dict_arg = $dictionary_type.dict_source.builtin_dictionary.fields.path
+            #end if
+        #end if
+
+        ## 4. Run Tokenize
+        ## Syntax: mfa tokenize [OPTIONS] CORPUS_DIRECTORY TOKENIZER_PATH OUTPUT_DIRECTORY
+        mfa tokenize
+            corpus_dir
+            $tok_arg
+            output_dir
+            --job_name 'mfa_tokenize_job'
+            --num_jobs "\${GALAXY_SLOTS:-4}"
+            #if $dictionary_type.use_dictionary == 'yes':
+                --dictionary_path $dict_arg
+            #end if
+
+        ## 5. Package Output
+        &&
+        cd output_dir &&
+        zip -r -q output.zip . &&
+        mv output.zip '$output_archive'
+    ]]></command>
+
+    <inputs>
+        <param name="corpus_source" type="data" format="zip,tar,tar.gz" label="Corpus Archive" help="Archive containing audio and transcripts (e.g., .lab files without spaces)." />
+
+        <conditional name="tokenizer_type">
+            <param name="source" type="select" label="Tokenizer Source">
+                <option value="builtin" selected="true">Use a built-in MFA Tokenizer</option>
+                <option value="history">Upload from History</option>
+            </param>
+            <when value="builtin">
+                <param name="builtin_tokenizer" type="select" label="Select Tokenizer">
+                    <options from_data_table="mfa_tokenizer">
+                        <column name="value" index="0"/>
+                        <column name="dbkey" index="1"/>
+                        <column name="name" index="2"/>
+                        <column name="path" index="3"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="tokenizer_file" type="data" format="zip" label="Tokenizer Model File" />
+            </when>
+        </conditional>
+
+        <conditional name="dictionary_type">
+            <param name="use_dictionary" type="select" label="Use a Dictionary?" help="Using a dictionary can improve accuracy by checking if tokenized words are valid.">
+                <option value="no" selected="true">No, use tokenizer only</option>
+                <option value="yes">Yes, use a dictionary</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <conditional name="dict_source">
+                    <param name="source" type="select" label="Dictionary Source">
+                        <option value="builtin" selected="true">Use a built-in MFA Dictionary</option>
+                        <option value="history">Upload from History</option>
+                    </param>
+                    <when value="builtin">
+                        <param name="builtin_dictionary" type="select" label="Select Dictionary">
+                            <options from_data_table="mfa_dictionary">
+                                <column name="value" index="0"/>
+                                <column name="dbkey" index="1"/>
+                                <column name="name" index="2"/>
+                                <column name="path" index="3"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="dictionary_file" type="data" format="txt" label="Dictionary File" />
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+    </inputs>
+
+    <outputs>
+        <data name="output_archive" format="zip" label="${tool.name} on ${on_string}: Tokenized Corpus" />
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="corpus_source" value="test_corpus_raw.zip" ftype="zip" />
+            <conditional name="tokenizer_type">
+                <param name="source" value="builtin" />
+                <param name="builtin_tokenizer" value="japanese_mfa" />
+            </conditional>
+            <conditional name="dictionary_type">
+                <param name="use_dictionary" value="no" />
+            </conditional>
+            <output name="output_archive" file="tokenized_output.zip" compare="sim_size" delta="5000" />
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**Montreal Forced Aligner: Tokenize**
+
+This tool inserts spaces between words in languages that don't natively use them (like Chinese, Japanese, or Thai).
+
+**Why use this?**
+
+MFA (and Kaldi) requires words to be whitespace-separated to look them up in a dictionary. If your transcript is `こんにちは世界` (Hello World), MFA sees it as one unknown word. This tool converts it to `こんにちは 世界`.
+
+**Inputs**
+
+1.  **Corpus:** Zip/Tar archive of Audio + Transcripts (without spaces).
+2.  **Tokenizer:** A pretrained model (e.g., `japanese_mfa`).
+3.  **Dictionary (Optional):** Used to verify the segmented words.
+
+**Output**
+
+* A new Zip archive containing the modified transcripts, ready for alignment.
+
+    ]]></help>
+    <expand macro="creators" />
+    <expand macro="citations" />
+</tool>

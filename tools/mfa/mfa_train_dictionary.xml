@@ -1,0 +1,160 @@
+<tool id="mfa_train_dictionary" name="MFA Train Dictionary" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>calculate pronunciation probabilities for a dictionary</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        @PREPARE_ENV@
+
+        ## 1. Prepare Corpus
+        mkdir -p corpus_dir &&
+        #if $corpus_source.ext == 'zip':
+            unzip -q '$corpus_source' -d corpus_dir &&
+        #else:
+            tar -xf '$corpus_source' -C corpus_dir &&
+        #end if
+
+        ## 2. Prepare Dictionary (Input)
+        #if $dictionary_type.source == 'history':
+            ln -s '$dictionary_type.dictionary_file' input_dictionary.txt &&
+            #set $dict_arg = 'input_dictionary.txt'
+        #else:
+            #set $dict_arg = $dictionary_type.builtin_dictionary.fields.path
+        #end if
+
+        ## 3. Prepare Acoustic Model
+        ## This command requires an acoustic model to perform the alignment calculations.
+        #if $acoustic_type.source == 'history':
+            ln -s '$acoustic_type.acoustic_file' input_acoustic.zip &&
+            #set $ac_arg = 'input_acoustic.zip'
+        #else:
+            #set $ac_arg = $acoustic_type.builtin_acoustic.fields.path
+        #end if
+
+        ## 4. Run Train Dictionary
+        ## Syntax: mfa train_dictionary [OPTIONS] CORPUS_DIRECTORY DICTIONARY_PATH ACOUSTIC_MODEL_PATH OUTPUT_DIRECTORY
+        mfa train_dictionary
+            corpus_dir
+            $dict_arg
+            $ac_arg
+            output_dir
+            --job_name 'mfa_train_dict_job'
+            --clean
+            --num_jobs "\${GALAXY_SLOTS:-4}"
+            #if $silence_probabilities:
+                --silence_probabilities
+            #end if
+
+        ## 5. Move Result
+        ## The new dictionary (with probabilities) is saved in the output_dir. 
+        ## The filename usually matches the input dictionary name or is standardized.
+        ## We look for any file ending in .dict or .txt in the output.
+        &&
+        find output_dir -name "*.dict" -o -name "*.txt" | head -n 1 | xargs -I {} mv {} '$output_dictionary'
+
+    ]]></command>
+
+    <inputs>
+        <param name="corpus_source" type="data" format="zip,tar,tar.gz" label="Corpus Archive" help="Audio and transcripts used to calculate the probabilities." />
+
+        <conditional name="dictionary_type">
+            <param name="source" type="select" label="Input Dictionary" help="The standard dictionary you want to enhance with probabilities.">
+                <option value="builtin" selected="true">Use a built-in MFA Dictionary</option>
+                <option value="history">Upload from History</option>
+            </param>
+            <when value="builtin">
+                <param name="builtin_dictionary" type="select" label="Select Dictionary">
+                    <options from_data_table="mfa_dictionary">
+                        <column name="value" index="0"/>
+                        <column name="dbkey" index="1"/>
+                        <column name="name" index="2"/>
+                        <column name="path" index="3"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="dictionary_file" type="data" format="txt" label="Dictionary File" />
+            </when>
+        </conditional>
+
+        <conditional name="acoustic_type">
+            <param name="source" type="select" label="Acoustic Model Source" help="The model used to align the audio to find which pronunciation was spoken.">
+                <option value="builtin" selected="true">Use a built-in MFA Model</option>
+                <option value="history">Upload from History</option>
+            </param>
+            <when value="builtin">
+                <param name="builtin_acoustic" type="select" label="Select Acoustic Model to Adapt">
+                    <options from_data_table="mfa_acoustic">
+                        <column name="value" index="0"/>
+                        <column name="dbkey" index="1"/>
+                        <column name="name" index="2"/>
+                        <column name="path" index="3"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="acoustic_file" type="data" format="zip" label="Acoustic Model File" />
+            </when>
+        </conditional>
+
+        <param name="silence_probabilities" type="boolean" truevalue="--silence_probabilities" falsevalue="" checked="true" label="Calculate Silence Probabilities" help="If checked, MFA will also calculate how likely silence is to occur around specific words." />
+
+    </inputs>
+
+    <outputs>
+        <data name="output_dictionary" format="txt" label="${tool.name} on ${on_string}: Probabilistic Dictionary" />
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="corpus_source" value="test_corpus.zip" ftype="zip" />
+            <conditional name="dictionary_type">
+                <param name="source" value="builtin" />
+                <param name="builtin_dictionary" value="english_us_arpa" />
+            </conditional>
+            <conditional name="acoustic_type">
+                <param name="source" value="builtin" />
+                <param name="builtin_acoustic" value="english_us_arpa" />
+            </conditional>
+            <output name="output_dictionary">
+                <assert_contents>
+                    <has_text_matching expression="\s0\.\d+" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**Montreal Forced Aligner: Train Dictionary**
+
+This tool upgrades a standard pronunciation dictionary into a **Probabilistic Dictionary**.
+
+**How it works**
+
+It runs an alignment on your corpus using the provided acoustic model. It then counts how often each pronunciation variant is used. 
+For example, if the word "data" appears 100 times:
+
+* 80 times it was pronounced /d ey t ax/
+* 20 times it was pronounced /d ae t ax/
+
+The output dictionary will record these probabilities (0.8 and 0.2).
+
+**Benefit**
+
+Using a probabilistic dictionary in **MFA Align** usually results in higher accuracy because the aligner knows which pronunciations are more likely.
+
+**Inputs**
+
+1. **Corpus:** Audio and Transcripts.
+2. **Dictionary:** The starting dictionary.
+3. **Acoustic Model:** Needed to perform the alignment check.
+
+**Output**
+
+* A new `.dict` or `.txt` file containing the dictionary with probability columns added.
+
+    ]]></help>
+    <expand macro="creators" />
+    <expand macro="citations" />
+</tool>
