@@ -1,136 +1,219 @@
-<?xml version='1.0' encoding='utf-8'?>
 <tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Create consensus sequence by applying VCF variants to a reference fasta file</description>
     <macros>
         <token name="@EXECUTABLE@">consensus</token>
         <import>macros.xml</import>
     </macros>
-    <expand macro="bio_tools" />
+    <expand macro="bio_tools"/>
     <expand macro="requirements">
         <expand macro="samtools_requirement"/>
-        <requirement type="package" version="5.0.1">gawk</requirement>
+        <requirement type="package" version="5.3.0">gawk</requirement>
     </expand>
-    <expand macro="version_command" />
+    <expand macro="version_command"/>
     <command detect_errors="aggressive"><![CDATA[
-@PREPARE_ENV@
 @PREPARE_INPUT_FILE@
 #set $section = $reference_source
 @PREPARE_FASTA_REF@
 
+#set $section = $sec_restrict
+#if $section.regions.regions_src != '__none__':
+  samtools faidx
+  #if $section.regions.regions_src == 'regions':
+    #set $intervals = $section.regions.region_specs
+    @PARSE_INTERVALS@
+    #set $ref_regions_spec = " ".join("'" + c + "'" for c in $components)
+    '$input_fa_ref' $ref_regions_spec |
+  #else if $section.regions.regions_src == 'regions_file':
+    -r '$section.regions.regions_file' '$input_fa_ref' |
+  #end if
+  #set $input_fa_ref = "-"
+#end if
+
 bcftools @EXECUTABLE@
 
+#if $section.regions.regions_src != '__none__':
+  --regions-overlap $section.regions_overlap
+#end if
+
+#set $section = $reference_source
 @FASTA_REF@
 
-## Default section
-#set $section = $sec_default
-
-${section.iupac_codes}
-
-#if $section.mask:
-  --mask '${section.mask}'
+$mode.select
+#if not str($mode.select):
+  $mode.specify_samples.how
+  #if str($mode.specify_samples.how) in ["-s", "-S"]:
+    '${mode.specify_samples.invert_samples}${mode.specify_samples.samples_spec}'
+  #end if
+#else if str($mode.select) == "-H":
+  #if str(mode.haplotype.rule) in ["", "pIu"]:
+    #set haplotype_option = str(mode.haplotype.allele_n) + str(mode.haplotype.rule)
+  #else:
+    #set haplotype_option = str(mode.haplotype.rule)
+  #end if
+  $haplotype_option
+  #if $mode.sample:
+    --sample '$mode.sample'
+  #end if
 #end if
 
-#if $section.mark_del
-    --mark-del '$section.mark_del'
+#set $masks = []
+#for $m in $masking_options.mask:
+  #if $m:
+    #silent $masks.append($m)
+  #end if
+#end for
+
+#if $masks:
+  #if $masking_options.mask_with:
+    #set $masking_instructions = []
+    #for $i in str($masking_options.mask_with).split(",", maxsplit=len($masks)-1):
+      #silent $masking_instructions.append("--mask-with '" + $i + "'")
+    #end for
+  #else:
+    #set $masking_instructions = [""]
+  #end if
+  #if len($masking_instructions) == 1:
+    ## use same masking instruction for all masks
+    #set $masking_instructions = [""] * (len($masks) - 1) + $masking_instructions
+  #else if len($masking_instructions) < len($masks):
+    ## fill in empty masking instructions for missing ones, which will make bcftools complain about them
+    #silent $masking_instructions.extend(["--mask-with ''"] * (len($masks) - len($masking_instructions)))
+  #end if
+
+  #for $m, $i in zip($masks, $masking_instructions):
+    --mask '$m' $i
+  #end for
 #end if
 
-#if $section.mark_ins
-    --mark-ins $section.mark_ins
+#if $masking_options.absent:
+--absent '$masking_options.absent'
 #end if
 
-#if $section.mark_snv
-    --mark-snv $section.mark_snv
+#if $masking_options.mark_del:
+  --mark-del '$masking_options.mark_del'
 #end if
 
-#if $section.select_haplotype:
-  --haplotype '${section.select_haplotype}'
+$masking_options.insertions.mark_ins
+#if str($masking_options.insertions.mark_ins) == "--mark-ins":
+  '$masking_options.insertions.ins_custom'
 #end if
-@SAMPLE@
+
+$masking_options.snvs.mark_snv
+#if str($masking_options.snvs.mark_snv) == "--mark-snv":
+  '$masking_options.snvs.snv_custom'
+#end if
 
 #set $section = $sec_restrict
 @INCLUDE@
 @EXCLUDE@
 
 #if $chain:
-    --chain '$chain_file'
-#end if
-
-#if $absent
-    --absent '$absent'
+  --chain '$chain_file'
 #end if
 
 ## Primary Input/Outputs
 #if str($rename) == "no"
-    --output '$output_file'
+  --output '$output_file'
 #end if
 @INPUT_FILE@
 #if str($rename) == "yes":
-    #set basename=$input_file.element_identifier
-    | awk 'BEGIN {i=1} {if (match($0, /^>/)) {if (i==1) {name="${basename}"} else {name=sprintf("%s-%d","${basename}",i);} print(gensub(/>[^ ]+( ?.*)/, ">" name "\\1", 1)); i=i+1;} else {print}}' > '$output_file'
+  #set basename=$input_file.element_identifier
+  | awk 'BEGIN {i=1} {if (match($0, /^>/)) {if (i==1) {name="${basename}"} else {name=sprintf("%s-%d","${basename}",i);} print(gensub(/>[^ ]+( ?.*)/, ">" name "\\1", 1)); i=i+1;} else {print}}' > '$output_file'
 #end if
 ]]>
     </command>
     <inputs>
-        <expand macro="macro_input" />
-        <expand macro="macro_fasta_ref" />
-        <section name="sec_default" expanded="true" title="Default Options">
-            <param name="mask" type="data" format="tabular" label="Mask" optional="True" help="Replace regions with N" />
-            <param name="iupac_codes" type="boolean" truevalue="--iupac-codes" falsevalue="" label="Iupac Codes" 
-                   help="Output variants in the form of IUPAC ambiguity codes" />
-            <expand macro="macro_sample" />
-            <param name="select_haplotype" type="select" optional="true">
-                <option value="1">1</option>
-                <option value="2">2</option>
+        <expand macro="macro_input"/>
+        <expand macro="macro_fasta_ref"/>
+        <conditional name="mode">
+            <param name="select" type="select" label="Consensus building mode; at each variant site ...">
+                <option value="-s -">ignore any sample genotypes; incorporate first allele from ALT column (-s -)</option>
+                <option value="-I -s -">ignore any sample genotypes; incorporate IUPAC code representing all alleles from REF/ALT coulmns (-I -s -)</option>
+                <option value="" selected="true">incorporate IUPAC code representing the genotypes of all selected samples (default)</option>
+                <option value="-H">incorporate specific haplotype allele of one selected sample</option>
             </param>
-            <param argument="--mark-del" type="text" value="" optional="true" label="Mark deletions" help="Instead of removing sequence, insert CHAR for deletions">
-                <sanitizer invalid_char="">
-                    <valid initial="string.letters,string.digits">
-                        <add value="_" />
-                    </valid>
-                </sanitizer>
-                <validator type="regex">[0-9a-zA-Z_]+</validator>
+            <when value="-s -" />
+            <when value="-I -s -" />
+            <when value="">
+                <expand macro="macro_samples_enhanced" />
+            </when>
+            <when value="-H">
+                <expand macro="macro_sample" help="The name of the single sample alleles of which should get used for the consensus sequence. This field is optional only if your input VCF dataset specifies exactly one sample."/>
+                <conditional name="haplotype">
+                    <param name="rule" type="select" label="From the selected sample's genotype use ...'">
+                        <option value="">the Nth allele (for both phased and unphased genotypes) (-H N)</option>
+                        <option value="pIu">the Nth allele if the genotype is phased, the IUPAC code representing the genotype if it's unphased (-H NpIu)</option>
+                        <option value="R">the ALT allele where the sample is homozygous, the REF allele otherwise (-H R)</option>
+                        <option value="A">the ALT allele where the sample is homozygous or heterozygous (-H A)</option>
+                        <option value="LR">the ALT allele where the sample is homozygous, the REF allele where it's heterozygous unless the ALT allele is longer (-H LR)</option>
+                        <option value="LA">the ALT allele where the sample is homozygous, the ALT allele where it's heterozygous unless the REF allele is longer (-H LA)</option>
+                        <option value="SR">the ALT allele where the sample is homozygous, the REF allele where it's heterozygous unless the ALT allele is shorter (-H SR</option>
+                        <option value="SA">the ALT allele where the sample is homozygous, the ALT allele where it's heterozygous unless the REF allele is shorter (-H SA)</option>
+                    </param>
+                    <when value="">
+                        <param name="allele_n" type="integer" min="1" value="1" label="where N is" />
+                    </when>
+                    <when value="pIu">
+                        <param name="allele_n" type="integer" min="1" value="1" label="where N is" />
+                    </when>
+                    <when value="R" />
+                    <when value="A" />
+                    <when value="LR" />
+                    <when value="LA" />
+                    <when value="SR" />
+                    <when value="SA" />
+                </conditional>
+            </when>
+        </conditional>
+        <section name="masking_options" expanded="false" title="Masking and marking options" help="The various options in this section are applied in the order they appear, i.e. 1) masking, 2) marking of absent sites, 3) SNV/indel marking.">
+            <param argument="--mask" type="data" format="tabular" multiple="true" optional="true" label="Mask" help="Replace regions according to the next --mask-with option"/>
+            <param argument="--mask-with" type="text" value="" optional="true" label="Mask with" help="Replace with CHAR (skips overlapping variants; default: N); use &quot;uc&quot; or &quot;lc&quot; to change to uppercase or lowercase, respectively. If you have provided more than one Mask dataset and you would like to apply a unique mask for the regions in each of them, then you can specify a comma-separated list of masking instructions (as many as mask datasets)." />
+            <param argument="--absent" type="text" value="" optional="true" label="Mark absent" help="Replace reference bases at positions absent from the VCF input with a custom character.">
+                <validator type="regex">^.$</validator>
             </param>
-            <param argument="--mark-ins" type="select" optional="true" label="Mark insertions" help="Highlight insertions in uppercase (uc) or lowercase (lc), leaving the rest as is">
-                <option value="uc">Uppercase</option>
-                <option value="lc">Lowercase</option>
+            <param argument="--mark-del" type="text" value="" optional="true" label="Mark deletions" help="Instead of removing the reference base at deleted positions, replace the base with a custom character.">
+                <validator type="regex">^.$</validator>
             </param>
-            <param argument="--mark-snv" type="select" optional="true" label="Mark substitutions" help="Highlight substitutions in uppercase (uc) or lowercase (lc), leaving the rest as is">
-                <option value="uc">Uppercase</option>
-                <option value="lc">Lowercase</option>
-            </param>
-            <conditional name="conditional_mask">
-                <param name="selector" type="select" label="Mask file option">
-                    <option value="disabled">Disabled</option>
-                    <option value="enabled">Enabled</option>
+            <conditional name="insertions">
+                <param argument="--mark-ins" type="select" label="Mark insertions" help="Highlight insertions in uppercase or lowercase, or by using a fixed character instead of inserted bases, leaving the rest as is">
+                    <option value="">Do not mark insertions</option>
+                    <option value="--mark-ins uc">Uppercase (uc)</option>
+                    <option value="--mark-ins lc">Lowercase (lc)</option>
+                    <option value="--mark-ins">Custom character</option>
                 </param>
-                <when value="disabled"/>
-                <when value="enabled">
-                    <param argument="--mask" type="data" format="tabular" label="Mask" help="Replace regions according to the next --mask-with option" />
-                    <param argument="--mask-with" type="text" value="N" optional="true" label="Mask with" help="Replace with CHAR (skips overlapping variants); change to uppercase (uc) or lowercase (lc)">
-                        <sanitizer invalid_char="">
-                            <valid initial="string.letters,string.digits">
-                                <add value="_" />
-                            </valid>
-                        </sanitizer>
-                        <validator type="regex">[0-9a-zA-Z_]+</validator>
+                <when value="" />
+                <when value="--mark-ins uc" />
+                <when value="--mark-ins lc" />
+                <when value="--mark-ins">
+                    <param name="ins_cutom" type="text" optional="false" label="Character to use instead of an inserted base">
+                        <validator type="empty_field"/>
+                    </param>
+                </when>
+            </conditional>
+            <conditional name="snvs">
+                <param argument="--mark-snv" type="select" label="Mark substitutions" help="Highlight substitutions in uppercase or lowercase, or by using a fixed character instead of substituted bases, leaving the rest as is">
+                    <option value="">Do not mark substitutions</option>
+                    <option value="--mark-snv uc">Uppercase (uc)</option>
+                    <option value="--mark-snv lc">Lowercase (lc)</option>
+                    <option value="--mark-snv">Custom character</option>
+                </param>
+                <when value="" />
+                <when value="--mark-snv uc" />
+                <when value="--mark-snv lc" />
+                <when value="--mark-snv">
+                    <param name="snv_custom" type="text" optional="false" label="Character to use instead of a subtituted base">
+                        <validator type="empty_field"/>
                     </param>
                 </when>
             </conditional>
         </section>
-        <param name="chain" type="boolean" truevalue="yes" falsevalue="no" label="Write a chain file for liftover" />
-        <param name="rename" type="boolean" truevalue="yes" falsevalue="no" label="Set output FASTA ID from name of VCF" />
-        <param argument="--absent" type="text" value="" label="Absent" optional="true" help="It allows to set positions with no supporting evidence to N (or any other character)">
-            <sanitizer invalid_char="">
-                <valid initial="string.letters,string.digits,string.punctuation">
-                    <remove value="@" />
-                    <remove value="'" />
-                </valid>
-            </sanitizer>
-        </param>
-        <section name="sec_restrict" expanded="false" title="Restrict to">    
-            <expand macro="macro_include" />
-            <expand macro="macro_exclude" />
+        <section name="sec_restrict" expanded="false" title="Restrict to">
+            <expand macro="macro_include"/>
+            <expand macro="macro_exclude"/>
+            <expand macro="macro_region_restrict" label_select="Restrict consensus building to only specified regions of reference?"/>
         </section>
+        <param name="chain" type="boolean" truevalue="yes" falsevalue="no" label="Write a chain file for liftover"/>
+        <param name="rename" type="boolean" truevalue="yes" falsevalue="no" label="Set output FASTA ID from name of VCF"/>
     </inputs>
     <outputs>
         <data name="output_file" format="fasta" label="${tool.name} on ${on_string}: consensus fasta"/>
@@ -140,103 +223,172 @@ ${section.iupac_codes}
     </outputs>
     <tests>
         <test expect_num_outputs="2">
-            <expand macro="test_using_reference" ref="consensus.fa" />
-            <param name="input_file" ftype="vcf" value="consensus.vcf" />
-            <param name="mask" ftype="tabular" value="consensus.tab" />
-            <param name="chain" value="True" />
+            <expand macro="test_using_reference" ref="consensus.fa"/>
+            <param name="input_file" ftype="vcf" value="consensus.vcf"/>
+            <section name="masking_options">
+                <param name="mask" ftype="tabular" value="consensus.tab"/>
+            </section>
+            <param name="chain" value="true"/>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text="NNNNNNNNNNNNNNNNNNNNNNNNNN" />
+                    <has_text text="NNNNNNNNNNNNNNNNNNNNNNNNNN"/>
                 </assert_contents>
             </output>
             <output name="chain_file">
                 <assert_contents>
-                    <has_text text="chain 497 1 501 + 1 501 1 502 + 1 502 1" />
+                    <has_text text="chain 497 1 501 + 1 501 1 502 + 1 502 1"/>
                 </assert_contents>
             </output>
         </test>
         <test expect_num_outputs="2">
-            <expand macro="test_using_reference" select_from="cached" ref="consensus" />
-            <param name="input_file" ftype="vcf" dbkey="?" value="consensus.vcf" />
-            <param name="mask" ftype="tabular" value="consensus.tab" />
-            <param name="chain" value="True" />
+            <expand macro="test_using_reference" select_from="cached" ref="consensus"/>
+            <param name="input_file" ftype="vcf" dbkey="?" value="consensus.vcf"/>
+            <section name="masking_options">
+                <param name="mask" ftype="tabular" value="consensus.tab"/>
+            </section>
+            <param name="chain" value="true"/>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text="NNNNNNNNNNNNNNNNNNNNNNNNNN" />
+                    <has_text text="NNNNNNNNNNNNNNNNNNNNNNNNNN"/>
                 </assert_contents>
             </output>
             <output name="chain_file">
                 <assert_contents>
-                    <has_text text="chain 497 1 501 + 1 501 1 502 + 1 502 1" />
+                    <has_text text="chain 497 1 501 + 1 501 1 502 + 1 502 1"/>
                 </assert_contents>
             </output>
         </test>
         <test expect_num_outputs="1">
-            <expand macro="test_using_reference" ref="consensus.fa" />
-            <param name="input_file" ftype="vcf" value="consensus.vcf" />
-            <param name="mask" ftype="tabular" value="consensus.tab" />
-            <param name="chain" value="False" />
-            <param name="rename" value="True" />
+            <expand macro="test_using_reference" ref="consensus.fa"/>
+            <param name="input_file" ftype="vcf" value="consensus.vcf"/>
+            <section name="masking_options">
+                <param name="mask" ftype="tabular" value="consensus.tab"/>
+            </section>
+            <param name="chain" value="false"/>
+            <param name="rename" value="true"/>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text=">consensus.vcf" />
+                    <has_text text="&gt;consensus.vcf"/>
                 </assert_contents>
                 <assert_contents>
-                    <has_text text=">consensus.vcf-2" />
+                    <has_text text="&gt;consensus.vcf-2"/>
                 </assert_contents>
             </output>
         </test>
         <test expect_num_outputs="1">
-            <expand macro="test_using_reference" ref="consensus.fa" />
-            <param name="input_file" ftype="vcf" value="consensus.vcf" />
+            <expand macro="test_using_reference" ref="consensus.fa"/>
+            <param name="input_file" ftype="vcf" value="consensus.vcf"/>
+            <conditional name="mode">
+                <param name="select" value="-s -"/>
+            </conditional>
             <section name="sec_restrict">
-                <param name="include" value='TYPE="snp"' />
+                <param name="include" value="TYPE=&quot;snp&quot;"/>
             </section>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text="TACAAAATATGACATATCAAAAAGAACATAACCTACGTATCAACTAAAGTGGTTGTTTGA" />
+                    <has_text text="TACAAAATATGACATATCAAAAAGAACATAACCTACGTATCAACTAAAGTGGTTGTTTGA"/>
                 </assert_contents>
             </output>
         </test>
         <!--Test absent option-->
         <test expect_num_outputs="1">
-            <expand macro="test_using_reference" ref="consensus.fa" />
-            <param name="input_file" ftype="vcf" value="consensus.vcf" />
-            <section name="sec_restrict">
-                <param name="include" value='TYPE="snp"' />
+            <expand macro="test_using_reference" ref="consensus.fa"/>
+            <param name="input_file" ftype="vcf" value="consensus.vcf"/>
+            <conditional name="mode">
+                <param name="select" value="-s -"/>
+            </conditional>
+            <section name="masking_options">
+                <param name="absent" value="W"/>
             </section>
-            <param name="absent" value="W"/>
+            <section name="sec_restrict">
+                <param name="include" value="TYPE=&quot;snp&quot;"/>
+            </section>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text="WWWAWAWWAWWWWWWWWCWWWWWWWW" />
+                    <has_text text="WWWAWAWWAWWWWWWWWCWWWWWWWW"/>
                 </assert_contents>
             </output>
             <assert_command>
-                <has_text text="--absent" />
+                <has_text text="--absent"/>
             </assert_command>
         </test>
-        <!--Test mask options -->
         <test expect_num_outputs="1">
-            <expand macro="test_using_reference" ref="consensus.fa" />
-            <param name="input_file" ftype="vcf" value="consensus.vcf" />
-            <section name="sec_restrict">
-                <param name="include" value='TYPE="snp"' />
+            <expand macro="test_using_reference" ref="consensus.fa"/>
+            <param name="input_file" ftype="vcf" value="consensus.vcf"/>
+            <conditional name="mode">
+                <param name="select" value="-s -"/>
+            </conditional>
+            <section name="masking_options">
+                <param name="mark_del" value="-"/>
+                <conditional name="insertions">
+                    <param name="mark_ins" value="--mark-ins uc"/>
+                </conditional>
+                <conditional name="snvs">
+                    <param name="mark_snv" value="--mark-snv uc"/>
+                </conditional>
             </section>
-            <section name="sec_default">
-                <param name="mark_del" value="DEL"/>
-                <param name="mark_ins" value="uc"/>
-                <param name="mark_snv" value="uc"/>
+            <section name="sec_restrict">
+                <param name="include" value="TYPE=&quot;snp&quot;"/>
             </section>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text="TACAAAATATGACATATCAAAAAGAACATAACCTACGTATCAACTAAAGTGGTTGTTTGA" />
+                    <has_text text="TACAAAATATGACATATCAAAAAGAACATAACCTACGTATCAACTAAAGTGGTTGTTTGA"/>
                 </assert_contents>
             </output>
             <assert_command>
-                <has_text text="--mark-del" />
-                <has_text text="--mark-ins" />
-                <has_text text="--mark-snv" />
+                <has_text text="--mark-del"/>
+                <has_text text="--mark-ins"/>
+                <has_text text="--mark-snv"/>
             </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <expand macro="test_using_reference" ref="csq.fa"/>
+            <param name="input_file" ftype="vcf" value="csq.vcf"/>
+            <section name="masking_options">
+                <param name="absent" value="."/>
+                <param name="mark_del" value="-"/>
+            </section>
+            <section name="sec_restrict">
+                <conditional name="regions">
+                    <param name="regions_src" value="regions"/>
+                    <repeat name="region_specs">
+                        <param name="chrom" value="1"/>
+                        <param name="start" value="161"/>
+                        <param name="stop" value="190"/>
+                    </repeat>
+                </conditional>
+            </section>
+            <output name="output_file">
+                <assert_contents>
+                    <has_line line="&gt;1:161-190"/>
+                    <has_line line="-............................Y"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <expand macro="test_using_reference" ref="csq.fa"/>
+            <param name="input_file" ftype="vcf" value="csq.vcf"/>
+            <section name="masking_options">
+                <param name="absent" value="."/>
+                <param name="mark_del" value="-"/>
+            </section>
+            <section name="sec_restrict">
+                <conditional name="regions">
+                    <param name="regions_src" value="regions"/>
+                    <repeat name="region_specs">
+                        <param name="chrom" value="1"/>
+                        <param name="start" value="161"/>
+                        <param name="stop" value="190"/>
+                    </repeat>
+                    <param name="regions_overlap" value="0"/>
+                </conditional>
+            </section>
+            <output name="output_file">
+                <assert_contents>
+                    <has_line line="&gt;1:161-190"/>
+                    <has_line line=".............................Y"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -249,7 +401,7 @@ Create consensus sequence by applying VCF variants to a reference fasta file.
 
 @BCFTOOLS_MANPAGE@#@EXECUTABLE@
 
-@BCFTOOLS_WIKI@
+@BCFTOOLS_HOWTOS@
 
 The option to set the new consensus' FASTA ID from the name of the VCF is provided by post-processing
 the bcftools consensus output. It is primarily intended for use when the VCF is coming from a list
@@ -258,5 +410,5 @@ is useful when consensus sequences are being prepared for, for example, feeding 
 alignment to a phylogeny program.
 ]]>
     </help>
-    <expand macro="citations" />
+    <expand macro="citations"/>
 </tool>
