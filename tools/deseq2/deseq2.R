@@ -75,7 +75,10 @@ spec <- matrix(c(
     "factor_columns", "j", 1, "character",
     "reference_level", "R", 1, "character",
     "target_level", "T", 1, "character",
-    "collection_files", "C", 1, "character"
+    "collection_files", "C", 1, "character",
+    "custom_design_formula", "D", 0, "logical",
+    "design_formula", "G", 1, "character",
+    "contrast_definition", "K", 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -134,15 +137,33 @@ if (!is.null(opt$sample_sheet_mode)) {
     # Read sample sheet
     sample_sheet <- read.table(opt$sample_sheet, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 
-    # Parse factor columns (comma-separated column numbers, 1-indexed)
-    factor_col_nums <- as.integer(strsplit(opt$factor_columns, ",")[[1]])
-    factor_col_names <- colnames(sample_sheet)[factor_col_nums]
-
     # Parse collection files
     collection_files <- strsplit(opt$collection_files, ",")[[1]]
 
     # First column of sample sheet should contain sample identifiers
     sample_id_col <- colnames(sample_sheet)[1]
+
+    if (!is.null(opt$custom_design_formula)) {
+        # Custom design formula mode
+        # Extract variable names from formula (remove ~, +, *, :, whitespace)
+        formula_str <- gsub("^~\\s*", "", opt$design_formula)
+        formula_vars <- unique(trimws(unlist(strsplit(formula_str, "[+*:]"))))
+
+        # Validate all variables exist in sample sheet
+        missing_vars <- setdiff(formula_vars, colnames(sample_sheet))
+        if (length(missing_vars) > 0) {
+            cat(paste0("Error: Variables not found in sample sheet: ", paste(missing_vars, collapse = ", "), "\n"))
+            cat(paste0("Available columns: ", paste(colnames(sample_sheet), collapse = ", "), "\n"))
+            q(status = 1)
+        }
+
+        # Use all formula variables as factor columns
+        factor_col_names <- formula_vars
+    } else {
+        # Automatic mode: Parse factor columns (comma-separated column numbers, 1-indexed)
+        factor_col_nums <- as.integer(strsplit(opt$factor_columns, ",")[[1]])
+        factor_col_names <- colnames(sample_sheet)[factor_col_nums]
+    }
 
     # Build factor_list structure
     factor_list <- list()
@@ -151,7 +172,7 @@ if (!is.null(opt$sample_sheet_mode)) {
 
         # Group files by factor level, preserving the order of first appearance
         level_to_files <- list()
-        level_order <- character(0)  # Track order of first appearance
+        level_order <- character(0) # Track order of first appearance
         for (file in collection_files) {
             element_id <- filenames_to_labels[[basename(file)]]
             # Find matching row in sample sheet
@@ -160,7 +181,7 @@ if (!is.null(opt$sample_sheet_mode)) {
                 level <- sample_sheet[[factor_name]][matching_row[1]]
                 if (!(level %in% names(level_to_files))) {
                     level_to_files[[level]] <- character(0)
-                    level_order <- c(level_order, level)  # Record order of first appearance
+                    level_order <- c(level_order, level) # Record order of first appearance
                 }
                 level_to_files[[level]] <- c(level_to_files[[level]], file)
             }
@@ -170,8 +191,9 @@ if (!is.null(opt$sample_sheet_mode)) {
         all_levels <- level_order
 
         # Handle reference and target levels for primary factor (first factor)
-        # By default, the first level encountered becomes the reference
         if (i == 1) {
+            # Primary factor: handle reference/target
+            # Determine reference level
             if (!is.null(opt$reference_level) && nchar(opt$reference_level) > 0) {
                 ref_level <- trim(opt$reference_level)
                 # Validate that reference level exists
@@ -184,6 +206,8 @@ if (!is.null(opt$sample_sheet_mode)) {
                 ref_level <- all_levels[1]
             }
 
+            # Build factor levels with reference first, then others
+            # This applies to both automatic and custom modes
             if (!is.null(opt$target_level) && nchar(opt$target_level) > 0) {
                 target_level <- trim(opt$target_level)
                 # Validate that target level exists
@@ -191,21 +215,27 @@ if (!is.null(opt$sample_sheet_mode)) {
                     cat(paste0("Error: Target level '", target_level, "' not found in factor '", factor_name, "'. Available levels: ", paste(all_levels, collapse = ", "), "\n"))
                     q(status = 1)
                 }
-                # For single comparison: reference first, then target
+                # Explicit target: reference first, target second
                 levels_to_use <- c(ref_level, target_level)
             } else {
-                # Use all levels with reference first, then others in order of appearance
+                # Reference first, then others in order of appearance
                 other_levels <- all_levels[all_levels != ref_level]
                 levels_to_use <- c(ref_level, other_levels)
+                # Target is the first non-reference level
+                target_level <- other_levels[1]
             }
+
+            # Store reference and target levels for later contrast specification
+            # This ensures we use the intended levels, not whatever order files happened to be in
+            primary_ref_level <- ref_level
+            primary_target_level <- target_level
         } else {
             # For secondary factors, use all levels in order of appearance
             levels_to_use <- all_levels
         }
 
         # Build factor structure in the order specified by levels_to_use
-        # The levels are already in the correct order (reference first, then others)
-        # which matches what DESeq2 expects
+        # Following standard DESeq2 convention: reference level is first
         factor_levels <- list()
         for (level in levels_to_use) {
             if (level %in% names(level_to_files)) {
@@ -217,12 +247,40 @@ if (!is.null(opt$sample_sheet_mode)) {
 
         factor_list[[length(factor_list) + 1]] <- list(factor_name, factor_levels)
     }
+
+    # Parse contrast_definition if in custom mode
+    if (!is.null(opt$custom_design_formula) && !is.null(opt$contrast_definition) && nchar(opt$contrast_definition) > 0) {
+        contrast_parts <- strsplit(opt$contrast_definition, ",")[[1]]
+        if (length(contrast_parts) != 3) {
+            cat("Error: contrast_definition must be in format 'factor,target,reference'\n")
+            q(status = 1)
+        }
+        custom_contrast <- list(
+            factor = trim(contrast_parts[1]),
+            target = trim(contrast_parts[2]),
+            reference = trim(contrast_parts[3])
+        )
+        # Validate the contrast
+        if (!(custom_contrast$factor %in% factor_col_names)) {
+            cat(paste0("Error: Contrast factor '", custom_contrast$factor, "' not found in design formula.\n"))
+            cat(paste0("Available factors: ", paste(factor_col_names, collapse = ", "), "\n"))
+            q(status = 1)
+        }
+    }
 } else {
     # Original mode: factors provided directly
     parser <- newJSONParser()
     parser$addData(opt$factors)
     factor_list <- parser$getObject()
     filenames_to_labels <- fromJSON(opt$files_to_labels)
+
+    # For original mode, extract reference and target levels from the first factor
+    # In original mode: ref=level1 (denominator), target=level2 (numerator) -> log2(level2/level1)
+    # So we swap the naming to match the contrast direction used below
+    primary_factor_data <- factor_list[[1]]
+    primary_levels <- sapply(primary_factor_data[[2]], function(x) names(x))
+    primary_target_level <- primary_levels[1] # First level becomes "target" for the swap below
+    primary_ref_level <- if (length(primary_levels) >= 2) primary_levels[2] else primary_levels[1] # Second level becomes "ref"
 }
 
 factors <- sapply(factor_list, function(x) x[[1]])
@@ -244,10 +302,25 @@ for (factor in factor_list) {
         sample_table[files, factor_name] <- trim(lvls[i])
     }
     sample_table[[factor_name]] <- factor(sample_table[[factor_name]], levels = lvls)
+    # Explicitly set the reference level using relevel() for the primary factor in sample_sheet_mode
+    # This ensures DESeq2 knows the reference regardless of factor level order
+    # In original mode, we don't relevel because the order from factor_list is already correct
+    if (factor_name == primary_factor && exists("primary_ref_level") && !is.null(opt$sample_sheet_mode)) {
+        sample_table[[factor_name]] <- relevel(sample_table[[factor_name]], ref = primary_ref_level)
+    }
 }
 rownames(sample_table) <- labs
 
-design_formula <- as.formula(paste("~", paste(rev(factors), collapse = " + ")))
+# Build design formula
+if (!is.null(opt$custom_design_formula)) {
+    # Custom mode: use user-provided formula
+    design_formula <- as.formula(opt$design_formula)
+    # Set primary factor to last variable in formula (rightmost in formula)
+    primary_factor <- factors[length(factors)]
+} else {
+    # Automatic mode: build from selected factors
+    design_formula <- as.formula(paste("~", paste(rev(factors), collapse = " + ")))
+}
 
 # these are plots which are made once for each analysis
 generate_generic_plots <- function(dds, factors) {
@@ -383,7 +456,15 @@ if (!is.null(opt$batch_factors)) {
     batch_factors <- read.table(opt$batch_factors, sep = "\t", header = TRUE)
     dds <- apply_batch_factors(dds = dds, batch_factors = batch_factors)
     batch_design <- colnames(batch_factors)[-c(1, 2)]
-    design_formula <- as.formula(paste("~", paste(c(batch_design, rev(factors)), collapse = " + ")))
+
+    if (!is.null(opt$custom_design_formula)) {
+        # Custom mode: prepend batch factors to user's formula
+        user_formula_rhs <- gsub("^~\\s*", "", opt$design_formula)
+        design_formula <- as.formula(paste("~", paste(c(batch_design, user_formula_rhs), collapse = " + ")))
+    } else {
+        # Automatic mode: prepend batch factors to generated formula
+        design_formula <- as.formula(paste("~", paste(c(batch_design, rev(factors)), collapse = " + ")))
+    }
     design(dds) <- design_formula
 }
 
@@ -478,18 +559,43 @@ if (!is.null(opt$vstfile)) {
 
 
 if (is.null(opt$many_contrasts)) {
-    # only contrast the first and second level of the primary factor
-    ref <- all_levels[1]
-    lvl <- all_levels[2]
+    # Single contrast mode
+    if (!is.null(opt$custom_design_formula) && exists("custom_contrast")) {
+        # Use explicit custom contrast
+        ref <- custom_contrast$reference
+        lvl <- custom_contrast$target
+        contrast_factor <- custom_contrast$factor
+    } else {
+        # Default: contrast using stored reference and target levels
+        # This ensures we use the intended reference, not whatever order files happened to be in
+
+        # Check if we have more than 2 levels without explicit target
+        if (length(all_levels) > 2 && is.null(opt$target_level)) {
+            cat("Error: Multiple factor levels detected without explicit target_level specification.\n")
+            cat(paste0("Factor '", primary_factor, "' has ", length(all_levels), " levels: ", paste(all_levels, collapse = ", "), "\n"))
+            cat("Please either:\n")
+            cat("  1. Specify target_level to indicate which level to compare against the reference, or\n")
+            cat("  2. Use many_contrasts mode to compare all levels pairwise\n")
+            q(status = 1)
+        }
+
+        # Use stored reference and target levels
+        # contrast = c(factor, level1, level2) computes log2(level1 / level2)
+        # The variable names are swapped in original mode (see above) to maintain backward compatibility
+        ref <- primary_target_level # This becomes the denominator
+        lvl <- primary_ref_level # This becomes the numerator
+        contrast_factor <- primary_factor
+    }
+
     res <- results(
         dds,
-        contrast = c(primary_factor, lvl, ref),
+        contrast = c(contrast_factor, lvl, ref),
         cooksCutoff = cooks_cutoff,
         independentFiltering = independent_filtering
     )
     if (verbose) {
         cat("summary of results\n")
-        cat(paste0(primary_factor, ": ", lvl, " vs ", ref, "\n"))
+        cat(paste0(contrast_factor, ": ", lvl, " vs ", ref, "\n"))
         print(summary(res))
     }
     res_sorted <- res[order(res$padj), ]
