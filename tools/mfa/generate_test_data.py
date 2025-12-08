@@ -162,7 +162,7 @@ item []:
     shutil.rmtree(base_dir)
     shutil.rmtree(audio_dir)
     shutil.rmtree(raw_dir)
-    print("Cleanup complete. Test data regenerated with correct TextGrid header.")
+    print("Test data generated.")
 
 if __name__ == "__main__":
     main()
