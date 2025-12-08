@@ -20,7 +20,7 @@ Notes:
 """
 import struct
 import sys
-from collections import defaultdict, deque
+from collections import defaultdict
 
 NODES_FILE = "../ncbi_taxonomy/nodes.dmp"
 NAMES_FILE = "../ncbi_taxonomy/names.dmp"   # optional
@@ -28,6 +28,7 @@ OUT_BTD = "taxdb.btd"
 OUT_BTI = "taxdb.bti"
 
 TAXDB_MAGIC = 0x8739
+
 
 # -------------------------
 # Helpers
@@ -50,9 +51,10 @@ def read_nodes(nodes_path):
             rank[taxid] = parts[2]
     return parent, rank
 
+
 def read_names(names_path):
     """Return dict: names[taxid] = {'scientific':..., 'common':..., 'blast':...}"""
-    names = defaultdict(lambda: {"scientific":"", "common":"", "blast":""})
+    names = defaultdict(lambda: {"scientific": "", "common": "", "blast": ""})
     with open(names_path, encoding="utf-8") as fh:
         for line in fh:
             parts = [p.strip() for p in line.split("|")]
@@ -71,6 +73,7 @@ def read_names(names_path):
             elif name_class == "blast name":
                 names[taxid]["blast"] = name_txt
     return names
+
 
 def infer_superkingdom_code(taxid, parent, rank, sci_name_lookup):
     """
@@ -135,10 +138,8 @@ def main():
     # Read names.dmp if present
     try:
         names = read_names(NAMES_FILE)
-        have_names = True
     except FileNotFoundError:
-        names = defaultdict(lambda: {"scientific":"", "common":"", "blast":""})
-        have_names = False
+        names = defaultdict(lambda: {"scientific":"", "common": "", "blast": ""})
         print("Warning: names.dmp not found. scientific_name will be set to the taxid.", file=sys.stderr)
 
     print(f"names {names}")
@@ -168,7 +169,7 @@ def main():
     btd_buf = bytearray()
     for tid in taxids:
         offsets.append(len(btd_buf))
-        rec = names.get(tid, {"scientific":"", "common":"", "blast":""})
+        rec = names.get(tid, {"scientific": "", "common": "", "blast": ""})
         sci = rec.get("scientific", "")
         com = rec.get("common", "")
 
@@ -211,6 +212,7 @@ def main():
     print(f"Wrote {OUT_BTD} ({end_offset} bytes)")
     print(f"Wrote {OUT_BTI} (header + {len(taxids)} entries)")
     print(f"Taxids written: {len(taxids)}")
+
 
 if __name__ == "__main__":
     main()
