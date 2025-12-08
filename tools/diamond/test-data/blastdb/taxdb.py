@@ -139,7 +139,7 @@ def main():
     try:
         names = read_names(NAMES_FILE)
     except FileNotFoundError:
-        names = defaultdict(lambda: {"scientific":"", "common": "", "blast": ""})
+        names = defaultdict(lambda: {"scientific": "", "common": "", "blast": ""})
         print("Warning: names.dmp not found. scientific_name will be set to the taxid.", file=sys.stderr)
 
     print(f"names {names}")
