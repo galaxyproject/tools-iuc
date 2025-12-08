@@ -1,0 +1,397 @@
+<tool id="snapatac2_network" name="SnapATAC2 network" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <requirements>
+        <expand macro="requirements"/>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        gunzip -c '$motifs.fields.path' > 'input.meme' &&
+        #if $gff_file_condi.gffSource == 'cached':
+            ln -s '$gff_file_condi.gff_pre_installed.fields.path' anno.gff &&
+        #else:
+            ln -s '$gff_file_condi.gff_history' anno.gff &&
+        #end if
+        #if $fasta_file_condi.fastaSource == 'indexed':
+            zcat '$fasta_file_condi.fasta_pre_installed.fields.path' > fasta.fa &&
+        #else:
+            zcat '$fasta_file_condi.fasta_history' > fasta.fa &&
+        #end if
+        mkdir -p network_dir &&
+        cp '$adata_rna' 'anndata_rna.h5ad' &&
+        cp '$adata_atac' 'anndata_atac.h5ad' &&
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CONF_IMPORTS@
+## import motifs
+from snapatac2._snapatac2 import read_motifs, PyDNAMotif
+#if $motifs == 'cisbp':
+@CONF_IMPORT_MEME@
+#end if
+rna = snap.read('anndata_rna.h5ad', backed = None)
+atac = snap.read('anndata_atac.h5ad', backed = None)
+
+marker_peaks = snap.tl.marker_regions(
+    atac,
+    groupby = '$groupby',
+    pvalue = $pvalue_marker
+)
+
+
+for cluster_id, peaks_index in marker_peaks.items():
+    print(f"Processing cluster {cluster_id} with {len(peaks_index)} peaks...")
+
+    # Convert pandas Index to list of strings
+    regions_list = peaks_index.tolist()
+
+    # Create network for this cluster
+    network = snap.tl.init_network_from_annotation(
+        regions = regions_list,
+        anno_file = 'anno.gff',
+        upstream = $upstream,
+        downstream = $downstream,
+        id_type = '$id_type',
+        coding_gene_only = $coding_gene_only
+    )
+
+    # add cor scores
+    snap.tl.add_cor_scores(
+        network,
+        gene_mat=rna,
+        peak_mat=atac,
+        select=None, # Will get available if requested by users
+        overwrite=False
+        )
+    # add regr scores
+
+    snap.tl.add_regr_scores(
+        network,
+        gene_mat=rna,
+        peak_mat=atac,
+        select=None, # Will get available if requested by users
+        method = '$method',
+        scale_X = $scale_X,
+        scale_Y = $scale_Y,
+        alpha = $alpha,
+        l1_ratio = $l1_ratio,
+        overwrite=False
+        )
+
+    # add tf binding
+    snap.tl.add_tf_binding(
+        network,
+        motifs = motifs,
+        genome_fasta = 'fasta.fa',
+        pvalue = $pvalue_tf
+    )
+
+    ## No good documentation, will get updated in next version if a tutorial is available for it
+    ## # link TF to gene
+    ## genetic_network = snap.tl.link_tf_to_gene(
+    ##     network
+    ## )
+
+    # Create plot for this cluster
+    snap.pl.network_edge_stat(
+        network = network,
+        width = $width,
+        height = $height,
+        show = False,
+        interactive = False,
+        out_file = f'network_dir/plot_network_cluster_{cluster_id}.png',
+    )
+
+    ## No good documentation, will get updated in next version if a tutorial is available for it
+    ## snap.pl.network_edge_stat(
+    ##     network = genetic_network,
+    ##     width = $width,
+    ##     height = $height,
+    ##     show = False,
+    ##     interactive = False,
+    ##     out_file = f'network_dir/plot_genetic_network_cluster_{cluster_id}.png',
+    ## )
+    print(f"Completed cluster {cluster_id}")
+
+print("All clusters processed!")
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="adata_rna" type="data" format="h5ad" label="Annotated data matrix containing RNA data"/>
+        <param name="adata_atac" type="data" format="h5ad" label="Annotated data matrix containing ATAC data"/>
+        <expand macro="param_groupby"/>
+        <param argument="pvalue_marker" type="float" value="0.01" label="P-value threshold to detect marker regions"/>
+        <expand macro="param_gene_anno"/>
+        <expand macro="param_genome_fasta"/>
+        <param name="upstream" type="integer" value="250000" min="0" label="Upstream extension to the transcription start site"/>
+        <param name="downstream" type="integer" value="250000" min="0" label="Downstream extension to the transcription start site"/>
+        <param name="id_type" type="select" label="ID type of the gene in the annotation file">
+            <option value="gene_name">Gene name</option>
+            <option value="gene_id">Gene ID</option>
+            <option value="transcript_id">Transcript ID</option>
+        </param>
+        <param name="coding_gene_only" type="boolean" checked="true" truevalue="True" falsevalue="False" label="Retain only coding genes in the network"/>
+        <param name="method" type="select" label="Regresson model">
+            <!-- <option value="elastic_net">elastic_net</option> has problem with sparse matrix-->
+            <option value="gb_tree">gb_tree</option>
+        </param>
+        <param name="scale_X" type="boolean" checked="false" truevalue="True" falsevalue="False" label="Whether to scale the features"/>
+        <param name="scale_Y" type="boolean" checked="false" truevalue="True" falsevalue="False" label="Whether to scale the response variable"/>
+        <param name="alpha" type="float" value="1.5" label="Constant that multiplies the penalty terms in ‘elastic_net’"/>
+        <param name="l1_ratio" type="float" min="0" max="1" value="0.5" label="L1 penalty ratio" help="If set to 0, L2 penalty is used, if set to 1, L1 penalty is used, and if set between 0 and 1, a combination of both penalties is used."/>
+        <expand macro="param_meme_table"/>
+        <param argument="pvalue_tf" type="float" value="0.01" label="P-value threshold to detect TF binding"/>
+        <expand macro="param_render_plot"/>
+        <expand macro="param_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="hidden_output" format="txt" label="Log file" >
+            <filter>advanced_common['show_log']</filter>
+        </data>
+        <collection name="out_network" type="list" label="${tool.name} (${method}) on ${on_string} - Network">
+            <discover_datasets pattern="__name_and_ext__" directory="network_dir/"/>
+            <filter>out_file != 'svg' and out_file != 'html'</filter>
+        </collection>
+        <collection name="out_network_svg" type="list" label="${tool.name} (${method}) on ${on_string} - Network - svg">
+            <discover_datasets pattern="__name_and_ext__" directory="network_dir/"/>
+            <filter>out_file == 'svg'</filter>
+        </collection>
+        <collection name="out_network_html" type="list" label="${tool.name} (${method}) on ${on_string} - Network - html">
+            <discover_datasets pattern="__name_and_ext__" directory="network_dir/"/>
+            <filter>out_file == 'html'</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- metrics.frag_size_distr cached -->
+        <test expect_num_outputs="2">
+            <param name="adata_rna" location="https://zenodo.org/records/17512085/files/snap_datasets_pbmc10k_multiome_RNA.h5ad.gz"/>
+            <param name="adata_atac" location="https://zenodo.org/records/17512085/files/snap_datasets_pbmc10k_multiome_ATAC.h5ad.gz"/>
+            <param name="groupby" value="cell_type"/>
+            <param name="pvalue_marker" value="0.1"/>
+            <conditional name="gff_file_condi">
+                <param name="gffSource" value="cached"/>
+                <param name="gff_pre_installed" value="hg38"/>
+            </conditional>
+            <conditional name="fasta_file_condi">
+                <param name="fastaSource" value="indexed"/>
+                <param name="fasta_pre_installed" value="hg38"/>
+            </conditional>
+            <param name="out_file" value="png"/>
+            <expand macro="test_param_render_plot"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.tl.marker_regions"/>
+                    <has_text_matching expression="snap.tl.init_network_from_annotation"/>
+                    <has_text_matching expression="snap.tl.add_cor_scores"/>
+                    <has_text_matching expression="snap.tl.add_regr_scores"/>
+                    <has_text_matching expression="add_tf_binding"/>
+                    <!-- <has_text_matching expression="snap.tl.link_tf_to_gene"/> -->
+                    <has_text_matching expression="snap.pl.network_edge_stat"/>
+                    <has_text_matching expression="groupby = 'cell_type'"/>
+                    <expand macro="test_render_plot_matching_text"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_network" type="list" count="8">
+                <element name="plot_network_cluster_CD14 Mono">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD16 Mono">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD4 Naive">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD4 TCM">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD8 Naive">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_NK">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_Treg">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_cDC">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- metrics.frag_size_distr history -->
+        <test expect_num_outputs="2">
+            <param name="adata_rna" location="https://zenodo.org/records/17512085/files/snap_datasets_pbmc10k_multiome_RNA.h5ad.gz"/>
+            <param name="adata_atac" location="https://zenodo.org/records/17512085/files/snap_datasets_pbmc10k_multiome_ATAC.h5ad.gz"/>
+            <param name="groupby" value="cell_type"/>
+            <param name="pvalue_marker" value="0.1"/>
+            <conditional name="gff_file_condi">
+                <param name="gffSource" value="history"/>
+                <param name="gff_history" location="https://zenodo.org/records/17512085/files/chr21.gff3.gz"/>
+            </conditional>
+            <conditional name="fasta_file_condi">
+                <param name="fastaSource" value="history"/>
+                <param name="fasta_history" location="https://zenodo.org/records/17512085/files/chr21.fasta.gz"/>
+            </conditional>
+            <param name="out_file" value="png"/>
+            <expand macro="test_param_render_plot"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.tl.marker_regions"/>
+                    <has_text_matching expression="snap.tl.init_network_from_annotation"/>
+                    <has_text_matching expression="snap.tl.add_cor_scores"/>
+                    <has_text_matching expression="snap.tl.add_regr_scores"/>
+                    <has_text_matching expression="add_tf_binding"/>
+                    <!-- <has_text_matching expression="snap.tl.link_tf_to_gene"/> -->
+                    <has_text_matching expression="snap.pl.network_edge_stat"/>
+                    <has_text_matching expression="groupby = 'cell_type'"/>
+                    <expand macro="test_render_plot_matching_text"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_network" type="list" count="8">
+                <element name="plot_network_cluster_CD14 Mono">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD16 Mono">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD4 Naive">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD4 TCM">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_CD8 Naive">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_NK">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_Treg">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+                <element name="plot_network_cluster_cDC">
+                    <assert_contents>
+                        <has_image_center_of_mass center_of_mass="325,225" eps="20"/>
+                        <has_image_channels channels="4"/>
+                        <has_image_height height="450" delta="20"/>
+                        <has_image_width width="650" delta="20"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+Build CRE-gene network from gene annotations, using `SnapATAC2`
+===============================================================
+
+Link CREs to genes if they are close to genes’ promoter regions.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.init_network_from_annotation.html>`__
+
+
+Compute correlation scores for any two connected nodes in the network.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.add_cor_scores.html>`__
+
+
+Perform regression analysis for nodes and their parents in the network.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.add_regr_scores.html>`__
+
+
+Add TF motif binding information.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.add_tf_binding.html>`__
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
+
