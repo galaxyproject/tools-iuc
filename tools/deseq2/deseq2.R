@@ -165,6 +165,65 @@ if (!is.null(opt$sample_sheet_mode)) {
         factor_col_names <- colnames(sample_sheet)[factor_col_nums]
     }
 
+    # Validate sample sheet matches collection before building factor_list
+    # Get element identifiers from collection
+    collection_element_ids <- character(length(collection_files))
+    for (idx in seq_along(collection_files)) {
+        file <- collection_files[idx]
+        file_basename <- basename(file)
+        if (file_basename %in% names(filenames_to_labels)) {
+            collection_element_ids[idx] <- filenames_to_labels[[file_basename]]
+        } else {
+            cat("Error: Sample sheet validation failed\n")
+            cat(paste0("Collection file '", file_basename, "' does not have a corresponding element identifier.\n"))
+            cat("This is an internal error - please report this issue.\n")
+            q(status = 1)
+        }
+    }
+
+    # Get sample identifiers from sample sheet
+    sample_sheet_ids <- sample_sheet[[sample_id_col]]
+
+    # Check for mismatches
+    collection_not_in_sheet <- setdiff(collection_element_ids, sample_sheet_ids)
+    sheet_not_in_collection <- setdiff(sample_sheet_ids, collection_element_ids)
+
+    if (length(collection_not_in_sheet) > 0 || length(sheet_not_in_collection) > 0) {
+        cat("Error: Sample sheet does not match the input collection\n\n")
+
+        if (length(collection_not_in_sheet) > 0) {
+            cat("The following samples are in the collection but NOT in the sample sheet:\n")
+            for (id in collection_not_in_sheet) {
+                cat(paste0("  - ", id, "\n"))
+            }
+            cat("\n")
+        }
+
+        if (length(sheet_not_in_collection) > 0) {
+            cat("The following samples are in the sample sheet but NOT in the collection:\n")
+            for (id in sheet_not_in_collection) {
+                cat(paste0("  - ", id, "\n"))
+            }
+            cat("\n")
+        }
+
+        cat("Please ensure that:\n")
+        cat(paste0("1. The first column ('", sample_id_col, "') of the sample sheet contains sample identifiers\n"))
+        cat("2. These identifiers exactly match the element identifiers in your collection\n")
+        cat("3. All samples in the collection are listed in the sample sheet\n")
+        cat("4. All samples in the sample sheet exist in the collection\n")
+        q(status = 1)
+    }
+
+    # Determine which factor will be the primary factor for contrasts
+    # In custom mode, the primary factor is the last one in the formula (rightmost term)
+    # In automatic mode, the first selected factor is primary (formula gets reversed)
+    if (!is.null(opt$custom_design_formula)) {
+        primary_factor_index <- length(factor_col_names)
+    } else {
+        primary_factor_index <- 1
+    }
+
     # Build factor_list structure
     factor_list <- list()
     for (i in seq_along(factor_col_names)) {
@@ -190,9 +249,11 @@ if (!is.null(opt$sample_sheet_mode)) {
         # Get all levels in order of first appearance (not alphabetically sorted)
         all_levels <- level_order
 
-        # Handle reference and target levels for primary factor (first factor)
-        if (i == 1) {
-            # Primary factor: handle reference/target
+        # Handle reference and target levels for the primary contrast factor
+        # In custom mode: this is the LAST factor in the formula
+        # In automatic mode: this is the FIRST factor selected (formula will be reversed)
+        if (i == primary_factor_index) {
+            # This is the primary factor for contrasts: handle reference/target
             # Determine reference level
             if (!is.null(opt$reference_level) && nchar(opt$reference_level) > 0) {
                 ref_level <- trim(opt$reference_level)
@@ -248,6 +309,16 @@ if (!is.null(opt$sample_sheet_mode)) {
         factor_list[[length(factor_list) + 1]] <- list(factor_name, factor_levels)
     }
 
+    # Set primary_factor for sample sheet mode
+    # This is the factor that will be used for contrasts
+    if (!is.null(opt$custom_design_formula)) {
+        # Custom mode: primary factor is the last one in the formula (rightmost term)
+        primary_factor <- factor_col_names[length(factor_col_names)]
+    } else {
+        # Automatic mode: primary factor is the first selected factor (formula will be reversed)
+        primary_factor <- factor_col_names[1]
+    }
+
     # Parse contrast_definition if in custom mode
     if (!is.null(opt$custom_design_formula) && !is.null(opt$contrast_definition) && nchar(opt$contrast_definition) > 0) {
         contrast_parts <- strsplit(opt$contrast_definition, ",")[[1]]
@@ -284,7 +355,11 @@ if (!is.null(opt$sample_sheet_mode)) {
 }
 
 factors <- sapply(factor_list, function(x) x[[1]])
-primary_factor <- factors[1]
+# For original mode (not sample_sheet_mode), set primary_factor to first factor
+# In sample_sheet_mode, it's already set correctly above
+if (is.null(opt$sample_sheet_mode)) {
+    primary_factor <- factors[1]
+}
 filenames_in <- unname(unlist(factor_list[[1]][[2]]))
 labs <- unname(unlist(filenames_to_labels[basename(filenames_in)]))
 sample_table <- data.frame(
@@ -305,7 +380,8 @@ for (factor in factor_list) {
     # Explicitly set the reference level using relevel() for the primary factor in sample_sheet_mode
     # This ensures DESeq2 knows the reference regardless of factor level order
     # In original mode, we don't relevel because the order from factor_list is already correct
-    if (factor_name == primary_factor && exists("primary_ref_level") && !is.null(opt$sample_sheet_mode)) {
+    # Note: primary_factor is already set correctly in sample_sheet_mode before we get here
+    if (exists("primary_factor") && factor_name == primary_factor && exists("primary_ref_level") && !is.null(opt$sample_sheet_mode)) {
         sample_table[[factor_name]] <- relevel(sample_table[[factor_name]], ref = primary_ref_level)
     }
 }
@@ -315,8 +391,11 @@ rownames(sample_table) <- labs
 if (!is.null(opt$custom_design_formula)) {
     # Custom mode: use user-provided formula
     design_formula <- as.formula(opt$design_formula)
-    # Set primary factor to last variable in formula (rightmost in formula)
-    primary_factor <- factors[length(factors)]
+    # In original mode (not sample_sheet), set primary factor to last variable in formula
+    # In sample_sheet_mode, it's already set correctly above
+    if (is.null(opt$sample_sheet_mode)) {
+        primary_factor <- factors[length(factors)]
+    }
 } else {
     # Automatic mode: build from selected factors
     design_formula <- as.formula(paste("~", paste(rev(factors), collapse = " + ")))
@@ -581,9 +660,17 @@ if (is.null(opt$many_contrasts)) {
 
         # Use stored reference and target levels
         # contrast = c(factor, level1, level2) computes log2(level1 / level2)
-        # The variable names are swapped in original mode (see above) to maintain backward compatibility
-        ref <- primary_target_level # This becomes the denominator
-        lvl <- primary_ref_level # This becomes the numerator
+        # In original mode: variable names were swapped for backward compatibility
+        # In sample_sheet_mode: use them directly (ref=denominator, target=numerator)
+        if (!is.null(opt$sample_sheet_mode)) {
+            # Sample sheet mode: use natural order
+            ref <- primary_ref_level # Reference is denominator
+            lvl <- primary_target_level # Target is numerator
+        } else {
+            # Original mode: swap for backward compatibility
+            ref <- primary_target_level # This becomes the denominator
+            lvl <- primary_ref_level # This becomes the numerator
+        }
         contrast_factor <- primary_factor
     }
 
