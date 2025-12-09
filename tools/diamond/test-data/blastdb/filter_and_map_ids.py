@@ -53,7 +53,7 @@ with open(names_file_name) as names_file, open(names_file_out_name, "w") as name
             id_map[id] = len(id_map) + 1
         names_file_out.write(f'{id_map[id]}\t|{"|".join(line[1:])}\n')
 
-print(f"taxonlist for test 2 needs to be {id_map["33090"]}")
+print(f'taxonlist for test 2 needs to be {id_map["33090"]}')
 
 with open(nodes_file_name) as nodes_file, open(nodes_file_out_name, "w") as nodes_file_out:
     for line in nodes_file:
