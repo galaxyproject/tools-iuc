@@ -106,16 +106,13 @@ def infer_superkingdom_code(taxid, parent, rank, sci_name_lookup):
 def infer_blast_name(taxid, parent, lookup):
     """
     """
-    print(f"infer_blast_name {taxid=}")
     seen = set()
     cur = taxid
     while True:
-        print(f"\t {cur=}")
         if cur in seen:
             return "Unknown"
         seen.add(cur)
         name = lookup.get(cur, "").lower()
-        print(f"\t => {name=}")
 
         if name:
             return name
@@ -142,8 +139,6 @@ def main():
         names = defaultdict(lambda: {"scientific": "", "common": "", "blast": ""})
         print("Warning: names.dmp not found. scientific_name will be set to the taxid.", file=sys.stderr)
 
-    print(f"names {names}")
-
     # Determine the taxids to write:
     # use taxids present in nodes.dmp (pruned set)
     taxids = sorted(parent.keys())
@@ -156,13 +151,11 @@ def main():
     sci_lookup = {}
     for tid, rec in names.items():
         sci_lookup[tid] = rec.get("scientific", "")
-    print(f"{sci_lookup=}")
 
     # Build blast-name lookup blast name inference
     bla_lookup = {}
     for tid, rec in names.items():
         bla_lookup[tid] = rec.get("blast", "")
-    print(f"{bla_lookup=}")
 
     # Build btd records and offsets
     offsets = []
