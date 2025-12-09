@@ -2,14 +2,12 @@
 
 # filter names and nodes dmp files by a list of given IDs
 # parent node IDs will be added if needed
-# 
+#
 # IDs will be renamed to give a consecuive set of IDs: 1,2,...
 # oderwise dmnd databases including taxonomy will be huge
 # also make make sure that the order of the taxids is not changed
 
 from sys import argv
-from typing import Tuple, Set
-
 
 names_file_name = argv[1]
 nodes_file_name = argv[2]
@@ -73,6 +71,3 @@ with open(prot2ids_file_name) as prot2ids_file, open(prot2ids_file_out_name, "w"
         id = line[2].strip()
         line[2] = str(id_map[id])
         prot2ids_file_out.write("\t".join(line) + "\n")
-
-
-
