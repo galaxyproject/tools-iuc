@@ -127,12 +127,19 @@ if (opt$cores > 1) {
 
 trim <- function(x) gsub("^\\s+|\\s+$", "", x)
 
+# Helper function to decode base64-encoded JSON
+decode_base64_json <- function(encoded_str) {
+    decoded_bytes <- base64enc::base64decode(encoded_str)
+    decoded_str <- rawToChar(decoded_bytes)
+    return(decoded_str)
+}
+
 # switch on if 'factors' was provided:
 library("rjson")
 
 if (!is.null(opt$sample_sheet_mode)) {
     # Sample sheet mode: build factor_list from sample sheet
-    filenames_to_labels <- fromJSON(opt$files_to_labels)
+    filenames_to_labels <- fromJSON(decode_base64_json(opt$files_to_labels))
 
     # Read sample sheet
     sample_sheet <- read.table(opt$sample_sheet, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
@@ -341,9 +348,9 @@ if (!is.null(opt$sample_sheet_mode)) {
 } else {
     # Original mode: factors provided directly
     parser <- newJSONParser()
-    parser$addData(opt$factors)
+    parser$addData(decode_base64_json(opt$factors))
     factor_list <- parser$getObject()
-    filenames_to_labels <- fromJSON(opt$files_to_labels)
+    filenames_to_labels <- fromJSON(decode_base64_json(opt$files_to_labels))
 
     # For original mode, extract reference and target levels from the first factor
     # In original mode: ref=level1 (denominator), target=level2 (numerator) -> log2(level2/level1)
