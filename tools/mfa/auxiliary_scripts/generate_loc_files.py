@@ -1,10 +1,8 @@
 import math
 import os
-import random
 import shutil
 import struct
 import subprocess
-import sys
 import wave
 import zipfile
 
