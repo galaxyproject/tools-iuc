@@ -1,7 +1,7 @@
 """Wrapper for the SWISS-MODEL API."""
 
-from urllib.parse import urlsplit
 import argparse
+from urllib.parse import urlsplit
 import json
 import os
 import sys
