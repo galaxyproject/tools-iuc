@@ -2,10 +2,10 @@
 
 import argparse
 import json
-from urllib.parse import urlsplit
 import os
 import sys
 import time
+from urllib.parse import urlsplit
 
 import requests
 
