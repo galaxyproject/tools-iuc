@@ -21,8 +21,7 @@ Documentation on how to use the tool inside Galaxy is in the tool XML file.
 Installation
 ------------
 
-No special requirements, the wrapper itself is a simple Python script talking
-to the online backend.
+Needs Python (>=3.11) and the Python requests package (2.32.5).
 
 Attribution
 -----------
