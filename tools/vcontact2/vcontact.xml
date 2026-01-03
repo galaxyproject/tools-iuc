@@ -27,19 +27,50 @@
         <include path="test-data/VIRSorter_genome_g2g.csv"/>
     </required_files>
     <command detect_errors="exit_code"><![CDATA[
+        #if $proteins_fp.file_ext == "tabular"
+            #set $proteins2contig = 'proteins2contig.tsv'
+        #else
+            #set $proteins2contig = 'proteins2contig.csv'
+        #end if
+
+        ln '$proteins_fp' '$proteins2contig' &&
+
         vcontact2
             #if $similarity.analysis == "de_novo"
                 --raw-proteins '$similarity.raw_proteins'
-                --rel-mode Diamond
                 --db '$similarity.db'
-            #else
-                --blast-fp TODO
-            #end if
 
-            --proteins-fp '$__tool_directory__/test-data/VIRSorter_genome_g2g.csv'
+                --rel-mode Diamond
+                --pc-evalue $extra.similarity.pc_evalue
+                --reported-alignments $extra.similarity.reported_alignments
+            #else
+                --blast-fp '$similarity.blast_fp'
+                --db 'None'
+            #end if
+            --proteins-fp $proteins2contig
 
             --pcs-mode MCL
+            --pc-inflation $extra.pcs.pc_inflation
+
             --vcs-mode ClusterONE
+            --min-density $extra.vcs.min_density
+            --min-size $extra.vcs.min_size
+            --vc-overlap $extra.vcs.vc_overlap
+            --vc-penalty $extra.vcs.vc_penalty
+            --vc-haircut $extra.vcs.vc_haircut
+            --merge-method $extra.vcs.merge_method
+            --similarity $extra.vcs.similarity
+            --seed-method $extra.vcs.seed_method
+            $extra.vcs.optimize
+
+            --sig $extra.network.sig
+            --max-sig $extra.network.max_sig
+            $extra.network.permissive
+            --mod-inflation $extra.network.mod_inflation
+            --mod-sig $extra.network.mod_sig
+            --link-sig $extra.network.link_sig
+            --link-prop $extra.network.link_prop
+
             --output-dir Outputs
             --threads \${GALAXY_SLOTS:-6}
     ]]></command>
@@ -50,7 +81,7 @@
                 <option value="custom">Use an existing BLASTp (protein similarity) file</option>
             </param>
             <when value="de_novo">
-                <param argument="--raw-proteins" type="data" format="fasta,fasta.gz" label="A FASTA-formatted amino acid file"/>
+                <param argument="--raw-proteins" type="data" format="fasta" label="Amino acid sequences"/>
                 <param argument="--db" type="select" label="Reference database" help="'Merged' databases supplements the ICTV taxonomy with NCBI. Selecting 'None' disables taxonomic annotation.">
                     <option value="ProkaryoticViralRefSeq85-ICTV"></option>
                     <option value="ProkaryoticViralRefSeq85-Merged"></option>
@@ -72,9 +103,79 @@
                 </param>
             </when>
             <when value="custom">
+                <param argument="--blast-fp" type="data" format="csv,tabular" label="Protein similarity file"/>
             </when>
         </conditional>
-        <param argument="--proteins-fp" type="data" format="csv" label="A file linking protein and genome names" help="The file should have the following headers: 'protein_id', 'contig_id' and 'keywords'."/>
+        <param argument="--proteins-fp" type="data" format="csv,tabular" label="Protein to contig mapping" help="The file should have the following headers: 'protein_id', 'contig_id' and 'keywords'."/>
+        <section name="extra" title="Advanced settings" expanded="false">
+            <section name="similarity" title="Protein similarity" expanded="true">
+                <param argument="--pc-evalue" type="float" value="0.0001" min="0.0001" max="1"
+                    label="E-value used by Diamond when creating the protein-protein similarity network."/>
+                <param argument="--reported-alignments" type="integer" value="25" min="1" max="100"
+                    label="Maximum number of target sequences per query to report alignments for."/>
+            </section>
+            <section name="pcs" title="Protein clusters" expanded="True">
+                <param argument="--pc-inflation" type="float" value="2.0" min="1.5" max="7.0"
+                       label="Inflation parameter to define contig clusters with MCL."
+                       help="How to select the right inflation parameter for clustering? https://github.com/micans/mcl/discussions/5"/>
+            </section>
+            <section name="vcs" title="Viral clusters" expanded="true">
+                <param argument="--min-density" type="float" value="0.3" min="0.1" max="1.0"
+                       label="Minimum density of predicted complexes."
+                       help="Increase the minimum density if you get too many clusters and they seem too sparse, or decrease it if you are not getting enough clusters. "/>
+                <param argument="--min-size" type="integer" value="2" min="2" max="10"
+                       label="Minimum size for the Viral Cluster." help="Smaller clusters are discarded immediately."/>
+                <param argument="--vc-overlap" type="float" value="0.9" min="0.0" max="3.0"
+                       label="Maximum allowed overlap between two clusters."/>
+                <param argument="--vc-penalty" type="integer" value="2" min="0" max="10"
+                       label="Penalty value for the inclusion of each node in a cluster."
+                       help="It can be used to model the possibility of uncharted connections for each node, so nodes with only a single weak connection to a cluster will not be added to the cluster as the penalty value will outweigh the benefits of adding the node."/>
+                <param argument="--vc-haircut" type="float" value="0.55" min="0.0" max="1.0"
+                       label="Apply a haircut transformation to remove dangling nodes from detected clusters."/>
+                <param argument="--merge-method" type="select" label="Method used to merge highly overlapping complexes.">
+                    <option value="single"></option>
+                    <option value="multi"></option>
+                </param>
+                <param argument="--similarity" type="select" label="Similarity function used in the merging step.">
+                    <option value="match"></option>
+                    <option value="simpson"></option>
+                    <option value="jaccard"></option>
+                    <option value="dice"></option>
+                </param>
+                <param argument="--seed-method" type="select" label="Seed generation method">
+                    <option value="unused_nodes"></option>
+                    <option value="nodes" selected="true"></option>
+                    <option value="edges"></option>
+                    <option value="cliques"></option>
+                </param>
+                <param argument="--optimize" type="boolean" truevalue="--optimize" falsevalue=""
+                       label="Optimize hierarchical distances during second-pass of the viral clusters."/>
+            </section>
+            <section name="network" title="Similarity network and module" expanded="true">
+                <param argument="--sig" type="float" value="1.0" min="0" max="1.0"
+                       label="Significance threshold in the contig similarity network."/>
+                <param argument="--max-sig" type="integer" value="300" min="0" max="1000"
+                       label="Maximum significance threshold"/>
+                <param argument="--permissive" type="boolean" truevalue="--permissive" falsevalue=""
+                       label="Use permissive affiliation for associating VCs with reference sequences."/>
+                <param argument="--mod-inflation" type="float" value="5.0" min="1.5" max="7.0"
+                       label="Inflation parameter to define protein modules with MCL."/>
+                <param argument="--mod-sig" type="float" value="1.0" min="0" max="1.0"
+                       label="Significance threshold in the protein cluster similarity network."/>
+                <param argument="--mod-shared-min" type="integer" value="3" min="1" max="20"
+                       label="Minimal number of contigs a PC must appear in to be taken into account in the modules computing."/>
+                <param argument="--link-sig" type="float" value="1.0" min="0" max="1.0"
+                       label="Significance threshold to link a cluster and a module"/>
+                <param argument="--link-prop" type="float" value="0.5" min="0" max="1.0"
+                       label="Proportion of a module's PC a contig must have to be considered as displaying this module."/>
+            </section>
+        </section>
+        <param name="additional_outputs" type="select" multiple="true" optional="true" label="Additional (intermediary) outputs">
+            <option value="similarity">Protein similarity</option>
+            <option value="keywords" selected="true">Accumulated protein cluster keywords</option>
+            <option value="vContact-PC">vContact-PC outputs</option>
+            <option value="pc_network">Protein cluster network</option>
+        </param>
     </inputs>
     <outputs>
         <data name="genome_by_genome" format="csv" from_work_dir="Outputs/genome_by_genome_overview.csv"
@@ -83,8 +184,30 @@
               label="${tool.name} on ${on_string}: viral_cluster_overview.csv"/>
         <data name="graph" format="tabular" from_work_dir="Outputs/c1.ntw"
               label="${tool.name} on ${on_string}: c1.ntw"/>
-        <!-- "Similarity (tool)": merged.self-diamond.tab (or merged.self-blastp.tab) -->
-        <!-- "accumulated keywords": vContact-proteins.csv + vContact-pcs.csv -->
+        <data name="diamond_similarity" format="tabular" from_work_dir="Outputs/*.self-diamond.tab"
+              label="${tool.name} (Diamond) on ${on_string}: protein similarity">
+            <filter>similarity['analysis'] == 'de_novo' and additional_outputs and 'similarity' in additional_outputs</filter>
+        </data>
+        <data name="pc_proteins" format="csv" from_work_dir="Outputs/vConTACT_proteins.csv"
+              label="${tool.name} on ${on_string}: vConTACT_proteins.csv">
+            <filter>additional_outputs and 'keywords' in additional_outputs</filter>
+        </data>
+        <data name="pc_pcs" format="csv" from_work_dir="Outputs/vConTACT_pcs.csv"
+              label="${tool.name} on ${on_string}: vConTACT_pcs.csv">
+            <filter>additional_outputs and ('keywords' in additional_outputs or 'vContact-PC' in additional_outputs or 'pc_network' in additional_outputs)</filter>
+        </data>
+        <data name="pc_contigs" format="csv" from_work_dir="Outputs/vConTACT_contigs.csv"
+              label="${tool.name} on ${on_string}: vConTACT_contigs.csv">
+            <filter>additional_outputs and 'vContact-PC' in additional_outputs</filter>
+        </data>
+        <data name="pc_profiles" format="csv" from_work_dir="Outputs/vConTACT_profiles.csv"
+              label="${tool.name} on ${on_string}: vConTACT_profiles.csv">
+            <filter>additional_outputs and 'vContact-PC' in additional_outputs</filter>
+        </data>
+        <data name="pc_network" format="tabular" from_work_dir="Outputs/modules.ntwk"
+              label="${tool.name} on ${on_string}: modules.ntwk">
+            <filter>additional_outputs and 'pc_network' in additional_outputs</filter>
+        </data>
     </outputs>
     <tests>
         <!-- Todo: normal, db=None, BLASTp -->
@@ -95,8 +218,8 @@ vConTACT2 is a tool to perform guilt-by-contig-association classification of vir
 Required Inputs
 ===============
 
-- **A FASTA-formatted amino acid file**: Will be combined with reference proteins to generate protein-protein similarities.
-- **A file linking protein and genome names**: The file should have the headers protein_id, contig_id and keywords. Multiple keywords should be separated using ';'. (!) TODO: vContact will aggregate gene keywords from all proteins assigned to a protein cluster.
+- **Amino acid sequences**: A FASTA-formatted amino acid file. It will be combined with reference proteins to generate protein-protein similarities.
+- **Protein to contig mapping**: A file linking protein and genome names. The file should have the headers protein_id, contig_id and keywords. Multiple keywords should be separated using ';'. (!) TODO: vContact will aggregate gene keywords from all proteins assigned to a protein cluster.
 
 Main Parameters
 ===============
