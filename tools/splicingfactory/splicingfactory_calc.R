@@ -86,6 +86,24 @@ option_list <- list(
     help = "Output SummarizedExperiment RDS file"
   ),
   make_option(
+    c("--plot_dir"),
+    type = "character",
+    default = NULL,
+    help = "Directory to save ggplot figures (if set). Files: diversity_density.png, diversity_boxplot.png, diversity_heatmap.png"
+  ),
+  make_option(
+    c("--plot_format"),
+    type = "character",
+    default = "png",
+    help = "Image format for plots: png|pdf (default: png)"
+  ),
+  make_option(
+    c("--group_column"),
+    type = "character",
+    default = NULL,
+    help = "Column name in colData(res_se) to group samples for boxplot"
+  ),
+  make_option(
     c("-s", "--session_out"),
     type = "character",
     default = "session.txt",
@@ -251,9 +269,13 @@ pkg_load <- function(pkg) {
 }
 pkg_load("SplicingFactory")
 pkg_load("SummarizedExperiment")
+pkg_load("ggplot2")
+pkg_load("reshape2")
 suppressPackageStartupMessages({
   library(SplicingFactory)
   library(SummarizedExperiment)
+  library(ggplot2)
+  library(reshape2)
 })
 
 # Prepare genes vector for matrix/tximport cases
@@ -364,6 +386,69 @@ write.table(
 
 # save SummarizedExperiment as RDS
 saveRDS(res_se, file = opt$out_se)
+
+# optional plotting similar to vignette
+if (!is.null(opt$plot_dir)) {
+  if (!dir.exists(opt$plot_dir)) dir.create(opt$plot_dir, recursive = TRUE)
+  fmt <- tolower(opt$plot_format)
+  open_dev <- function(path) {
+    if (fmt == "pdf") pdf(path, width = 7, height = 5) else png(path, width = 900, height = 650, res = 120)
+  }
+  close_dev <- function() dev.off()
+
+  div_df <- as.data.frame(div_mat)
+  div_df$Gene <- rownames(div_mat)
+  long_df <- reshape2::melt(div_df, id.vars = "Gene", variable.name = "Sample", value.name = "Diversity")
+
+  # density plot across samples
+  p1 <- ggplot(long_df, aes(x = Diversity, group = Sample)) +
+    geom_density(alpha = 0.2, color = NA, fill = "steelblue") +
+    labs(title = paste("Diversity (", opt$method, ") density", sep = "")) +
+    theme_minimal()
+  open_dev(file.path(opt$plot_dir, paste0("diversity_density.", fmt)))
+  print(p1)
+  close_dev()
+
+  # boxplot grouped by condition if provided
+  group_col <- NULL
+  if (!is.null(opt$group_column)) {
+    cd <- tryCatch(as.data.frame(SummarizedExperiment::colData(res_se)), error = function(e) NULL)
+    if (!is.null(cd) && opt$group_column %in% colnames(cd)) {
+      long_df$Group <- cd[match(long_df$Sample, rownames(cd)), opt$group_column]
+      group_col <- "Group"
+    }
+  }
+  if (is.null(group_col)) {
+    long_df$Group <- "all"
+  }
+  p2 <- ggplot(long_df, aes(x = Group, y = Diversity)) +
+    geom_boxplot(outlier.size = 0.5) +
+    labs(title = paste("Diversity (", opt$method, ") by group", sep = ""), x = ifelse(is.null(opt$group_column), "All samples", opt$group_column)) +
+    theme_minimal()
+  open_dev(file.path(opt$plot_dir, paste0("diversity_boxplot.", fmt)))
+  print(p2)
+  close_dev()
+
+  # heatmap of genes by samples
+  mat <- as.matrix(div_mat)
+  # cap extreme values for visualization
+  finite_vals <- mat[is.finite(mat)]
+  if (length(finite_vals) > 0) {
+    q <- quantile(finite_vals, probs = c(0.01, 0.99), na.rm = TRUE)
+    mat[mat < q[1]] <- q[1]
+    mat[mat > q[2]] <- q[2]
+  }
+  df_melt <- reshape2::melt(mat, varnames = c("Gene", "Sample"), value.name = "Diversity")
+  p3 <- ggplot(df_melt, aes(Sample, Gene, fill = Diversity)) +
+    geom_tile() +
+    scale_fill_viridis_c() +
+    theme_minimal() +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+    labs(title = paste("Diversity (", opt$method, ") heatmap", sep = ""))
+  open_dev(file.path(opt$plot_dir, paste0("diversity_heatmap.", fmt)))
+  print(p3)
+  close_dev()
+}
 
 # session info
 con <- file(opt$session_out, open = "wt")
