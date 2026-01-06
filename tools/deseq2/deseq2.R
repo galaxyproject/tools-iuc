@@ -244,7 +244,8 @@ if (!is.null(opt$sample_sheet_mode)) {
             # Find matching row in sample sheet
             matching_row <- which(sample_sheet[[sample_id_col]] == element_id)
             if (length(matching_row) > 0) {
-                level <- sample_sheet[[factor_name]][matching_row[1]]
+                # Convert level to character to ensure consistent list indexing
+                level <- as.character(sample_sheet[[factor_name]][matching_row[1]])
                 if (!(level %in% names(level_to_files))) {
                     level_to_files[[level]] <- character(0)
                     level_order <- c(level_order, level) # Record order of first appearance
