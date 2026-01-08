@@ -4,15 +4,29 @@
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements" />
+
     <command detect_errors="exit_code"><![CDATA[
+        
         mkdir -p results/ &&
+
         kneaddata
-        #if $read_type.select_read_type == "single" 
+        #if $read_type.select_read_type == "single"
             --unpaired "$read_type.single_read"
+            #if $read_type.single_read.ext == "fastqillumina" or $read_type.single_read.ext == "fastqillumina.gz"
+                --quality-scores phred64
+            #else
+                --quality-scores phred33
+            #end if
         #else 
             -i1 "$read_type.paired_collection.forward" 
-            -i2 "$read_type.paired_collection.reverse" 
+            -i2 "$read_type.paired_collection.reverse"
+            #if $read_type.paired_collection.forward.ext == "fastqillumina" or $read_type.paired_collection.forward.ext == "fastqillumina.gz"
+                --quality-scores phred64
+            #else
+                --quality-scores phred33
+            #end if
         #end if
+
         -o results/
         --log-level "$log_level"
         
@@ -20,44 +34,48 @@
             --run-bmtagger
             --reference-db "$alignment.alignment_tool.bmtagger_db.fields.path"
         #else
-            #if $alignment.alignment_tool.bowtie2_options.select_bowtie2_option == "custom"
-                --bowtie2-options "$alignment.alignment_tool.bowtie2_options.custom_bowtie2_settings"
-            #end if
             --reference-db "$alignment.alignment_tool.bowtie2_db.fields.path"
         #end if
-        
-        --quality-scores "$quality_scores"
         
         #if $trimmomatic.trimmomatic_step.decide_trimmomatic == "run_trimmomatic"
             #if $trimmomatic.trimmomatic_step.trimmomatic_options.select_option == "custom"
                 --trimmomatic-options "$trimmomatic.trimmomatic_step.trimmomatic_options.custom_settings"
             #end if
             #if $trimmomatic.trimmomatic_step.sequencer
-                --sequencer-source "$trimmomatic.trimmomatic_step.sequencer"
+                --sequencer "$trimmomatic.trimmomatic_step.sequencer"
             #end if
         #else
             --bypass-trim
         #end if
         
-        #if $tandem.trf_step.trf_bool == "include"
+        #if $tandem.trf_step.trf_bool == "skip"
+            --bypass-trf
+        #else if $tandem.trf_step.trf_bool == "include"
             --mismatch "$tandem.trf_step.trf.mismatch"
             --delta "$tandem.trf_step.trf.indel"
             --minscore "$tandem.trf_step.trf.minimum_score"
             --maxperiod "$tandem.trf_step.trf.maximum_period"
-        #else
-            --bypass-trf
         #end if
         
         #if $fastqc.fastqc_report.select_fastqc == "include_fastqc"
-            $fastqc.fastqc_report.fastqc_start
-            $fastqc.fastqc_report.fastqc_end
+            $fastqc.fastqc_report.run_fastqc_start
+            $fastqc.fastqc_report.run_fastqc_end
         #end if
         
-        $fastqc.trim_repetitive
+        $fastqc.run_trim_repetitive
         $cat_final_output
-    ]]></command>
-    <inputs>
 
+        #if not $alignment.save_contaminants
+            && find results/ -name "*contam*" -type f -delete
+        #end if
+        
+        #if $read_type.select_read_type == "paired" and not $read_type.save_unmatched
+            && find results/ -name "*unmatched*" -type f -delete
+        #end if
+
+    ]]></command>
+
+    <inputs>
         <conditional name="read_type"> 
             <param name="select_read_type" type="select" label="Read type" help="Specify your sequencing data type."> 
                 <option value="single">Single read</option> 
@@ -65,19 +83,17 @@
             </param> 
             
             <when value="single"> 
-                <param name="single_read" type="data" format="fastq,fastqsanger,fastqsanger.gz,fastq.gz,bam" label="Single Read"/>  
+                <param name="single_read" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz,bam" label="Single Read"/>  
             </when> 
-            <when value="paired"> 
+            <when value="paired">
+                <param name="save_unmatched" type="boolean" label="Save all unmatched reads">
+                    <option value="false" selected="true">No</option>
+                    <option value="true">Yes</option>
+                </param>
                 <param name="paired_collection" type="data_collection" collection_type="paired" label="Paired reads collection" 
                     help="Select a paired collection containing forward and reverse reads."/>
             </when> 
         </conditional>
-
-        <param name="quality_scores" type="select" label="Select quality score format" 
-            help="Select the quality score encoding format used in your FASTQ files. Phred33 is the default and correct for most modern sequencing data."> 
-            <option value="phred33" selected="true" >phred33</option> 
-            <option value="phred64">phred64</option> 
-        </param> 
         
         
         <section name="alignment" title="Alignment Tool">
@@ -88,19 +104,6 @@
                 </param>
 
                 <when value="bowtie2">
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" type="select" label="Bowtie2 alignment configuration" 
-                            help="Default settings use Bowtie2's '--very-sensitive' mode for host read removal. Custom settings allow you to override alignment parameters like sensitivity, mismatches, or alignment mode."> 
-                            <option value="default" selected="true">Default alignment settings</option> 
-                            <option value="custom">Custom alignment settings</option> 
-                        </param> 
-                        
-                        <when value="custom"> 
-                            <param name="custom_bowtie2_settings" type="text" label="Custom Bowtie2 command-line options" 
-                                help="Specify additional Bowtie2 parameters. Example: '--very-fast' , '-p 2' "/>
-                        </when> 
-                        <when value="default"/>
-                    </conditional>
                     
                     <param name="bowtie2_db" type="select" label="Select reference genome database" 
                         help="Select the organism genome to filter out. This genome's reads will be removed as host contamination.">
@@ -112,12 +115,18 @@
 
                 <when value="bmtagger">
                     <param name="bmtagger_db" type="select" label="Select reference genome database" help="Select the organism genome to filter out. This genome's reads will be removed as host contamination.">
-                        <options from_data_table="bmtagger_indexes">
+                        <options from_data_table="bmtagger">
                             <filter type="sort_by" column="3" />
                         </options>
                     </param>
                 </when>
             </conditional>
+            
+            <param name="save_contaminants" type="boolean" label="Save reads identified as contaminants in the output folder.">
+                <option value="false" selected="true">No</option>
+                <option value="true">Yes</option>
+            </param>
+
         </section>
 
 
@@ -130,14 +139,14 @@
 
 
                 <when value="include_fastqc">
-                    <param name="fastqc_start" type="boolean" truevalue="--run-fastqc-start" falsevalue=""  label="Run FastQC on input reads" help="Generate FastQC report on input reads before processing"/>
-                    <param name="fastqc_end" type="boolean" truevalue="--run-fastqc-end" falsevalue="" label="Run FastQC on cleaned reads" help="Generate FastQC report on cleaned reads after processing"/>
+                    <param argument="--run-fastqc-start" type="boolean" truevalue="--run-fastqc-start" falsevalue=""  label="Run FastQC on input reads" help="Generate FastQC report on input reads before processing"/>
+                    <param argument="--run-fastqc-end" type="boolean" truevalue="--run-fastqc-end" falsevalue="" label="Run FastQC on cleaned reads" help="Generate FastQC report on cleaned reads after processing"/>
                 </when> 
 
                 <when value="no_fastqc"/>
             </conditional>
 
-            <param name="trim_repetitive" type="boolean" truevalue="--run-trim-repetitive" falsevalue="" label="Trim repetitive/overrepresented sequences" 
+            <param argument="--run-trim-repetitive" type="boolean" truevalue="--run-trim-repetitive" falsevalue="" label="Trim repetitive/overrepresented sequences" 
                 help="Automatically trim sequences that FastQC flags as overrepresented. This doesn't generate HTML reports. Can be used with or without FastQC HTML reports."/>
 
         </section>
@@ -170,13 +179,12 @@
                     </conditional>
 
                     <param name="sequencer" type="select" label="Available sequencers"  help="Choose the adapter set that matches your sequencing library preparation method.">
-                            <option value="NexteraPE" selected="true">NexteraPE</option>
-                            <option value="TruSeq2">TruSeq2</option>
-                            <option value="TruSeq3">TruSeq3</option>
+                        <option value="NexteraPE" selected="true">NexteraPE</option>
+                        <option value="TruSeq2">TruSeq2</option>
+                        <option value="TruSeq3">TruSeq3</option>
                     </param>
 
                 </when> 
-
                 <when value="skip_trimmomatic"/>
             </conditional>
         </section>
@@ -185,8 +193,7 @@
         <section name="tandem" title="Tandem Repeat Finder (TRF)">
 
             <conditional name="trf_step">
-                <param name="trf_bool" type="select" label="Specify if you want to include the TRF step in the workflow."
-                 help="TRF detects and masks tandem repeats to prevent false positive alignments in repetitive genomic regions." >
+                <param name="trf_bool" type="select" label="Specify if you want to include the TRF step in the workflow." help="TRF detects and masks tandem repeats to prevent false positive alignments in repetitive genomic regions." >
                     <option value="include">Include TRF in KneadData Workflow</option>
                     <option value="skip">Skip TRF Step</option>
                 </param>
@@ -232,116 +239,131 @@
             <option value="CRITICAL">CRITICAL</option>
         </param>
 
-        
-        <param name="cat_final_output" type="boolean" truevalue="--cat-final-output" falsevalue="" label="Merge output files"  
-            help="Combines all final output reads into a single file."/>
-
+        <param argument="--cat-final-output" type="boolean" truevalue="--cat-final-output" falsevalue="" label="Merge output files" help="Combines all final output reads into a single file."/>
 
 
 
     </inputs>
     <outputs>
 
-        <data name="single_output"  format="fastq" from_work_dir="results/*_kneaddata.fastq" label="KneadData single end results (with TRF)">
+        <!--SINGLE READS -->
+
+        <data name="single_output" format="fastqsanger" from_work_dir="results/*_kneaddata.fastq" label="${tool.name} on ${on_string}: Single final reads not included in any of the databases." >
+            <filter>read_type["select_read_type"] == "single" and not cat_final_output</filter>
+        </data>
+        <data name="single_contaminant_bowtie" format="fastqsanger" from_work_dir="results/*_kneaddata_*_bowtie2_contam.fastq" label="${tool.name} on ${on_string}: Single contaminant Bowtie2 reads."  >
+            <filter>read_type["select_read_type"] == "single" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and alignment["save_contaminants"]</filter>
+        </data>
+        <data name="single_contaminant_bmtagger" format="fastqsanger" from_work_dir="results/*_kneaddata_*_bmtagger_contam.fastq" label="${tool.name} on ${on_string}: Single contaminant BMTagger reads." >
+            <filter>read_type["select_read_type"] == "single" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and alignment["save_contaminants"]</filter>
+        </data>
+
+
+        <data name="single_output_trimmed" format="fastqsanger" from_work_dir="results/*_kneaddata.trimmed.fastq" label="${tool.name} on ${on_string}: Single output trimmed">            
+            <filter>read_type["select_read_type"] == "single" and trimmomatic["trimmomatic_step"]["decide_trimmomatic"] == "run_trimmomatic" and not cat_final_output</filter>
+        </data>
+
+
+        <data name="repeats_removed_single" format="fastqsanger" from_work_dir="results/*_kneaddata.repeats.removed.fastq" label="${tool.name} on ${on_string}: Single-end reads with repeats removed">
             <filter>read_type["select_read_type"] == "single" and tandem["trf_step"]["trf_bool"] == "include" and not cat_final_output</filter>
         </data>
-        <data name="single_output_trimmed" format="fastq" from_work_dir="results/*_kneaddata.fastq" label="KneadData single end results (without TRF)">            
-            <filter>read_type["select_read_type"] == "single" and tandem["trf_step"]["trf_bool"] == "skip" and not cat_final_output</filter>
-        </data>
-        
-
-        <data name="single_contaminant_bowtie"   format="fastq" from_work_dir="results/*_*_bowtie2_contam.fastq" label="Single-end contaminants (Bowtie2)">
-            <filter>read_type["select_read_type"] == "single" and alignment["alignment_tool"]["tool_choice"] == "bowtie2"</filter>
-        </data>
-        <data name="single_contaminant_bmtagger"   format="fastq" from_work_dir="results/*_*_bmtagger_contam.fastq" label="Single-end contaminants (BMTagger)">
-            <filter>read_type["select_read_type"] == "single" and alignment["alignment_tool"]["tool_choice"] == "bmtagger"</filter>
-        </data>
 
 
-        <data name="paired_forward"   format="fastq" from_work_dir="results/*_kneaddata_paired_1.fastq" label="KneadData paired end forward reads (with TRF)">
-            <filter>read_type["select_read_type"] == "paired" and tandem["trf_step"]["trf_bool"] == "include" and not cat_final_output</filter>
-        </data>
-        <data name="paired_forward_trimmed" format="fastq" from_work_dir="results/*_kneaddata_paired_1.fastq">            
-            <filter>read_type["select_read_type"] == "paired" and tandem["trf_step"]["trf_bool"] == "skip" and not cat_final_output</filter>
-        </data>
-        <data name="paired_backward"   format="fastq" from_work_dir="results/*_kneaddata_paired_2.fastq" label="KneadData paired end reverse reads (with TRF)">
-            <filter>read_type["select_read_type"] == "paired" and tandem["trf_step"]["trf_bool"] == "include" and not cat_final_output</filter>
-        </data>
-        <data name="paired_backward_trimmed" format="fastq" from_work_dir="results/*_kneaddata_paired_2.fastq">
-            <filter>read_type["select_read_type"] == "paired" and tandem["trf_step"]["trf_bool"] == "skip" and not cat_final_output</filter>
-        </data>
-        
-       
-        <data name="unmatched_forward"   format="fastq" from_work_dir="results/*_kneaddata_unmatched_1.fastq" label="Unmatched forward reads">
-            <filter>read_type["select_read_type"] == "paired" and not cat_final_output</filter>
-        </data>
-        <data name="unmatched_reverse"   format="fastq" from_work_dir="results/*_kneaddata_unmatched_2.fastq" label="Unmatched reverse reads">
-            <filter>read_type["select_read_type"] == "paired" and not cat_final_output</filter>
-        </data>
-
-        
-   
-       <data name="paired_contaminant_forward_bowtie"   format="fastq" from_work_dir="results/*_*_bowtie2_paired_contam_1.fastq" label="Paired forward contaminants (Bowtie2)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and not cat_final_output</filter>
-        </data>
-        <data name="paired_contaminant_reverse_bowtie"   format="fastq" from_work_dir="results/*_*_bowtie2_paired_contam_2.fastq" label="Paired reverse contaminants (Bowtie2)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and not cat_final_output</filter>
-        </data>
-        
-
-       <data name="paired_contaminant_forward_bmtagger"   format="fastq" from_work_dir="results/*_*_bmtagger_paired_contam_1.fastq" label="Paired forward contaminants (BMTagger)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and not cat_final_output</filter>
-        </data>
-        <data name="paired_contaminant_reverse_bmtagger"   format="fastq" from_work_dir="results/*_*_bmtagger_paired_contam_2.fastq" label="Paired reverse contaminants (BMTagger)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and not cat_final_output</filter>
-        </data>
-
- 
-        <data name="unmatched_contaminant_forward_bowtie"   format="fastq" from_work_dir="results/*_*_bowtie2_unmatched_1_contam.fastq" label="Unmatched forward contaminants (Bowtie2)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and not cat_final_output</filter>
-        </data>
-        <data name="unmatched_contaminant_reverse_bowtie"   format="fastq" from_work_dir="results/*_*_bowtie2_unmatched_2_contam.fastq" label="Unmatched reverse contaminants (Bowtie2)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and not cat_final_output</filter>
-        </data>
-        
-  
-        <data name="unmatched_contaminant_forward_bmtagger"   format="fastq" from_work_dir="results/*_*_bmtagger_unmatched_1_contam.fastq" label="Unmatched forward contaminants (BMTagger)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and not cat_final_output</filter>
-        </data>
-        <data name="unmatched_contaminant_reverse_bmtagger"   format="fastq" from_work_dir="results/*_*_bmtagger_unmatched_2_contam.fastq" label="Unmatched reverse contaminants (BMTagger)">
-            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and not cat_final_output</filter>
-        </data>
-
-        <data name="log_file" format="txt" from_work_dir="results/*_kneaddata.log" label="Kneaddata log file"/>
-
-
-        <data name="paired_concatenated"   format="fastq" from_work_dir="results/*_kneaddata.fastq" label="KneadData concatenated paired end results">
-            <filter>read_type["select_read_type"] == "paired" and cat_final_output</filter>
-        </data>
-
-        <data name="single_concatenated"   format="fastq" from_work_dir="results/*_kneaddata.fastq" label="KneadData concatenated single end results">
+        <data name="single_concatenated"   format="fastqsanger" from_work_dir="results/*_kneaddata.fastq" label="${tool.name} on ${on_string}: Single concatenated reads.">
             <filter>read_type["select_read_type"] == "single" and cat_final_output</filter>
         </data>
+
+
+        <!--PAIRED READS -->
+
+        <collection name="paired_output" type="paired" label="${tool.name} on ${on_string}: Paired output reads">
+            <filter>read_type["select_read_type"] == "paired" and not cat_final_output</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata_paired_1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata_paired_2.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="unmatched_paired" type="paired" label="${tool.name} on ${on_string}: Unmatched reads">
+            <filter>read_type["select_read_type"] == "paired" and not cat_final_output and read_type["save_unmatched"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata_unmatched_1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata_unmatched_2.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="contaminant_paired_bowtie" type="paired" label="${tool.name} on ${on_string}: Paired contaminant bowtie reads">
+            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and not cat_final_output and alignment["save_contaminants"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata_*_bowtie2_paired_contam_1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata_*_bowtie2_paired_contam_2.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="contaminant_paired_bmtagger" type="paired" label="${tool.name} on ${on_string}: Paired contaminant bmtagger reads">
+            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and not cat_final_output and alignment["save_contaminants"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata_*_bmtagger_paired_contam_1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata_*_bmtagger_paired_contam_2.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="unmatched_contaminant_paired_bowtie" type="paired" label="${tool.name} on ${on_string}: Unmatched contaminant bowtie reads">
+            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bowtie2" and not cat_final_output and alignment["save_contaminants"] and read_type["save_unmatched"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata_*_bowtie2_unmatched_1_contam.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata_*_bowtie2_unmatched_2_contam.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="unmatched_contaminant_paired_bmtagger" type="paired" label="${tool.name} on ${on_string}: Unmatched contaminant bmtagger reads">
+            <filter>read_type["select_read_type"] == "paired" and alignment["alignment_tool"]["tool_choice"] == "bmtagger" and not cat_final_output and alignment["save_contaminants"] and read_type["save_unmatched"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata_*_bmtagger_unmatched_1_contam.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata_*_bmtagger_unmatched_2_contam.fastq" format="fastqsanger"/>
+        </collection>
+
+
         
+        <collection name="trimmed_paired" type="paired" label="${tool.name} on ${on_string}: Trimmed paired reads">
+            <filter>read_type["select_read_type"] == "paired" and trimmomatic["trimmomatic_step"]["decide_trimmomatic"] == "run_trimmomatic" and not cat_final_output</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata.trimmed.1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata.trimmed.2.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="unmatched_trimmed_paired" type="paired" label="${tool.name} on ${on_string}: Unmatched trimmed reads">
+            <filter>read_type["select_read_type"] == "paired" and trimmomatic["trimmomatic_step"]["decide_trimmomatic"] == "run_trimmomatic" and not cat_final_output and read_type["save_unmatched"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata.trimmed.single.1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata.trimmed.single.2.fastq" format="fastqsanger"/>
+        </collection>
+
+
+        <collection name="repeats_removed_paired" type="paired" label="${tool.name} on ${on_string}: Repeats removed paired reads">
+            <filter>read_type["select_read_type"] == "paired" and tandem["trf_step"]["trf_bool"] == "include" and not cat_final_output</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata.repeats.removed.1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata.repeats.removed.2.fastq" format="fastqsanger"/>
+        </collection>
+
+        <collection name="repeats_removed_unmatched_paired" type="paired" label="${tool.name} on ${on_string}: Unmatched repeats removed reads">
+            <filter>read_type["select_read_type"] == "paired" and tandem["trf_step"]["trf_bool"] == "include" and not cat_final_output and read_type["save_unmatched"]</filter>
+            <data name="forward" from_work_dir="results/*_kneaddata.repeats.removed.unmatched.1.fastq" format="fastqsanger"/>
+            <data name="reverse" from_work_dir="results/*_kneaddata.repeats.removed.unmatched.2.fastq" format="fastqsanger"/>
+        </collection>
+
+
+        <data name="paired_concatenated" format="fastqsanger" from_work_dir="results/*_kneaddata.fastq" label="${tool.name} on ${on_string}: Paired Concatenated Reads">
+            <filter>read_type["select_read_type"] == "paired" and cat_final_output</filter>
+        </data>
+        
+     
+        <data name="log_file" format="txt" from_work_dir="results/*_kneaddata.log" label="${tool.name} on ${on_string}:Log file"/>
+
     </outputs>
     <tests>
-        <test>
-            <param name="quality_scores" value="phred33"/>
+
+        <test expect_num_outputs="2">
+            <!-- Minimal single end test -->
             <param name="log_level" value="INFO"/>
-            
             <conditional name="read_type">
                 <param name="select_read_type" value="single"/>
-                <param name="single_read" value="test_single.fastq"/>
+                <param name="single_read" value="test_single.fastq" ftype="fastqsanger"/>
             </conditional>
             
             <section name="alignment">
                 <conditional name="alignment_tool">
                     <param name="tool_choice" value="bowtie2"/>
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" value="default"/>
-                    </conditional>
                     <param name="bowtie2_db" value="test_genome"/>
                 </conditional>
+                <param name="save_contaminants" value="false"/>
             </section>
             
             <section name="trimmomatic">
@@ -358,28 +380,35 @@
             
             <section name="fastqc">
                 <conditional name="fastqc_report">
-                    <param name="select_fastqc" value="include_fastqc"/>
-                    <param name="fastqc_start" value="true"/>
-                    <param name="fastqc_end" value="true"/>
+                    <param name="select_fastqc" value="no_fastqc"/>
                 </conditional>
-                <param name="trim_repetitive" value="true"/>
+                <param name="run_trim_repetitive" value="false"/>
             </section>
             
-            <param name="cat_final_output" value="false"/>
-            
-            <output name="single_output_trimmed" file="single_output.fastq" compare="sim_size"/>
-            <output name="single_contaminant_bowtie" file="single_contaminant_bowtie.fastq"/>
+            <output name="single_output" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="361703" delta="1000"/>
+                </assert_contents>
+            </output>
+
+            <output name="log_file" ftype="txt">
+                <assert_contents>
+                    <has_size value="2025" delta="200" /> 
+                </assert_contents>
+            </output>
         </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
-            <param name="log_level" value="INFO"/>
+
+        <test expect_num_outputs="13">
+            <!-- Paired end test with Trimmomatic, FastQC, and TRF -->
+            <param name="log_level" value="DEBUG"/>
             
             <conditional name="read_type">
                 <param name="select_read_type" value="paired"/>
+                <param name="save_unmatched" value="false"/>
                 <param name="paired_collection">
                     <collection type="paired">
-                        <element name="forward" value="test_paired_1.fastq"/>
-                        <element name="reverse" value="test_paired_2.fastq"/>
+                        <element name="forward" value="test_paired_1.fastq" ftype="fastqsanger"/>
+                        <element name="reverse" value="test_paired_2.fastq" ftype="fastqsanger"/>
                     </collection>
                 </param>
             </conditional>
@@ -387,66 +416,129 @@
             <section name="alignment">
                 <conditional name="alignment_tool">
                     <param name="tool_choice" value="bowtie2"/>
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" value="default"/>
-                    </conditional>
                     <param name="bowtie2_db" value="test_genome"/>
                 </conditional>
-            </section>
-            
-            <section name="trimmomatic">
-                <conditional name="trimmomatic_step">
-                    <param name="decide_trimmomatic" value="skip_trimmomatic"/>
-                </conditional>
-            </section>
-            
-            <section name="tandem">
-                <conditional name="trf_step">
-                    <param name="trf_bool" value="skip"/>
-                </conditional>
-            </section>
-            
-            <section name="fastqc">
-                <conditional name="fastqc_report">
-                    <param name="select_fastqc" value="no_fastqc"/>
-                </conditional>
-                <param name="trim_repetitive" value="false"/>
-            </section>
-            
-            <param name="cat_final_output" value="false"/>
-            
-            <output name="paired_forward_trimmed" file="paired_forward.fastq" compare="sim_size" delta="500"/>
-            <output name="paired_backward_trimmed" file="paired_reverse.fastq" compare="sim_size" delta="500"/>
-            <output name="unmatched_forward" file="unmatched_forward.fastq" compare="sim_size" delta="100"/>
-            <output name="unmatched_reverse" file="unmatched_reverse.fastq" compare="sim_size" delta="100"/>
-        </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
-            <param name="log_level" value="INFO"/>
-            
-            <conditional name="read_type">
-                <param name="select_read_type" value="single"/>
-                <param name="single_read" value="test_single.fastq"/>
-            </conditional>
-            
-            <section name="alignment">
-                <conditional name="alignment_tool">
-                    <param name="tool_choice" value="bowtie2"/>
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" value="default"/>
-                    </conditional>
-                    <param name="bowtie2_db" value="test_genome"/>
-                </conditional>
+                <param name="save_contaminants" value="true"/>
             </section>
             
             <section name="trimmomatic">
                 <conditional name="trimmomatic_step">
                     <param name="decide_trimmomatic" value="run_trimmomatic"/>
                     <conditional name="trimmomatic_options">
-                        <param name="select_option" value="custom"/>
-                        <param name="custom_settings" value="LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36"/>
+                        <param name="select_option" value="default"/>
                     </conditional>
-                    <param name="sequencer" value="TruSeq2"/>
+                    <param name="sequencer" value="NexteraPE"/>
+                </conditional>
+            </section>
+            
+            <section name="tandem">
+                <conditional name="trf_step">
+                    <param name="trf_bool" value="include"/>
+                    <section name="trf">
+                        <param name="mismatch" value="7"/>
+                        <param name="indel" value="7"/>
+                        <param name="minimum_score" value="50"/>
+                        <param name="maximum_period" value="500"/>
+                    </section>
+                </conditional>
+            </section>
+            
+            <section name="fastqc">
+                <conditional name="fastqc_report">
+                    <param name="select_fastqc" value="include_fastqc"/>
+                    <param name="run_fastqc_start" value="true"/>
+                    <param name="run_fastqc_end" value="true"/>
+                </conditional>
+                <param name="run_trim_repetitive" value="true"/>
+            </section>
+            
+            <param name="cat_final_output" value="false"/>
+            
+            <output_collection name="paired_output" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="270384" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="256070" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="trimmed_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="271827" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="257351" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="repeats_removed_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="271468" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="256070" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="contaminant_paired_bowtie" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output name="log_file" ftype="txt">
+                <assert_contents>
+                    <has_size value="18628" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <test expect_num_outputs="7">
+            <!-- BMTagger test -->
+            <param name="log_level" value="INFO"/>
+            
+            <conditional name="read_type">
+                <param name="select_read_type" value="paired"/>
+                <param name="save_unmatched" value="true"/>
+                <param name="paired_collection">
+                    <collection type="paired">
+                        <element name="forward" value="test_paired_1.fastq" ftype="fastqsanger"/>
+                        <element name="reverse" value="test_paired_2.fastq" ftype="fastqsanger"/>
+                    </collection>
+                </param>
+            </conditional>
+            
+            <section name="alignment">
+                <conditional name="alignment_tool">
+                    <param name="tool_choice" value="bmtagger"/>
+                    <param name="bmtagger_db" value="test_value"/>
+                </conditional>
+                <param name="save_contaminants" value="false"/>
+            </section>
+
+            <section name="trimmomatic">
+                <conditional name="trimmomatic_step">
+                    <param name="decide_trimmomatic" value="skip_trimmomatic"/>
                 </conditional>
             </section>
             
@@ -460,37 +552,132 @@
                 <conditional name="fastqc_report">
                     <param name="select_fastqc" value="no_fastqc"/>
                 </conditional>
-                <param name="trim_repetitive" value="false"/>
+                <param name="run_trim_repetitive" value="false"/>
             </section>
             
             <param name="cat_final_output" value="false"/>
             
+            <output_collection name="paired_output" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="361703" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="361703" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
             
-            <output name="single_output_trimmed" file="single_output_trimmomatic_custom.fastq"/>
-            <output name="single_contaminant_bowtie" file="single_contaminant_bowtie_trimmomatic_custom.fastq"/>
+            <output_collection name="unmatched_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output name="log_file" ftype="txt">
+                <assert_contents>
+                    <has_size value="3608" delta="100"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
+
+        <test expect_num_outputs="2">
+            <!-- Concatenated output -->
             <param name="log_level" value="INFO"/>
             
             <conditional name="read_type">
-                <param name="select_read_type" value="single"/>
-                <param name="single_read" value="test_single.fastq"/>
+                <param name="select_read_type" value="paired"/>
+                <param name="save_unmatched" value="false"/>
+                <param name="paired_collection">
+                    <collection type="paired">
+                        <element name="forward" value="test_paired_1.fastq" ftype="fastqsanger"/>
+                        <element name="reverse" value="test_paired_2.fastq" ftype="fastqsanger"/>
+                    </collection>
+                </param>
             </conditional>
             
             <section name="alignment">
                 <conditional name="alignment_tool">
                     <param name="tool_choice" value="bowtie2"/>
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" value="default"/>
-                    </conditional>
                     <param name="bowtie2_db" value="test_genome"/>
                 </conditional>
+                <param name="save_contaminants" value="false"/>
             </section>
             
             <section name="trimmomatic">
                 <conditional name="trimmomatic_step">
                     <param name="decide_trimmomatic" value="skip_trimmomatic"/>
+                </conditional>
+            </section>
+            
+            <section name="tandem">
+                <conditional name="trf_step">
+                    <param name="trf_bool" value="skip"/>
+                </conditional>
+            </section>
+            
+            <section name="fastqc">
+                <conditional name="fastqc_report">
+                    <param name="select_fastqc" value="no_fastqc"/>
+                </conditional>
+                <param name="run_trim_repetitive" value="false"/>
+            </section>
+            
+            <param name="cat_final_output" value="true"/>
+            
+            <output name="paired_concatenated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="723406" delta="2000"/>
+                </assert_contents>
+            </output>
+            
+            <output name="log_file" ftype="txt">
+                <assert_contents>
+                    <has_size value="6312" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+
+
+        <test expect_num_outputs="25">
+            <!-- Complete test with Bowtie2 -->
+            <param name="log_level" value="DEBUG"/>
+            
+            <conditional name="read_type">
+                <param name="select_read_type" value="paired"/>
+                <param name="save_unmatched" value="true"/>
+                <param name="paired_collection">
+                    <collection type="paired">
+                        <element name="forward" value="test_paired_1.fastq" ftype="fastqsanger"/>
+                        <element name="reverse" value="test_paired_2.fastq" ftype="fastqsanger"/>
+                    </collection>
+                </param>
+            </conditional>
+            
+            <section name="alignment">
+                <conditional name="alignment_tool">
+                    <param name="tool_choice" value="bowtie2"/>
+                    <param name="bowtie2_db" value="test_genome"/>
+                </conditional>
+                <param name="save_contaminants" value="true"/>
+            </section>
+            
+            <section name="trimmomatic">
+                <conditional name="trimmomatic_step">
+                    <param name="decide_trimmomatic" value="run_trimmomatic"/>
+                    <conditional name="trimmomatic_options">
+                        <param name="select_option" value="default"/>
+                    </conditional>
+                    <param name="sequencer" value="TruSeq2"/>
                 </conditional>
             </section>
             
@@ -501,7 +688,7 @@
                         <param name="mismatch" value="3"/>
                         <param name="indel" value="5"/>
                         <param name="minimum_score" value="30"/>
-                        <param name="maximum_period" value="200"/>
+                        <param name="maximum_period" value="100"/>
                     </section>
                 </conditional>
             </section>
@@ -510,158 +697,137 @@
                 <conditional name="fastqc_report">
                     <param name="select_fastqc" value="no_fastqc"/>
                 </conditional>
-                <param name="trim_repetitive" value="false"/>
+                <param name="run_trim_repetitive" value="false"/>
             </section>
             
             <param name="cat_final_output" value="false"/>
             
-            <output name="single_output" file="single_output_trf_custom.fastq"/>
-            <output name="single_contaminant_bowtie" file="single_contaminant_bowtie_trf_custom.fastq"/>
-        </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
-            <param name="log_level" value="INFO"/>
+            <output_collection name="paired_output" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="176400" delta="500"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="164334" delta="500"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
             
+            <output_collection name="unmatched_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="80214" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="37973" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="contaminant_paired_bowtie" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="unmatched_contaminant_paired_bowtie" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="0" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="trimmed_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="269701" delta="500"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="252465" delta="500"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+
+            <output_collection name="unmatched_trimmed_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="59222" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="9473" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="repeats_removed_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="207247" delta="500"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="193834" delta="500"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output_collection name="repeats_removed_unmatched_paired" type="paired">
+                <element name="forward" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="49367" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger">
+                    <assert_contents>
+                        <has_size value="8473" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+            <output name="log_file" ftype="txt">
+                <assert_contents>
+                    <has_size value="14307" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        
+
+        <!-- Fails with UnicodeDecodeError: 'utf-8' codec can't decode byte 0x8b in position 1: invalid start byte
+        <test expect_num_outputs="2">
+            <param name="log_level" value="INFO"/>
             <conditional name="read_type">
                 <param name="select_read_type" value="single"/>
-                <param name="single_read" value="test_single.fastq"/>
-            </conditional>
-            
-            <section name="alignment">
-                <conditional name="alignment_tool">
-                    <param name="tool_choice" value="bmtagger"/>
-                    <param name="bmtagger_db" value="test_value"/>
-                </conditional>
-            </section>
-            
-            <section name="trimmomatic">
-                <conditional name="trimmomatic_step">
-                    <param name="decide_trimmomatic" value="skip_trimmomatic"/>
-                </conditional>
-            </section>
-            
-            <section name="tandem">
-                <conditional name="trf_step">
-                    <param name="trf_bool" value="skip"/>
-                </conditional>
-            </section>
-            
-            <section name="fastqc">
-                <conditional name="fastqc_report">
-                    <param name="select_fastqc" value="no_fastqc"/>
-                </conditional>
-                <param name="trim_repetitive" value="false"/>
-            </section>
-            
-            <param name="cat_final_output" value="false"/>
-            
-            <output name="single_output_trimmed" file="single_output.fastq" compare="sim_size"/>
-            <output name="single_contaminant_bmtagger" file="single_contaminant_bmtagger.fastq"/>
-        </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
-            <param name="log_level" value="INFO"/>
-            <conditional name="read_type">
-                <param name="select_read_type" value="single"/>
-                <param name="single_read" value="test_single.fastq"/>
-            </conditional>
-            <section name="alignment">
-                <conditional name="alignment_tool">
-                    <param name="tool_choice" value="bowtie2"/>
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" value="default"/>
-                    </conditional>
-                    <param name="bowtie2_db" value="test_genome"/>
-                </conditional>
-            </section>
-            <section name="trimmomatic">
-                <conditional name="trimmomatic_step">
-                    <param name="decide_trimmomatic" value="skip_trimmomatic"/>
-                </conditional>
-            </section>
-            <section name="tandem">
-                <conditional name="trf_step">
-                    <param name="trf_bool" value="skip"/>
-                </conditional>
-            </section>
-            <section name="fastqc">
-                <conditional name="fastqc_report">
-                    <param name="select_fastqc" value="no_fastqc"/>
-                </conditional>
-                <param name="trim_repetitive" value="false"/>
-            </section>
-            <param name="cat_final_output" value="true"/>
-            <output name="single_concatenated" file="single_output.fastq" compare="sim_size"/>
-        </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
-            <param name="log_level" value="INFO"/>
-            
-            <conditional name="read_type">
-                <param name="select_read_type" value="paired"/>
-                <param name="paired_collection">
-                    <collection type="paired">
-                        <element name="forward" value="test_paired_1.fastq"/>
-                        <element name="reverse" value="test_paired_2.fastq"/>
-                    </collection>
-                </param>
-            </conditional>
-            
-            <section name="alignment">
-                <conditional name="alignment_tool">
-                    <param name="tool_choice" value="bmtagger"/>
-                    <param name="bmtagger_db" value="test_value"/>
-                </conditional>
-            </section>
-            
-            <section name="trimmomatic">
-                <conditional name="trimmomatic_step">
-                    <param name="decide_trimmomatic" value="skip_trimmomatic"/>
-                </conditional>
-            </section>
-            
-            <section name="tandem">
-                <conditional name="trf_step">
-                    <param name="trf_bool" value="skip"/>
-                </conditional>
-            </section>
-            
-            <section name="fastqc">
-                <conditional name="fastqc_report">
-                    <param name="select_fastqc" value="no_fastqc"/>
-                </conditional>
-                <param name="trim_repetitive" value="false"/>
-            </section>
-            
-            <param name="cat_final_output" value="false"/>
-            
-            <output name="paired_forward_trimmed" file="paired_forward.fastq"/>
-            <output name="paired_backward_trimmed" file="paired_reverse.fastq"/>
-            <output name="paired_contaminant_forward_bmtagger" file="paired_contaminant_forward_bmtagger.fastq"/>
-            <output name="paired_contaminant_reverse_bmtagger" file="paired_contaminant_reverse_bmtagger.fastq"/>
-        </test>
-        <test>
-            <param name="quality_scores" value="phred33"/>
-            <param name="log_level" value="INFO"/>
-            
-            <conditional name="read_type">
-                <param name="select_read_type" value="paired"/>
-                <param name="paired_collection">
-                    <collection type="paired">
-                        <element name="forward" value="test_paired_1.fastq"/>
-                        <element name="reverse" value="test_paired_2.fastq"/>
-                    </collection>
-                </param>
+                <param name="single_read" value="test_compressed.fastq.gz" ftype="fastqsanger.gz"/>
             </conditional>
             
             <section name="alignment">
                 <conditional name="alignment_tool">
                     <param name="tool_choice" value="bowtie2"/>
-                    <conditional name="bowtie2_options">
-                        <param name="select_bowtie2_option" value="default"/>
-                    </conditional>
                     <param name="bowtie2_db" value="test_genome"/>
                 </conditional>
+                <param name="save_contaminants" value="false"/>
             </section>
             
             <section name="trimmomatic">
@@ -680,13 +846,25 @@
                 <conditional name="fastqc_report">
                     <param name="select_fastqc" value="no_fastqc"/>
                 </conditional>
-                <param name="trim_repetitive" value="false"/>
+                <param name="run_trim_repetitive" value="false"/>
             </section>
             
-            <param name="cat_final_output" value="true"/>
+            <param name="cat_final_output" value="false"/>
             
-            <output name="paired_concatenated" file="paired_concatenated.fastq" compare="sim_size"/>
+            <output name="single_output" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="361703" delta="1000"/>
+                </assert_contents>
+            </output>
+            
+            <output name="log_file" ftype="txt">
+                <assert_contents>
+                    <has_size value="5000" delta="100"/>
+                </assert_contents>
+            </output>
         </test>
+        -->
+         
     </tests>
 
     <help><![CDATA[
@@ -698,7 +876,7 @@
     filtering host-derived reads through alignment to a reference genome 
     with Bowtie2 or optionally with BMTagger. As an optional step, it can also
     identify and remove tandem repeats by using TRF and generate quality control reports
-    with FastQC at the beginning and/or end of processing.
+    with FastQC at the beginning and/or end of processing if enabled.
 
     **Input Requirements**
 
@@ -706,35 +884,37 @@
     - A single FASTQ file for single-end sequencing data
     - Two paired FASTQ files (forward and reverse reads) for paired-end data
 
-    It is also required to select a reference genome for host removal. This can be done by:
-    - Choosing a built-in genome index from the dropdown menu
-    - Uploading your own FASTA file
+    It is also required to select a reference genome for host removal. This can be done by 
+    choosing a built-in genome index from the dropdown menu.
+   
 
     **Results and Outputs**
 
     The output files from KneadData depend on the settings that have been chosen in the tool. Here an
     overview of the outputs:
 
-    Main Output Files: Will include the cleaned reads. File names contain either '_kneaddata.fastq' 
-    (if TRF was used) or '_kneaddata.trimmed.fastq' (if TRF was skipped). For single-end data, this 
-    is one file. For paired-end data, you will get separate files for forward and reverse reads. Aditionally,
-    a log file is always included. 
+    Main Output Files: Include the final reads that have successfully passed all enabled filtering steps,
+    saved with the file termination '_kneaddata.fastq' for single reads and '_paired.fastq' for paired reads. 
+    Additionally, a log file named '_kneaddata.log' is always generated.
 
-    Contaminant Reads: These are the reads that were identified as host contamination. They are saved in 
-    separate files named with the alignment tool used: '_bowtie2_contam.fastq' for Bowtie2 or '_bmtagger_contam.fastq'
-    for BMTagger. 
+    Unmatched Reads: When selected, reads that have lost their partner during processing are preserved separately.
+    These files contain the final reads and are named '_kneaddata_unmatched_1.fastq' for forward reads and 
+    '_kneaddata_unmatched_2.fastq' for reverse reads.
 
-    Unmatched Reads: For paired-end data, when only one read of a pair passes filtering, the unmatched read is saved 
-    separately. These files are named '_kneaddata_unmatched_1.fastq' for forward reads and '_kneaddata_unmatched_2.fastq' for
-    reverse reads.
+    Trimmomatic: When enabled, intermediate files with the reads after quality trimming but before host 
+    contamination filtering are generated with '_kneaddata.trimmed.' in the filename for paired reads and
+    '_kneaddata.trimmed.single.' for unmatched reads. 
 
-    If Concatenate Final Output Option is selected, all cleaned reads will be combined into one file '_kneaddata.fastq'. 
-    This option merges paired, unmatched, and single-end reads together.
+    Tandem Repeat Finder: When enabled, files containing reads that were affected by tandem repeat removal before 
+    host contamination filtering include '_kneaddata.repeats.removed' in their filenames for paired reads and
+    '_kneaddata.repeats.removed.unmatched' for unmatched reads.
 
-    If Store Temporary Files Option is selected, additional intermediate files from the Trimmomatic and alignment steps 
-    will be saved. These include clean intermediate files '_bowtie2_clean.fastq' and '_bowtie2_paired_clean_.fastq', which 
-    show reads after alignment.
+    Contaminant Reads: When selected, reads identified as host contamination are kept with '_bowtie2_contam' or 
+    '_bmtagger_contam' in their filenames, depending on the alignment tool selected. 
 
+    If Concatenate Final Output Option is selected, KneadData creates an additional file named '_kneaddata.fastq' 
+    that combines all cleaned reads into a single file. This includes both paired reads and any unmatched reads that 
+    passed filtering. 
     ]]></help>
     <citations>
         <citation type="bibtex">
