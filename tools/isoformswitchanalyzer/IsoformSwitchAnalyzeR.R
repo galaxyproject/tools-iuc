@@ -45,6 +45,15 @@ parser$add_argument("--replicate",
     required = FALSE,
     help = "Replicates"
 )
+parser$add_argument("--cofactors",
+    action = "append",
+    required = FALSE,
+    help = "Cofactors (comma-separated values)"
+)
+parser$add_argument("--cofactorNames",
+    required = FALSE,
+    help = "Cofactor names (comma-separated)"
+)
 parser$add_argument("--readLength",
     required = FALSE,
     type = "integer",
@@ -382,22 +391,68 @@ if (args$modeSelector == "data_import") {
 
     if (!args$pairedSamples) {
         ### Make design matrix
-        myDesign <- data.frame(
-            sampleID = args$sampleID,
-            condition = args$condition
-        )
+        if (!is.null(args$cofactors)) {
+            # Split comma-separated cofactor values for each sample
+            cofactor_list <- lapply(args$cofactors, function(x) {
+                strsplit(x, ",")[[1]]
+            })
+
+            cofactor_names <- strsplit(as.character(args$cofactorNames), ",")[[1]]
+
+            # Create design matrix with cofactors as additional columns
+            myDesign <- data.frame(
+                sampleID = args$sampleID,
+                condition = args$condition
+            )
+
+            # Add cofactor columns with actual names
+            for (i in seq_along(cofactor_names)) {
+                cofactor_col <- sapply(cofactor_list, function(x) x[i])
+                myDesign[[cofactor_names[i]]] <- cofactor_col
+            }
+        } else {
+            myDesign <- data.frame(
+                sampleID = args$sampleID,
+                condition = args$condition
+            )
+        }
     } else {
-        myDesign <- data.frame(
-            sampleID = args$sampleID,
-            condition = args$condition,
-            replicate = args$replicate
-        )
+        if (!is.null(args$cofactors)) {
+            # Split comma-separated cofactor values for each sample
+            cofactor_list <- lapply(args$cofactors, function(x) {
+                strsplit(x, ",")[[1]]
+            })
+
+            cofactor_names <- strsplit(as.character(args$cofactorNames), ",")[[1]]
+
+            # Create design matrix with cofactors as additional columns
+            myDesign <- data.frame(
+                sampleID = args$sampleID,
+                condition = args$condition,
+                replicate = args$replicate
+            )
+
+            # Add cofactor columns with actual names
+            for (i in seq_along(cofactor_names)) {
+                cofactor_col <- sapply(cofactor_list, function(x) x[i])
+                myDesign[[cofactor_names[i]]] <- cofactor_col
+            }
+        } else {
+            myDesign <- data.frame(
+                sampleID = args$sampleID,
+                condition = args$condition,
+                replicate = args$replicate
+            )
+        }
     }
 
     comparisons <- as.data.frame(cbind(
         condition_1 = myDesign$condition[1],
         condition_2 = myDesign$condition[length(myDesign$condition)]
     ))
+
+    print("Design matrix:")
+    print(myDesign)
 
     if (args$toolSource == "stringtie") {
         if (!is.null(args$stringtieAnnotation)) {
