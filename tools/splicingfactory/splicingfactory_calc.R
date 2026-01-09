@@ -7,6 +7,14 @@
 # - tximport (RDS list)
 # - rds (R object: SummarizedExperiment or tximport list)
 
+library("optparse", quietly = TRUE, warn.conflicts = FALSE)
+library("SplicingFactory", quietly = TRUE, warn.conflicts = FALSE)
+library("ggplot2", quietly = TRUE, warn.conflicts = FALSE)
+library("SplicingFactory", quietly = TRUE, warn.conflicts = FALSE)
+library("SummarizedExperiment", quietly = TRUE, warn.conflicts = FALSE)
+library("reshape2", quietly = TRUE, warn.conflicts = FALSE)
+
+
 options(
   show.error.messages = FALSE,
   error = function() {
@@ -39,6 +47,7 @@ option_list <- list(
     default = "auto",
     help = "auto|matrix|tximport|rds (default: auto)"
   ),
+
   make_option(
     c("-t", "--tx2gene"),
     type = "character",
@@ -119,6 +128,7 @@ option_list <- list(
 
 opt <- parse_args(OptionParser(option_list = option_list))
 
+# Check required options (e.g., input)
 if (is.null(opt$input)) {
   cat("--input is required\n", file = stderr())
   q(status = 1)
@@ -128,6 +138,36 @@ verbose <- opt$verbose
 if (verbose) {
   cat("Input:", opt$input, "type:", opt$input_type, "\n")
 }
+
+# Detect the input type
+input_type <- opt$input_type
+if (input_type == "auto") {
+  # try to read RDS first
+  rds_obj <- tryCatch(readRDS(opt$input), error = function(e) NULL)
+  if (!is.null(rds_obj)) {
+    input_type <- "rds"
+    if (verbose) {
+      cat("Detected RDS input.\n")
+    }
+  } else {
+    input_type <- "matrix"
+    if (verbose) {
+      cat("Assuming TSV matrix input.\n")
+    }
+  }
+}
+
+#  Check for tx2gene dependency based on input type
+if (is.null(opt$tx2gene)) {
+    if (input_type == "matrix") {
+        stop("For matrix input, --tx2gene is required")
+    } else if (input_type == "tximport") {
+        stop("tx2gene mapping is required for tximport list input")
+    }
+}
+
+
+
 
 # helper to read TSV with optional gz
 read_tsv_matrix <- function(path) {
@@ -169,24 +209,6 @@ read_tx2gene <- function(path) {
     stop("tx2gene must have at least two columns: transcript and gene")
   }
   setNames(as.character(m[[2]]), as.character(m[[1]]))
-}
-
-# detect/read input
-input_type <- opt$input_type
-if (input_type == "auto") {
-  # try RDS first
-  rds_obj <- tryCatch(readRDS(opt$input), error = function(e) NULL)
-  if (!is.null(rds_obj)) {
-    input_type <- "rds"
-    if (verbose) {
-      cat("Detected RDS input.\n")
-    }
-  } else {
-    input_type <- "matrix"
-    if (verbose) {
-      cat("Assuming TSV matrix input.\n")
-    }
-  }
 }
 
 expr <- NULL
@@ -267,16 +289,6 @@ pkg_load <- function(pkg) {
     q(status = 1)
   }
 }
-pkg_load("SplicingFactory")
-pkg_load("SummarizedExperiment")
-pkg_load("ggplot2")
-pkg_load("reshape2")
-suppressPackageStartupMessages({
-  library(SplicingFactory)
-  library(SummarizedExperiment)
-  library(ggplot2)
-  library(reshape2)
-})
 
 # Prepare genes vector for matrix/tximport cases
 if (!is.null(expr) && is.matrix(expr)) {
