@@ -188,7 +188,7 @@ def main():
 
     data_manager_entry = {
         'data_tables': {
-            'indexed_maf_files': {
+            'maf_indexes': {
                 'name': display_name,
                 'dbkey': options.dbkey,  # This is needed for the output path
                 'value': uid,
