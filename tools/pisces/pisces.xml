@@ -1,0 +1,668 @@
+<?xml version="1.0"?>
+<tool id="pisces_pisces" name="Pisces" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="18.01">
+    <description>variant caller for somatic and germline NGS Data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## skipped --help/-h, --version/-v, --repeatfilter_toberetired, --baselogname
+
+## preprocessing
+#set $bamlist = ''
+#set $genomelist = ''
+#set $intervallist = ''
+mkdir 'data' &&
+#for $i, $current in enumerate($input_rep)
+    ## samples
+    ln -s '${current.bam}' 'data/sample_${i}.bam' &&
+    ln -s '${current.bam.metadata.bam_index}' 'data/sample_${i}.bam.bai' &&
+    #set $bamlist = $bamlist + 'data/sample_' + str($i) + '.bam' + ','
+    ## process genome to create GenomeSize.xml, requires separate folders
+    mkdir 'data/genome_${i}' &&    
+    ln -s '${current.genome}' 'data/genome_${i}/genome.fasta' &&
+    #set $genomelist = $genomelist + 'data/genome_' + str($i) + ','
+    /home/stephan/Projects/tools/pisces/All_5.3.0.0/CreateGenomeSizeFile ## TODO
+    -g 'data/genome_${i}'
+    -s '${current.genome_description}'
+    -o 'data/genome_${i}' && ## --out, --outfolder    
+    ## intervals
+    #if $current.intervalpaths
+        ln -s '${current.intervalpaths}' 'data/interval_${i}.txt' &&
+        #set $intervallist = $intervallist + 'data/interval_' + str($i) + '.txt' + ','
+    #end if
+#end for
+#if $co.mode_cond.mode_sel == '--forcedalleles'
+    mkdir forcedalleles &&
+    #if $co.mode_cond.forcedalleles
+        #for $i, $current in enumerate($co.mode_cond.forcedalleles)
+            ln -s '${current}' 'forcedalleles/forcedalleles_${i}.vcf' &&
+        #end for
+    #end if
+#end if
+#if $co.collapse_cond.collapse_sel == '--collapse true' and $co.collapse_cond.priorspath
+    mkdir priorspath &&
+    ln -s '${co.collapse_cond.priorspath}' 'priorspath/priorspath.vcf' &&
+#end if
+
+## run
+/home/stephan/Projects/tools/pisces/All_5.3.0.0/Pisces ## TODO
+## required
+--genomepaths '${genomelist[:-1]}' ## -g, --genomefolders
+--bampaths '${bamlist[:-1]}' ## -b, --bam
+#if $intervallist != ''
+    --intervalpaths '${intervallist[:-1]}' ## -i
+#end if
+## common
+$co.mode_cond.mode_sel ## --forcedalleles | --crushvcf true
+#if $co.mode_cond.mode_sel == '--forcedalleles'
+    'forcedalleles'
+#end if
+$co.callmnvs_cond.callmnvs_sel
+#if $co.callmnvs_cond.callmnvs_sel == '--callmnvs true'
+    --maxmnvlength $co.callmnvs_cond.maxmnvlength
+    --maxgapbetweenmnv $co.callmnvs_cond.maxgapbetweenmnv ## --maxrefgapinmnv
+#end if
+#if 'ab' in $oo.out or 'rsb' in $oo.out
+    --outputsbfiles true
+#end if
+#if $co.chrfilter == ''
+    --threadbychr true ## also splits *.AmpliconBias.csv and *.ReadStrandBias.txt by chromosome (--outputsbfiles true, --collapse true, --insidesubprocess false), not compatible with --chrfilter
+#end if
+$co.collapse_cond.collapse_sel
+#if $co.collapse_cond.collapse_sel == '--collapse true'
+    --collapsefreqthreshold $co.collapse_cond.collapsefreqthreshold
+    --collapsefreqratiothreshold $co.collapse_cond.collapsefreqratiothreshold
+    #if $co.collapse_cond.priorspath
+        --priorspath 'priorspath/priorspath.vcf'
+    #end if
+    $co.collapse_cond.trimmnvpriors
+#end if
+--coveragemethod $co.coveragemethod
+--debug false
+$co.usestitchedxd
+--trackedanchorsize $co.trackedanchorsize
+--insidesubprocess false
+--multiprocess true
+#if $co.chrfilter != ''
+    --chrfilter '$co.chrfilter'
+#end if
+--outfolder 'results' ## -o
+--maxthreads \${GALAXY_SLOTS:-4} ## -t, --maxnumthreads
+## bam filtering
+@BAM_FILTERING@
+## variant calling
+@VARIANT_CALLING@
+## vcf writer and output
+$oo.gvcf
+$oo.reportnocalls
+$oo.reportrccounts
+$oo.reporttscounts
+$oo.reportsuspiciouscoveragefraction
+
+## postprocessing
+## merge different chromosomes of AmpliconBias per sample and include header only once
+#if 'ab' in $oo.out
+    #for $i in range(len($input_rep))
+        && find 'results' -name 'sample_${i}*AmpliconBias*' -print0 | xargs -0 awk 'NR==1 {header=\$_} FNR==1 && NR!=1 { \$_ ~ \$header getline; } {print}' > 'results/sample_${i}.ab.csv'
+    #end for
+#end if
+## merge different chromosomes of ReadStrandBias per sample and include header only once
+#if 'rsb' in $oo.out
+    #for $i in range(len($input_rep))
+        && find 'results' -name 'sample_${i}*ReadStrandBias*' -print0 | xargs -0 awk 'NR==1 {header=\$_} FNR==1 && NR!=1 { \$_ ~ \$header getline; } {print}' > 'results/sample_${i}.rsb.txt'
+    #end for
+#end if
+## GenomeSize.xml for each sample
+#if 'gs' in $oo.out
+    #for $i in range(len($input_rep))
+        && mv 'data/genome_${i}/GenomeSize.xml' 'results/sample_${i}.GenomeSize.xml'
+    #end for
+#end if
+
+&& ls data -lisa ## TODO
+&& ls results -lisa
+    ]]></command>
+    <inputs>
+        <repeat name="input_rep" title="Input data" min="1">
+            <!-- CreateGenomeSizeFile.dll -->
+            <expand macro="genome" help="; Pisces -g, --genomepaths, --genomefolders"/>
+            <expand macro="genome_description"/>
+            <!-- GeminiMulti.dll -->
+            <expand macro="bam" label="Select sample file" help="(-b, --bam, --bampaths)"/>
+            <param name="intervalpaths" type="data" format="tabular" optional="true" label="Select interval file" help="(-i, --intervalpaths)"/>        
+        </repeat>
+        <section name="co" title="Common options" expanded="true">            
+            <conditional name="mode_cond">
+                <param name="mode_sel" type="select" label="Select mode">
+                    <option value="" selected="true">None</option>
+                    <option value="--crushvcf true">Crush VCF to one line per loci (--crushvcf)</option>
+                    <option value="--forcedalleles">Select file with forced alleles (--forcedalleles)</option>
+                </param>
+                <when value=""/>
+                <when value="--crushvcf true"/>
+                <when value="--forcedalleles">
+                    <param argument="--forcedalleles" type="data" format="vcf" multiple="true" label="Select file with alleles that are forced to report"/>
+                </when>
+            </conditional>
+            <conditional name="callmnvs_cond">
+                <param name="callmnvs_sel" type="select" label="Call multiple nucleotide variants?" help="MNVs a.k.a. phased SNPs (--callmnvs)">
+                    <option value="--callmnvs false" selected="true">No</option>
+                    <option value="--callmnvs true">Yes</option>
+                </param>
+                <when value="--callmnvs false"/>
+                <when value="--callmnvs true">
+                    <param argument="--maxmnvlength" type="integer" min="1" max="1000" value="3" label="Set maximum length for MNVs"/>
+                    <param name="maxgapbetweenmnv" type="integer" min="0" value="1" label="Set maximum allowed gap between phased SNPs that can be called" help="Maximum length of reference span contained in MNV. (--maxgapbetweenmnv, --maxrefgapinmnv)"/>
+                </when>
+            </conditional>
+            <conditional name="collapse_cond">
+                <param name="collapse_sel" type="select" multiple="false" label="Collapse variants together?">
+                    <option value="--collapse true" selected="true">Yes</option>
+                    <option value="--collapse false">No</option>
+                </param>
+                <when value="--collapse true">
+                    <param argument="--collapsefreqthreshold" type="float" min="0.0" max="1.0" value="0.0" label="Set minimum frequency required for target variants"/>
+                    <param argument="--collapsefreqratiothreshold" type="float" min="0.0" max="1.0" value="0.5" label="Set minimum ratio required of target variant frequency to collapsible variant frequency"/>
+                    <param argument="--priorspath" type="data" format="vcf" optional="true" label="Select file containing known variants" help="To preferentially reconcile variants."/>
+                    <param argument="--trimmnvpriors" type="boolean" truevalue="--trimmnvpriors true" falsevalue="--trimmnvpriors false" label="Trim preceeding base from MNVs in priors file?" help="COSMIC convention is to include preceeding base for MNV, which is NOT the Pisces convention. So, if you are using -collapse and -priorsFile and your file defies Pisces MNV convention you need this."/>
+                </when>
+                 <when value="--collapse false"/>
+            </conditional>
+            <param argument="--coveragemethod" type="select" label="Select coverage method">
+                <option value="approximate" selected="true">approximate</option>
+                <option value="exact">exact</option>
+            </param>
+            <param argument="--usestitchedxd" type="boolean" truevalue="--usestitchedxd true" falsevalue="--usestitchedxd false" label="Use stitched XD?" help="Make use of the consensus read-direction information (the XD tag) from stitched reads. This is on by default when using Stitcher output BAM, but must be deliberately set for Gemini output."/>
+            <param argument="--trackedanchorsize" type="integer" min="0" value="5" label="Set tracked anchor size" help="Maximum size of anchor to granularly track, when collecting reference coverage at insertion sites. If zero, all coverage counts equally. Higher values will yield more precise spanning coverage results but require more memory and compromise speed."/>
+            <param argument="--chrfilter" type="text" value="" optional="true" label="Set chromosomes to process" help="Comma-separated list, e.g. Chr1,Chr2."/>
+        </section>
+        <expand macro="bamfilteringoptions"/>
+        <expand macro="variantcallingoptions"/>
+        <section name="oo" title="VCF writer and output options" expanded="true">
+            <expand macro="gvcf"/>
+            <expand macro="reportnocalls"/>
+            <expand macro="reportrccounts"/>
+            <expand macro="reporttscounts"/>
+            <expand macro="reportsuspiciouscoveragefraction"/>
+            <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">                
+                <option value="ab">AmpliconBias</option>
+                <option value="ao">Applied options</option>
+                <option value="gs">GenomeSize</option>                
+                <option value="l">Log</option>
+                <option value="rsb">ReadStrandBias</option>
+                <option value="v" selected="true">Variants</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="out_ab" type="list" label="${tool.name} on ${on_string}: AmpliconBias">
+            <filter>'ab' in oo['out']</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.ab\.csv" format="tabular" directory="results"/>
+        </collection>
+        <expand macro="out_ao" tool="Pisces"/>
+        <collection name="out_gs" type="list" label="${tool.name} on ${on_string}: GenomeSize">
+            <filter>'gs' in oo['out']</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.GenomeSize\.xml" format="xml" directory="results"/>
+        </collection>
+        <expand macro="out_l" tool="Pisces"/>
+        <collection name="out_rsb" type="list" label="${tool.name} on ${on_string}: ReadStrandBias">
+            <filter>'rsb' in oo['out']</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.rsb\.txt" format="txt" directory="results"/>
+        </collection>
+        <collection name="out_v" type="list" label="${tool.name} on ${on_string}: Variants">
+            <filter>'v' in oo['out']</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.genome\.vcf" format="vcf" directory="results"/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- no test implemented for priorspath, forcedalleles, adaptivegenotypeparameters_fromfile -->
+
+        <!-- #1 default -->
+        <test expect_num_outputs="6">
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="e.bam"/>
+            </repeat>
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="f.bam"/>
+            </repeat>
+            <section name="oo">
+                <param name="out" value="ab,ao,gs,l,rsb,v"/>
+            </section>
+            <output_collection name="out_ab" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="205"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_gs" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_rsb" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="50"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="38"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_v" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="16078"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="12193"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #2 -->
+        <test expect_num_outputs="6">
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="e.bam"/>
+                <param name="intervalpaths" value="intervals.tsv"/>
+            </repeat>
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="f.bam"/>
+                <param name="intervalpaths" value="intervals.tsv"/>
+            </repeat>
+            <section name="co">
+                <conditional name="mode_cond">
+                    <param name="mode_sel" value="--crushvcf true"/>
+                </conditional>
+                <conditional name="callmnvs_cond">
+                    <param name="callmnvs_sel" value="--callmnvs true"/>
+                    <param name="maxmnvlength" value="4"/>
+                    <param name="maxgapbetweenmnv" value="2"/>
+                </conditional>
+                <conditional name="collapse_cond">
+                    <param name="collapse_sel" value="--collapse true"/>
+                    <param name="collapsefreqthreshold" value="0.1"/>
+                    <param name="collapsefreqratiothreshold" value="0.6"/>
+                    <param name="trimmnvpriors" value="true"/>
+                </conditional>
+                <param name="coveragemethod" value="exact"/>
+                <param name="usestitchedxd" value="true"/>
+                <param name="trackedanchorsize" value="6"/>
+                <param name="chrfilter" value="chrM,chrB"/>
+            </section>
+            <section name="bfo">
+                <param name="minbasecallquality" value="19"/>
+                <param name="minmapquality" value="2"/>
+                <param name="filterduplicates" value="false"/>
+                <param name="pp" value="false"/>
+            </section>
+            <section name="vco">
+                <param name="minvq" value="21"/>
+                <param name="mindp" value="9"/>
+                <param name="vqfilter" value="31"/>
+                <param name="vffilter" value="0.1"/>
+                <param name="gqfilter" value="1"/>
+                <param name="mindpfilter" value="31"/>
+                <param name="ssfilter" value="false"/>
+                <param name="nl" value="1"/>
+                <conditional name="ploidy_cond">
+                    <param name="ploidy_sel" value="somatic"/>
+                    <param name="targetlodfrequency" value="0.02"/>
+                    <param name="minvf" value="0.02"/>
+                </conditional>
+                <param name="sbmodel" value="poisson"/>
+                <param name="maxvq" value="101"/>
+                <param name="maxgq" value="101"/>
+                <param name="maxgp" value="3001"/>
+                <param name="mingq" value="1"/>
+                <param name="sbfilter" value="0.6"/>
+                <param name="noisemodel" value="window"/>
+                <param name="gender" value="true"/>
+                <param name="rmxnfilter" value="6,10,0.21"/>
+                <param name="ncfilter" value="0.7"/>
+                <param name="abfilter" value="0.01"/>
+            </section>
+            <section name="oo">
+                <param name="gvcf" value="false"/>
+                <param name="reportnocalls" value="true"/>
+                <param name="reportrccounts" value="true"/>
+                <param name="reporttscounts" value="true"/>
+                <param name="reportsuspiciouscoveragefraction" value="true"/>
+                <param name="out" value="ab,ao,gs,l,rsb,v"/>
+            </section>
+            <output_collection name="out_ab" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="228"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_gs" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_rsb" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_v" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="26"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="26"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #3 -->
+        <test expect_num_outputs="6">
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="e.bam"/>
+                <param name="intervalpaths" value="intervals.tsv"/>
+            </repeat>
+            <section name="co">
+                <conditional name="collapse_cond">
+                    <param name="collapse_sel" value="--collapse false"/>
+                </conditional>
+            </section>
+            <section name="vco">
+                <conditional name="ploidy_cond">
+                    <param name="ploidy_sel" value="diploid"/>
+                    <param name="diploidsnvgenotypeparameters" value="0.3,0.8,0.9"/>
+                    <param name="diploidindelgenotypeparameters" value="0.3,0.8,0.9"/>
+                </conditional>
+                <param name="gender" value="false"/>
+            </section>
+            <section name="oo">
+                <param name="out" value="ab,ao,gs,l,rsb,v"/>
+            </section>
+            <output_collection name="out_ab" count="1">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="203"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_gs" count="1">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_rsb" count="1">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="5"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_v" count="1">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="7"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #4 -->
+        <test expect_num_outputs="6">
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="e.bam"/>
+            </repeat>
+            <repeat name="input_rep">
+                <param name="genome" value="e.fasta"/>
+                <param name="genome_description" value="Homo sapiens (hg 19)"/>
+                <param name="bam" value="f.bam"/>
+            </repeat>
+            <section name="vco">
+                <conditional name="ploidy_cond">
+                    <param name="ploidy_sel" value="DiploidByAdaptiveGT"/>
+                    <param name="adaptivegenotypeparameters_snvmodel" value="0.038,0.438,0.975"/>
+                    <param name="adaptivegenotypeparameters_indelmodel" value="0.038,0.442,0.904"/>
+                    <param name="adaptivegenotypeparameters_snvprior" value="0.756,0.153,0.0918"/>
+                    <param name="adaptivegenotypeparameters_indelprior" value="0.963,0.0265,0.0113"/>
+                </conditional>
+            </section>
+            <section name="oo">
+                <param name="out" value="ab,ao,gs,l,rsb,v"/>
+            </section>
+            <output_collection name="out_ab" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_line line="Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="209"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_gs" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression=".+chromosome.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output_collection name="out_rsb" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="50"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="38"/>
+                        <has_line line="Chr&#009;Position&#009;Reference&#009;Alternate&#009;Overall_ChanceFalsePos&#009;Forward_ChanceFalsePos&#009;Reverse_ChanceFalsePos&#009;Overall_ChanceFalseNeg&#009;Forward_ChanceFalseNeg&#009;Reverse_ChanceFalseNeg&#009;Overall_Freq&#009;Forward_Freq&#009;Reverse_Freq&#009;Overall_Support&#009;Forward_Support&#009;Reverse_Support&#009;Overall_Coverage&#009;Forward_Coverage&#009;Reverse_Coverage&#009;RawCoverageCountByReadType_0&#009;RawCoverageCountByReadType_1&#009;RawCoverageCountByReadType_2&#009;RawSupportCountByReadType_0&#009;RawSupportCountByReadType_1&#009;RawSupportCountByReadType_2&#009;BiasScore&#009;BiasAcceptable?&#009;VarPresentOnBothStrands?&#009;CoverageAvailableOnBothStrands?&#009;"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_v" count="2">
+                <element name="sample_0">
+                    <assert_contents>
+                        <has_n_lines n="7"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+                <element name="sample_1">
+                    <assert_contents>
+                        <has_n_lines n="8"/>
+                        <has_line line="##fileformat=VCFv4.1"/>
+                        <has_text_matching expression="chrM.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+**Input**
+
+@HELP_AGP@
+@HELP_BAM@
+@HELP_GENOME@
+
+- Intervals (TABULAR, optional), e.g.
+
+    ::
+
+        chrM	1	5000
+        ...
+
+- Forced alleles (VCF, optional)
+- Priors (VCF, optional)
+
+**Output**
+
+- AmpliconBias (TABULAR), e.g.
+
+    ::
+
+        Chr,Position,Reference,Alternate,Name,freq,obs support, expected support, prob its real, confidence Qscore, bias detected?, Filter Variant?
+        ...
+
+@HELP_AO@
+@HELP_GS@
+@HELP_L@
+- ReadStrandBias (TABULAR), e.g.
+
+    ::
+    
+        Chr	Position	Reference	Alternate	Overall_ChanceFalsePos	Forward_ChanceFalsePos	Reverse_ChanceFalsePos	Overall_ChanceFalseNeg	Forward_ChanceFalseNeg	Reverse_ChanceFalseNeg	Overall_Freq	Forward_Freq	Reverse_Freq	Overall_Support	Forward_Support	Reverse_Support	Overall_Coverage	Forward_Coverage	Reverse_Coverage	RawCoverageCountByReadType_0	RawCoverageCountByReadType_1	RawCoverageCountByReadType_2	RawSupportCountByReadType_0	RawSupportCountByReadType_1	RawSupportCountByReadType_2	BiasScore	BiasAcceptable?	VarPresentOnBothStrands?	CoverageAvailableOnBothStrands?	
+        chrM	150	T	C	9.99200722162641E-16	1.03309577670352E-07	2.49795129025898E-09	1	0.999999999174629	0.999999999979209	1	1	1	9	4	5	9	4	5	4	5	0	4	5	0	1.0330957741229E-07	True	True	True	
+        ...
+
+- Variants (VCF)
+
+.. class:: infomark
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,0 +1,338 @@
+<?xml version="1.0"?>
+<tool id="pisces_scylla" name="Pisces Scylla" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>variant phaser</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## skipped --maxnbhdstoprocess, --nbhd, --help/-h, --repeatfilter_toberetired, --version/-v
+
+## preprocessing
+#if $co.genome_cond.genome_sel == 'yes'
+	#set $genome = $co.genome_cond.genome
+	#set $genome_description = $co.genome_cond.genome_description
+	@GENOMESIZE@
+#end if
+mkdir data &&
+ln -s '${bam}' 'data/sample.bam' &&
+ln -s '${bam.metadata.bam_index}' 'data/sample.bam.bai' &&
+ln -s '${vcf}' 'data/variants.vcf' &&
+
+## run
+/home/stephan/Projects/tools/pisces/All_5.3.0.0/Scylla ## TODO
+## required
+--bam 'data/sample.bam'
+--vcf 'data/variants.vcf'
+## common
+--maxnumthreads \${GALAXY_SLOTS:-4} ## -t
+--debug false
+--outfolder 'results' ## -o, --out
+#if $co.genome_cond.genome_sel == 'yes'
+	--genomefolder 'genome' ## -g
+#end if
+## clustering
+$clo.allowclustermerging
+$clo.allowworstfitremoval
+--clusterconstraint $clo.clusterconstraint
+## phasable criteria
+$pco.passingvariantsonly
+$pco.hetvariantsonly
+#if $pco.chr != ''
+	--chr '$pco.chr'
+#end if
+--minpassingvariantsinnbhd $pco.minpassingvariantsinnbhd
+--dist $pco.dist
+## clipped support options
+$cso.usesoftclippedreads
+--minsizeforcliprescue $cso.minsizeforcliprescue
+## bam filtering
+@BAM_FILTERING@
+## variant calling
+@VARIANT_CALLING@
+## vcf writer and output
+$oo.gvcf
+$oo.crushvcf
+$oo.reportnocalls
+$oo.reportrccounts
+$oo.reporttscounts
+$oo.reportsuspiciouscoveragefraction
+
+## postprocessing
+## fix log file name
+#if 'l' in $oo.out
+    && mv 'results/ScyllaLogs/variants.vcf' 'results/ScyllaLogs/ScyllaLog.txt'
+#end if
+	]]></command>
+	<inputs>
+		<expand macro="bam"/>
+        <expand macro="vcf"/>
+        <section name="co" title="Common options" expanded="true">
+            <conditional name="genome_cond">
+                <param name="genome_sel" type="select" label="Apply genome?" help="If 'no' is selected, reference bases reported inside phased variants will be left as 'R'.">
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+        			<!-- CreateGenomeSizeFile -->
+        			<expand macro="genome" help="; Scylla -g, --genomefolder"/>
+        			<expand macro="genome_description"/>
+                </when>
+            </conditional>
+        </section>
+		<section name="clo" title="Clustering options" expanded="true">
+        	<param argument="--allowclustermerging" type="boolean" truevalue="--allowclustermerging true" falsevalue="--allowclustermerging false" checked="true" label="Allow cluster merging?"/>
+        	<param argument="--allowworstfitremoval" type="boolean" truevalue="--allowworstfitremoval true" falsevalue="--allowworstfitremoval false" checked="true" label="Allow worst fit removal?"/>
+        	<param argument="--clusterconstraint" type="integer" value="-1" label="Set cluster constraint" help="Analogous to forced ploidy."/>
+        </section>
+		<section name="pco" title="Phasable criteria options" expanded="true">
+			<param argument="--passingvariantsonly" type="boolean" truevalue="--passingvariantsonly true" falsevalue="--passingvariantsonly false" checked="true" label="Passing variants only?"/>
+			<param argument="--hetvariantsonly" type="boolean" truevalue="--hetvariantsonly true" falsevalue="--hetvariantsonly false" label="Het variants only?"/>
+			<param argument="--chr" type="text" value="" optional="true" label="Set chromosome(s) to process" help="Comma separated list">
+				<expand macro="validator_stringlist"/>
+			</param>
+			<param argument="--minpassingvariantsinnbhd" type="integer" value="0" label="Set minimum number of passing variants required for a neighborhood to be callable"/>
+			<param argument="--dist" type="integer" value="50" label="Set distance to define how close variants need to be to chain together" help="Should be less than read length."/>
+		</section>
+		<section name="cso" title="Clipped support options" expanded="true">
+			<param argument="--usesoftclippedreads" type="boolean" truevalue="--usesoftclippedreads true" falsevalue="--usesoftclippedreads false" label="Use soft clipped reads?"/>
+			<param argument="--minsizeforcliprescue" type="integer" value="6" label="Set minimum size for clip rescue" help="Size (length of ref allele + alt allele) of MNV to rescue supporting clipped reads."/>
+		</section>
+        <expand macro="bamfilteringoptions"/>
+        <expand macro="variantcallingoptions"/>
+		<section name="oo" title="VCF writer and output options" expanded="true">
+			<expand macro="gvcf"/>
+			<expand macro="crushvcf"/>
+			<expand macro="reportnocalls"/>
+			<expand macro="reportrccounts"/>
+			<expand macro="reporttscounts"/>
+			<expand macro="reportsuspiciouscoveragefraction"/>
+            <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">
+                <option value="ao">Applied options</option>
+                <option value="gs">GenomeSize</option>
+                <option value="l">Log</option>
+                <option value="pv" selected="true">Phased variants</option>
+            </param>
+        </section>
+	</inputs>
+	<outputs>
+        <expand macro="out_ao" tool="Scylla"/>
+        <expand macro="out_gs" filter="and co['genome_cond']['genome_sel'] == 'yes'"/>
+        <expand macro="out_l" tool="Scylla"/>
+        <data name="out_pv" format="vcf" from_work_dir="results/variants.phased.vcf" label="${tool.name} on ${on_string}: Phased variants">
+            <filter>'pv' in oo['out']</filter>
+        </data>
+	</outputs>
+	<tests>
+		<!-- #1 default -->
+        <test expect_num_outputs="3">
+        	<param name="bam" value="c.bam"/>
+			<param name="vcf" value="c.vcf"/>
+            <section name="oo">
+                <param name="out" value="ao,l,pv"/>
+            </section>
+            <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="194"/>
+                </assert_contents>
+            </output>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_pv">
+                <assert_contents>
+                	<has_n_lines n="190"/>
+                    <has_text_matching expression=".+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #2 -->
+        <test expect_num_outputs="4">
+        	<param name="bam" value="c.bam"/>
+			<param name="vcf" value="c.vcf"/>
+	        <section name="co">
+	            <conditional name="genome_cond">
+	                <param name="genome_sel" value="yes"/>
+            		<param name="genome" value="c.fasta"/>
+            		<param name="genome_description" value="Human (hg19) "/>
+	            </conditional>
+	        </section>
+			<section name="clo">
+	        	<param name="allowclustermerging" value="false"/>
+	        	<param name="allowworstfitremoval" value="false"/>
+	        	<param name="clusterconstraint" value="-2"/>
+	        </section>
+			<section name="pco">
+				<param name="passingvariantsonly" value="false"/>
+				<param name="hetvariantsonly" value="true"/>
+				<param name="chr" value="chrM"/>
+				<param name="minpassingvariantsinnbhd" value="1"/>
+				<param name="dist" value="51"/>
+			</section>
+			<section name="cso">
+				<param name="usesoftclippedreads" value="true"/>
+				<param name="minsizeforcliprescue" value="7"/>
+			</section>
+	        <section name="bfo">
+                <param name="minbasecallquality" value="19"/>
+                <param name="minmapquality" value="2"/>
+                <param name="filterduplicates" value="false"/>
+                <param name="pp" value="false"/>
+	        </section>
+			<section name="vco">
+                <param name="minvq" value="21"/>
+                <param name="mindp" value="9"/>
+                <param name="vqfilter" value="31"/>
+                <param name="vffilter" value="0.1"/>
+                <param name="gqfilter" value="1"/>
+                <param name="mindpfilter" value="31"/>
+                <param name="ssfilter" value="false"/>
+                <param name="nl" value="1"/>
+                <conditional name="ploidy_cond">
+                    <param name="ploidy_sel" value="somatic"/>
+                    <param name="targetlodfrequency" value="0.02"/>
+                    <param name="minvf" value="0.02"/>
+                </conditional>
+                <param name="sbmodel" value="poisson"/>
+                <param name="maxvq" value="101"/>
+                <param name="maxgq" value="101"/>
+                <param name="maxgp" value="3001"/>
+                <param name="mingq" value="1"/>
+                <param name="sbfilter" value="0.6"/>
+                <param name="noisemodel" value="window"/>
+                <param name="gender" value="true"/>
+                <param name="rmxnfilter" value="6,10,0.21"/>
+                <param name="ncfilter" value="0.7"/>
+                <param name="abfilter" value="0.01"/>
+			</section>
+			<section name="oo">
+				<param name="gvcf" value="false"/>
+				<param name="crushvcf" value="false"/>
+                <param name="reportnocalls" value="true"/>
+                <param name="reportrccounts" value="true"/>
+                <param name="reporttscounts" value="true"/>
+                <param name="reportsuspiciouscoveragefraction" value="true"/>
+	            <param name="out" value="ao,gs,l,pv"/>
+	        </section>
+	        <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="212"/>
+                </assert_contents>
+            </output>
+            <output name="out_gs">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_pv">
+                <assert_contents>
+                	<has_n_lines n="198"/>
+                    <has_text_matching expression=".+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #3 -->
+        <test expect_num_outputs="3">
+        	<param name="bam" value="c.bam"/>
+			<param name="vcf" value="c.vcf"/>
+            <section name="vco">
+                <conditional name="ploidy_cond">
+                    <param name="ploidy_sel" value="diploid"/>
+                    <param name="diploidsnvgenotypeparameters" value="0.3,0.8,0.9"/>
+                    <param name="diploidindelgenotypeparameters" value="0.3,0.8,0.9"/>
+                </conditional>
+                <param name="gender" value="false"/>
+            </section>
+            <section name="oo">
+	            <param name="out" value="ao,l,pv"/>
+	        </section>
+	        <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="196"/>
+                </assert_contents>
+            </output>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_pv">
+                <assert_contents>
+                	<has_n_lines n="190"/>
+                    <has_text_matching expression=".+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #4 -->
+        <test expect_num_outputs="3">
+        	<param name="bam" value="c.bam"/>
+			<param name="vcf" value="c.vcf"/>
+            <section name="vco">
+                <conditional name="ploidy_cond">
+                    <param name="ploidy_sel" value="DiploidByAdaptiveGT"/>
+                    <param name="adaptivegenotypeparameters_snvmodel" value="0.038,0.438,0.975"/>
+                    <param name="adaptivegenotypeparameters_indelmodel" value="0.038,0.442,0.904"/>
+                    <param name="adaptivegenotypeparameters_snvprior" value="0.756,0.153,0.0918"/>
+                    <param name="adaptivegenotypeparameters_indelprior" value="0.963,0.0265,0.0113"/>
+                </conditional>
+            </section>
+            <section name="oo">
+	            <param name="out" value="ao,l,pv"/>
+	        </section>
+	        <output name="out_ao">
+                <assert_contents>
+                    <has_n_lines n="198"/>
+                </assert_contents>
+            </output>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+Ending.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_pv">
+                <assert_contents>
+                	<has_n_lines n="191"/>
+                    <has_text_matching expression=".+"/>
+                </assert_contents>
+            </output>
+        </test>
+	</tests>
+	<help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+Pisces Scylla rapidly detects multiple nucleotide variants (MNVs) in a given sample.		
+
+**Input**
+
+@HELP_AGP@
+- Sample (BAM)
+- Variants (VCF)
+- Genome (FASTA, optional)
+
+
+**Output**
+
+@HELP_AO@
+@HELP_GS@
+@HELP_L@
+- Phased variants (VCF)
+
+**References**
+
+@REFERENCES@
+	]]></help>
+	<expand macro="citations"/>
+</tool>
