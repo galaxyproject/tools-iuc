@@ -451,9 +451,6 @@ if (args$modeSelector == "data_import") {
         condition_2 = myDesign$condition[length(myDesign$condition)]
     ))
 
-    print("Design matrix:")
-    print(myDesign)
-
     if (args$toolSource == "stringtie") {
         if (!is.null(args$stringtieAnnotation)) {
             SwitchList <- importRdata(
