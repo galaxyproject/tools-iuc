@@ -286,13 +286,7 @@ def _parse_args():
     metas = {
         "outdir": "<OUTPUT DIRECTORY>",
         "target_sequences": "<SEQUENCE[S]>",
-        "token": "<TOKEN>",
     }
-    parser.add_argument(
-        "token",
-        help="Authentication token for SWISS-MODEL",
-        metavar=metas["token"],
-    )
     parser.add_argument(
         "outdir",
         help="Directory to store results in",
@@ -377,12 +371,19 @@ def _main():
     """Run as script."""
     opts = _parse_args()
 
+    token = os.getenv("SWISSMODEL_API_TOKEN")
+    if not token:
+        print(
+            "SWISS-MODEL token is not provided in credentials!",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     target_sequences = _defastarise_targets(opts.target_sequences)
     # determine class
     whsprr = None
     if opts.project_type.lower() == "automodel":
         whsprr = _AutoModelWhisperer(
-            target_sequences, opts.token, project_title=opts.project_title
+            target_sequences, token, project_title=opts.project_title
         )
     elif opts.project_type.lower() == "alignment":
         template_sequence = _defastarise_targets([opts.template_sequence])
@@ -390,7 +391,7 @@ def _main():
         template_sequence = template_sequence[0]
         whsprr = _AlignmentWhisperer(
             target_sequences,
-            opts.token,
+            token,
             template_sequence,
             opts.template_seqres_offset,
             opts.pdb_id,
@@ -401,7 +402,7 @@ def _main():
     elif opts.project_type.lower() == "usertemplate":
         whsprr = _UserTemplateWhisperer(
             target_sequences,
-            opts.token,
+            token,
             opts.template_file,
             project_title=opts.project_title,
         )
