@@ -1,19 +1,9 @@
-#!/usr/bin/env Rscript
-
-# Improved Galaxy runner for SplicingFactory::calculate_diversity
-# Supports input types:
-# - auto (detect TSV or RDS)
-# - matrix (TSV)
-# - tximport (RDS list)
-# - rds (R object: SummarizedExperiment or tximport list)
-
-library("optparse", quietly = TRUE, warn.conflicts = FALSE)
+library("argparse", quietly = TRUE, warn.conflicts = FALSE)
 library("SplicingFactory", quietly = TRUE, warn.conflicts = FALSE)
 library("ggplot2", quietly = TRUE, warn.conflicts = FALSE)
 library("SplicingFactory", quietly = TRUE, warn.conflicts = FALSE)
 library("SummarizedExperiment", quietly = TRUE, warn.conflicts = FALSE)
 library("reshape2", quietly = TRUE, warn.conflicts = FALSE)
-
 
 options(
   show.error.messages = FALSE,
@@ -25,125 +15,109 @@ options(
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 suppressPackageStartupMessages({
-  if (!suppressWarnings(requireNamespace("optparse", quietly = TRUE))) {
-    cat("Required R package 'optparse' is not installed.\n", file = stderr())
+  if (!suppressWarnings(requireNamespace("argparse", quietly = TRUE))) {
+    cat("Required R package 'argparse' is not installed.\n", file = stderr())
     q(status = 1)
   }
-  library(optparse)
+  library(argparse)
 })
 
-option_list <- list(
-  make_option(
-    c("-i", "--input"),
-    type = "character",
-    help = paste(
-      "Input file: TSV matrix or RDS (tximport list or",
-      "SummarizedExperiment)"
-    )
-  ),
-  make_option(
-    c("--input_type"),
-    type = "character",
-    default = "auto",
-    help = "auto|matrix|tximport|rds (default: auto)"
-  ),
-
-  make_option(
-    c("-t", "--tx2gene"),
-    type = "character",
-    default = NULL,
-    help = paste(
-      "Two-column TSV mapping transcripts to genes",
-      "(transcript\tgene). Required for transcript-level matrix",
-      "or tximport list unless RDS contains gene mapping"
-    )
-  ),
-  make_option(
-    c("-m", "--method"),
-    type = "character",
-    default = "laplace",
-    help = "Method: naive, laplace, gini, simpson, invsimpson"
-  ),
-  make_option(
-    c("-n", "--norm"),
-    type = "character",
-    default = "True",
-    help = "Normalize entropy: True/False"
-  ),
-  make_option(
-    c("-p", "--tpm"),
-    type = "character",
-    default = "False",
-    help = "Use TPM values from tximport list: True/False"
-  ),
-  make_option(
-    c("--assayno"),
-    type = "integer",
-    default = 1,
-    help = "Assay number for SummarizedExperiment input (default: 1)"
-  ),
-  make_option(
-    c("-o", "--out_div"),
-    type = "character",
-    default = "diversity.tsv",
-    help = "Output diversity TSV file"
-  ),
-  make_option(
-    c("-r", "--out_se"),
-    type = "character",
-    default = "diversity_se.rds",
-    help = "Output SummarizedExperiment RDS file"
-  ),
-  make_option(
-    c("--plot_dir"),
-    type = "character",
-    default = NULL,
-    help = "Directory to save ggplot figures (if set). Files: diversity_density.png, diversity_boxplot.png, diversity_heatmap.png"
-  ),
-  make_option(
-    c("--plot_format"),
-    type = "character",
-    default = "png",
-    help = "Image format for plots: png|pdf (default: png)"
-  ),
-  make_option(
-    c("--group_column"),
-    type = "character",
-    default = NULL,
-    help = "Column name in colData(res_se) to group samples for boxplot"
-  ),
-  make_option(
-    c("-s", "--session_out"),
-    type = "character",
-    default = "session.txt",
-    help = "sessionInfo() output file"
-  ),
-  make_option(
-    c("-v", "--verbose"),
-    action = "store_true",
-    default = FALSE,
-    help = "Verbose logging"
-  )
+parser <- ArgumentParser(
+  description = "Improved Galaxy runner for SplicingFactory::calculate_diversity"
 )
 
-opt <- parse_args(OptionParser(option_list = option_list))
+parser$add_argument(
+  "-i", "--input",
+  help = "Input file: TSV matrix or RDS (tximport list or SummarizedExperiment)",
+  required = TRUE
+)
+parser$add_argument(
+  "--input_type",
+  help = "auto|matrix|tximport|rds (default: auto)",
+  default = "auto"
+)
+parser$add_argument(
+  "--tx2gene",
+  help = paste(
+    "Two-column TSV mapping transcripts to genes",
+    "(transcript\tgene). Required for transcript-level matrix",
+    "or tximport list unless RDS contains gene mapping"
+  ),
+  default = NULL
+)
+parser$add_argument(
+  "--method",
+  help = "Method: naive, laplace, gini, simpson, invsimpson",
+  default = "laplace"
+)
+parser$add_argument(
+  "-n", "--norm",
+  help = "Normalize entropy: True/False",
+  default = "True"
+)
+parser$add_argument(
+  "-p", "--tpm",
+  help = "Use TPM values from tximport list: True/False",
+  default = "False"
+)
+parser$add_argument(
+  "--assayno",
+  help = "Assay number for SummarizedExperiment input (default: 1)",
+  type = "integer",
+  default = 1
+)
+parser$add_argument(
+  "-o", "--out_div",
+  help = "Output diversity TSV file",
+  default = "diversity.tsv"
+)
+parser$add_argument(
+  "-r", "--out_se",
+  help = "Output SummarizedExperiment RDS file",
+  default = "diversity_se.rds"
+)
+parser$add_argument(
+  "--plot_dir",
+  help = "Directory to save ggplot figures (if set). Files: diversity_density.png, diversity_boxplot.png, diversity_heatmap.png",
+  default = NULL
+)
+parser$add_argument(
+  "--plot_format",
+  help = "Image format for plots: png|pdf (default: png)",
+  default = "png"
+)
+parser$add_argument(
+  "--group_column",
+  help = "Column name in colData(res_se) to group samples for boxplot",
+  default = NULL
+)
+parser$add_argument(
+  "-s", "--session_out",
+  help = "sessionInfo() output file",
+  default = "session.txt"
+)
+parser$add_argument(
+  "-v", "--verbose",
+  help = "Verbose logging",
+  action = "store_true",
+  default = FALSE
+)
 
-# Check required options (e.g., input)
-if (is.null(opt$input)) {
-  cat("--input is required\n", file = stderr())
-  q(status = 1)
-}
+# Diagnostic: print raw args (what R actually sees). This helps debug parse_args errors under planemo/galaxy.
+cat("RAW_CMD_ARGS:", paste(shQuote(commandArgs(trailingOnly = TRUE)), collapse = " "), "\n", file = stderr())
 
-verbose <- opt$verbose
+args <- parser$parse_args()
+
+verbose <- args$verbose
 if (verbose) {
-  cat("Input:", opt$input, "type:", opt$input_type, "\n")
+  cat("Input:", args$input, "type:", args$input_type, "\n")
 }
 
 # Detect the input type
-input_type <- opt$input_type
+input_type <- args$input_type
 if (input_type == "auto") {
   # try to read RDS first
-  rds_obj <- tryCatch(readRDS(opt$input), error = function(e) NULL)
+  rds_obj <- tryCatch(readRDS(args$input), error = function(e) NULL)
   if (!is.null(rds_obj)) {
     input_type <- "rds"
     if (verbose) {
@@ -158,16 +132,13 @@ if (input_type == "auto") {
 }
 
 #  Check for tx2gene dependency based on input type
-if (is.null(opt$tx2gene)) {
-    if (input_type == "matrix") {
-        stop("For matrix input, --tx2gene is required")
-    } else if (input_type == "tximport") {
-        stop("tx2gene mapping is required for tximport list input")
-    }
+if (is.null(args$tx2gene)) {
+  if (input_type == "matrix") {
+    stop("For matrix input, --tx2gene is required")
+  } else if (input_type == "tximport") {
+    stop("tx2gene mapping is required for tximport list input")
+  }
 }
-
-
-
 
 # helper to read TSV with optional gz
 read_tsv_matrix <- function(path) {
@@ -213,14 +184,12 @@ read_tx2gene <- function(path) {
 
 expr <- NULL
 genes <- NULL
+tx2gene <- NULL
 
 if (input_type == "matrix") {
-  expr <- read_tsv_matrix(opt$input)
+  expr <- read_tsv_matrix(args$input)
   # tx2gene is required
-  if (is.null(opt$tx2gene)) {
-    stop("For matrix input, --tx2gene is required")
-  }
-  tx2gene <- read_tx2gene(opt$tx2gene)
+  tx2gene <- read_tx2gene(args$tx2gene)
   tx_ids <- rownames(expr)
   if (is.null(tx_ids)) {
     stop("Input expression matrix must have transcript IDs as rownames")
@@ -232,7 +201,7 @@ if (input_type == "matrix") {
 } else if (input_type == "tximport") {
   # expect RDS containing tximport-style list
   obj <- tryCatch(
-    readRDS(opt$input),
+    readRDS(args$input),
     error = function(e) {
       stop("Failed to read RDS: ", conditionMessage(e))
     }
@@ -241,14 +210,14 @@ if (input_type == "matrix") {
     stop("RDS does not appear to contain a tximport list with 'counts'")
   }
   expr <- obj
-  if (is.null(opt$tx2gene)) {
+  if (is.null(args$tx2gene)) {
     stop("tx2gene mapping is required for tximport list input")
   }
-  tx2gene <- read_tx2gene(opt$tx2gene)
+  tx2gene <- read_tx2gene(args$tx2gene)
   # will pass tximport list and supply genes vector later
 } else if (input_type == "rds") {
   obj <- tryCatch(
-    readRDS(opt$input),
+    readRDS(args$input),
     error = function(e) {
       stop("Failed to read RDS: ", conditionMessage(e))
     }
@@ -261,8 +230,8 @@ if (input_type == "matrix") {
     expr <- obj
   } else if (is.list(obj) && ("counts" %in% names(obj))) {
     expr <- obj
-    if (!is.null(opt$tx2gene)) {
-      tx2gene <- read_tx2gene(opt$tx2gene)
+    if (!is.null(args$tx2gene)) {
+      tx2gene <- read_tx2gene(args$tx2gene)
     }
   } else {
     stop(
@@ -277,8 +246,8 @@ if (input_type == "matrix") {
 }
 
 # convert norm/tpm strings to logical
-norm_flag <- tolower(opt$norm) %in% c("true", "t", "1")
-tpm_flag <- tolower(opt$tpm) %in% c("true", "t", "1")
+norm_flag <- tolower(args$norm) %in% c("true", "t", "1")
+tpm_flag <- tolower(args$tpm) %in% c("true", "t", "1")
 
 if (verbose) {
   cat("Loading SplicingFactory and dependencies...\n")
@@ -298,7 +267,7 @@ if (!is.null(expr) && is.matrix(expr)) {
       calculate_diversity(
         expr,
         genes = genes,
-        method = opt$method,
+        method = args$method,
         norm = norm_flag,
         tpm = tpm_flag
       )
@@ -313,7 +282,7 @@ if (!is.null(expr) && is.matrix(expr)) {
 } else if (!is.null(expr) && is.list(expr) && ("counts" %in% names(expr))) {
   # tximport list
   # ensure tx2gene exists
-  if (is.null(opt$tx2gene) && is.null(tx2gene)) {
+  if (is.null(args$tx2gene) && is.null(tx2gene)) {
     stop("tx2gene mapping is required for tximport inputs")
   }
   # calculate_diversity expects a genes vector matching transcripts; create it
@@ -322,7 +291,7 @@ if (!is.null(expr) && is.matrix(expr)) {
     stop("tximport counts must have rownames with transcript IDs")
   }
   if (is.null(tx2gene)) {
-    tx2gene <- read_tx2gene(opt$tx2gene)
+    tx2gene <- read_tx2gene(args$tx2gene)
   }
   genes <- tx2gene[tx_ids]
   if (any(is.na(genes))) {
@@ -333,7 +302,7 @@ if (!is.null(expr) && is.matrix(expr)) {
       calculate_diversity(
         expr,
         genes = genes,
-        method = opt$method,
+        method = args$method,
         norm = norm_flag,
         tpm = tpm_flag
       )
@@ -352,7 +321,7 @@ if (!is.null(expr) && is.matrix(expr)) {
   )
 ) {
   # SummarizedExperiment: pass directly, allow assay selection
-  if (opt$assayno <= 0) {
+  if (args$assayno <= 0) {
     stop("--assayno must be >= 1")
   }
   # calculate_diversity will extract the assay by assayno internally
@@ -361,10 +330,10 @@ if (!is.null(expr) && is.matrix(expr)) {
       calculate_diversity(
         expr,
         genes = NULL,
-        method = opt$method,
+        method = args$method,
         norm = norm_flag,
         tpm = tpm_flag,
-        assayno = opt$assayno
+        assayno = args$assayno
       )
     },
     error = function(e) {
@@ -390,19 +359,19 @@ out_df <- data.frame(
 )
 write.table(
   out_df,
-  file = opt$out_div,
+  file = args$out_div,
   sep = "\t",
   quote = FALSE,
   row.names = FALSE
 )
 
 # save SummarizedExperiment as RDS
-saveRDS(res_se, file = opt$out_se)
+saveRDS(res_se, file = args$out_se)
 
 # optional plotting similar to vignette
-if (!is.null(opt$plot_dir)) {
-  if (!dir.exists(opt$plot_dir)) dir.create(opt$plot_dir, recursive = TRUE)
-  fmt <- tolower(opt$plot_format)
+if (!is.null(args$plot_dir)) {
+  if (!dir.exists(args$plot_dir)) dir.create(args$plot_dir, recursive = TRUE)
+  fmt <- tolower(args$plot_format)
   open_dev <- function(path) {
     if (fmt == "pdf") pdf(path, width = 7, height = 5) else png(path, width = 900, height = 650, res = 120)
   }
@@ -415,18 +384,18 @@ if (!is.null(opt$plot_dir)) {
   # density plot across samples
   p1 <- ggplot(long_df, aes(x = Diversity, group = Sample)) +
     geom_density(alpha = 0.2, color = NA, fill = "steelblue") +
-    labs(title = paste("Diversity (", opt$method, ") density", sep = "")) +
+    labs(title = paste("Diversity (", args$method, ") density", sep = "")) +
     theme_minimal()
-  open_dev(file.path(opt$plot_dir, paste0("diversity_density.", fmt)))
+  open_dev(file.path(args$plot_dir, paste0("diversity_density.", fmt)))
   print(p1)
   close_dev()
 
   # boxplot grouped by condition if provided
   group_col <- NULL
-  if (!is.null(opt$group_column)) {
+  if (!is.null(args$group_column)) {
     cd <- tryCatch(as.data.frame(SummarizedExperiment::colData(res_se)), error = function(e) NULL)
-    if (!is.null(cd) && opt$group_column %in% colnames(cd)) {
-      long_df$Group <- cd[match(long_df$Sample, rownames(cd)), opt$group_column]
+    if (!is.null(cd) && args$group_column %in% colnames(cd)) {
+      long_df$Group <- cd[match(long_df$Sample, rownames(cd)), args$group_column]
       group_col <- "Group"
     }
   }
@@ -435,9 +404,9 @@ if (!is.null(opt$plot_dir)) {
   }
   p2 <- ggplot(long_df, aes(x = Group, y = Diversity)) +
     geom_boxplot(outlier.size = 0.5) +
-    labs(title = paste("Diversity (", opt$method, ") by group", sep = ""), x = ifelse(is.null(opt$group_column), "All samples", opt$group_column)) +
+    labs(title = paste("Diversity (", args$method, ") by group", sep = ""), x = ifelse(is.null(args$group_column), "All samples", args$group_column)) +
     theme_minimal()
-  open_dev(file.path(opt$plot_dir, paste0("diversity_boxplot.", fmt)))
+  open_dev(file.path(args$plot_dir, paste0("diversity_boxplot.", fmt)))
   print(p2)
   close_dev()
 
@@ -456,18 +425,19 @@ if (!is.null(opt$plot_dir)) {
     scale_fill_viridis_c() +
     theme_minimal() +
     theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
-    labs(title = paste("Diversity (", opt$method, ") heatmap", sep = ""))
-  open_dev(file.path(opt$plot_dir, paste0("diversity_heatmap.", fmt)))
+    labs(title = paste("Diversity (", args$method, ") heatmap", sep = ""))
+  open_dev(file.path(args$plot_dir, paste0("diversity_heatmap.", fmt)))
   print(p3)
   close_dev()
 }
 
 # session info
-con <- file(opt$session_out, open = "wt")
+con <- file(args$session_out, open = "wt")
 cat("SplicingFactory wrapper run\n", file = con)
 cat("Arguments:\n", file = con)
+arg_list <- as.list(args)
 cat(
-  paste(names(opt), unlist(opt), sep = "=", collapse = ", "),
+  paste(names(arg_list), unlist(arg_list), sep = "=", collapse = ", "),
   "\n",
   file = con
 )
