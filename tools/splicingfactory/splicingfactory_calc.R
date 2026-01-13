@@ -1,7 +1,6 @@
 library("argparse", quietly = TRUE, warn.conflicts = FALSE)
 library("SplicingFactory", quietly = TRUE, warn.conflicts = FALSE)
 library("ggplot2", quietly = TRUE, warn.conflicts = FALSE)
-library("SplicingFactory", quietly = TRUE, warn.conflicts = FALSE)
 library("SummarizedExperiment", quietly = TRUE, warn.conflicts = FALSE)
 library("reshape2", quietly = TRUE, warn.conflicts = FALSE)
 
