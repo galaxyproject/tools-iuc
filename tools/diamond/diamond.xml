@@ -1,5 +1,5 @@
-<tool id="bg_diamond" name="Diamond" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.2" license="GPL-3.0">
-    <description>alignment tool for short sequences against a protein database</description>
+<tool id="bg_diamond" name="Diamond" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="24.1" license="GPL-3.0">
+    <description>align short sequences against a protein database</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -13,18 +13,34 @@
 <![CDATA[
 
     #if $ref_db_source.db_source == "history":
-        ln -s $ref_db_source.reference_database ./database.dmnd
+        ln -s '$ref_db_source.reference_database' ./database.dmnd &&
+        #set database="database.dmnd"
+    #else if $ref_db_source.db_source == "blast":
+        #import os.path
+        #set basename =  os.path.basename($ref_db_source.reference_database.fields.path)
+        #set dirname =  os.path.dirname($ref_db_source.reference_database.fields.path)
+        #set database="./db/" + basename
+        mkdir ./db &&
+        ## symlink all files in the directory containing the BLAST DB
+        ## in newer BLAST DBs there is a file taxonomy4blast.sqlite3
+        ## that is needed
+        ln -s '$dirname/'* ./db/ &&
+        #if $ref_db_source.ncbi_taxonomy
+            ## symlink names and nodes dump files from NCBI taxonomy
+            ## need to be in the same dir as the BLAST DB (which is the
+            ## reason why we need to create .,/db/)
+            ln -s '$ref_db_source.ncbi_taxonomy.fields.path/nodes.dmp' ./db/nodes.dmp &&
+            ln -s '$ref_db_source.ncbi_taxonomy.fields.path/names.dmp' ./db/names.dmp &&
+        #end if
     #else:
-        ln -s ${ref_db_source.index.fields.db_path} ./database.dmnd
+        ln -s '${ref_db_source.reference_database.fields.db_path}' ./database.dmnd &&
+        #set database="database.dmnd"
     #end if
-
-    &&
 
     diamond
         $method_cond.method_select
-        --quiet
         --threads "\${GALAXY_SLOTS:-12}"
-        --db ./database
+        --db '$database'
         --query '$query'
         #if $method_cond.method_select == "blastx"
           --query-gencode '$method_cond.query_gencode'
@@ -39,17 +55,11 @@
         #end if
 
         @OUTPUT_ARGS@
-
         #if $output_section.output.outfmt != '100'
             --compress '0'
         #end if
+
         $sens_cond.sensitivity
-        $iterate
-        $swipe
-        --algo $algo
-        #if $global_ranking
-            --global-ranking $global_ranking
-        #end if
         #if str($gapopen) != "":
           --gapopen '$gapopen'
         #end if
@@ -69,6 +79,7 @@
         #end if
 
         --id '$id'
+        --approx-id '$approx_id'    
         --query-cover '$query_cover'
         --subject-cover '$subject_cover'
         --block-size '$sens_cond.block_size'
@@ -94,22 +105,32 @@
             --max-hsps $output_section.max_hsps
         #end if
         #if $tax_cond.tax_select == 'file':
-            --taxonlist `cat '$tax_cond.taxonlistfile' | grep -v "^#" | grep -v "^$" | tr "\n" "," | sed 's/,$//'`
+            --taxonlist \$(cat '$tax_cond.taxonlist' | grep -v "^#" | grep -v "^$" | tr "\n" "," | sed 's/,$//')
         #else if  $tax_cond.tax_select == 'list':
             --taxonlist '$tax_cond.taxonlist'
         #end if
+        #if $tax_exclude_cond.tax_select == 'file':
+            --taxon_exclude \$(cat '$tax_exclude_cond.taxon_exclude' | grep -v "^#" | grep -v "^$" | tr "\n" "," | sed 's/,$//')
+        #else if  $tax_exclude_cond.tax_select == 'list':
+            --taxon_exclude '$tax_exclude_cond.taxon_exclude'
+        #end if
+
         #if $advanced_section.seed_cut
             --seed-cut $advanced_section.seed_cut
         #end if
         $advanced_section.freq_masking
         --motif-masking $advanced_section.motif_masking
         --soft-masking $advanced_section.soft_masking
+        $advanced_section.iterate
+        $advanced_section.swipe
+        --algo $advanced_section.algo
+        #if $advanced_section.global_ranking
+            --global-ranking $advanced_section.global_ranking
+        #end if
         --index-chunks "\${DIAMOND_INDEX_CHUNKS:-4}"
         --file-buffer-size "\${DIAMOND_FILE_BUFFER_SIZE:-67108864}"
         $log
-        
-]]>
-    </command>
+    ]]></command>
     <inputs>
         <conditional name="method_cond">
             <param name="method_select" type="select" label="Alignment mode" help="(blastp/blastx)">
@@ -117,7 +138,7 @@
                 <option value="blastx">DNA query sequences (blastx)</option>
             </param>
             <when value="blastx">
-                <param argument="--query-gencode" type="select" label="Genetic code used for translation of query in BLASTX mode" help="">
+                <param argument="--query-gencode" type="select" label="Genetic code" help="used for translation of query in BLASTX mode">
                     <option value="1">Standard Code</option>
                     <option value="2">Vertebrate Mitochondrial Code</option>
                     <option value="3">Yeast Mitochondrial Code</option>
@@ -144,20 +165,20 @@
                     <option value="31">Blastocrithidia Nuclear Code</option>
                     <option value="33">Cephalodiscidae Mitochondrial UAA-Tyr Code</option>
                 </param>
-                <param argument="--min-orf" type="integer" value="1" label="ignore translated sequences without an open reading frame of at least this length" help="By default this feature is disabled for sequences of length below 30, set to 20 for sequences of length below 100, and set to 40 otherwise. Setting this option to 1 will disable this feature"/>
-                <param name="query_strand" argument="--strand" type="select" label="query strands to search" help="">
+                <param argument="--min-orf" type="integer" value="1" min="1" label="Minimum ORF length" help="Ignore translated sequences without an open reading frame of at least this length. By default this feature is disabled for sequences of length below 30, set to 20 for sequences of length below 100, and set to 40 otherwise. Setting this option to 1 will disable this feature"/>
+                <param name="query_strand" argument="--strand" type="select" label="Query strands to search" help="">
                     <option value="both" selected="True">Both</option>
                     <option value="plus">Plus</option>
                     <option value="minus">Minus</option>
                 </param>
                 <conditional name="frameshift_cond">
-                    <param name="frameshift_select" type="select" label="Allow for frameshifts?" help="">
+                    <param name="frameshift_select" type="select" label="Allow for frameshifts" help="">
                         <option value="yes">yes</option>
                         <option value="no" selected="true">no</option>
                     </param>
                     <when value="yes">
-                        <param argument="--range-culling" type="boolean" truevalue="--range-culling" falsevalue="" checked="false" label="restrict hit culling to overlapping query ranges" help="This feature is designed for long query DNA sequences that may span several genes. In these cases, the default of reporting the 25 best overall hits could cause hits to a lower scoring gene to be overshadowed. But just increasing the number of alignments reported will bloat the output size and reduce performance. Using this feature along with -k 25 (default), a hit will only be deleted if at least 50% of its query range is spanned by at least 25 higher or equal scoring hits. Using this feature along with --top 10, a hit will only be deleted if its score is more than 10% lower than that of a higher scoring hit over at least 50% of its query range. The percentage is configurable using --range-cover. Note that this feature is currently only available in frameshift alignment mode"/>
-                        <param argument="--frameshift" type="integer" value="0" label="frame shift penalty" help="Values around 15 are reasonable for this parameter. Enabling this feature will have the aligner tolerate missing bases in DNA sequences and is most recommended for long, error-prone sequences like MinION reads. In the pairwise output format, frameshifts will be indicated by \ and / for a shift by +1 and -1 nucleotide in the direction of translation respectively."/>
+                        <param argument="--range-culling" type="boolean" truevalue="--range-culling" falsevalue="" checked="false" label="Restrict hit culling to overlapping query ranges" help="This feature is designed for long query DNA sequences that may span several genes. In these cases, the default of reporting the 25 best overall hits could cause hits to a lower scoring gene to be overshadowed. But just increasing the number of alignments reported will bloat the output size and reduce performance. Using this feature along with -k 25 (default), a hit will only be deleted if at least 50% of its query range is spanned by at least 25 higher or equal scoring hits. Using this feature along with --top 10, a hit will only be deleted if its score is more than 10% lower than that of a higher scoring hit over at least 50% of its query range. The percentage is configurable using --range-cover. Note that this feature is currently only available in frameshift alignment mode"/>
+                        <param argument="--frameshift" type="integer" value="0" label="Frame shift penalty" help="Values around 15 are reasonable for this parameter. Enabling this feature will have the aligner tolerate missing bases in DNA sequences and is most recommended for long, error-prone sequences like MinION reads. In the pairwise output format, frameshifts will be indicated by \ and / for a shift by +1 and -1 nucleotide in the direction of translation respectively."/>
                     </when>
                     <when value="no"/>
                 </conditional>
@@ -174,17 +195,32 @@
                     <option value="2">Compositional matrix adjust conditioned on sequence properties, simplified (Yu, 2005)</option>
                     <option value="3">Compositional matrix adjust conditioned on sequence properties (Yu, 2005)</option>
                     <option value="4">Compositional matrix adjust unconditionally (Yu, 2005)</option>
+                    <option value="5">Compositional matrix adjustment conditioned on sequence properties with fallback on composition-based statistics</option>
                 </param>
             </when>
         </conditional>
-        <param argument="--query" type="data" format="fasta,fastq" label="Input query file in FASTA or FASTQ format"/>
+        <param argument="--query" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Input query file in FASTA or FASTQ format"/>
         <conditional name="ref_db_source">
-            <param name="db_source" type="select" label="Will you select a reference database from your history or use a built-in index?" help="Built-ins were indexed using default options">
-                <option value="indexed">Use a built-in index</option>
+            <param name="db_source" type="select" label="Reference database source" help="">
+                <option value="blast">Use a built-in BLAST index</option>
                 <option value="history">Use one from the history</option>
+                <option value="indexed">Use a built-in DIAMOND index</option>
             </param>
+            <when value="blast">
+                <param name="reference_database" type="select" label="Reference database" help="If your database of interest is not listed, contact your Galaxy admin">
+                    <options from_data_table="blastdb_p">
+                        <filter type="sort_by" column="2"/>
+                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                    </options>
+                </param>
+                <param name="ncbi_taxonomy" type="select" optional="true" label="NCBI taxonomy database" help="Needed for output of taxonomy columns in tabular output">
+                    <options from_data_table="ncbi_taxonomy">
+                        <validator message="No NCBI database is available. Ask your Galaxy adin" type="no_options"/>
+                    </options>
+                </param>
+            </when>
             <when value="indexed">
-                <param name="index" type="select" label="Select a reference database" help="If your database of interest is not listed, contact your Galaxy admin">
+                <param name="reference_database" type="select" label="Reference database" help="If your database of interest is not listed, contact your Galaxy admin">
                     <options from_data_table="diamond_database">
                         <filter type="sort_by" column="2"/>
                         <validator type="no_options" message="No indexes are available for the selected input dataset"/>
@@ -192,25 +228,11 @@
                 </param>
             </when>
             <when value="history">
-                <param name="reference_database" argument="--db" type="data" format="dmnd" label="Select the reference database"/>
+                <param name="reference_database" argument="--db" type="data" format="dmnd" label="Reference database"/>
             </when>
         </conditional>
-        <conditional name="tax_cond">
-            <param name="tax_select" type="select" label="Restrict search taxonomically?" help="Any taxonomic rank can be used, and only reference sequences matching one of the specified taxon ids will be searched against.">
-                <option value="no" selected="True">No</option>
-                <option value="list">List of taxids entered manually</option>
-                <option value="file">List of taxids from single column tabular file</option>
-            </param>
-            <when value="no"/>
-            <when value="list">
-                <param argument="--taxonlist" type="text" value="" label="Comma separated list of taxon ids" help="">
-                    <validator type="regex" message="Taxonlist needs to be a comma separated list of integers">[0-9,]*</validator>
-                </param>
-            </when>
-            <when value="file">
-                <param name="taxonlistfile" argument="--taxonlist" type="data" format="tabular" label="Keep alignments within the given percentage range of the top alignment score for a quer" help=""/>
-            </when>
-        </conditional>
+        <expand macro="taxon_cond_macro" argument="--taxonlist" cond_name="tax_cond" label="Restrict search taxonomically" help="Any taxonomic rank can be used. Only reference sequences included in the given taxa will be used"/>
+        <expand macro="taxon_cond_macro" argument="--taxon-exclude" cond_name="tax_exclude_cond" label="Exclude taxa from search" help="Any taxonomic rank can be used. Reference sequences included in the taxonomic rank will be excluded from the search."/>
         <conditional name="sens_cond">
             <param name="sensitivity" type="select" label="Sensitivity Mode" help="Choose one of the sensitivity modes. The default mode is mainly designed for short read alignment, i.e. finding significant matches of &gt;50 bits on 30-40aa fragments. The sensitive mode is a lot more sensitive than the default and generally recommended for aligning longer sequences. The more sensitive mode provides even more sensitivity. More sensitivity may increase computation time.">
                 <option value="--faster">Faster (--faster)</option>
@@ -223,28 +245,28 @@
                 <option value="--ultra-sensitive">Ultra Sensitive (--ultra-sensitive)</option>
             </param>
             <when value="--faster">
-                <expand macro="block_size_low_sens"/>
+                <expand macro="block_size" value="2"/>
             </when>
             <when value="--fast">
-                <expand macro="block_size_low_sens"/>
+                <expand macro="block_size" value="2"/>
             </when>
             <when value="">
-                <expand macro="block_size_low_sens"/>
+                <expand macro="block_size" value="2"/>
             </when>
             <when value="--mid-sensitive">
-                <expand macro="block_size_low_sens"/>
+                <expand macro="block_size" value="2"/>
             </when>
             <when value="--sensitive">
-                <expand macro="block_size_low_sens"/>
+                <expand macro="block_size" value="2"/>
             </when>
             <when value="--more-sensitive">
-                <expand macro="block_size_low_sens"/>
+                <expand macro="block_size" value="2"/>
             </when>
             <when value="--very-sensitive">
-                <expand macro="block_size_hi_sens"/>
+                <expand macro="block_size" value="0.4"/>
             </when>
             <when value="--ultra-sensitive">
-                <expand macro="block_size_hi_sens"/>
+                <expand macro="block_size" value="0.4"/>
             </when>
         </conditional>
         <param argument="--matrix" type="select" label="Scoring matrix" help="In parentheses are the supported values for (gap open)/(gap extend). In brackets are default gap penalties">
@@ -260,40 +282,18 @@
         <param argument="--gapopen" type="integer" optional="True" value="" label="Gap open penalty" help="Leave empty for default (see scoring matrix)"/>
         <param argument="--gapextend" type="integer" optional="True" value="" label="Gap extension penalty" help="Leave empty for default (see scoring matrix)"/>
         <param argument="--masking" type="select" label="Masking algorithm" help="DIAMOND by default applies the tantan repeat masking algorithm to the query and target sequences as described in (Frith, 2011). This masking procedure increases the specificity of alignments and serves to filter out spurious hits. Note that when using --comp-based-stats (2,3,4), tantan masking is disabled by default.">
-            <option value="0">Disabled</option>
-            <option value="1" selected="true">Tantan</option>
+            <option value="none">Disabled</option>
+            <option value="tantan" selected="true">Tantan</option>
             <option value="seg">SEG</option>
         </param>
-        <conditional name="filter_score">
-            <param name="filter_score_select" type="select" label="Method to filter?" help="(--evalue/--min-score)">
-                <option value="evalue" selected="True">Maximum e-value to report alignments</option>
-                <option value="min-score">Minimum bit score to report alignments</option>
-            </param>
-            <when value="evalue">
-                <param argument="--evalue" type="float" value="0.001" label="Maximum expected value to keep an alignment"/>
-            </when>
-            <when value="min-score">
-                <param argument="--min-score" type="integer" value="0" label="Minimum bit score to keep an alignment" help="(--min-score)"/>
-            </when>
-        </conditional>
-        <param argument="--swipe" type="boolean" truevalue="--swipe" falsevalue="" checked="false" label="Run Exhaustive alignment against all database sequences" help="Smith Waterman alignments of all queries will be computed against all targets."/>
-        <param argument="--iterate" type="boolean" truevalue="--iterate" falsevalue="" checked="false" label="Run multiple rounds of searches with increasing sensitivity" help="The query dataset will first be searched at a lower sensitivity setting, only searching those query sequences at the target sensitivity that fail to produce a significant alignment at a lower sensitivity."/>
-        <param argument="--algo" type="select" label="Algorithm for seed search" help="Double-indexed is the main algorithm of the program, designed for large input files but less efficient for small query files. Query-indexed and improves performance for small query files. This mode will be automatically triggered based on the input. Contiguous-seed mode and further improves performance for small query files. The modes differ slightly in their sensitivity, so results are not guaranteed to be 100% identical for different settings of this option.">
-            <option value="0">Doble-indexed (0)</option>
-            <option value="1">Query-indexed (1)</option>
-            <option value="ctg">Contiguous-seed mode (ctg)</option>
-        </param>
+
         <expand macro="hit_filter_macro"/>
-        <param argument="--global-ranking" type="integer" min="0" value="" optional="true" label="Limit on the number of Smith Waterman extensions" help="Target sequences will be ranked according to their ungapped extension scores at seed hits, and gapped extensions will only be computed for the best N targets for each query. Note that this option increases memory use."/>
-        <param argument="--id" type="integer" value="0" label="Minimum identity percentage to report an alignment" help="Report only alignments above the given percentage of sequence identity"/>
-        <param argument="--query-cover" type="integer" value="0" label="Minimum query cover percentage to report an alignment" help="Report only alignments above the given percentage of query cover"/>
-        <param argument="--subject-cover" type="integer" value="0" label="Minimum subject cover percentage to report an alignment" help="Report only alignments above the given percentage of subject cover"/>
-        <section name="output_section" title="Output options">
-            <param argument="--max-hsps" type="integer" min="0" optional="true" label="Maximum number of HSPs" help="The maximum number of HSPs (High-Scoring Segment Pairs) per target sequence to report for each query. The default policy is to report only the highest-scoring HSP for each target, while disregarding alternative, lower-scoring HSPs that are contained in the same target."/>
+        <section name="output_section" title="Output options" expanded="true">
             <expand macro="output_type_macro">
                 <!-- Taxonomy features are not supported for the DAA format (i.e.
                         can't be used in diamond view) -->
-                <option value="staxids">unique Subject Taxonomy ID(s), separated by a ';' (in numerical order)</option>
+                <option value="staxids">Subject Taxonomy ID(s), separated by a ';' (in numerical order)</option>
+                <option value="sscinames">Subject Scientific Name(s)</option>
                 <option value="sskingdoms">Subject super kingdoms</option>
                 <option value="skingdoms">Subject kingdoms</option>
                 <option value="sphylums">Subject phylums</option>
@@ -303,20 +303,30 @@
                 <option value="--al">Output aligned queries (--al)</option>
             </param>
             <param argument="--log" type="boolean" truevalue="--log" falsevalue="" label="Output log file"/>
+            <param argument="--max-hsps" type="integer" min="0" optional="true" label="Maximum number of HSPs" help="The maximum number of HSPs (High-Scoring Segment Pairs) per target sequence to report for each query. The default policy is to report only the highest-scoring HSP for each target, while disregarding alternative, lower-scoring HSPs that are contained in the same target."/>
         </section>
 
         <section name="advanced_section" title="Advanced options" expanded="false">
             <param argument="--seed-cut" type="float" min="0" optional="true" label="Set a complexity cutoff for indexed seeds"/>
             <param argument="--freq-masking" type="boolean" truevalue="--freq-masking" falsevalue="" checked="false" label="Enable masking seeds based on frequency" help="This option is incompatible with --sed-cut"/>
             <param argument="--soft-masking" type="select" label="Soft Masking" help="Select type of soft masking">
+                <!-- https://github.com/bbuchfink/diamond/issues/916 -->
                 <option value="0" selected="True">Disbled</option>
-                <option value="seg">seg</option>
+                <!-- <option value="seg">seg</option> -->
                 <option value="tantan">tantan</option>
             </param>
             <param argument="--motif-masking" type="select" label="Softmask abundant motifs" help="Enable or disable motif masking">
                 <option value="0">Disabled</option>
                 <option value="1">Enabled</option>
             </param>
+            <param argument="--swipe" type="boolean" truevalue="--swipe" falsevalue="" checked="false" label="Run Exhaustive alignment against all database sequences" help="Smith Waterman alignments of all queries will be computed against all targets."/>
+            <param argument="--iterate" type="boolean" truevalue="--iterate" falsevalue="" checked="false" label="Run multiple rounds of searches with increasing sensitivity" help="The query dataset will first be searched at a lower sensitivity setting, only searching those query sequences at the target sensitivity that fail to produce a significant alignment at a lower sensitivity."/>
+            <param argument="--algo" type="select" label="Algorithm for seed search" help="Double-indexed is the main algorithm of the program, designed for large input files but less efficient for small query files. Query-indexed and improves performance for small query files. This mode will be automatically triggered based on the input. Contiguous-seed mode and further improves performance for small query files. The modes differ slightly in their sensitivity, so results are not guaranteed to be 100% identical for different settings of this option.">
+                <option value="0">Double-indexed (0)</option>
+                <option value="1">Query-indexed (1)</option>
+                <option value="ctg">Contiguous-seed mode (ctg)</option>
+            </param>
+            <param argument="--global-ranking" type="integer" min="0" value="" optional="true" label="Limit on the number of Smith Waterman extensions" help="Target sequences will be ranked according to their ungapped extension scores at seed hits, and gapped extensions will only be computed for the best N targets for each query. Note that this option increases memory use."/>
         </section>
     </inputs>
     <outputs>
@@ -332,12 +342,13 @@
         </data>
     </outputs>
     <tests>
-        <!--Test 01-->
+        <!--Test 01 al and unal output -->
         <test expect_num_outputs="3">
             <conditional name="method_cond">
                 <param name="method_select" value="blastp"/>
+                <param name="comp_based_stats" value="1"/>
             </conditional>
-            <param name="query" value="protein.fasta" ftype="fasta"/>
+            <param name="query" value="protein.fasta.gz" ftype="fasta.gz"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="history"/>
                 <param name="reference_database" value="db-wtax.dmnd"/>
@@ -346,15 +357,14 @@
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
                     <param name="fields" value="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore,scovhsp,sskingdoms,skingdoms,sphylums,cigar"/>
-                    <param name="unal" value="true"/>
                 </conditional>
+                <param name="output_unal" value="--al,--un"/>
             </section>
             <conditional name="sens_cond">
                 <param name="sensitivity" value=""/>
             </conditional>
             <param name="matrix" value="BLOSUM62"/>
-            <param name="comp_based_stats" value="1"/>
-            <param name="masking" value="1"/>
+            <param name="masking" value="tantan"/>
             <conditional name="hit_filter">
                 <param name="hit_filter_select" value="max"/>
                 <param name="max_target_seqs" value="25"/>
@@ -368,7 +378,6 @@
             <conditional name="sens_cond">
                 <param name="block_size" value="2"/>
             </conditional>
-            <param name="output_unal" value="--al,--un"/>
             <output name="unalqueries">
                 <assert_contents>
                     <has_line line="&gt;shuffled sequence that should go to unaligned"/>
@@ -376,15 +385,16 @@
             </output>
             <output name="alqueries">
                 <assert_contents>
-                    <has_line line="&gt;sequence more text"/>
+                    <has_line line="&gt;NP_008227.1 cytochrome c oxidase subunit I (mitochondrion) [Pongo pygmaeus]"/>
                 </assert_contents>
             </output>
             <output name="blast_tabular" file="diamond_results.tabular"/>
         </test>
-        <!--Test 02-->
+        <!--Test 02 non-gz input, taxon list, no al and unal output, simple header -->
         <test expect_num_outputs="1">
             <conditional name="method_cond">
                 <param name="method_select" value="blastp"/>
+                <param name="comp_based_stats" value="1"/>
             </conditional>
             <param name="query" value="protein.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
@@ -393,20 +403,20 @@
             </conditional>
             <conditional name="tax_cond">
                 <param name="tax_select" value="list"/>
-                <param name="taxonlist" value="2"/>
+                <param name="taxonlist" value="42"/>  <!-- the taxID needed to use here is printed during the execution of gen.sh (filter_and_map_ids.py) it is not a NCBI taxID-->
             </conditional>
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
                     <param name="fields" value="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore"/>
+                    <param name="header" value="simple"/>
                 </conditional>
             </section>
             <conditional name="sens_cond">
                 <param name="sensitivity" value=""/>
             </conditional>
             <param name="matrix" value="BLOSUM62"/>
-            <param name="comp_based_stats" value="1"/>
-            <param name="masking" value="1"/>
+            <param name="masking" value="tantan"/>
             <conditional name="hit_filter">
                 <param name="hit_filter_select" value="max"/>
                 <param name="max_target_seqs" value="25"/>
@@ -422,10 +432,11 @@
             </conditional>
             <output name="blast_tabular" file="diamond_results.wtax.tabular"/>
         </test>
-        <!--Test 03-->
+        <!--Test 03 blastx, outfmt -->
         <test expect_num_outputs="1">
             <conditional name="method_cond">
                 <param name="method_select" value="blastx"/>
+                <param name="comp_based_stats" value="1"/>
                 <conditional name="frameshift_cond">
                     <param name="frameshift_select" value="yes"/>
                 </conditional>
@@ -444,8 +455,7 @@
                 <param name="sensitivity" value=""/>
             </conditional>
             <param name="matrix" value="BLOSUM62"/>
-            <param name="comp_based_stats" value="1"/>
-            <param name="masking" value="1"/>
+            <param name="masking" value="tantan"/>
             <conditional name="hit_filter">
                 <param name="hit_filter_select" value="top"/>
                 <param name="top" value="10"/>
@@ -461,7 +471,7 @@
             </conditional>
             <output name="blast_tabular" file="diamond_results.pairwise"/>
         </test>
-        <!--Test 04-->
+        <!--Test 04 outfmt daa -->
         <test expect_num_outputs="1">
             <conditional name="method_cond">
                 <param name="method_select" value="blastp"/>
@@ -474,16 +484,19 @@
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="100"/>
-                    <param name="salltitles" value="false"/>
-                    <param name="sallseqid" value="false"/>
                 </conditional>
             </section>
-            <output name="daa_output" file="diamond_results.daa" compare="sim_size" delta="10"/>
+            <output name="daa_output" ftype="daa">
+                <assert_contents>
+                    <has_size size="5602" delta="10"/>
+                </assert_contents>
+            </output>
         </test>
-        <!--Test 05-->
+        <!--Test 05 blastx w indexed diamond DB -->
         <test expect_num_outputs="1">
             <conditional name="method_cond">
                 <param name="method_select" value="blastx"/>
+                <param name="comp_based_stats" value="1"/>
                 <conditional name="frameshift_cond">
                     <param name="frameshift_select" value="yes"/>
                 </conditional>
@@ -491,7 +504,7 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
             <section name="output_section">
                 <conditional name="output">
@@ -502,8 +515,7 @@
                 <param name="sensitivity" value=""/>
             </conditional>
             <param name="matrix" value="BLOSUM62"/>
-            <param name="comp_based_stats" value="1"/>
-            <param name="masking" value="1"/>
+            <param name="masking" value="tantan"/>
             <conditional name="hit_filter">
                 <param name="hit_filter_select" value="top"/>
                 <param name="top" value="10"/>
@@ -527,18 +539,28 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
-            <param name="iterate" value="true"/>
+            <section name="advanced_section">
+                <param name="iterate" value="true"/>
+            </section>
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
                     <param name="fields" value="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore"/>
+                    <param name="header" value="verbose"/>
                 </conditional>
             </section>
-            <output name="blast_tabular" file="diamond_results_iterate.tabular"/>
+            <!-- verbose header contains path -> allow for lines_diff 2, assert header line separately -->
+            <output name="blast_tabular" file="diamond_results_iterate.tabular" lines_diff="2">
+                <assert_contents>
+                    <has_text text="# Invocation: diamond blastx"/>
+                </assert_contents>
+            </output>
         </test>
         <!-- Test 07 swipe option-->
+        <!-- 
+        https://github.com/bbuchfink/diamond/issues/915
         <test expect_num_outputs="1">
             <conditional name="method_cond">
                 <param name="method_select" value="blastx"/>
@@ -546,7 +568,7 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
             <param name="swipe" value="true"/>
             <section name="output_section">
@@ -556,7 +578,7 @@
                 </conditional>
             </section>
             <output name="blast_tabular" file="diamond_results_swipe.tabular"/>
-        </test>
+        </test> -->
         <!--Test 08 algo option-->
         <test expect_num_outputs="1">
             <conditional name="method_cond">
@@ -565,9 +587,11 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
-            <param name="algo" value="1"/>
+            <section name="advanced_section">
+                <param name="algo" value="1"/>
+            </section>
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
@@ -584,9 +608,11 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
-            <param name="global_ranking" value="10"/>
+            <section name="advanced_section">
+                <param name="global_ranking" value="10"/>
+            </section>
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
@@ -603,10 +629,10 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
-            <param name="max_hsps" value="10"/>
             <section name="output_section">
+                <param name="max_hsps" value="10"/>
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
                     <param name="fields" value="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore"/>
@@ -622,9 +648,11 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
-            <param name="seed_cut" value="100"/>
+            <section name="advanced_section">
+                <param name="seed_cut" value="100"/>
+            </section>
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
@@ -641,9 +669,11 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
-            <param name="freq_masking" value="true"/>
+            <section name="advanced_section">
+                <param name="freq_masking" value="true"/>
+            </section>
             <section name="output_section">
                 <conditional name="output">
                     <param name="outfmt" value="6"/>
@@ -660,10 +690,10 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
             <section name="advanced_section">
-                <param name="motif_masking" value="1"/>
+                <param name="motif_masking" value="0"/>
             </section>
             <section name="output_section">
                 <conditional name="output">
@@ -681,7 +711,7 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
             <section name="advanced_section">
                 <param name="soft_masking" value="0"/>
@@ -702,7 +732,7 @@
             <param name="query" value="nucleotide.fasta" ftype="fasta"/>
             <conditional name="ref_db_source">
                 <param name="db_source" value="indexed"/>
-                <param name="index" value="testDb"/>
+                <param name="reference_database" value="testDb"/>
             </conditional>
             <section name="output_section">
                 <conditional name="output">
@@ -714,10 +744,112 @@
             <output name="blast_tabular" file="diamond_results_log_test.tabular"/>
             <output name="log_file">
                 <assert_contents>
-                    <has_n_lines n="259"/>
-                    <has_text text="diamond blastx --quiet"/>
+                    <has_n_lines n="375"/>
+                    <has_text text="diamond blastx"/>
                     <has_text text="--log"/>
-                    <has_line line="Sequences = 6, letters = 1694, average length = 282"/>
+                    <has_line line="Sequences = 6, letters = 3076, average length = 512"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!--Test 16 test against cached BLAST DB + NO NCBI taxonomy which works as long as (certain) tax columns are not selected in outputs-->
+        <test expect_num_outputs="1">
+            <conditional name="method_cond">
+                <param name="method_select" value="blastp"/>
+                <param name="comp_based_stats" value="1"/>
+            </conditional>
+            <param name="query" value="protein.fasta.gz" ftype="fasta.gz"/>
+            <conditional name="ref_db_source">
+                <param name="db_source" value="blast"/>
+                <param name="reference_database" value="test"/>
+            </conditional>
+            <conditional name="tax_cond">
+                <param name="tax_select" value="list"/>
+                <param name="taxonlist" value="2,2759"/> <!-- simulate tax filtering ..  -->
+            </conditional>
+            <section name="output_section">
+                <conditional name="output">
+                    <param name="outfmt" value="6"/>
+                    <param name="fields" value="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore,scovhsp,staxids,cigar"/>
+                </conditional>
+            </section>
+            <conditional name="sens_cond">
+                <param name="sensitivity" value=""/>
+            </conditional>
+            <param name="matrix" value="BLOSUM62"/>
+            <param name="masking" value="seg"/>
+            <conditional name="hit_filter">
+                <param name="hit_filter_select" value="max"/>
+                <param name="max_target_seqs" value="25"/>
+            </conditional>
+            <conditional name="filter_score">
+                <param name="filter_score_select" value="evalue"/>
+                <param name="evalue" value="0.001"/>
+            </conditional>
+            <param name="id" value="0"/>
+            <param name="query_cover" value="0"/>
+            <conditional name="sens_cond">
+                <param name="block_size" value="2"/>
+            </conditional>
+            <output name="blast_tabular">
+                <assert_contents>
+                    <has_n_columns n="15"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <!-- ensure that NCBI taxonomy is really not used-->
+                <has_text text="nodes.dmp" negate="true"/>
+                <has_text text="names.dmp" negate="true"/>
+            </assert_command>
+        </test>
+
+        <!--Test 17 test blastx against cached BLAST DB  + tax columns in output + tax filtering file (tetrapoda and ray finned fished should result in mouse, human, zebra fish) -->
+        <test expect_num_outputs="1">
+            <conditional name="method_cond">
+                <param name="method_select" value="blastp"/>
+                <param name="comp_based_stats" value="1"/>
+            </conditional>
+            <param name="query" value="protein.fasta.gz" ftype="fasta.gz"/>
+            <conditional name="ref_db_source">
+                <param name="db_source" value="blast"/>
+                <param name="reference_database" value="test"/>
+                <param name="ncbi_taxonomy" value="test"/>
+            </conditional>
+            <conditional name="tax_cond">
+                <param name="tax_select" value="file"/>
+                <param name="taxonlist" value="taxon.tsv"/>
+            </conditional>
+            <section name="output_section">
+                <conditional name="output">
+                    <param name="outfmt" value="6"/>
+                    <param name="fields" value="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore,scovhsp,sskingdoms,skingdoms,sphylums,cigar"/>
+                </conditional>
+            </section>
+            <conditional name="sens_cond">
+                <param name="sensitivity" value=""/>
+            </conditional>
+            <param name="matrix" value="BLOSUM62"/>
+            <param name="masking" value="seg"/>
+            <conditional name="hit_filter">
+                <param name="hit_filter_select" value="max"/>
+                <param name="max_target_seqs" value="25"/>
+            </conditional>
+            <conditional name="filter_score">
+                <param name="filter_score_select" value="evalue"/>
+                <param name="evalue" value="0.001"/>
+            </conditional>
+            <param name="id" value="0"/>
+            <param name="query_cover" value="0"/>
+            <conditional name="sens_cond">
+                <param name="block_size" value="2"/>
+            </conditional>
+            <output name="blast_tabular">
+                <assert_contents>
+                    <has_n_columns n="17"/>
+                    <has_n_lines n="3"/>
+                    <has_text text="Metazoa" n="3"/>
+                    <has_text text="Viridiplantae" n="0"/>
                 </assert_contents>
             </output>
         </test>
