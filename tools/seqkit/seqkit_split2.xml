@@ -1,0 +1,296 @@
+<tool id="seqkit_split2" name="Seqkit Split2" version="@TOOL_VERSION@+galaxy1" profile="@PROFILE@">
+    <description>Split sequences into files by part size, number of parts, or length</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    #import re
+    mkdir -p out &&
+
+    ## The preprocessing steps below are adapted from the cutadapt.xml tool wrapper.
+    ## Set things up for handling inputs and outputs in single- vs paired-end modes   
+    #set input_type = str($input_file_type.type)
+    #if $input_type == 'single':
+        #set paired = False
+    #else:
+        #set paired = True
+    #end if
+  
+    #if $input_type == 'paired_collection'
+        #set input_1 = $input_file_type.input_1.forward
+        #set input_2 = $input_file_type.input_1.reverse
+        #set read1 = re.sub('[^\w\-\s]', '_', str($input_file_type.input_1.name)) + "_1"
+        #set read2 = re.sub('[^\w\-\s]', '_', str($input_file_type.input_1.name)) + "_2"
+    #else
+        #set input_1 = $input_file_type.input_1
+        #set read1 = re.sub('[^\w\-\s]', '_', str($input_file_type.input_1.element_identifier))
+    #end if
+
+    #if $input_1.is_of_type("fastq", "fastq.gz"):
+        #set ext = ".fastqsanger"
+    #else
+        #set ext = ".fasta"
+    #end if
+    #if $input_1.ext.endswith(".gz"):
+        #set ext=ext+".gz"
+    #end if
+
+    #set read1 = $read1 + $ext
+
+    #if $paired:
+        #if $input_2.is_of_type("fastq", "fastq.gz"):
+            #set ext2 = ".fastqsanger"
+        #else
+            #set ext2 = ".fasta"
+        #end if
+        #if $input_2.ext.endswith(".gz"):
+            #set ext2=ext2+".gz"
+        #end if
+        #set read2 = $read2 + $ext2
+    #end if
+    
+    ## Link in the input files
+    ln -fs '$input_1' '$read1' &&
+    #if $paired:
+        ln -fs '$input_2' '$read2' &&
+    #end if
+
+    seqkit split2
+    #if $paired:
+        -1 '$read1'
+        -2 '$read2'
+    #else:
+        '$read1'
+    #end if
+    #if str($split_type.split_selector) == 'by_part':
+        -p $split_type.by_part
+        #if $paired:
+            --by-part-prefix "seqkit_split2_R{read}_"
+        #end if
+    #else if str($split_type.split_selector) == 'by_size':
+        -s $split_type.by_size
+        #if $paired:
+            --by-size-prefix string "seqkit_split2_R{read}_"
+        #end if
+    #else if str($split_type.split_selector) == 'by_length':
+        -l $split_type.by_length
+    #end if
+    -o seqkit_split2
+    -O out
+    -j "\${GALAXY_SLOTS:-4}" 
+    #if $paired:
+        && (find out/ -type f -name "seqkit_split2_*.*" | while read -r file; do mv "\$file" "\$(echo \$file | sed -E 's/(seqkit_split2)_(R1|R2)_([0-9]+)(\..+)/\1_\3_\2\4/' | sed -E 's/_R1/_forward/; s/_R2/_reverse/')"; done)
+    #end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_file_type">
+            <param name="type" type="select" label="Single-end or Paired-end reads?">
+                <option value="single">Single-end</option>
+                <option value="paired_collection">Paired-end Collection</option>
+            </param>
+            <when value="single">
+                <param name="input_1" type="data" format="@FASTQ_TYPES@" label="Input FASTQ/A file" help="Select a single FASTA or FASTQ file (gzipped or uncompressed)"/>
+            </when>
+            <when value="paired_collection">
+                <param name="input_1" format="@FASTQ_TYPES@" type="data_collection" collection_type="paired" label="Paired Collection" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
+            </when>
+        </conditional>
+        <conditional name="split_type">
+            <param name="split_selector" type="select" label="Split sequences by">
+                <option value="by_part" selected="true">Number of parts</option>
+                <option value="by_size">Number of sequences per part</option>
+                <option value="by_length">Length of sequences</option>
+            </param>
+            <when value="by_part">
+                <param name="by_part" type="integer" value="" min="1" label="Number of parts" help="Split sequences into N parts using round-robin distribution." />
+            </when>
+            <when value="by_size">
+                <param name="by_size" type="integer" value="" min="1" label="Number of sequences per part" help="Split sequences into parts with N sequences each." />
+            </when>
+            <when value="by_length">
+                <param name="by_length" type="text" value="" label="Chunk size" help="Split sequences into chunks of >=N bases. Supports K/M/G suffix (e.g., 10K, 1M)">
+                    <validator type="regex" message="Invalid characters in field">^[0-9KMG]+$</validator>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <collection name="outputs_files" type="list" label="${tool.name} on ${on_string}: Splitted files">
+            <discover_datasets pattern="(?P&lt;designation&gt;seqkit_split2\.part_\d+)\.(?P&lt;ext&gt;.+)" directory="out"/>
+            <filter>input_file_type['type'] == 'single' </filter>
+        </collection>
+        <collection name="outputs_paired_files" type="list:paired" label="${tool.name} on ${on_string}: Paired-End Splitted files">
+            <filter>input_file_type['type'] == 'paired_collection' </filter>
+                <discover_datasets pattern="(?P&lt;identifier_0&gt;.+)_(?P&lt;identifier_1&gt;forward|reverse)\.(?P&lt;ext&gt;.+)" directory="out"/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Test 01: for Seqkit Split with Single End FASTQ file; splitting by parts -->
+        <test expect_num_outputs="1">
+            <conditional name="input_file_type">
+                <param name="type" value="single"/>
+                <param name="input_1" value="reads_1.fq.gz"/>
+            </conditional>
+            <conditional name="split_type">
+                <param name="split_selector" value="by_part"/>
+                <param name="by_part" value="2"/>
+            </conditional>
+            <output_collection name="outputs_files" type="list" count="2">
+                <element name="seqkit_split2.part_001" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_n_lines n="4958"/>
+                    </assert_contents>
+                </element>
+                <element name="seqkit_split2.part_002" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_n_lines n="4949"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        
+        <!-- Test 02: for Seqkit Split with Paired FASTQ Collection; splitting by parts -->
+        <test expect_num_outputs="1">
+            <conditional name="input_file_type">
+                <param name="type" value="paired_collection"/>
+                <param name="input_1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastq.gz" value="reads_1.fq.gz"/>
+                        <element name="reverse" ftype="fastq.gz" value="reads_2.fq.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="split_type">
+                <param name="split_selector" value="by_part"/>
+                <param name="by_part" value="2"/>
+            </conditional>
+            <output_collection name="outputs_paired_files" type="list:paired" count="2">
+                <element name="seqkit_split2_001">
+                    <element name="forward" ftype="fastqsanger.gz">
+                        <assert_contents>
+                            <has_n_lines n="4958"/>
+                        </assert_contents>
+                    </element>
+                    <element name="reverse" ftype="fastqsanger.gz">
+                        <assert_contents>
+                            <has_n_lines n="3792"/>
+                        </assert_contents>
+                    </element>    
+                </element>
+                <element name="seqkit_split2_002">
+                    <element name="forward" ftype="fastqsanger.gz">
+                        <assert_contents>
+                            <has_n_lines n="4949"/>
+                        </assert_contents>
+                    </element>
+                    <element name="reverse" ftype="fastqsanger.gz">
+                        <assert_contents>
+                            <has_n_lines n="3657"/>
+                        </assert_contents>  
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- Test 03: for Seqkit Split with Single End FASTA file; splitting by parts -->
+        <test expect_num_outputs="1">
+            <conditional name="input_file_type">
+                <param name="type" value="single"/>
+                <param name="input_1" value="hairpin.fa.gz"/>
+            </conditional>
+            <conditional name="split_type">
+                <param name="split_selector" value="by_part"/>
+                <param name="by_part" value="2"/>
+            </conditional>
+            <output_collection name="outputs_files" type="list" count="2">
+                <element name="seqkit_split2.part_001" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_n_lines n="2988"/>
+                    </assert_contents>
+                </element>
+                <element name="seqkit_split2.part_002" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_n_lines n="2987"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- Test 04: for Seqkit Split with Single End FASTA file; splitting by size -->
+        <test expect_num_outputs="1">
+            <conditional name="input_file_type">
+                <param name="type" value="single"/>
+                <param name="input_1" value="hairpin.fa.gz"/>
+            </conditional>
+            <conditional name="split_type">
+                <param name="split_selector" value="by_size"/>
+                <param name="by_size" value="200"/>
+            </conditional>
+            <output_collection name="outputs_files" type="list" count="25">
+                <element name="seqkit_split2.part_001" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_n_lines n="224"/>
+                    </assert_contents>
+                </element>
+                <element name="seqkit_split2.part_002" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_n_lines n="281"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- Test 05: for Seqkit Split with Single End FASTA file; splitting by length -->
+        <test expect_num_outputs="1">
+            <conditional name="input_file_type">
+                <param name="type" value="single"/>
+                <param name="input_1" value="hairpin.fa.gz"/>
+            </conditional>
+            <conditional name="split_type">
+                <param name="split_selector" value="by_length"/>
+                <param name="by_length" value="50K"/>
+            </conditional>
+            <output_collection name="outputs_files" type="list" count="10">
+                <element name="seqkit_split2.part_001" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_n_lines n="642"/>
+                    </assert_contents>
+                </element>
+                <element name="seqkit_split2.part_002" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_n_lines n="589"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**Seqkit Split2**
+
+This tool splits FASTA or FASTQ files (single-end or paired-end) into multiple files based on the number of parts, sequences per part, or sequence length. It supports low memory usage and fast processing.
+
+**Input type**: Choose between single-end FASTA/FASTQ or paired-end FASTQ files.
+
+**Split sequences by**:
+  - **Number of parts**: Split into N parts using round-robin distribution.
+  - **Number of sequences per part**: Split into parts with N sequences each.
+  - **Length of sequences**: Split into chunks of >=N bases (supports K/M/G suffix, e.g., 10K, 1M).
+
+**Outputs**
+
+- A collection of split FASTA/FASTQ files
+
+For more details, see the Seqkit Split2 documentation_
+
+.. _documentation: https://bioinf.shenwei.me/seqkit/usage/#split2
+
+    ]]></help>
+        <expand macro="citations"/>
+        <creator>
+            <person givenName="Saim" familyName="Momin" url="https://github.com/SaimMomin12" identifier="https://orcid.org/0009-0003-9935-828X"/>
+            <organization name="Galaxy Europe" url="https://galaxyproject.org/eu/"/>
+    </creator>
+</tool>

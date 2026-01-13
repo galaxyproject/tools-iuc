@@ -1,0 +1,279 @@
+<tool id="lexicmap_search" name="LexicMap Search" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE_VERSION@">
+    <description>nucleotide sequence tool for querying genomes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+
+    <command detect_errors="exit_code"><![CDATA[
+#if $db_opts.db_opts_selector == "histdb"
+    #set INDICES = [db.extra_files_path for db in $db_opts.histdb]
+#else:
+    #set INDICES = $db_opts.lexicmap_index.fields.path.split(",")
+#end if
+
+extract_query_ids() {
+    local input_files="\$1";
+    local query_ids="";
+    IFS=',' read -ra files <<< "\$input_files";
+    query_ids="";
+    for query_file in "\${files[@]}"; do
+        if file --mime-type "\$query_file" | grep -q "gzip"; then
+            query_ids+=\$(zcat "\$query_file" | grep '^>' | while IFS= read -r line; do clean="\${line#>}"; echo "\${clean%% *}>"; done);
+        else
+            query_ids+=\$(cat "\$query_file" | grep '^>' | while IFS= read -r line; do clean="\${line#>}"; echo "\${clean%% *}>"; done);
+        fi
+    done;
+    declare -g -a query_array=();
+    IFS='>' read -r -a query_array <<< "\$query_ids";
+}
+&&
+#for $counter, $index in enumerate($INDICES):
+    lexicmap search
+
+        --threads "\${GALAXY_SLOTS:-1}"
+
+        ${load_whole_seeds}
+        ${all}
+
+        --index '${index}'
+
+        #for $q in $query
+            '$q'
+        #end for
+
+        --out-file 'lexicmap_search_result__index${counter}.tsv'
+
+        --top-n-genomes '$top_n_genomes'
+
+        --align-band '$align_band'
+        --align-ext-len '$align_ext_len'
+        --align-max-gap '$align_max_gap'
+        --align-min-match-len '$align_min_match_len'
+        --align-min-match-pident '$align_min_match_pident'
+        --max-evalue '$max_evalue'
+        --max-query-conc '$max_query_conc'
+        --seed-max-dist '$seed_max_dist'
+        --seed-max-gap '$seed_max_gap'
+        --seed-min-prefix '$seed_min_prefix'
+        --seed-min-single-prefix '$seed_min_single_prefix'
+
+        #if $min_qcov_per_genome
+            --min-qcov-per-genome '$min_qcov_per_genome'
+        #end if
+
+        #if $min_qcov_per_hsp
+            --min-qcov-per-hsp '$min_qcov_per_hsp'
+        #end if
+        &&
+#end for
+
+#if len($INDICES) > 1
+    counter=0 &&
+    extract_query_ids '$query' &&
+    for ((i=0; i<\${#query_array[@]}; i++)); do
+        counter=\$((counter + 1));
+        lexicmap utils merge-search-results
+            --out-file "combined_result.\${counter}.tsv"
+            -q "\${query_array[\$i]}" lexicmap_search_result__index*.tsv
+            -j "\${GALAXY_SLOTS:-1}";
+    done &&
+    cat combined_result.*.tsv | awk 'NR==1 || $0 !~ /^query\tqlen\thits/' > '$out_file'
+#else
+    mv lexicmap_search_result__index0.tsv '$out_file'
+#end if
+    ]]></command>
+    <inputs>
+        <param name="query" type="data" format="fasta.gz" label="LexicMap query file" multiple="true"  help=""/>
+        <conditional name="db_opts">
+            <param name="db_opts_selector" type="select" label="LexiMap index source">
+              <option value="histdb">From your history</option>
+              <option value="db" selected="true">Locally installed LexicMap indexes</option>
+            </param>
+            <when value="histdb">
+                <param name="histdb" type="data" format="lexicmap_index" optional="false" multiple="true" label="LexicMap index" />
+            </when>
+            <when value="db">
+                <param name="lexicmap_index" type="select" optional="false" multiple="true" label="LexicMap index file">
+                    <options from_data_table="lexicmap_index"/>
+                </param>
+            </when>
+        </conditional>
+        <param argument="--top-n-genomes" type="integer" value="0" label="Keep top N genome matches for a query (0 for all)" />
+        <section name="advanced_settings" title="Advanced settings" expanded="false">
+            <param argument="--align-band" value="100" type="integer" label="Align band" help="Band size in backtracking the score matrix (pseudo alignment" />
+            <param argument="-align-ext-len" min="0" value="1000" type="integer" label="Align extend length" help="Extend length of upstream and downstream of seed regions, for extracting query and target sequences for alignment. It should be &lt;= contig interval length in database." />
+            <param argument="-align-max-gap" value="20" type="integer" label="Align max gap" help="Maximum gap in a HSP segment." />
+            <param argument="--align-min-match-len" value="50" type="integer" label="Align min match length" help="Minimum aligned length in a HSP segment." />
+            <param argument="--align-min-match-pident" value="70" type="float" label="Align min match pident" help="Minimum base identity (percentage) in a HSP segment." />
+            <param argument="--all" type="boolean" truevalue="--all" falsevalue="" checked="false" label="All all columns" help="Output more columns, e.g., matched sequences. Use this if you want to output blast-style format with 'lexicmap utils 2blast'." />
+            <param argument="--load-whole-seeds" type="boolean" truevalue="--load-whole-seeds" falsevalue="" checked="false" label="Load whole seeds" help="Load the whole seed data into memory for faster search" />
+            <param argument="--max-evalue" value="10" type="float" label="Max evalue" help="Maximum evalue of a HSP segment." />
+            <param argument="--max-query-conc" value="12" type="integer" label="Max query conc" help="Maximum number of concurrent queries. Bigger values do not improve the batch searching speed and consume much memory." />
+            <param argument="--min-qcov-per-genome" type="float" optional="true" help="Minimum query coverage (percentage) per genome." />
+            <param argument="--min-qcov-per-hsp" type="float" optional="true" help="Minimum query coverage (percentage) per HSP." />
+            <param argument="--seed-max-dist" value="1000" type="integer" label="Seed max dist" help="Minimum distance between seeds in seed chaining. It should be &lt;= contig interval length in database." />
+            <param argument="--seed-max-gap" value="1000" type="integer" label="Seed max gap" help="Minimum gap in seed chaining." />
+            <param argument="--seed-min-prefix" value="17" type="integer" label="Seed min prefix" help="Minimum (prefix/suffix) length of matched seeds (anchors)." />
+            <param argument="--seed-min-single-prefix" value="19" type="integer" label="Seed min single prefix" help="Minimum (prefix/suffix) length of matched seeds (anchors) if there's only one pair of seeds matched." />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="tabular">
+            <actions>
+                <conditional name="advanced_settings.all">
+                    <when value="true">
+                        <action name="column_names" type="metadata" default="Qquery,qlen,hits,sgenome,sseqid,qcovGnm,cls,hsp,qcovHSP,alenHSP,pident,gaps,qstart,qend,sstart,send,sstr,slen,evalue,bitscore,cigar,qseq,sseq,align" />
+                    </when>
+                    <when value="false">
+                        <action name="column_names" type="metadata" default="Qquery,qlen,hits,sgenome,sseqid,qcovGnm,cls,hsp,qcovHSP,alenHSP,pident,gaps,qstart,qend,sstart,send,sstr,slen,evalue,bitscore" />
+                    </when>
+                </conditional>
+            </actions>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1 - query one local index with one query -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndex1" />
+            </conditional>
+            <param name="query" value="lexicmap_query.fasta.gz" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result.tsv" />
+        </test>
+        <!-- Test 2 - query one local index with multiple query files -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndex1" />
+            </conditional>
+            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result2.tsv" />
+        </test>
+        <!-- Test 3 - query two local index with one query file -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndexCombined" />
+            </conditional>
+            <param name="query" value="lexicmap_query.fasta.gz" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result.tsv" />
+        </test>
+        <!-- Test 4 - query two local index with multiple query files -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndexCombined" />
+            </conditional>
+            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz,lexicmap_query3.fasta" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result4.tsv" />
+        </test>
+        <!-- Test 5 - query one local index with multiple query files, where only one query will get hits -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndex2" />
+            </conditional>
+            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz,lexicmap_query3.fasta" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result3.tsv" />
+        </test>
+        <!-- Test 6 - query multiple local index with multiple query files -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndex1,LexicMapIndex2,LexicMapIndexCombined" />
+            </conditional>
+
+            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz,lexicmap_query3.fasta" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result6.tsv" />
+        </test>
+        <!-- Test 7 - query one index found in the history with one query -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="histdb"/>
+                <param name="histdb" ftype="lexicmap_index" class="Directory" value="db.lmi" />
+            </conditional>
+            <param name="top_n_genomes" value="0" />
+            <param name="query" value="lexicmap_query.fasta.gz" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result.tsv" />
+        </test>
+        <!-- Test 8 - query two index found in the history with one query -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="histdb"/>
+                <param name="histdb" ftype="lexicmap_index" class="Directory" value="db.lmi,db2.lmi" />
+            </conditional>
+            <param name="top_n_genomes" value="0" />
+            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query3.fasta" />
+            <section name="advanced_settings">
+                <param name="load_whole_seeds" value="true" />
+            </section>
+            <output name="out_file" value="lexicmap_query_result5.tsv" />
+        </test>
+    </tests>
+    <help><![CDATA[
+    
+    Search sequences against an LexicMap index Database. For more information about settings
+    please visit: https://bioinf.shenwei.me/LexicMap/usage/search
+
+    Output format:
+    Tab-delimited format with 20+ columns, with 1-based positions.
+
+    1.  query,    Query sequence ID.
+    2.  qlen,     Query sequence length.
+    3.  hits,     Number of subject genomes.
+    4.  sgenome,  Subject genome ID.
+    5.  sseqid,   Subject sequence ID.
+    6.  qcovGnm,  Query coverage (percentage) per genome: $(aligned bases in the genome)/$qlen.
+    7.  cls,      Nth HSP cluster in the genome. (just for improving readability)
+                  It's useful to show if multiple adjacent HSPs are collinear.
+    8.  hsp,      Nth HSP in the genome.         (just for improving readability)
+    9.  qcovHSP   Query coverage (percentage) per HSP: $(aligned bases in a HSP)/$qlen.
+    10. alenHSP,  Aligned length in the current HSP.
+    11. pident,   Percentage of identical matches in the current HSP.
+    12. gaps,     Gaps in the current HSP.
+    13. qstart,   Start of alignment in query sequence.
+    14. qend,     End of alignment in query sequence.
+    15. sstart,   Start of alignment in subject sequence.
+    16. send,     End of alignment in subject sequence.
+    17. sstr,     Subject strand.
+    18. slen,     Subject sequence length.
+    19. evalue,   Expect value.
+    20. bitscore, Bit score.
+    21. cigar,    CIGAR string of the alignment.                      (optional with --all)
+    22. qseq,     Aligned part of query sequence.                     (optional with --all)
+    23. sseq,     Aligned part of subject sequence.                   (optional with --all)
+    24. align,    Alignment text ("|" and " ") between qseq and sseq. (optional with --all)
+
+    When running against multiple indices lexicmap utils merge-search-results will be used to
+    merge the search results. For more information please visit:
+    https://bioinf.shenwei.me/LexicMap/usage/utils/merge-search-results/
+
+    Note: if the query id contains spaces, only the first part (before the first space) will be kept as the query id.
+    @info@
+        ]]></help>
+    <expand macro="citations" />
+</tool>

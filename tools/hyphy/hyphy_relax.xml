@@ -7,123 +7,307 @@
     <expand macro="bio_tools"/>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-        @SYMLINK_FILES@
-        export OMP_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
-        hyphy relax
-            --alignment ./$input_file
-            @INPUT_TREE@
+        #if $input_type_cond.input_type == "single":
+            @SYMLINK_FILES@
+            export OMP_NUM_THREADS="\\${GALAXY_SLOTS:-1}" &&
+            hyphy relax
+                --alignment 'input.$input_type_cond.input_file.ext'
+                @INPUT_TREE@
+        #else:
+            #for $i, $input_data in enumerate($input_type_cond.input_data_and_tree):
+                ln -s '$input_data.input_file' input_${i}.$input_data.input_file.ext &&
+                #if $input_data.input_nhx:
+                    ln -s '$input_data.input_nhx' input_${i}.nhx &&
+                #end if
+                echo "input_${i}.$input_data.input_file.ext" >> filelist.txt &&
+            #end for
+            export OMP_NUM_THREADS="\\${GALAXY_SLOTS:-1}" &&
+            hyphy relax
+                --multiple-files Yes
+                --filelist filelist.txt
+                #for $i, $input_data in enumerate($input_type_cond.input_data_and_tree):
+                    #if $input_data.input_nhx:
+                        --tree input_${i}.nhx
+                    #end if
+                #end for
+        #end if
             --models '$models'
             --code '$gencodeid'
             --test '$test'
             #if $reference:
                 --reference '$reference'
             #end if
-            @advanced_options@
+            --mode '$advanced_options.mode_cond.mode'
+            #if str($advanced_options.mode_cond.mode) == 'Group mode' and $advanced_options.mode_cond.reference_group:
+                --reference-group '$advanced_options.mode_cond.reference_group'
+            #end if
+            --grid-size $advanced_options.grid_size
+            --starting-points $advanced_options.starting_points
+            --syn-rates $advanced_options.syn_rates
+            --rates $advanced_options.rates
+            --srv '$advanced_options.srv'
+            #if $advanced_options.multiple_hits != 'None':
+                --multiple-hits $advanced_options.multiple_hits
+            #end if
+            --kill-zero-lengths $advanced_options.kill_zero_lengths
             --output '$relax_output'
+            > relax_stdout.md 
         @ERRORS@
     ]]></command>
     <inputs>
-        <expand macro="inputs"/>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Input type" help="Select whether you are providing a single alignment or multiple alignments.">
+                <option value="single" selected="true">Single alignment file</option>
+                <option value="multiple">Multiple alignment files</option>
+            </param>
+            <when value="single">
+                <expand macro="inputs"/>
+            </when>
+            <when value="multiple">
+                <repeat name="input_data_and_tree" title="Alignment and Tree" min="1">
+                    <param name="input_file" type="data" format="fasta,fasta.gz,nex" label="Input FASTA or NEXUS file" help="An in-frame codon alignment in one of the formats supported by HyPhy" />
+                    <param name="input_nhx" type="data" format="nhx,newick" optional="true" label="Input newick file; this will override any trees included in the file" help="A phylogenetic tree (optionally annotated with {})"/>
+                </repeat>
+            </when>
+        </conditional>
         <expand macro="gencode"/>
-        <param argument="--models" type="select" label="Analysis Type" >
+        <param argument="--models" type="select" label="Analysis Type" help="Choose 'All' to fit all models, or 'Minimal' for a faster 2-model test.">
             <option value="All">All</option>
             <option value="Minimal">Minimal</option>
         </param>
-        <param argument="--test" type="text" value="Unlabeled branches" optional="false" label="Branches to use as the test set">
-            <sanitizer invalid_char="">
-                <valid initial="default" />
-            </sanitizer>
+        <param argument="--test" type="text" value="Unlabeled branches" optional="false" label="Branches to use as the test set" help="Label for the branch set to be tested (e.g., TEST). Must be present in the tree in {}">
         </param>
-        <param argument="--reference" type="text" optional="true" label="Branches to use as the reference set">
-            <sanitizer invalid_char="">
-                <valid initial="default" />
-            </sanitizer>
+        <param argument="--reference" type="text" optional="true" label="Branches to use as the reference set" help="Optional label for the reference branch set. If not provided, all non-test branches are used as reference.">
         </param>
-        <expand macro="srv" />
+        <section name="advanced_options" title="Advanced Options" expanded="false">
+            <conditional name="mode_cond">
+                <param name="mode" type="select" label="Run mode" help="Select the analysis mode. 'Classic mode' for test vs reference, 'Group mode' for comparing multiple groups.">
+                    <option value="Classic mode" selected="true">Classic mode</option>
+                    <option value="Group mode">Group test mode</option>
+                </param>
+                <when value="Classic mode" />
+                <when value="Group mode">
+                    <param argument="--reference-group" type="text" optional="true" label="Branches to use as the reference group" help="In Group mode, specify which branch set is the reference for comparison."/>
+                </when>
+            </conditional>
+            <param argument="--grid-size" type="integer" value="250" label="Points in the initial distributional guess for likelihood fitting" max="5000"/>
+            <param argument="--starting-points" type="integer" value="1" label="Initial random guesses to seed rate values optimization" help="The number of initial random guesses to seed rate values optimization" max="1000"/>
+            <param argument="--syn-rates" type="integer" min="1" max="10" value="3" label="Synonymous rate classes" />
+            <param argument="--rates" type="integer" min="2" max="10" value="3" label="Non-synonymous rate classes" />
+            <param argument="--srv" type="select" label="Include synonymous rate variation">
+                <option value="No" selected="true">No</option>
+                <option value="Yes">Yes</option>
+                <option value="Branch-site">Branch-site</option>
+                <option value="HMM">HMM</option>
+            </param>
+            <param argument="--multiple-hits" type="select" label="Multiple hits correction" help="Include support for multiple nucleotide substitutions">
+                <option value="None">None</option>
+                <option value="Double">Double</option>
+                <option value="Double+Triple">Double and Triple</option>
+            </param>
+            <expand macro="kill_zero_lengths_param"/>
+        </section>
     </inputs>
     <outputs>
         <data name="relax_output" format="hyphy_results.json"/>
-        <expand macro="alternative_model_output" />
+        <data name="relax_md_report" format="markdown" from_work_dir="relax_stdout.md" label="RELAX Report (Markdown) for ${tool.name} on ${on_string}" />
     </outputs>
     <tests>
-        <test>
-            <param name="input_file" ftype="fasta" value="relax-in1.fa"/>
-            <param name="input_nhx" ftype="nhx" value="relax-in1.nhx"/>
+        <test expect_num_outputs="2">
+            <param name="input_type_cond|input_type" value="single"/>
+            <param name="input_type_cond|input_file" ftype="nex" value="relax-in1.fa"/>
+            <param name="input_type_cond|input_nhx" ftype="nhx" value="relax-in1.nhx"/>
             <param name="test" value="TEST" />
-            <output name="relax_output" file="relax-out1.json" compare="sim_size"/>
+            <section name="advanced_options">
+                <conditional name="mode_cond">
+                    <param name="mode" value="Classic mode"/>
+                </conditional>
+            </section>
+            <output name="relax_output">
+                <assert_contents>
+                     <has_text text='RELAX partitioned descriptive'/>
+                </assert_contents>
+            </output>
+            <output name="relax_md_report">
+                <assert_contents>
+                    <has_text text="* Selected 1 branches as the _Test_ set: `Cow`"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
-            <param name="input_file" ftype="nex" value="relax-in2.nex"/>
-            <param name="test" value="PR" />
-            <conditional name="advanced">
-                <param name="srv_options" value="specify" />
-                <param name="save_alternative_model" value="true" />
-                <param name="srv" value="false" />
-            </conditional>
-            <output name="relax_output" file="relax-out2-1.json" compare="sim_size"/>
+        <test expect_num_outputs="2">
+            <param name="input_type_cond|input_type" value="single"/>
+            <param name="input_type_cond|input_file" ftype="nex" value="relax-in2.nex"/>
+            <param name="input_type_cond|input_nhx" ftype="nhx" value="relax-in2.nhx"/>
+            <param name="test" value="TEST" />
+            <section name="advanced_options">
+                <conditional name="mode_cond">
+                    <param name="mode" value="Classic mode"/>
+                </conditional>
+                <param name="srv" value="No"/>
+            </section>
+            <output name="relax_output">
+                <assert_contents>
+                    <not_has_text text='"Synonymous site-to-site rates"'/>
+                </assert_contents>
+            </output>
+            <output name="relax_md_report">
+                <assert_contents>
+                    <has_text text=">srv => No"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_type_cond|input_type" value="multiple"/>
+            <repeat name="input_type_cond|input_data_and_tree">
+                <param name="input_file" ftype="fasta" value="relax-in1.fa"/>
+                <param name="input_nhx" ftype="nhx" value="relax-in1.nhx"/>
+            </repeat>
+            <repeat name="input_type_cond|input_data_and_tree">
+                <param name="input_file" ftype="nex" value="relax-in2.nex"/>
+                <param name="input_nhx" ftype="nhx" value="relax-in2.nhx"/>
+            </repeat>
+            <param name="test" value="TEST" />
+            <section name="advanced_options">
+                <conditional name="mode_cond">
+                    <param name="mode" value="Classic mode"/>
+                </conditional>
+            </section>
+            <output name="relax_output">
+                <assert_contents>
+                    <has_text text='"partition count":2'/>
+                </assert_contents>
+            </output>
+            <output name="relax_md_report">
+                <assert_contents>
+                    <has_text text="Loaded **2** alignments from from"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_type_cond|input_type" value="single"/>
+            <param name="input_type_cond|input_file" ftype="fasta" value="relax-in1.fa"/>
+            <param name="input_type_cond|input_nhx" ftype="nhx" value="relax-in1.nhx"/>
+            <param name="test" value="TEST" />
+            <section name="advanced_options">
+                <conditional name="mode_cond">
+                    <param name="mode" value="Classic mode"/>
+                </conditional>
+                <param name="srv" value="HMM"/>
+            </section>
+            <output name="relax_output">
+                <assert_contents>
+                    <has_text text='"HMM rate switching parameter"'/>
+                </assert_contents>
+            </output>
+            <output name="relax_md_report">
+                <assert_contents>
+                    <has_text text=">srv => HMM"/>
+                    <has_text text="HMM switching rate"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_type_cond|input_type" value="single"/>
+            <param name="input_type_cond|input_file" ftype="fasta" value="relax-in1.fa"/>
+            <param name="input_type_cond|input_nhx" ftype="nhx" value="relax-in1-2.nhx"/>
+            <param name="test" value="Unlabeled branches"/>
+            <section name="advanced_options">
+                <conditional name="mode_cond">
+                    <param name="mode" value="Group mode"/>
+                    <param name="reference_group" value="TEST"/>
+                </conditional>
+            </section>
+            <output name="relax_output">
+                <assert_contents>
+                    <has_text text='"relaxation or intensification parameter":{'/>
+                    <has_text text='"TEST2":'/>
+                </assert_contents>
+            </output>
+            <output name="relax_md_report">
+                <assert_contents>
+                    <has_text text=">mode => Group mode"/>
+                    <has_text text=">reference-group => TEST"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
-RELAX: a test for selection differences
-=======================================
-
-What question does this method answer?
---------------------------------------
-
-Is there evidence the strength of selection has been relaxed (or conversely intensified) on a specified group of lineages (TEST)
-relative to a set of reference lineages (RELAX)? Importantly, RELAX is not designed to detect diversifying selection specifically.
-We note that the RELAX framework can perform both this specific hypothesis test as well as fit a suite of descriptive models which address,
-or example, overall rate differences between test and reference branches or lineage-specific inferences of selection relaxation.
-
-Recommended Applications
-------------------------
-
-1. Testing for a systematic shift (relaxation / intensification) in the distribution of selection pressure associated with major biological transitions such as hosting switching in viruses, lifestyle evolution in bacteria (i.e. transition from free-living to endosymbiotic lifestyle
-2. Comparing selective regimes between two subsets of branches in the tree, e.g. to investigate selective differences due an environmental/phenotypic changes.
-
-
-Brief description
------------------
-
-RELAX (a random effects test of selection relaxation) uses a random
-effects branch-site model framework to test whether a set of 'Test'
-branches evolves under relaxed selection relative to a set of
-'Reference' branches (R), as measured by the relaxation parameter (K).
-
-Input
------
-
-    1. A *FASTA* sequence alignment.
-    2. A phylogenetic tree in the *Newick* format that is further partitioned into one or two groups (_TEST_ or _TEST_ and _REFERENCE_). See http://hyphy.org/tutorials/phylotree/
-
-Note: the names of sequences in the alignment must match the names of the sequences in the tree.
-
-
-Output
+Method
 ------
 
-A JSON file with analysis results (http://hyphy.org/resources/json-fields.pdf).
+RELAX is a hypothesis testing framework that asks whether the strength of natural selection has been relaxed or intensified in a specific set of branches (the "test" set) on a phylogenetic tree, relative to another set of branches (the "reference" set).
 
-A custom visualization module for viewing these results is available (see http://vision.hyphy.org/RELAX for an example)
+**The Intuition**
 
-Further reading
----------------
+The core idea behind RELAX is to model the distribution of selection intensity (ω, the dN/dS ratio) across sites in the alignment. Natural selection can be:
 
-http://hyphy.org/methods/selection-methods/#RELAX
+- **Purifying (negative) selection** (ω < 1): Non-synonymous mutations are deleterious and are removed from the population.
+- **Neutral evolution** (ω = 1): Non-synonymous mutations have no effect on fitness.
+- **Diversifying (positive) selection** (ω > 1): Non-synonymous mutations are advantageous and are fixed in the population.
 
+RELAX fits a model to the data that describes the distribution of ω values as a mixture of several rate classes. It then introduces a **relaxation parameter (K)**. This parameter scales the ω distribution for the test branches.
 
-Tool options
-------------
-::
+- If **K > 1**, the ω distribution is shifted away from neutrality, which indicates that selection has been **intensified**. This means that both purifying and diversifying selection are stronger on the test branches.
+- If **K < 1**, the ω distribution is shifted towards neutrality, which indicates that selection has been **relaxed**. This means that both purifying and diversifying selection are weaker on the test branches.
+- If **K = 1**, there is no difference in selection strength between the test and reference branches.
 
+**The Test**
 
-    --code             Which genetic code to use
+RELAX performs a likelihood ratio test (LRT) to determine if the model with the relaxation parameter `K` is a significantly better fit to the data than a null model where `K` is fixed to 1. A significant p-value suggests that the strength of selection is indeed different between the test and reference branches.
 
-    --model            Which type of test to run
-                            All : fit 4 different models [default]
-                            Minimal: only perform a 2-model test of relaxation/intensification  [faster]
+**Recommended Applications**
 
+- Testing for a systematic shift (relaxation / intensification) in the distribution of selection pressure associated with major biological transitions such as host switching in viruses, or lifestyle evolution in bacteria (e.g., transition from free-living to endosymbiotic lifestyle).
+- Comparing selective regimes between two subsets of branches in the tree, e.g., to investigate selective differences due to an environmental or phenotypic change.
 
+**Input**
+
+This tool accepts either a single alignment file or multiple alignment files. For each alignment, a corresponding phylogenetic tree is required.
+
+- **Sequence Alignment:** An in-frame codon alignment in FASTA or NEXUS format.
+- **Phylogenetic Tree:** A phylogenetic tree in Newick format. The tree's branches must be annotated to define the sets of branches to be tested.
+
+**Multiple Alignment Files**
+
+This mode allows you to run a joint analysis on multiple sequence alignments, each with its own phylogenetic tree. The primary goal of this feature is to boost statistical power by fitting a single, shared dN/dS rate distribution across all provided gene/partition data, while allowing tree topologies, branch lengths, and other model parameters to vary for each dataset.
+
+This is particularly useful for analyses where you want to combine data from multiple genes from the same set of species, for example, when analyzing different genes from viral genomes. By combining data, you can obtain more robust estimates of the selection parameters.
+
+When using this mode, ensure that the branch labels used for `TEST` and `REFERENCE` sets are consistent across all your input trees.
+
+**Branch Annotation:**
+
+Branch labels are used to assign branches to different sets for analysis. Labels are added to the Newick string, for example: `(speciesA:0.1, (speciesB:0.2, speciesC:0.3){TEST}:0.4);`.
+
+- In **Classic mode**, you must define a `TEST` set of branches. You can optionally define a `REFERENCE` set. If no `REFERENCE` set is defined, all branches not in the `TEST` set are considered reference branches.
+- In **Group mode**, you can define multiple sets of test branches (e.g., `{TEST1}`, `{TEST2}`, `{TEST3}`) and specify one of them as the reference group.
+
+**Tool Options**
+
+- **Input type:** Choose between a single alignment file or multiple alignment files.
+- **Analysis Type:**
+    - `All`: Fit all 4 models, including descriptive models.
+    - `Minimal`: Perform a 2-model test of relaxation/intensification only (faster).
+- **Branches to use as the test set:** The label used in the Newick tree to define the test set (e.g., `TEST`).
+- **Branches to use as the reference set:** (Optional) The label for the reference set.
+- **Run mode:**
+    - `Classic mode`: Test for selection relaxation/intensification on a `TEST` set of branches relative to a `REFERENCE` set.
+    - `Group mode`: Test for differences in selective pressure among multiple groups of branches.
+- **Branches to use as the reference group:** In `Group mode`, specify which of the defined branch sets should be used as the reference for comparison.
+- **Advanced settings:**
+    - **Synonymous rate variation (SRV):** Model synonymous rate variation across sites using different methods (`Yes`, `Branch-site`, `HMM`).
+    - **Multiple hits correction:** Account for multiple nucleotide substitutions at the same site.
+    - **Kill zero-length branches:** Automatically remove internal branches of length zero for computational efficiency.
+
+**Output**
+
+- A JSON file with the detailed analysis results.
+- A Markdown report summarizing the analysis and results.
+
+**Further reading**
+
+- http://hyphy.org/methods/selection-methods/#RELAX
+- http://hyphy.org/resources/json-fields.pdf
     ]]></help>
     <expand macro="citations">
         <citation type="doi">10.1093/molbev/msu400</citation>
