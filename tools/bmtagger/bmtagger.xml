@@ -1,0 +1,277 @@
+<tool id="bmtagger" name="bmtagger" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>remove contaminant reads</description>
+    <macros>
+        <token name="@TOOL_VERSION@">3.101</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.0</token>
+
+        <xml name="assert">
+            <assert_contents>
+                <has_n_lines n="2668"/>
+            </assert_contents>
+        </xml>
+        <xml name="element_assert" tokens="name,ftype" token_decompress="false">
+            <element name="@NAME@" ftype="@FTYPE@" decompress="@DECOMPRESS@">
+                <expand macro="assert"/>
+            </element>
+        </xml>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">bmtagger</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">bmtagger</requirement>
+    </requirements>
+    <version_command><![CDATA[bmtagger.sh -V 2> /dev/null | grep version | cut -d" " -f2]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        set -eo pipefail;
+        #set gz = False
+        #set fasta = False
+        #if $sequences.type == "single"
+            #if $sequences.reads.ext.startswith("fasta")
+                #set fasta = True
+            #end if
+            #if $sequences.reads.ext.endswith(".gz")
+                gunzip -c '$sequences.reads' > forward &&
+                #set gz = True
+            #else
+                ln -s '$sequences.reads' forward &&
+            #end if
+
+        #else
+            #if $sequences.reads.forward.ext.startswith("fasta")
+                #set fasta = True
+            #end if
+            #if $sequences.reads.forward.ext.endswith(".gz")
+                gunzip -c '$sequences.reads.forward' > forward &&
+                gunzip -c '$sequences.reads.reverse' > reverse &&
+                #set gz = True
+            #else
+                ln -s '$sequences.reads.forward' forward &&
+                ln -s '$sequences.reads.reverse' reverse &&
+            #end if
+        #end if
+
+        #if $host.source == "cached"
+            #set reference = $host.reference.fields.path
+            ## srprism test data is to large (>100MB) to store ar IUC
+            ## hence we generate it on the fly for tool tests using the
+            ## fasta file which we keep in the path referred by the
+            ## data table (not needed otherwise)
+            #if $test == "true"
+                srprism mkindex -i '${host.reference.fields.path}.fa' -o reference.srprism &&
+            #end if
+        #else
+            #if $host.sequence.ext == "fasta.gz"
+                gunzip -c '$host.sequence' > reference.fa &&
+            #else
+                ln -s '$host.sequence' reference.fa &&
+            #end if
+            ## bmtool creates multi GB file if used with default parameters
+            ## -> use much smaller word size for testing
+            bmtool -d reference.fa -o reference.bitmask -w #if $test != "" then 10 else 18 # &&
+            srprism mkindex -i reference.fa -o reference.srprism &&
+            makeblastdb -in reference.fa -dbtype nucl &&
+            #set reference = "reference"
+        #end if
+
+        bmtagger.sh
+            -q #if $fasta then 0 else 1#
+            -1 forward
+            #if $sequences.type == "paired"
+                -2 reverse
+            #end if
+            -b '${reference}.bitmask'
+            #if $test == "" or $host.source != "cached"
+                -x '${reference}.srprism'
+            #else
+                -x reference.srprism
+            #end if
+            -d '${reference}'
+            -o host_ids
+            &&
+
+        extract_fullseq host_ids -keep -fastq 
+        #if $sequences.type == "single"
+            -single
+        #else
+            -mate1
+        #end if
+        'forward' 
+        #if $gz
+            | gzip -c
+        #end if
+        #if $sequences.type == "single"
+            > '$out_single'
+        #else
+            > '$out_pair.forward'
+            &&
+            extract_fullseq host_ids -keep -fastq -mate2 'reverse' 
+            #if $gz
+                | gzip -c
+            #end if
+            > '$out_pair.reverse'
+        #end if
+    ]]></command>
+    <inputs>
+        <conditional name="sequences">
+            <param name="type" type="select" label="Sequence type">
+                <option value="single">Single end data</option>
+                <option value="paired">Paired end data</option>
+            </param>
+            <when value="single">
+                <param name="reads" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Single end reads"/>
+            </when>
+            <when value="paired">
+                <param name="reads" type="data_collection" collection_type="paired" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Paired end reads" />
+            </when>
+        </conditional>
+        <conditional name="host">
+            <param name="source" type="select" label="Host data source">
+                <option value="cached">Precomputed indices</option>
+                <option value="history">Sequence from History</option>
+            </param>
+            <when value="cached">
+                <param name="reference" type="select" label="Reference">
+                    <options from_data_table="bmtagger">
+                        <filter type="sort_by" column="2"/>
+                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="sequence" type="data" format="fasta,fasta.gz" label="Host sequence" help="nucleotide sequence" />
+            </when>
+        </conditional>
+        <param name="test" type="hidden"/>
+    </inputs>
+    <outputs>
+        <data name="out_single" format_source="reads" label="${tool.name} on ${on_string}">
+            <filter>sequences["type"] == "single"</filter>
+        </data>
+        <collection name="out_pair" type="paired" label="${tool.name} on ${on_string}: pairs">
+            <data name="forward" format_source="reads" />
+            <data name="reverse" format_source="reads" />
+            <filter>sequences["type"] == "paired"</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- single input, cached reference -->
+        <test expect_num_outputs="1">
+            <conditional name="sequences">
+                <param name="type" value="single"/>
+                <param name="reads" value="host_and_contaminant.fq1.fq" ftype="fastqsanger"/>
+            </conditional>
+            <param name="test" value="true"/>
+            <output name="out_single" ftype="fastqsanger">
+                <expand macro="assert"/>
+            </output>
+        </test>
+        <!-- paired input, cached reference -->
+        <test expect_num_outputs="3">
+            <conditional name="sequences">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired_or_unpaired" name="reads">
+                        <element name="forward" value="host_and_contaminant.fq1.fq" ftype="fastqsanger"/>
+                        <element name="reverse" value="host_and_contaminant.fq2.fq" ftype="fastqsanger"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="test" value="true"/>
+            <output_collection name="out_pair" count="2">
+                <expand macro="element_assert" name="forward" ftype="fastqsanger"/>
+                <expand macro="element_assert" name="reverse" ftype="fastqsanger"/>
+            </output_collection>
+        </test>
+        <!-- gz input, cached reference -->
+        <test expect_num_outputs="3">
+            <conditional name="sequences">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired_or_unpaired" name="reads">
+                        <element name="forward" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="host_and_contaminant.fq2.fq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="test" value="true"/>
+            <output_collection name="out_pair" count="2">
+                <expand macro="element_assert" name="forward" ftype="fastqsanger.gz" decompress="true"/>
+                <expand macro="element_assert" name="reverse" ftype="fastqsanger.gz" decompress="true"/>
+            </output_collection>
+        </test>
+
+        <!-- single gz input, fasta reference -->
+        <test expect_num_outputs="1">
+            <conditional name="sequences">
+                <param name="type" value="single"/>
+                <param name="reads" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="host">
+                <param name="source" value="history"/>
+                <param name="sequence" value="host.fa" ftype="fasta"/>
+            </conditional>
+            <param name="test" value="true"/>
+            <output name="out_single" ftype="fastqsanger.gz" decompress="true">
+                <expand macro="assert"/>
+            </output>
+        </test>
+
+        <!-- gz input, gzipped fasta reference -->
+        <test expect_num_outputs="3">
+            <conditional name="sequences">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired_or_unpaired" name="reads">
+                        <element name="forward" value="host_and_contaminant.fq1.fq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="host_and_contaminant.fq2.fq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="host">
+                <param name="source" value="history"/>
+                <param name="sequence" value="host.fa.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="test" value="true"/>
+            <output_collection name="out_pair" count="2">
+                <expand macro="element_assert" name="forward" ftype="fastqsanger.gz" decompress="true"/>
+                <expand macro="element_assert" name="reverse" ftype="fastqsanger.gz" decompress="true"/>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+Filter contaminant sequences from input FASTA or FASTQ sequences.
+
+This is done by iteratively applying
+
+- bmfilter
+- srprism
+- blastn (megablast)
+
+Usage
+.....
+
+**Input**
+
+FASTA/FASTQ sequences and a reference database.
+
+**Output**
+
+FASTA/FASTQ sequences
+
+    ]]></help>
+    <citations>
+        <citation type="bibtex">@article{rotmistrovsky2011bmtagger,
+            title={BMTagger: Best Match Tagger for removing human reads from metagenomics datasets},
+            author={Rotmistrovsky, Kirill and Agarwala, Richa},
+            journal={NCBI/NLM, National Institutes of Health},
+            year={2011}
+         }</citation>
+    </citations>
+</tool>
