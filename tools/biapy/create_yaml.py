@@ -211,6 +211,7 @@ def main():
                 (obj_slices,) + obj_size + (args.img_channel,)
             )
         config["DATA"]["PATCH_SIZE"] = str(config["DATA"]["PATCH_SIZE"])
+        config["DATA"]["REFLECT_TO_COMPLETE_SHAPE"] = True
     else:
         assert args.input_config_path, (
             "Input configuration path must be specified when not "
