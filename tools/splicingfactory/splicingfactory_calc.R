@@ -22,12 +22,12 @@ suppressPackageStartupMessages({
 })
 
 parser <- ArgumentParser(
-  description = "Improved Galaxy runner for SplicingFactory::calculate_diversity"
+  description = "Galaxy runner for SplicingFactory::calculate_diversity"
 )
 
 parser$add_argument(
   "-i", "--input",
-  help = "Input file: TSV matrix or RDS (tximport list or SummarizedExperiment)",
+  help = "Input file: TSV matrix or RDS (tximport/SE)",
   required = TRUE
 )
 parser$add_argument(
@@ -77,7 +77,10 @@ parser$add_argument(
 )
 parser$add_argument(
   "--plot_dir",
-  help = "Directory to save ggplot figures (if set). Files: diversity_density.png, diversity_boxplot.png, diversity_heatmap.png",
+  help = paste(
+    "Directory to save ggplot figures (diversity_density,",
+    "boxplot, heatmap)"
+  ),
   default = NULL
 )
 parser$add_argument(
@@ -87,7 +90,7 @@ parser$add_argument(
 )
 parser$add_argument(
   "--group_column",
-  help = "Column name in colData(res_se) to group samples for boxplot",
+  help = "Column name in colData(res_se) to group samples",
   default = NULL
 )
 parser$add_argument(
@@ -102,8 +105,11 @@ parser$add_argument(
   default = FALSE
 )
 
-# Diagnostic: print raw args (what R actually sees). This helps debug parse_args errors under planemo/galaxy.
-cat("RAW_CMD_ARGS:", paste(shQuote(commandArgs(trailingOnly = TRUE)), collapse = " "), "\n", file = stderr())
+# Diagnostic: print raw args (what R actually sees).
+# Useful to debug parse_args errors under planemo/galaxy.
+cmd <- commandArgs(trailingOnly = TRUE)
+raw_args <- paste(shQuote(cmd), collapse = " ")
+cat("RAW_CMD_ARGS:", raw_args, "\n", file = stderr())
 
 args <- parser$parse_args()
 
@@ -116,7 +122,10 @@ if (verbose) {
 input_type <- args$input_type
 if (input_type == "auto") {
   # try to read RDS first
-  rds_obj <- tryCatch(readRDS(args$input), error = function(e) NULL)
+  rds_obj <- tryCatch(
+    readRDS(args$input),
+    error = function(e) NULL
+  )
   if (!is.null(rds_obj)) {
     input_type <- "rds"
     if (verbose) {
@@ -141,11 +150,7 @@ if (is.null(args$tx2gene)) {
 
 # helper to read TSV with optional gz
 read_tsv_matrix <- function(path) {
-  con <- if (grepl("\\.gz$", path)) {
-    gzfile(path, "rt")
-  } else {
-    path
-  }
+  con <- if (grepl("\\.gz$", path)) gzfile(path, "rt") else path
   df <- tryCatch(
     read.table(
       con,
@@ -164,13 +169,14 @@ read_tsv_matrix <- function(path) {
 
 # helper to read tx2gene mapping
 read_tx2gene <- function(path) {
-  con <- if (grepl("\\.gz$", path)) {
-    gzfile(path, "rt")
-  } else {
-    path
-  }
+  con <- if (grepl("\\.gz$", path)) gzfile(path, "rt") else path
   m <- tryCatch(
-    read.table(con, header = FALSE, sep = "\t", stringsAsFactors = FALSE),
+    read.table(
+      con,
+      header = FALSE,
+      sep = "\t",
+      stringsAsFactors = FALSE
+    ),
     error = function(e) {
       stop("Failed to read tx2gene mapping: ", conditionMessage(e))
     }
@@ -195,7 +201,7 @@ if (input_type == "matrix") {
   }
   genes <- tx2gene[tx_ids]
   if (any(is.na(genes))) {
-    stop("Some transcripts in the expression matrix are missing in tx2gene mapping")
+    stop("Some transcripts missing in tx2gene mapping")
   }
 } else if (input_type == "tximport") {
   # expect RDS containing tximport-style list
@@ -222,10 +228,8 @@ if (input_type == "matrix") {
     }
   )
   # if SummarizedExperiment
-  if (
-    inherits(obj, "SummarizedExperiment") ||
-      inherits(obj, "RangedSummarizedExperiment")
-  ) {
+  if (inherits(obj, "SummarizedExperiment") ||
+        inherits(obj, "RangedSummarizedExperiment")) {
     expr <- obj
   } else if (is.list(obj) && ("counts" %in% names(obj))) {
     expr <- obj
@@ -252,8 +256,9 @@ if (verbose) {
   cat("Loading SplicingFactory and dependencies...\n")
 }
 pkg_load <- function(pkg) {
+  msg <- sprintf("Required R package '%s' is not installed.\n", pkg)
   if (!suppressWarnings(requireNamespace(pkg, quietly = TRUE))) {
-    cat(sprintf("Required R package '%s' is not installed.\n", pkg), file = stderr())
+    cat(msg, file = stderr())
     q(status = 1)
   }
 }
@@ -278,7 +283,8 @@ if (!is.null(expr) && is.matrix(expr)) {
       )
     }
   )
-} else if (!is.null(expr) && is.list(expr) && ("counts" %in% names(expr))) {
+} else if (!is.null(expr) && is.list(expr) &&
+             ("counts" %in% names(expr))) {
   # tximport list
   # ensure tx2gene exists
   if (is.null(args$tx2gene) && is.null(tx2gene)) {
@@ -294,7 +300,7 @@ if (!is.null(expr) && is.matrix(expr)) {
   }
   genes <- tx2gene[tx_ids]
   if (any(is.na(genes))) {
-    stop("Some transcripts in tximport counts are missing in tx2gene mapping")
+    stop("Some transcripts in tximport counts are missing in mapping")
   }
   res_se <- tryCatch(
     {
@@ -313,12 +319,9 @@ if (!is.null(expr) && is.matrix(expr)) {
       )
     }
   )
-} else if (
-  !is.null(expr) && (
-    inherits(expr, "SummarizedExperiment") ||
-      inherits(expr, "RangedSummarizedExperiment")
-  )
-) {
+} else if (!is.null(expr) &&
+             (inherits(expr, "SummarizedExperiment") ||
+                inherits(expr, "RangedSummarizedExperiment"))) {
   # SummarizedExperiment: pass directly, allow assay selection
   if (args$assayno <= 0) {
     stop("--assayno must be >= 1")
@@ -348,7 +351,7 @@ if (!is.null(expr) && is.matrix(expr)) {
 
 # write table: assays(diversity)
 if (!("diversity" %in% SummarizedExperiment::assayNames(res_se))) {
-  stop("Resulting SummarizedExperiment does not contain an assay named 'diversity'.")
+  stop("Resulting SummarizedExperiment lacks an assay named 'diversity'.")
 }
 div_mat <- SummarizedExperiment::assay(res_se, "diversity")
 out_df <- data.frame(
@@ -369,22 +372,38 @@ saveRDS(res_se, file = args$out_se)
 
 # optional plotting similar to vignette
 if (!is.null(args$plot_dir)) {
-  if (!dir.exists(args$plot_dir)) dir.create(args$plot_dir, recursive = TRUE)
-  fmt <- tolower(args$plot_format)
-  open_dev <- function(path) {
-    if (fmt == "pdf") pdf(path, width = 7, height = 5) else png(path, width = 900, height = 650, res = 120)
+  if (!dir.exists(args$plot_dir)) {
+    dir.create(args$plot_dir, recursive = TRUE)
   }
-  close_dev <- function() dev.off()
+  fmt <- tolower(args$plot_format)
+
+  open_dev <- function(path) {
+    if (fmt == "pdf") {
+      pdf(path, width = 7, height = 5)
+    } else {
+      png(path, width = 900, height = 650, res = 120)
+    }
+  }
+  close_dev <- function() {
+    dev.off()
+  }
 
   div_df <- as.data.frame(div_mat)
-  div_df$Gene <- rownames(div_mat)
-  long_df <- reshape2::melt(div_df, id.vars = "Gene", variable.name = "Sample", value.name = "Diversity")
+  div_df$gene <- rownames(div_mat)
+  # convert column names (samples) to snake_case in long format
+  long_df <- reshape2::melt(
+    div_df,
+    id.vars = "gene",
+    variable.name = "sample",
+    value.name = "diversity"
+  )
 
   # density plot across samples
-  p1 <- ggplot(long_df, aes(x = Diversity, group = Sample)) +
+  p1 <- ggplot(long_df, aes(x = diversity, group = sample)) +
     geom_density(alpha = 0.2, color = NA, fill = "steelblue") +
-    labs(title = paste("Diversity (", args$method, ") density", sep = "")) +
+    labs(title = paste0("Diversity (", args$method, ") density")) +
     theme_minimal()
+
   open_dev(file.path(args$plot_dir, paste0("diversity_density.", fmt)))
   print(p1)
   close_dev()
@@ -392,19 +411,34 @@ if (!is.null(args$plot_dir)) {
   # boxplot grouped by condition if provided
   group_col <- NULL
   if (!is.null(args$group_column)) {
-    cd <- tryCatch(as.data.frame(SummarizedExperiment::colData(res_se)), error = function(e) NULL)
+    cd <- tryCatch(
+      as.data.frame(SummarizedExperiment::colData(res_se)),
+      error = function(e) NULL
+    )
     if (!is.null(cd) && args$group_column %in% colnames(cd)) {
-      long_df$Group <- cd[match(long_df$Sample, rownames(cd)), args$group_column]
-      group_col <- "Group"
+      long_df$group <- cd[
+        match(long_df$sample, rownames(cd)),
+        args$group_column
+      ]
+      group_col <- "group"
     }
   }
   if (is.null(group_col)) {
-    long_df$Group <- "all"
+    long_df$group <- "all"
   }
-  p2 <- ggplot(long_df, aes(x = Group, y = Diversity)) +
+
+  p2 <- ggplot(long_df, aes(x = group, y = diversity)) +
     geom_boxplot(outlier.size = 0.5) +
-    labs(title = paste("Diversity (", args$method, ") by group", sep = ""), x = ifelse(is.null(args$group_column), "All samples", args$group_column)) +
+    labs(
+      title = paste0("Diversity (", args$method, ") by group"),
+      x = ifelse(
+        is.null(args$group_column),
+        "All samples",
+        args$group_column
+      )
+    ) +
     theme_minimal()
+
   open_dev(file.path(args$plot_dir, paste0("diversity_boxplot.", fmt)))
   print(p2)
   close_dev()
@@ -414,17 +448,30 @@ if (!is.null(args$plot_dir)) {
   # cap extreme values for visualization
   finite_vals <- mat[is.finite(mat)]
   if (length(finite_vals) > 0) {
-    q <- quantile(finite_vals, probs = c(0.01, 0.99), na.rm = TRUE)
+    q <- quantile(
+      finite_vals,
+      probs = c(0.01, 0.99),
+      na.rm = TRUE
+    )
     mat[mat < q[1]] <- q[1]
     mat[mat > q[2]] <- q[2]
   }
-  df_melt <- reshape2::melt(mat, varnames = c("Gene", "Sample"), value.name = "Diversity")
-  p3 <- ggplot(df_melt, aes(Sample, Gene, fill = Diversity)) +
+  df_melt <- reshape2::melt(
+    mat,
+    varnames = c("gene", "sample"),
+    value.name = "diversity"
+  )
+
+  p3 <- ggplot(df_melt, aes(sample, gene, fill = diversity)) +
     geom_tile() +
     scale_fill_viridis_c() +
     theme_minimal() +
-    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
-    labs(title = paste("Diversity (", args$method, ") heatmap", sep = ""))
+    theme(
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank()
+    ) +
+    labs(title = paste0("Diversity (", args$method, ") heatmap"))
+
   open_dev(file.path(args$plot_dir, paste0("diversity_heatmap.", fmt)))
   print(p3)
   close_dev()
