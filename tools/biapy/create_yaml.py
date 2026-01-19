@@ -1,8 +1,9 @@
 import argparse
+import sys
+
 import requests
 import yaml
-import sys
-from collections import defaultdict
+
 
 def download_yaml_template(workflow, dims, biapy_version=""):
     template_dir_map = {
@@ -15,7 +16,7 @@ def download_yaml_template(workflow, dims, biapy_version=""):
         "SELF_SUPERVISED": "self-supervised",
         "IMAGE_TO_IMAGE": "image-to-image",
     }
-    
+
     # Use .get() to avoid KeyError if workflow is unexpected
     dir_name = template_dir_map.get(workflow)
     if not dir_name:
@@ -23,15 +24,16 @@ def download_yaml_template(workflow, dims, biapy_version=""):
 
     template_name = f"{dir_name}/{dims.lower()}_{dir_name}.yaml"
     url = f"https://raw.githubusercontent.com/BiaPyX/BiaPy/refs/tags/v{biapy_version}/templates/{template_name}"
-    
+
     print(f"Downloading YAML template from {url}")
     try:
-        response = requests.get(url, timeout=10) # Added timeout
-        response.raise_for_status() # Automatically raises HTTPError for 4xx/5xx
+        response = requests.get(url, timeout=10)  # Added timeout
+        response.raise_for_status()  # Automatically raises HTTPError for 4xx/5xx
         return yaml.safe_load(response.text) or {}
     except requests.exceptions.RequestException as e:
         print(f"Error: Could not download template. {e}")
-        sys.exit(1) # Exit gracefully rather than crashing with a stack trace
+        sys.exit(1)  # Exit gracefully rather than crashing with a stack trace
+
 
 def tuple_to_list(obj):
     """Convert tuples to lists recursively."""
@@ -130,16 +132,16 @@ def main():
             "i2i": "IMAGE_TO_IMAGE",
         }
         workflow_type = workflow_map[args.workflow]
-        
+
         ndim = "3D" if args.dims == "3d" else "2D"
         as_stack = args.dims in ["2d_stack", "2d"]
 
         config = download_yaml_template(workflow_type, ndim, biapy_version=args.biapy_version)
-        
+
         # Initialization using setdefault to prevent KeyErrors
         config.setdefault("PROBLEM", {})
         config["PROBLEM"].update({"TYPE": workflow_type, "NDIM": ndim})
-        
+
         config.setdefault("TEST", {})["ANALIZE_2D_IMGS_AS_3D_STACK"] = as_stack
 
         # Handle MODEL and PATHS
@@ -164,7 +166,7 @@ def main():
             "100-200": (512, 512), "200-500": (512, 512), "500+": (1024, 1024),
         }
         obj_size = obj_size_map[args.obj_size]
-        
+
         obj_slices_map = {"": -1, "1-5": 5, "5-10": 10, "10-20": 20, "20-60": 40, "60+": 80}
         obj_slices = obj_slices_map.get(args.obj_slices, -1)
 
@@ -175,7 +177,7 @@ def main():
                 print("Error: For 3D problems, obj_slices must be specified.")
                 sys.exit(1)
             patch_size = (obj_slices,) + obj_size + (args.img_channel,)
-        
+
         config.setdefault("DATA", {})["PATCH_SIZE"] = str(patch_size)
         config["DATA"]["REFLECT_TO_COMPLETE_SHAPE"] = True
 
@@ -193,7 +195,7 @@ def main():
     # Global overrides (Train/Test)
     config.setdefault("TRAIN", {})
     config.setdefault("DATA", {})
-    
+
     if args.raw_train:
         config["TRAIN"]["ENABLE"] = True
         config["DATA"].setdefault("TRAIN", {}).update({
@@ -215,13 +217,14 @@ def main():
         test_cfg["ENABLE"] = False
 
     config.setdefault("MODEL", {})["OUT_CHECKPOINT_FORMAT"] = "safetensors"
-    
+
     # Final cleanup and save
     config = tuple_to_list(config)
     with open(args.out_config_path, 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False)
 
     print(f"Success: YAML configuration written to {args.out_config_path}")
+
 
 if __name__ == "__main__":
     main()
