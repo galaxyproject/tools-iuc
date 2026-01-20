@@ -1,0 +1,189 @@
+<tool id="kmindex_query" name="kmindex query" version="@VERSION@" profile="@PROFILE@">
+    <description>Query k-mer index with sequencing data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        ## Run kmindex query
+        #import re
+        #set $identifier = str($fastx.element_identifier)
+        #set $safe_name = re.sub('[^\w\-\.]', '_', $identifier)
+        ## Add extension only if filename doesn't already have appropriate extension
+        #if $fastx.is_of_type('fasta.gz') and not ($safe_name.endswith('.fa.gz') or $safe_name.endswith('.fasta.gz'))
+            #set $safe_name = $safe_name + '.fa.gz'
+        #elif $fastx.is_of_type('fasta') and not ($safe_name.endswith('.fa') or $safe_name.endswith('.fasta'))
+            #set $safe_name = $safe_name + '.fa'
+        #elif $fastx.is_of_type('fastqsanger.gz', 'fastq.gz') and not ($safe_name.endswith('.fq.gz') or $safe_name.endswith('.fastq.gz'))
+            #set $safe_name = $safe_name + '.fq.gz'
+        #elif $fastx.is_of_type('fastqsanger', 'fastq') and not ($safe_name.endswith('.fq') or $safe_name.endswith('.fastq'))
+            #set $safe_name = $safe_name + '.fq'
+        #end if
+        #if $db_opts.db_opts_selector == "histdb"
+            #set INDEX = $db_opts.histdb.extra_files_path
+        #else:
+            #set INDEX = $db_opts.kmindex.fields.path
+        #end if
+        ln -s '$fastx' '$safe_name' &&
+        kmindex query
+            --index '$INDEX'
+            --fastx '$safe_name'
+            --zvalue $zvalue
+            --threshold $threshold
+            --output query_output
+            --format $format
+            #if $single_query:
+                --single-query '$single_query'
+            #end if
+
+            $fast
+            --aggregate
+            --threads "\${GALAXY_SLOTS:-1}"
+            --verbose '$verbose'
+        &&
+        ## Copy appropriate output based on format and aggregation
+        #if $format == 'matrix':
+            cp query_output/abundance_test.tsv '$output'
+        #else
+            cp query_output/all_results.json '$output' || cp query_output/*.json '$output'
+        #end if
+    ]]></command>
+    <inputs>
+        <conditional name="db_opts">
+            <param name="db_opts_selector" type="select" label="Kmindex source">
+              <option value="histdb">From your history</option>
+              <option value="db" selected="true">Locally installed kmindex indexes</option>
+            </param>
+            <when value="histdb">
+                <param name="histdb" type="data" format="kmindex" optional="false" multiple="false" label="Kmindex" />
+            </when>
+            <when value="db">
+                <param name="kmindex" type="select" optional="false" multiple="false" label="kmindex">
+                    <options from_data_table="kmindex"/>
+                </param>
+            </when>
+        </conditional>
+        <param argument="--fastx" type="data" format="fasta,fastq,fasta.gz,fastq.gz" label="Query sequences" help="FASTA or FASTQ file to query (supports gzip/bzip2)"/>
+        <param argument="--zvalue" type="integer" value="0" min="0" label="Z-value" help="Index s-mers and query (s+z)-mers (0 = standard k-mer query)"/>
+        <param argument="--threshold" type="float" value="0.0" min="0.0" max="1.0" label="Shared k-mers threshold" help="Minimum proportion of shared k-mers (0.0-1.0)"/>
+        <param argument="--format" type="select" label="Output format" help="Format of the output file">
+            <option value="json" selected="true">JSON</option>
+            <option value="matrix">Matrix</option>
+            <option value="json_vec">JSON vector</option>
+        </param>
+        <param argument="--single-query" type="text" value="" optional="true" label="Single query identifier" help="Optional: treat all sequences as a single query with this identifier"/>
+        <param argument="--fast" type="boolean" truevalue="--fast" falsevalue="" checked="false" label="Fast mode" help="Keep more pages in cache for faster queries"/>
+        <expand macro="common_params"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="json" label="${tool.name} on ${on_string}: results">
+            <change_format>
+                <when input="format" value="matrix" format="tsv"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: Basic JSON query -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="histdb"/>
+                <param name="histdb" ftype="kmindex" class="Directory" value="index1" />
+            </conditional>
+            <param name="fastx" value="query1.fasta"/>
+            <param name="format" value="json"/>
+            <output name="output" ftype="json" value="expected_query_t1.json" />
+        </test>
+        <!-- Test 2: Matrix output format -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="histdb"/>
+                <param name="histdb" ftype="kmindex" class="Directory" value="index1" />
+            </conditional>
+            <param name="fastx" value="query1.fasta.gz"/>
+            <param name="format" value="matrix"/>
+            <output name="output" ftype="tsv">
+                <assert_contents>
+                    <has_line_matching expression="abundance_test\tMySuperIndex"/>
+                    <has_line_matching expression="abundance_test:query_seq1\t5"/>
+                    <has_line_matching expression="abundance_test:query_seq2\t6"/>
+                    <has_line_matching expression="abundance_test:query_seq3\t2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: Json vector output format -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="histdb"/>
+                <param name="histdb" ftype="kmindex" class="Directory" value="index1" />
+            </conditional>
+            <param name="fastx" value="query2.fastq"/>
+            <param name="format" value="json_vec"/>
+            <output name="output" ftype="json"  value="expected_query_t3.json" />
+        </test>
+        <!-- Test 4: Query with threshold and z-value -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="histdb"/>
+                <param name="histdb" ftype="kmindex" class="Directory" value="index1" />
+            </conditional>
+            <param name="fastx" value="query2.fastq.gz"/>
+            <param name="threshold" value="0.5"/>
+            <param name="zvalue" value="5"/>
+            <param name="format" value="json"/>
+            <output name="output" ftype="json"  value="expected_query_t4.json" />
+        </test>
+        <!-- Test 5: query pre-built configured indices -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="kmindex" ftype="kmindex" value="index1" />
+            </conditional>
+            <param name="fastx" value="query1.fasta"/>
+            <param name="format" value="json"/>
+            <output name="output" ftype="json" value="expected_query_t1.json" />
+        </test>
+        <!-- Test 6: query pre-built configured indices -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="kmindex" ftype="kmindex" value="index2" />
+            </conditional>
+            <param name="fastx" value="query1.fasta"/>
+            <param name="format" value="json"/>
+            <output name="output" ftype="json" value="expected_query_t6.json" />
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+kmindex query searches a pre-built k-mer index to find the percentage of shared k-mers between query sequences and indexed samples.
+
+**Input**
+
+- A k-mer index (created by kmindex build)
+- Query sequences in FASTA or FASTQ format (can be gzipped)
+
+**Output**
+
+The output format depends on your selection:
+
+- **JSON**: Detailed results in JSON format
+- **Matrix**: Tab-separated matrix of query-sample similarities
+- **JSON vector**: JSON vector format for downstream processing
+
+
+**Parameters**
+
+- **Z-value**: Query with (k+z)-mers instead of k-mers to reduce false positives (Findere algorithm)
+- **Threshold**: Filter results to show only matches above this similarity threshold (0.0-1.0)
+- **Fast mode**: Keeps more data in cache for faster repeated queries
+
+**More Information**
+
+For more details, see the kmindex documentation at https://tlemane.github.io/kmindex/
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
