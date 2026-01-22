@@ -1,49 +1,48 @@
 <tool id="ena_webin_cli" name="ENA Webin CLI" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" license="MIT" profile="24.2">
     <description>Submission of consensus sequences to the European Nucleotide Archive (ENA)</description>
     <macros>
-        <token name="@TOOL_VERSION@">8.1.1</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@TOOL_VERSION@">9.0.1</token>
+        <token name="@VERSION_SUFFIX@">1</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">ena-webin-cli</requirement>
-        <requirement type="package" version="1.76">biopython</requirement>
         <requirement type="package" version="5.3">pyyaml</requirement>
     </requirements>
-    <command detect_errors="exit_code"><![CDATA[
-#if $dry_run == "True":
-    #set $credentials='./test_fake_path';
-    touch $credentials;
-    echo "username:test_user" >> $credentials;
-    echo "password:test_password" >> $credentials;
-#end if
 
-webin_id=`grep 'username' $credentials | cut -d':' -f2,2`;
-if [ "\$webin_id" = "" ]; then
-  ## No credentials in user defined preferences    
-  ## Fallback to global defined credentials (if exist)   
-  #import os
-  #if os.path.isfile(os.environ.get('GALAXY_ENA_SECRETS', '')):
-      credentials_path=\${GALAXY_ENA_SECRETS};     
-      webin_id=`grep 'username' \$GALAXY_ENA_SECRETS | cut -d':' -f2,2` | sed -e 's/^[[:space:]]*//'`;
-      password=`grep 'password' \$GALAXY_ENA_SECRETS | cut -d':' -f2,2` | sed -e 's/^[[:space:]]*//'`;
-      if [ "\$webin_id" = "" ]; then
-          echo "No global credentials defined. Check your GALAXY_ENA_SECRETS file or set your credentials via: User -> Preferences -> Manage Information";
-          exit 1;
-      fi;
-  #else:
-      echo "No ENA credentials defined. Set your credentials via: User -> Preferences -> Manage Information";
-      exit 1;
-  #end if
+    <command detect_errors="exit_code"><![CDATA[
+## -----------------------------------------------------------------------------
+## 1) Initialize log and credentials
+## -----------------------------------------------------------------------------
+echo "Initializing log and credentials";
+
+## Truncate (or create) the Galaxy-captured Webin-CLI log dataset.
+: > "$webin_cli_log";
+
+## Extract username/password from the credentials file.
+## NOTE: $webin_id appears in bash, so we escape it as \$webin_id.
+webin_id=`grep 'username' $credentials | cut -d':' -f2`;
+if [ -z "\$webin_id" ]; then
+    ## Fail early with guidance if no username is present.
+    echo "No ENA credentials defined. Set your credentials via: User -> Preferences -> Manage Information" >&2;
+    exit 1;
 else
-  password=`grep 'password' $credentials | cut -d':' -f2,2`;
+  ## Pull the password similarly.
+  password=`grep 'password' $credentials | cut -d':' -f2`;
 fi;
 
+## -----------------------------------------------------------------------------
+## 2) Create a base manifest (fields common to all submissions)
+## -----------------------------------------------------------------------------
+echo "Creating a base manifest (fields common to all submissions)";
 
-## create a manifest base file with the parameters that are identical for all sequences that will be submited (if submitting a multifasta)
+## Name of the base manifest template (we append more fields later).
 #set $manifest_base = 'manifest_base.tab'
-mkdir manifests;
-mkdir fasta;
 
+## Working dirs: per-sample manifests and input sequences.
+mkdir -p manifests;
+mkdir -p fasta;
+
+## Write assembly-level fields to the base manifest.
 echo -e 'ASSEMBLY_TYPE\t$assembly_type' > $manifest_base;
 echo -e 'COVERAGE\t$coverage' >> $manifest_base;
 echo -e 'PROGRAM\t$assembly_program' >> $manifest_base;
@@ -51,8 +50,17 @@ echo -e 'PROGRAM\t$assembly_program' >> $manifest_base;
     echo -e 'MINGAPLENGTH\t$min_gap_length' >> $manifest_base;
 #end if
 echo -e 'MOLECULETYPE\t$molecule_type' >> $manifest_base;
-        
+
+## -----------------------------------------------------------------------------
+## 3) Build per-sample manifests depending on metadata workflow
+## -----------------------------------------------------------------------------
+echo "Building per-sample manifests depending on metadata workflow";
+
 #if $metadata_file_or_form.metadata_format == "file":
+    ## --------------------------- FILE-DRIVEN WORKFLOW ------------------------
+    ## For each selected FASTA:
+    ##   - if uncompressed (.fasta), gzip it into ./fasta/<name>.fasta.gz
+    ##   - if already .fasta.gz, symlink it into ./fasta
     #import re
     #for $file in $metadata_file_or_form.genome_fasta:
         #if $file.is_of_type('fasta'):
@@ -61,88 +69,159 @@ echo -e 'MOLECULETYPE\t$molecule_type' >> $manifest_base;
         #else:
             ln -s '$file' './fasta/$file.element_identifier';
         #end if
-
     #end for
-    ## process the input tables, this creates an intermediate file with information
-    python3 '$__tool_directory__/process_input.py' $metadata_file_or_form.ena_receipt $genome_fasta_files './manifests' $manifest_base >> $webin_cli_log;
+
+    ## Optionally link AGP and chromosome list files if provided (one per sample).
+    #if $metadata_file_or_form.agp_file:
+        #for $file in $metadata_file_or_form.agp_file:
+            ln -s '$file' './fasta/$file.element_identifier';
+        #end for
+    #end if
+    #if $metadata_file_or_form.chr_list_file:
+        #for $file in $metadata_file_or_form.chr_list_file:
+            #set $chr_name = $file.element_identifier + '.gz'
+            gzip -c '$file' > './fasta/$chr_name';
+        #end for
+    #end if
+
+    ## Helper script:
+    ##   - parses ENA receipt (study/sample accessions, platform),
+    ##   - writes per-sample manifests into ./manifests using $manifest_base,
+    ##   - emits "submit_list.tab" (one manifest path per line).
+    python3 '$__tool_directory__/process_input.py' $metadata_file_or_form.ena_receipt $genome_fasta_files './manifests' $manifest_base >> "$webin_cli_log" 2>&1;
+
+    ## Extract center name from the receipt (used as -centerName).
     center_name=`grep 'center_name' $metadata_file_or_form.ena_receipt | cut -f2,2 | tr -d '\n'`;
+
+    ## Log if submit_list.tab exists, and dump its content for debugging.
+    if [ -s submit_list.tab ]; then
+        echo "submit_list.tab present:" >> "$webin_cli_log" 2>&1;
+        cat submit_list.tab >> "$webin_cli_log" 2>&1;
+    else
+        echo "submit_list.tab is missing or empty" >> "$webin_cli_log" 2>&1;
+    fi;
+
 #else:
+    ## --------------------------- FORM-DRIVEN WORKFLOW ------------------------
+    ## Single-manifest flow: copy base, then append form fields.
     #set $generated_manifest='./manifests/generated_manifest.txt'
     cp $manifest_base $generated_manifest;
+
+    ## Use local Cheetah vars for readability.
     #set $study_id = $metadata_file_or_form.study_accession
     #set $sample_id = $metadata_file_or_form.sample_accession
+
+    ## Required accessions.
     echo -e 'STUDY\t$study_id' >> $generated_manifest;
     echo -e 'SAMPLE\t$sample_id' >> $generated_manifest;
+
+    ## center_name is given by the user in this path.
     center_name='$metadata_file_or_form.center_name';
+
+    ## Assembly name and platform.
     echo -e 'NAME\t$metadata_file_or_form.assembly_name' >> $generated_manifest;
     echo -e 'PLATFORM\t$metadata_file_or_form.sequencing_platform' >> $generated_manifest;
+
+    ## Normalize FASTA name referenced by the manifest.
     #if $metadata_file_or_form.genome_fasta.is_of_type('fasta'):
-        gzip -c $metadata_file_or_form.genome_fasta > consensus.fasta.gz;
+        #set $fasta_file_name = $metadata_file_or_form.genome_fasta.element_identifier + '.gz'
+        gzip -c '$metadata_file_or_form.genome_fasta' > $fasta_file_name;
     #else:
-        ln -s $metadata_file_or_form.genome_fasta consensus.fasta.gz;
+        #set $fasta_file_name = $metadata_file_or_form.genome_fasta.element_identifier
     #end if
-    echo -e 'FASTA\tconsensus.fasta.gz' >> $generated_manifest;
+    echo -e 'FASTA\t$fasta_file_name' >> $generated_manifest;
+
+    ## Optional extras for chromosome-scale assemblies.
+    #if $metadata_file_or_form.agp_file:
+        echo -e 'AGP\t$metadata_file_or_form.agp_file.element_identifier' >> $generated_manifest;
+    #end if
+    #if $metadata_file_or_form.chr_list_file:
+        ## If the name ends with .tsv, gzip it and reference the .gz; else use as-is.
+        #set $chr_file_name = $metadata_file_or_form.chr_list_file.element_identifier + '.gz'
+        gzip -c '$metadata_file_or_form.chr_list_file' > $chr_file_name;
+        echo -e 'CHROMOSOME_LIST\t$chr_file_name' >> $generated_manifest;
+    #end if
 #end if
 
+## -----------------------------------------------------------------------------
+## 4) Prepare output directory and build CLI flags
+## -----------------------------------------------------------------------------
+echo "Preparing output directory and build CLI flags";
+
+## Webin-CLI will write receipts/logs under this directory (we later tar it).
 #set $outputs_dir = 'outputs'
-mkdir $outputs_dir;
+mkdir -p "$outputs_dir";
+
+## Build flags using #set (safer than inline #if within a single shell line).
+#set $test_flag = ''
+#if $submit_test == "true":
+    #set $test_flag = ' -test'
+#end if
+
+## By default we submit; in dry_run we validate instead.
+#set $action_flag = ' -submit'
+#if $dry_run == "true":
+    #set $action_flag = ' -validate'
+#end if
+
+## -----------------------------------------------------------------------------
+## 5) Execute Webin-CLI
+## -----------------------------------------------------------------------------
+echo "Executing Webin-CLI";
+
 #if $metadata_file_or_form.metadata_format == "file":
-    ## iterate over the list of manifest - fasta generated by the process_input
-    ## in case of errors, this list is empty
-    while read line; do
-        manifest=`echo \$line | cut -d' ' -f1,1`;
-        echo "Submitting manifest \$manifest" >> $webin_cli_log;
-        ena-webin-cli
-        -context genome
-        -userName "'\$webin_id'"
-        -password "'\$password'"
-        -centerName "'\$center_name'" 
-        -manifest \$manifest
-        -inputDir './fasta'
-        #if $submit_test == "true":
-            -test
-        #end if
-        #if $dry_run == "true":
-            -validate
-        #else:
-            -submit
-        #end if
-        -outputDir $outputs_dir
-        >> $webin_cli_log;
+    ## Loop over each manifest written by process_input.py (submit_list.tab).
+    while IFS= read -r line; do
+        ## Extract the manifest path (first whitespace-delimited field).
+        manifest=`echo "\$line" | cut -d' ' -f1`;
+
+        ## Log which manifest we are submitting.
+        echo "Submitting manifest \$manifest" >> "$webin_cli_log" 2>&1;
+
+        ## Invoke Webin-CLI with computed flags.
+        ena-webin-cli -context genome -manifest "\$manifest" -userName "\$webin_id" -password "\$password" -centerName "\$center_name"  -inputDir "./fasta" $test_flag $action_flag -outputDir $outputs_dir >> '$webin_cli_log' 2>&1 || true;
     done < submit_list.tab;
 
 #else:
-    ena-webin-cli
-    #if $submit_test == "true":
-        -test
-    #end if
-    #if $dry_run == "true":
-        -validate
-    #else:
-        -submit
-    #end if
-    -context genome 
-    -manifest $generated_manifest
-    -password "'\$password'"
-    -userName "'\$webin_id'"
-    -inputDir "./"
-    -centerName "'\$center_name'"
-    -outputDir $outputs_dir
-    >> $webin_cli_log ;
+    ## Single run in "form" mode with the one generated manifest.
+    ena-webin-cli -context genome -manifest $generated_manifest -userName "\$webin_id" -password "\$password" -centerName "\$center_name" -inputDir "./"  $test_flag $action_flag -outputDir $outputs_dir >> "$webin_cli_log" 2>&1 || true;
 #end if
+
+## -----------------------------------------------------------------------------
+## 6) Package outputs for Galaxy
+## -----------------------------------------------------------------------------
+echo "Packaging outputs for Galaxy";
+
+## Tar up the Webin-CLI output directory so Galaxy can collect a single dataset.
 tar -cf $webin_cli_outputs $outputs_dir ;
 ]]></command>
+
+    <!--
+      Config files rendered by Galaxy *before* the command runs.
+      They are plain text files placed in the job working directory and referenced above.
+    -->
     <configfiles>
+        <!-- Credentials file:
+             Pulls stored ENA Webin details (if set) from the Galaxy user preferences and writes
+             simple "username:..." and "password:..." lines. The command reads from this file. -->
         <configfile name="credentials"><![CDATA[
 #set $webin_id = $__user__.extra_preferences.get('ena_webin_account|webin_id', "").strip()
 #set $password = $__user__.extra_preferences.get('ena_webin_account|password', "").strip()
-#if $webin_id != "":
-    username:$webin_id
-    password:$password
+## In dry-run we add fake creds when not provided.
+#if  $webin_id == "" and $dry_run == "true":
+#set $webin_id = "test-webin"
+#set $password = "test-password"
 #end if
-
+#if $webin_id != "" :
+username:$webin_id
+password:$password
+#end if
         ]]></configfile>
-    <configfile name="genome_fasta_files">
+
+        <!-- genome_fasta_files:
+             In "file" mode, build a JSON array containing the *element_identifier* (dataset name)
+             for each selected FASTA. process_input.py uses these names to derive sample aliases. -->
+        <configfile name="genome_fasta_files">
 #import json
 #import re
 #if $metadata_file_or_form.metadata_format == "file":
@@ -154,42 +233,67 @@ tar -cf $webin_cli_outputs $outputs_dir ;
 #end if
         </configfile>
     </configfiles>
-<inputs>
-    <param name="assembly_type" type="select" label="Assembly type">
-        <option value="clone">Clone</option>
-        <option value="isolate">Isolate</option>
-        <option value="COVID-19 outbreak">COVID-19 outbreak</option>
-    </param>
-    <param name="assembly_program" type="text" optional="False" label="Assembly program"/>
-    <param name="molecule_type" type="select" label="Molecule type">
-        <option value="genomic RNA" selected="True">genomic RNA</option>
-        <option value="viral cRNA">viral cRNA</option>
-        <option value="genomic DNA">genomic DNA</option>
-    </param>
-    <param name="coverage" type="float" optional="False" value="10000" label="Coverage"/>
-    <param name="min_gap_length" type="text" optional="True" label="Minimum gap length (optional)"/>
-    <conditional name="metadata_file_or_form">
-        <param name="metadata_format" type="select" label="Select the method to load study and sample metadata">
-            <option value="form" selected="True">Fill in required submission metadata</option>
-            <option value="file">I used the Galaxy ENA upload tool to submit the raw data: parse the received submission receipt</option>
+
+    <!--
+      User-facing inputs:
+      - Assembly-level parameters
+      - Choice of metadata workflow (file vs form) with corresponding fields
+      - Submission toggles for ENA test server and validation-only
+    -->
+    <inputs>
+        <param name="assembly_type" type="select" label="Assembly type">
+            <option value="clone">Clone</option>
+            <option value="isolate">Isolate</option>
+            <option value="COVID-19 outbreak">COVID-19 outbreak</option>
         </param>
-        <when value="file">
-            <param type="data" format="txt" name="ena_receipt" label="Submission receipt obtained from ENA upload tool"/>
-            <param name="genome_fasta" type="data" label="Select the consensus sequence assembly files or a collection of them" format="fasta,fasta.gz" multiple="true"/>
-        </when>
-        <when value="form">
-            <param name="assembly_name" type="text" optional="False" label="Assembly name"/>
-            <param name="study_accession" type="text" optional="False" label="Study accession"/>
-            <param name="sample_accession" type="text" optional="False" label="Sample accession"/>
-            <param name="sequencing_platform" type="text" optional="False" label="Sequencing platform"/>
-            <param name="description" type="text" optional="True" value="" label="Description" help="Free text description of the genome assembly (optional)"/>
-            <param name="center_name" type="text" optional="False" label="Center name"/>
-            <param name="genome_fasta" type="data" label="Select the consensus sequence assembly file" format="fasta,fasta.gz"/>
-        </when>
-    </conditional>
-    <param name="submit_test" type="boolean" truevalue="true" falsevalue="false" label="Submit to ENA test server" help="Uploads to the test server of ENA will not be made public and will be removed automatically in 24 hours. Performing a preliminary test upload is advised to check for errors with metadata structure. You can find these uploads at https://wwwdev.ebi.ac.uk/ena/." />
-    <param name="dry_run" type="boolean" truevalue="true" falsevalue="false" label="Validate files and metadata but do not submit" help="Generate input files and run Webin-CLI with -validate option. If 'No' is selected then it will validate and submit (-submit flag)"/>
+        <param name="assembly_program" type="text" optional="False" label="Assembly program"/>
+        <param name="molecule_type" type="select" label="Molecule type">
+            <option value="genomic RNA" selected="True">genomic RNA</option>
+            <option value="viral cRNA">viral cRNA</option>
+            <option value="genomic DNA">genomic DNA</option>
+        </param>
+        <param name="coverage" type="float" optional="False" value="10000" label="Coverage"/>
+        <param name="min_gap_length" type="text" optional="True" label="Minimum gap length (optional)"/>
+
+        <conditional name="metadata_file_or_form">
+            <param name="metadata_format" type="select" label="Select the method to load study and sample metadata">
+                <option value="form" selected="True">Fill in required submission metadata</option>
+                <option value="file">I used the Galaxy ENA upload tool to submit the raw data: parse the received submission receipt</option>
+            </param>
+
+            <!-- FILE workflow: receipt + multiple FASTA (+ optional AGP/TSV) -->
+            <when value="file">
+                <param type="data" format="txt" name="ena_receipt" optional="False" label="Submission receipt obtained from ENA upload tool"/>
+                <param name="genome_fasta" type="data" optional="False" label="Select the consensus sequence assembly files or a collection of them. Use following syntax: sample_alias.fasta or sample_alias.fasta.gz" format="fasta,fasta.gz" multiple="true"/>
+                <param name="agp_file" type="data" optional="True" label="Sequences in AGP format. Use following syntax: sample_alias.agp" format="agp" multiple="true"/>
+                <param name="chr_list_file" type="data" optional="True" label="Chromosome List File, must be provided when the submission contains assembled chromosomes. Use following syntax: sample_alias.tsv" format="tsv" multiple="true"/>
+            </when>
+
+            <!-- FORM workflow: single, user-specified submission -->
+            <when value="form">
+                <param name="assembly_name" type="text" optional="False" label="Assembly name"/>
+                <param name="study_accession" type="text" optional="False" label="Study accession"/>
+                <param name="sample_accession" type="text" optional="False" label="Sample accession"/>
+                <param name="sequencing_platform" type="text" optional="False" label="Sequencing platform"/>
+                <param name="description" type="text" optional="True" value="" label="Description" help="Free text description of the genome assembly (optional)"/>
+                <param name="center_name" type="text" optional="False" label="Center name"/>
+                <param name="genome_fasta" type="data" optional="False" label="Select the consensus sequence assembly file" format="fasta,fasta.gz"/>
+                <param name="agp_file" type="data" optional="True" label="Sequences in AGP format." format="agp"/>
+                <param name="chr_list_file" type="data" optional="True" label="Chromosome List File, must be provided when the submission contains assembled chromosomes." format="tsv"/>
+            </when>
+        </conditional>
+
+        <!-- Submission controls -->
+        <param name="submit_test" type="boolean" truevalue="true" falsevalue="false" label="Submit to ENA test server" help="Uploads to the test server of ENA will not be made public and will be removed automatically in 24 hours. Performing a preliminary test upload is advised to check for errors with metadata structure. You can find these uploads at https://wwwdev.ebi.ac.uk/ena/." />
+        <param name="dry_run" type="boolean" truevalue="true" falsevalue="false" label="Validate files and metadata but do not submit" help="Generate input files and run Webin-CLI with -validate option. If 'No' is selected then it will validate and submit (-submit flag)"/>
     </inputs>
+
+    <!--
+      Outputs:
+      - generated_manifests: discovered in manifests/ (via regex) for transparency
+      - webin_cli_log: combined stdout/stderr + helper echo statements
+      - webin_cli_outputs: tar archive of the Webin-CLI output directory
+    -->
     <outputs>
         <collection name="generated_manifests" type="list" label="Generated manifests">
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\.txt" ext="txt" directory="manifests/"/>
@@ -198,7 +302,9 @@ tar -cf $webin_cli_outputs $outputs_dir ;
         <data name="webin_cli_outputs" label="Webin cli outputs" format="tar"/>
         
     </outputs>
+
     <tests>
+        <!-- Test 1: FORM workflow, no chr/AGP -->
         <test>
             <param name="submit_test" value="true" />
             <param name="dry_run" value="true" />
@@ -209,8 +315,8 @@ tar -cf $webin_cli_outputs $outputs_dir ;
             <conditional name="metadata_file_or_form">
                 <param name="metadata_format" value="form"/>
                 <param name="assembly_name" value="Test assembly name"/>
-                <param name="study_accession" value="PRJEB49173"/>
-                <param name="sample_accession" value="SAMEA11953908"/>
+                <param name="study_accession" value="FAKE001"/>
+                <param name="sample_accession" value="FAKESAMP001"/>
                 <param name="sequencing_platform" value="Nanopore 0011"/>
                 <param name="description" value="Test Description"/>
                 <param name="center_name" value="Test center name"/>
@@ -219,11 +325,57 @@ tar -cf $webin_cli_outputs $outputs_dir ;
             <param name="min_gap_length" value="30"/>
             <output name="webin_cli_log">
                 <assert_contents>
-                    <has_n_lines n="4"/>
-                    <has_text_matching expression="ERROR: Invalid submission account user name or password."/>
+                    <has_text_matching expression="ERROR: Invalid submission account user name or password\."/>
                 </assert_contents>
             </output>
+            <output_collection name="generated_manifests">
+                <element name="generated_manifest">
+                    <assert_contents>
+                        <has_text_matching expression="(?m)^FASTA\tphiX2\.fasta\.gz$"/>
+                        <has_text_matching expression="(?m)^CHROMOSOME_LIST\t" negate="true"/>
+                        <has_text_matching expression="(?m)^AGP\t" negate="true"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
+
+        <!-- Test 2: FORM workflow, chr list present -->
+        <test>
+            <param name="submit_test" value="true" />
+            <param name="dry_run" value="true" />
+            <param name="assembly_type" value="isolate"/>
+            <param name="assembly_program" value="Test assembly program"/>
+            <param name="molecule_type" value="genomic DNA"/>
+            <param name="coverage" value="10000"/>
+            <conditional name="metadata_file_or_form">
+                <param name="metadata_format" value="form"/>
+                <param name="assembly_name" value="Test assembly name"/>
+                <param name="study_accession" value="FAKE001"/>
+                <param name="sample_accession" value="FAKESAMP001"/>
+                <param name="sequencing_platform" value="Nanopore 0011"/>
+                <param name="description" value="Test Description"/>
+                <param name="center_name" value="Test center name"/>
+                <param name="genome_fasta" value="phiX3.fasta"/>
+                <param name="chr_list_file" value="phiX3.tsv"/>
+            </conditional>
+            <param name="min_gap_length" value="30"/>
+            <output name="webin_cli_log">
+                <assert_contents>
+                    <has_text_matching expression="ERROR: Invalid submission account user name or password\."/>
+                </assert_contents>
+            </output>
+            <output_collection name="generated_manifests">
+                <element name="generated_manifest">
+                    <assert_contents>
+                        <has_text_matching expression="(?m)^FASTA\tphiX3\.fasta\.gz$"/>
+                        <has_text_matching expression="(?m)^CHROMOSOME_LIST\tphiX3\.tsv\.gz$"/>
+                        <has_text_matching expression="(?m)^AGP\t" negate="true"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- Test 3: FILE workflow, two FASTAs; one missing metadata -->
         <test>
             <param name="submit_test" value="true" />
             <param name="dry_run" value="true" />
@@ -233,7 +385,7 @@ tar -cf $webin_cli_outputs $outputs_dir ;
             <param name="coverage" value="10000"/>
             <conditional name="metadata_file_or_form">
                 <param name="metadata_format" value="file"/>
-                <param name="ena_receipt" value="receipt_sample_noPhiX.txt"/>
+                <param name="ena_receipt" value="receipt_sample_nophiX2.txt"/>
                 <param name="genome_fasta" value="phiX2.fasta.gz,sample_alias_001.fasta.gz"/>
             </conditional>
             <param name="min_gap_length" value="30"/>
@@ -242,11 +394,22 @@ tar -cf $webin_cli_outputs $outputs_dir ;
                     <has_text_matching expression="Processing phiX2"/>
                     <has_text_matching expression="No metadata found for sample phiX2"/>
                     <has_text_matching expression="Processing sample_alias_001"/>
-                    <has_text_matching expression="Submitting manifest ./manifests/sample_alias_001.manifest.txt"/>
-                    <has_text_matching expression="ERROR: Invalid submission account user name or password. Please try enclosing your password in single quotes."/>
+                    <has_text_matching expression="Submitting manifest .*manifests/sample_alias_001\.manifest\.txt"/>
+                    <has_text_matching expression="ERROR: Invalid submission account user name or password\. Please try enclosing your password in single quotes\."/>
                 </assert_contents>
             </output>
+            <output_collection name="generated_manifests">
+                <element name="sample_alias_001.manifest">
+                    <assert_contents>
+                        <has_text_matching expression="(?m)^FASTA\tsample_alias_001\.fasta\.gz$"/>
+                        <has_text_matching expression="(?m)^CHROMOSOME_LIST\t" negate="true"/>
+                        <has_text_matching expression="(?m)^AGP\t" negate="true"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
+
+        <!-- Test 4: FILE workflow, single FASTA with metadata -->
         <test>
             <param name="submit_test" value="true" />
             <param name="dry_run" value="true" />
@@ -262,17 +425,94 @@ tar -cf $webin_cli_outputs $outputs_dir ;
             <param name="min_gap_length" value="30"/>
             <output name="webin_cli_log">
                 <assert_contents>
-                    <has_text_matching expression="ERROR: Invalid submission account user name or password. Please try enclosing your password in single quotes."/>
+                    <has_text_matching expression="Processing sample_alias_001"/>
+                    <has_text_matching expression="ERROR: Invalid submission account user name or password\. Please try enclosing your password in single quotes\."/>
                 </assert_contents>
             </output>
         </test>
+
+        <!-- Test 5: FILE workflow, AGP for phiX2 -->
+        <test>
+            <param name="submit_test" value="true" />
+            <param name="dry_run" value="true" />
+            <param name="assembly_type" value="isolate"/>
+            <param name="assembly_program" value="Test assembly program"/>
+            <param name="molecule_type" value="genomic DNA"/>
+            <param name="coverage" value="10000"/>
+            <conditional name="metadata_file_or_form">
+                <param name="metadata_format" value="file"/>
+                <param name="ena_receipt" value="receipt_sample.txt"/>
+                <param name="genome_fasta" value="phiX2.fasta"/>
+                <param name="agp_file" value="phiX2.agp"/>
+            </conditional>
+            <param name="min_gap_length" value="30"/>
+            <output name="webin_cli_log">
+                <assert_contents>
+                    <has_text_matching expression="Processing phiX2"/>
+                    <has_text_matching expression="ERROR: Invalid submission account user name or password\. Please try enclosing your password in single quotes\."/>
+                </assert_contents>
+            </output>
+            <output_collection name="generated_manifests">
+                <element name="phiX2.manifest">
+                    <assert_contents>
+                        <has_text_matching expression="(?m)^FASTA\tphiX2\.fasta\.gz$"/>
+                        <has_text_matching expression="(?m)^AGP\tphiX2\.agp$"/>
+                        <has_text_matching expression="(?m)^CHROMOSOME_LIST\t" negate="true"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- Test 6: FILE workflow, chr list for phiX3 + extra fasta -->
+        <test>
+            <param name="submit_test" value="true" />
+            <param name="dry_run" value="true" />
+            <param name="assembly_type" value="isolate"/>
+            <param name="assembly_program" value="Test assembly program"/>
+            <param name="molecule_type" value="genomic DNA"/>
+            <param name="coverage" value="10000"/>
+            <conditional name="metadata_file_or_form">
+                <param name="metadata_format" value="file"/>
+                <param name="ena_receipt" value="receipt_sample_phiX3.txt"/>
+                <param name="genome_fasta" value="phiX3.fasta,phiX2.fasta.gz"/>
+                <param name="chr_list_file" value="phiX3.tsv"/>
+            </conditional>
+            <param name="min_gap_length" value="30"/>
+            <output name="webin_cli_log">
+                <assert_contents>
+                    <has_text_matching expression="Processing phiX3"/>
+                    <has_text_matching expression="ERROR: Invalid submission account user name or password\. Please try enclosing your password in single quotes\."/>
+                </assert_contents>
+            </output>
+           <output_collection name="generated_manifests">
+                <element name="phiX2.manifest">
+                    <assert_contents>
+                        <has_text_matching expression="(?m)^FASTA\tphiX2\.fasta\.gz$"/>
+                        <has_text_matching expression="(?m)^CHROMOSOME_LIST\t" negate="true"/>
+                        <has_text_matching expression="(?m)^AGP\t" negate="true"/>
+                    </assert_contents>
+                </element>
+                <element name="phiX3.manifest">
+                    <assert_contents>
+                        <has_text_matching expression="(?m)^FASTA\tphiX3\.fasta\.gz$"/>
+                        <has_text_matching expression="(?m)^CHROMOSOME_LIST\tphiX3\.tsv\.gz$"/>
+                        <has_text_matching expression="(?m)^AGP\t" negate="true"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
     </tests>
+
+
+
+    <!-- Help text + citation -->
     <help><![CDATA[
         This tool is a wrapper for the ENA Webin CLI submission tool (https://ena-docs.readthedocs.io/en/latest/submit/general-guide/webin-cli.html).
     
         .. class:: warningmark
     
             The ENA upload tool won't work unless you have provided an ENA Webin ID in User > Preferences > Manage Information > ENA Webin account details.]]></help>
+
     <citations>
         <citation type="doi">10.1093/nar/gkac1051</citation>
     </citations>
