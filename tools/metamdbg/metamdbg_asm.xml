@@ -9,51 +9,60 @@
   <expand macro="requirements"/>
   <expand macro="version"/>
   <command detect_errors="exit_code"><![CDATA[
-    mkdir -p assemblyDir &&
+      mkdir -p assemblyDir &&
 
-    ## Collect reads from file(s) and/or list collection
-    #set reads_list = []
-    #if $inputs.reads
-        #for $r in $inputs.reads
-            #set $x = $reads_list.append($r.file_name)
-        #end for
-    #end if
+      metaMDBG asm 
+          --out-dir "assemblyDir"
+          --threads "\${GALAXY_SLOTS:-4}"
+          --in-$inputs.read_type
+          #if $inputs.assembly_mode.mode == "coassembly"
+            #for $r in $inputs.assembly_mode.reads
+              '$r'
+            #end for
+          #else
+            ## Individual mode - single file per execution
+            '$inputs.assembly_mode.reads'
+          #end if
+          --kmer-size $assembly.kmer_size
+          --density-assembly $assembly.density_assembly 
+          --max-k $assembly.max_k 
+          --min-abundance $assembly.min_abundance 
+          $assembly.all_assembly_graph
+          --min-read-quality $correction.min_read_quality 
+          --density-correction $correction.density_correction 
+          --min-read-identity $correction.min_read_identity 
+          --min-read-overlap $correction.min_read_overlap 
+          $correction.skip_correction
+          &&
 
-    metaMDBG asm 
-        --out-dir "assemblyDir"
-        --threads "\${GALAXY_SLOTS:-4}"
-        --in-$inputs.read_type
-        #for $p in $reads_list
-        '$p'
-        #end for
-        --kmer-size $assembly.kmer_size
-        --density-assembly $assembly.density_assembly 
-        --max-k $assembly.max_k 
-        --min-abundance $assembly.min_abundance 
-        $assembly.all_assembly_graph
-        --min-read-quality $correction.min_read_quality 
-        --density-correction $correction.density_correction 
-        --min-read-identity $correction.min_read_identity 
-        --min-read-overlap $correction.min_read_overlap 
-        $correction.skip_correction
-        &&
-
-    ## Bundle for downstream graphing
-    tar -C assemblyDir -czf assemblyDir.tgz . ;
-  ]]></command>
-
+      ## Bundle for downstream graphing
+      tar -C assemblyDir -czf assemblyDir.tgz . ;
+    ]]></command>
   <inputs>
     <section name="inputs" title="Input reads" expanded="true">
       <param name="read_type" type="select" label="Read type" help="maps to --in-*">
         <option value="hifi">PacBio HiFi (uses --in-hifi)</option>
         <option value="ont">Nanopore R10.4+ (uses --in-ont)</option>
       </param>
-      <param name="reads" type="data" format="fastqsanger,fastqsanger.gz"
-             multiple="true" optional="false"
-             label="FASTQ file(s)"
-             help="Multi-select one or more FASTQ files for (co-)assembly."/>
+      
+      <conditional name="assembly_mode">
+        <param name="mode" type="select" label="Assembly mode">
+          <option value="individual">Individual assemblies (one per dataset)</option>
+          <option value="coassembly">Co-assembly (all reads together)</option>
+        </param>
+        <when value="individual">
+          <param name="reads" type="data" format="fastqsanger,fastqsanger.gz"
+                label="FASTQ file"
+                help="Select a single file or run on a collection to assemble each separately."/>
+        </when>
+        <when value="coassembly">
+          <param name="reads" type="data" format="fastqsanger,fastqsanger.gz"
+                multiple="true" optional="false"
+                label="FASTQ file(s)"
+                help="All selected files will be assembled together"/>
+        </when>
+      </conditional>
     </section>
-
     <section name="assembly" title="Assembly options (advanced)" expanded="false">
         <param name="kmer_size" argument="--kmer-size" type="integer" value="15"
                 label="k-mer size"/>
@@ -79,7 +88,6 @@
         <param name="skip_correction" type="boolean" checked="false" truevalue="--skip-correction" falsevalue=""
                 label="Skip read correction"/>
     </section>
-
   </inputs>
 
   <outputs>
@@ -93,11 +101,14 @@
 
   <tests>
 
-    <!-- 1) HiFi, single-file, defaults (no optional flags passed) -->
+    <!-- 1) HiFi, single-file, co-assembly mode, defaults (no optional flags passed) -->
     <test expect_num_outputs="2">
-      <param name="read_type" value="hifi"/>
       <section name="inputs">
-        <param name="reads" value="hifi_reads_small.fastq.gz"/>
+        <param name="read_type" value="hifi"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="coassembly"/>
+          <param name="reads" value="hifi_reads_small.fastq.gz"/>
+        </conditional>
       </section>
 
       <!-- default flags appear -->
@@ -123,11 +134,14 @@
       </output>
     </test>
 
-    <!-- 2) ONT, single-file, exercise correction toggles -->
+    <!-- 2) ONT, single-file, individual mode, exercise correction toggles -->
     <test expect_num_outputs="2">
-      <param name="read_type" value="ont"/>
       <section name="inputs">
-        <param name="reads" value="ont_reads_small.fastq.gz"/>
+        <param name="read_type" value="ont"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="individual"/>
+          <param name="reads" value="ont_reads_small.fastq.gz"/>
+        </conditional>
       </section>
       <section name="correction">
         <param name="min_read_quality" value="0"/>
@@ -158,11 +172,14 @@
       </output>
     </test>
 
-    <!-- 3) HiFi, set assembly knobs (incl. all-assembly-graph) -->
+    <!-- 3) HiFi, individual mode, set assembly knobs (incl. all-assembly-graph) -->
     <test expect_num_outputs="2">
-      <param name="read_type" value="hifi"/>
       <section name="inputs">
-        <param name="reads" value="hifi_reads_small.fastq.gz"/>
+        <param name="read_type" value="hifi"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="individual"/>
+          <param name="reads" value="hifi_reads_small.fastq.gz"/>
+        </conditional>
       </section>
       <section name="assembly">
         <param name="kmer_size" value="13"/>
@@ -193,11 +210,14 @@
       </output>
     </test>
 
-    <!-- 4) HiFi, multi-file, defaults-->
+    <!-- 4) HiFi, multi-file co-assembly, defaults-->
     <test expect_num_outputs="2">
-      <param name="read_type" value="hifi"/>
       <section name="inputs">
-        <param name="reads" value="hifi_reads_small.fastq.gz,hifi_reads_small_2.fastq.gz,hifi_reads_small_3.fastq.gz"/>
+        <param name="read_type" value="hifi"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="coassembly"/>
+          <param name="reads" value="hifi_reads_small.fastq.gz,hifi_reads_small_2.fastq.gz,hifi_reads_small_3.fastq.gz"/>
+        </conditional>
       </section>
 
       <!-- contigs is gzipped; just sanity check size -->
@@ -216,28 +236,135 @@
       </output>
     </test>
 
+    <!-- 5) HiFi, individual mode with multiple files (tests implicit mapping) -->
+    <test expect_num_outputs="2">
+      <section name="inputs">
+        <param name="read_type" value="hifi"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="individual"/>
+          <param name="reads" value="hifi_reads_small.fastq.gz"/>
+        </conditional>
+      </section>
+
+      <output name="contigs">
+        <assert_contents>
+          <has_size min="1"/>
+        </assert_contents>
+      </output>
+
+      <output name="assembly_bundle" ftype="tar.gz">
+        <assert_contents>
+          <has_archive_member path="^(\.\/)?contigs\.fasta\.gz$"/>
+          <has_archive_member path="^(\.\/)?tmp\/"/>
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- 6) HiFi, individual mode with collection (tests collection mapping) -->
+    <test expect_num_outputs="2">
+      <section name="inputs">
+        <param name="read_type" value="hifi"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="individual"/>
+          <param name="reads">
+            <collection type="list">
+              <element name="sample1" value="hifi_reads_small.fastq.gz"/>
+              <element name="sample2" value="hifi_reads_small_2.fastq.gz"/>
+            </collection>
+          </param>
+        </conditional>
+      </section>
+
+      <output_collection name="contigs" type="list" count="2">
+        <element name="sample1">
+          <assert_contents>
+            <has_size min="1"/>
+          </assert_contents>
+        </element>
+        <element name="sample2">
+          <assert_contents>
+            <has_size min="1"/>
+          </assert_contents>
+        </element>
+      </output_collection>
+
+      <output_collection name="assembly_bundle" type="list" count="2"/>
+    </test>
+
+    <!-- 7) Test both boolean flags enabled -->
+    <test expect_num_outputs="2">
+      <section name="inputs">
+        <param name="read_type" value="hifi"/>
+        <conditional name="assembly_mode">
+          <param name="mode" value="individual"/>
+          <param name="reads" value="hifi_reads_small.fastq.gz"/>
+        </conditional>
+      </section>
+      <section name="assembly">
+        <param name="all_assembly_graph" value="true"/>
+      </section>
+      <section name="correction">
+        <param name="skip_correction" value="true"/>
+      </section>
+
+      <assert_command>
+        <has_text text="--all-assembly-graph"/>
+        <has_text text="--skip-correction"/>
+      </assert_command>
+
+      <output name="contigs"/>
+      <output name="assembly_bundle"/>
+    </test>
   </tests>
   <help><![CDATA[
 **What this tool does and why**
 
 This tool runs `metaMDBG asm` to assemble long-read metagenomes (PacBio HiFi or ONT R10.4+) using a minimizer-space de Bruijn graph with a multi-k strategy. It produces polished contigs and a tarred snapshot of the assembly directory for downstream graphing and reproducibility.
 
+**Assembly Modes**
+
+This tool supports two assembly strategies:
+
+- **Individual assemblies (one per dataset)** — Each input file is assembled separately. Use this when you have multiple independent samples that should not be combined. When you provide a collection or multiple files, the tool will run once for each file, producing separate outputs for each sample.
+
+- **Co-assembly (all reads together)** — All input files are assembled together into a single metagenome. Use this when you have multiple samples from the same environment or want to increase coverage by combining related samples. This can improve binning quality but requires more memory and time.
+
 **How to use this tool effectively**
 
-1. **Provide input reads.** Select one or more FASTQ files or supply a list collection.
+1. **Choose assembly mode.** Decide whether to assemble each file individually or combine all files into one co-assembly.
 
-2. **Choose the read type.** Select PacBio HiFi (sets `--in-hifi`) or Nanopore R10.4+ (sets `--in-ont`).
+2. **Provide input reads.** 
+   - For individual mode: Select one or more FASTQ files or provide a collection. Each will be assembled separately.
+   - For co-assembly mode: Select multiple FASTQ files to combine into a single assembly.
 
-3. **(Optional) Tune assembly options.** Adjust k-mer size, assembly density, max k iterations, minimum abundance, or enable `--all-assembly-graph`.
+3. **Choose the read type.** Select PacBio HiFi (sets `--in-hifi`) or Nanopore R10.4+ (sets `--in-ont`).
 
-4. **(Optional) Tune correction options.** Set minimum read quality/identity/overlap or `--skip-correction`.
+4. **(Optional) Tune assembly options.** Adjust k-mer size, assembly density, max k iterations, minimum abundance, or enable `--all-assembly-graph`.
 
-5. **Review outputs.** You’ll get the contigs and a tarball of the entire `assemblyDir/` for later use with the GFA tool or auditing.
+5. **(Optional) Tune correction options.** Set minimum read quality/identity/overlap or `--skip-correction`.
+
+6. **Review outputs.** 
+   - Individual mode: You'll get a collection of contigs and assembly bundles (one per input file).
+   - Co-assembly mode: You'll get a single contigs file and assembly bundle.
 
 **Outputs**
 
 - **`contigs.fasta.gz`** — compressed FASTA of assembled contigs.  
 - **`assemblyDir.tgz`** — compressed snapshot of the assembly directory (including logs and `tmp/`).
+
+**When to use individual vs. co-assembly**
+
+**Use individual assemblies when:**
+- You have samples from different environments or timepoints
+- You want to compare assemblies across samples
+- Each sample should maintain its distinct taxonomic profile
+- You have many samples to process in parallel
+
+**Use co-assembly when:**
+- You have multiple samples from the same environment
+- You want to increase depth of coverage for low-abundance organisms
+- You're doing cross-sample binning or strain-resolved metagenomics
+- Your samples are technical replicates or closely related
 
 **Options (Galaxy ↔ CLI mapping)**
 
@@ -248,6 +375,10 @@ This tool runs `metaMDBG asm` to assemble long-read metagenomes (PacBio HiFi or 
 **Why we generate a tar bundle**
 
 Packaging `assemblyDir/` as `assemblyDir.tgz` preserves all artifacts and makes it easy to pass the exact assembly into the **metaMDBG graph (GFA)** tool.
+
+**More information**
+
+For more details about metaMDBG, see the `GitHub repository <https://github.com/GaetanBenoitDev/metaMDBG>`_.
 
   ]]></help>
 
