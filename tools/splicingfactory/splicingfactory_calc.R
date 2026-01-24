@@ -22,16 +22,6 @@ options(
 
 suppressWarnings(Sys.setlocale("LC_MESSAGES", "en_US.UTF-8"))
 
-suppressPackageStartupMessages({
-  if (!suppressWarnings(requireNamespace("argparse", quietly = TRUE))) {
-    cat("Required R package 'argparse' is not installed.\n",
-      file = stderr()
-    )
-    q(status = 1)
-  }
-  library(argparse)
-})
-
 parser <- ArgumentParser(
   description = "Galaxy runner for SplicingFactory::calculate_diversity"
 )
@@ -228,10 +218,11 @@ if (grepl("\\.rds$", args$input, ignore.case = TRUE)) {
     # Single-column file: treat as gene vector aligned to rows of the matrix
     gene_vec <- as.character(gene_map_raw[[1]])
     if (length(gene_vec) != nrow(readcounts)) {
-      stop(
-        "Gene mapping file has 1 column but length does not match number of",
-        " transcripts"
+      msg <- paste(
+        "Gene mapping file has 1 column but length does not match",
+        "number of transcripts"
       )
+      stop(msg)
     }
     genes <- gene_vec
   } else {
@@ -244,7 +235,10 @@ if (grepl("\\.rds$", args$input, ignore.case = TRUE)) {
 
     # Ensure order matches (transcripts must be present in mapping)
     if (!all(rownames(readcounts) %in% gene_map$transcript)) {
-      stop("Some transcripts in count matrix not found in gene mapping file")
+      stop(
+        "Some transcripts in count matrix not found in",
+        " gene mapping file"
+      )
     }
 
     # Map transcripts to genes (keep transcript order)
