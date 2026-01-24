@@ -1,0 +1,408 @@
+<tool id="ncbi_egapx" name="NCBI EGAPx" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>annotates eukaryotic genomes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="requirements"/>
+    <required_files>
+        <include path="get-bams.bash"/>
+    </required_files>
+    <command detect_errors="aggressive"><![CDATA[
+    #if $cond_input_style.input_style == "fillform"
+        #set yamlconfig = $egapx_config
+        ## The EGAPx pipeline code determines that a file is gzipped if it has a '.gz' extension.
+        ## This code creates symlinks with the appropriate extension.
+        #if $cond_input_style.cond_genome_style.genome_style == "history"
+            #set $genome_pathname = "genome_" + re.sub('[^\w\-\s]', '_', str($genome.element_identifier)) + "." + $genome.ext
+            ln -s '$genome' '$genome_pathname' &&
+        #else if $cond_input_style.cond_genome_style.genome_style == "indexed"
+            #set $genome_pathname = "genome_" + re.sub('[^\w\-\s]', '_', str($genome.fields.element_identifier)) + "." + $genome.fields.ext
+            ln -s '$genome.fields.path' '$genome_pathname' &&
+        #end if
+        #if $cond_input_style.cond_rnaseq_style.rnaseq_style == "history"
+            #import re
+            mkdir -p reads &&
+            #for $idx, $read in enumerate($cond_input_style.cond_rnaseq_style.rnaseq)
+                #if $read
+                    #set $read_pathname = "reads/" + str($idx) + "_" + re.sub('[^\w\-\s]', '_', str($read.element_identifier)) + "." + $read.ext
+                    ln -s '$read' '$read_pathname' &&
+                #end if
+            #end for
+            #for $repeat_idx, $repeat_entry in enumerate($cond_input_style.cond_rnaseq_style.reads_lists)
+                #for $idx, $collection in enumerate($repeat_entry.rnaseq_single)
+                    #set $read_pathname = "reads/" + str($repeat_idx) + str($idx) + "_" + re.sub('[^\w\-\s]', '_', str($collection.element_identifier)) + "." + $collection.ext
+                    ln -s '$collection' '$read_pathname' &&
+                #end for
+            #end for
+            #for $repeat_idx, $repeat_entry in enumerate($cond_input_style.cond_rnaseq_style.reads_paired_lists)
+                #for $idx, $collection in enumerate($repeat_entry.rnaseq_paired)
+                    #set $read_pathname = "reads/" + str($repeat_idx) + str($idx) + "_" + $re.sub('[^\w\-\s]', '_', str($collection.forward.element_identifier)) + "." + $collection.forward.ext
+                    ln -s '${collection.forward}' '$read_pathname' &&
+                    #set $read_pathname = "reads/" + str($repeat_idx) + str($idx) + "_" + re.sub('[^\w\-\s]', '_', str($collection.reverse.element_identifier)) + "." + $collection.reverse.ext
+                    ln -s '${collection.reverse}' '$read_pathname' &&
+                #end for
+            #end for
+        #end if
+    #else
+        #set yamlconfig = $yamlin
+    #end if
+    ## activate the following
+    ##   - nextflow conda environment
+    ##   - EGPAx python virtual environment
+    source /galaxy/env.bash &&
+    python3 /galaxy/scripts/galaxy-resource-config.py &&
+    ## run EGAPx
+    python3 /galaxy/egapx/ui/egapx.py '$yamlconfig' -e galaxy -o 'egapx_out' &&
+    ## hack to support 0.2-alpha
+    if [ -e egapx_out/accept.gff ]; then ln -s accept.gff egapx_out/complete.genomic.gff; fi
+    #if $developer.collect_star_bams
+    && bash '$__tool_directory__/get-bams.bash'
+    #end if
+    ]]></command>
+    <environment_variables>
+         <environment_variable name="NXF_DEBUG">3</environment_variable>
+    </environment_variables>
+    <configfiles>
+        <configfile name="reads_config"><![CDATA[#slurp
+        #if $cond_input_style.input_style == "fillform" and $cond_input_style.cond_rnaseq_style.rnaseq_style == "history"
+            #import re
+            #for $idx, $read in enumerate($cond_input_style.cond_rnaseq_style.rnaseq)
+                #if $read
+                    #set $read_pathname = "reads/" + str($idx) + re.sub('[^\w\-\s]', '_', str($read.element_identifier)) + "." + $read.ext
+${idx}_${read.name} $read_pathname
+                #end if
+            #end for
+            #for $repeat_idx, $repeat_entry in enumerate($cond_input_style.cond_rnaseq_style.reads_lists)
+                #for $idx, $collection in enumerate($repeat_entry.rnaseq_single)
+                    #set $read_pathname = "reads/" + str($repeat_idx) + str($idx) + re.sub('[^\w\-\s]', '_', str($collection.element_identifier)) + "." + $collection.ext
+${repeat_idx}${idx}_${collection.name} $read_pathname
+                #end for
+            #end for
+            #for $repeat_idx, $repeat_entry in enumerate($cond_input_style.cond_rnaseq_style.reads_paired_lists)
+                #for $idx, $collection in enumerate($repeat_entry.rnaseq_paired)
+                    #set $forward_read_pathname = "reads/" + str($repeat_idx) + str($idx) + re.sub('[^\w\-\s]', '_', str($collection.forward.element_identifier)) + "." + $collection.forward.ext
+                    #set $reverse_read_pathname = "reads/" + str($repeat_idx) + str($idx) + re.sub('[^\w\-\s]', '_', str($collection.reverse.element_identifier)) + "." + $collection.reverse.ext
+${repeat_idx}${idx}_${collection.name} $forward_read_pathname $reverse_read_pathname
+                #end for
+            #end for
+        #end if
+        #silent pass]]></configfile>
+        <configfile name="egapx_config"><![CDATA[#slurp
+        #if $cond_input_style.input_style == "fillform"
+            #import re
+            #if $cond_input_style.cond_genome_style.genome_style == "history"
+                #set genome_value = "genome_" + re.sub('[^\w\-\s]', '_', str($genome.element_identifier)) + "." + $genome.ext
+            #else if $cond_input_style.cond_genome_style.genome_style == "indexed"
+                #set genome_value = "genome_" + re.sub('[^\w\-\s]', '_', str($genome.fields.element_identifier)) + "." + $genomefields.ext
+            #else
+                #set genome_value = $uri
+            #end if
+# yaml generated by ncbi_egapx.xml
+genome: $genome_value
+taxid: $taxid
+            #if $cond_input_style.cond_rnaseq_style.rnaseq_style == "history"
+reads: $reads_config
+            #else
+reads:
+                #set reads_values = $rnaseq.split()
+                #for $read in [str(rv).strip() for rv in $reads_values]
+  - $read
+                #end for
+            #end if
+            #if str($cond_input_style.proteins) != "None"
+proteins: $cond_input_style.proteins
+            #end if
+            #if str($cond_input_style.extra) != "None"
+                #for row in str($cond_input_style.extra).strip().split("\n")
+                    #if $row
+$row
+                    #end if
+                #end for
+            #end if
+        #end if
+        #silent pass]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="cond_input_style">
+            <param name="input_style" type="select" label="Fill in a tool form or use an existing yaml configuration from the current history?" help="Use the tool form to select inputs from the history, or use a pre-prepared yaml file.">
+                <option value="fillform" selected="True">Provide configuration details for conversion into a configuration yaml</option>
+                <option value="history">Use a pre-prepared yaml egapx configuration</option>
+            </param>
+            <when value="fillform">
+                <conditional name="cond_genome_style">
+                    <param name="genome_style" type="select" label="Reference genome source for mapping supplied RNA-seq reads" help="Select a built in, history or remote URI for the reference genome FASTA">
+                        <option value="history" selected="True">Use a genome FASTA file from the current history</option>
+                        <option value="indexed">Use a Galaxy server built-in genome</option>
+                        <option value="uri">Provide a remote web link URI ("https://...") pointing at the required genome reference FASTA file</option>
+                    </param>
+                    <when value="history">
+                        <param name="genome" type="data" format="fasta" label="Select the reference genome FASTA from the current history"/>
+                    </when>
+                    <when value="indexed">
+                        <param name="genome" type="select" label="Select a built in reference genome or custom genome" help="If not listed, add a custom genome or use a reference genome from the history">
+                            <options from_data_table="all_fasta">
+                                <validator message="No genomes are available " type="no_options"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="uri">
+                        <param name="uri" type="text" label="URI pointing to the reference genome FASTA file"/>
+                    </when>
+                </conditional>
+                <param name="taxid" type="integer" min="0" value="0" label="NCBI Taxon ID" help="Used to identify the HMM model files needed"/>
+                <conditional name="cond_rnaseq_style">
+                    <param name="rnaseq_style" type="select" label="RNA sequence data source" help="Select RNAseq input data from history or input a list of SRA identifiers or remote URI">
+                        <option value="history" selected="True">Select one or more RNA-seq fastq datasets from the current history</option>
+                        <option value="list">Type in a list of SRA identifiers and/or remote RNA-seq FASTA URI</option>
+                    </param>
+                    <when value="history">
+                        <param name="rnaseq" type="data" format="fastqsanger,fastqsanger.gz" multiple="true" optional="true" label="Select multiple RNA-seq fastqsanger inputs from the current history" help="All selected rna-seq fastqsanger will be added to the yaml for egapx configuration"/>
+                        <repeat name="reads_lists" title="Single-end reads" min="0">
+                            <param name="rnaseq_single" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="list" label="Select multiple RNA-seq fastqsanger inputs from the current history" help="All selected rna-seq fastqsanger will be added to the yaml for egapx configuration"/>
+                        </repeat>
+                        <repeat name="reads_paired_lists" title="Paired-end reads" min="0">
+                            <param name="rnaseq_paired" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="list:paired" label="Select multiple RNA-seq fastqsanger inputs from the current history" help="All selected rna-seq fastqsanger will be added to the yaml for egapx configuration"/>
+                        </repeat>
+                    </when>
+                    <when value="list">
+                        <param name="rnaseq" type="text" area="true" label="List all required individual RNA-seq URI or SRA identifiers, separated by spaces or newlines" help="Either a working URI for a RNA-seq FASTA, or a bare SRA identifier will work - can be mixed">
+                            <validator type="empty_field"/>
+                        </param>
+                    </when>
+                </conditional>
+                <param name="proteins" type="data" format="fasta,fasta.gz" optional="true" label="Select a protein set"/>
+                <param name="extra" type="text" area="true" optional="true" label="Additional yaml to append to the egapx.yaml configuration"
+                    help="Not normally needed but useful for testing additional configuration elements">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.printable"/>
+                    </sanitizer>
+                </param>
+            </when>
+            <when value="history">
+                <param name="yamlin" type="data" format="yaml" label="egapx configuration yaml file to pass to Nextflow"/>
+            </when>
+        </conditional>
+        <section name="developer" title="Developer options" expanded="false">
+            <param name="collect_star_bams" type="boolean" checked="false" label="Collect BAM output from STAR"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="complete_genomic_gff" format="gff" label="Final annotation for ${on_string}" from_work_dir="egapx_out/complete.genomic.gff"/>
+        <collection name="output_files" type="list" label="EGAPx output for ${on_string}">
+            <data name="complete_genomic_gtf" format="gtf" label="Final annotation" from_work_dir="egapx_out/complete.genomic.gtf"/>
+            <data name="complete_genomic_fna" format="fasta" label="Full genome sequences" from_work_dir="egapx_out/complete.genomic.fna"/>
+            <data name="complete_cds" format="fasta" label="Annotated CDS" from_work_dir="egapx_out/complete.cds.fna"/>
+            <data name="complete_transcripts" format="fasta" label="Annotated transcripts" from_work_dir="egapx_out/complete.transcripts.fna"/>
+            <data name="complete_proteins" format="fasta" label="Annotated proteins" from_work_dir="egapx_out/complete.proteins.faa"/>
+            <data name="annotated_genome" format="asn1" label="Final annotation" from_work_dir="egapx_out/annotated_genome.asn"/>
+            <data name="accept_ftable_annot" format="txt" label="Accepted annotation models" from_work_dir="egapx_out/annot_builder_output/accept.ftable_annot"/>
+            <data name="annotation_data_cmt" format="tabular" label="Structured Comment" from_work_dir="egapx_out/annotation_data.cmt"/>
+            <data name="feature_counts" format="xml" label="Feature counts" from_work_dir="egapx_out/stats/feature_counts.xml"/>
+            <data name="feature_stats" format="xml" label="Feature stats" from_work_dir="egapx_out/stats/feature_stats.xml"/>
+            <data name="all_unannotated_val" format="xml" label="" from_work_dir="egapx_out/validated/all_unannotated.val"/>
+            <data name="genome_val" format="xml" label="" from_work_dir="egapx_out/validated/genome.val"/>
+        </collection>
+        <collection name="nextflow_stats" type="list" label="EGAPx nextflow stats for ${on_string}">
+            <data name="run_report" format="html" label="Nextflow execution report" from_work_dir="egapx_out/run.report.html"/>
+            <data name="run_timeline" format="html" label="Nextflow execution timeline" from_work_dir="egapx_out/run.timeline.html"/>
+            <data name="nextflow_log" format="txt" label="Nextflow execution log" from_work_dir="egapx_out/nextflow.log"/>
+            <data name="run_trace" format="tabular" label="Nextflow trace file" from_work_dir="egapx_out/run.trace.txt"/>
+           <data name="run_params" format="yaml" label="Nextflow run parameters" from_work_dir="egapx_out/run_params.yaml"/>
+        </collection>
+        <collection name="star_alignments" type="list" label="EGAPx STAR alignments for ${on_string}">
+            <discover_datasets pattern="(?:.+/)?bam\.[0-9A-Za-z]{10}/(?P&lt;designation&gt;.+)\.bam" format="bam" directory="egapx_out" recurse="true" match_relative_path="true"/>
+            <filter>developer['collect_star_bams']</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="20" expect_test_failure="true">
+            <conditional name="cond_input_style">
+                <param name="input_style" value="fillform"/>
+                <conditional name="cond_genome_style">
+                    <param name="genome_style" value="uri"/>
+                    <param name="uri" value="https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/020/809/275/GCF_020809275.1_ASM2080927v1/GCF_020809275.1_ASM2080927v1_genomic.fna.gz"/>
+                </conditional>
+                <param name="taxid" value="6954"/>
+                <conditional name="cond_rnaseq_style">
+                    <param name="rnaseq_style" value="list"/>
+                    <param name="rnaseq" value="https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR8506572_1.gz https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR8506572_2.gz https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR9005248_1.gz https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR9005248_2.gz"/>
+                </conditional>
+            </conditional>
+            <section name="developer">
+                <param name="collect_star_bams" value="true"/>
+            </section>
+            <expand macro="test_outputs"/>
+        </test>
+        <test expect_num_outputs="21" expect_test_failure="true">
+            <conditional name="cond_input_style">
+                <param name="input_style" value="history"/>
+                <param name="yamlin" value="input.yaml"/>
+            </conditional>
+            <section name="developer">
+                <param name="collect_star_bams" value="true"/>
+            </section>
+            <expand macro="test_outputs"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+Galaxy tool wrapping the Eukaryotic Genome Annotation Pipeline (EGAPx)
+=================================================================================================
+
+.. class:: warningmark
+
+**Proof of concept: a hack to run a NF workflow inside a specialised Galaxy tool wrapper**
+
+EGAPx is a big, complicated Nextflow workflow, challenging and costly to re-implement **properly**, requiring dozens of new tools and replicating a lot of
+complicated *groovy* workflow logic.
+
+It is also very new and in rapid development. Investing developer effort and keeping updated as EGAPx changes rapidly may be *inefficient of developer resources*.
+
+This wrapper is designed to allow measuring how *inefficient* it is in terms of computing resource utilisation, in comparison to the developer effort
+required to convert Nextflow DDL into tools and WF logic. Balancing these competing requirements is a fundamental Galaxy challenge.
+
+
+EGAPx requires very substantial resources to run with real data. *132GB and 32 cores* are the minimum requirement; *256GB and 64 cores* are recommended.
+
+A special minimal example that can be run in 6GB with 4 cores is provided as a yaml configuration and is used for the tool test.
+
+In this implementation, the user must supply a yaml configuration file as initial proof of concept.
+History inputs and even a yaml editor might be provided in future.
+
+The NF workflow to tool model tested here may be applicable to other NF workflows that take a single configuration yaml.
+
+.. class:: warningmark
+
+The computational resource cost of typing the wrong SRA identifiers into a tool form is potentially enormous with this tool!
+
+
+Sample yaml configurations
+===========================
+
+YAML sample configurations can be uploaded into your Galaxy history from the `EGAPx github repository <https://github.com/ncbi/egapx/tree/main/examples/>`_.
+The simplest possible example is shown below - can be cut/paste into a history dataset in the upload tool.
+
+
+*./examples/input_D_farinae_small.yaml* is shown below and can be cut and pasted into the upload form to create a yaml file.
+RNA-seq data is provided as URI to the reads FASTA files.
+
+input_D_farinae_small.yaml
+
+::
+
+  genome: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/020/809/275/GCF_020809275.1_ASM2080927v1/GCF_020809275.1_ASM2080927v1_genomic.fna.gz
+  taxid: 6954
+  reads:
+    - https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR8506572.1
+    - https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR8506572.2
+    - https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR9005248.1
+    - https://ftp.ncbi.nlm.nih.gov/genomes/TOOLS/EGAP/sample_data/Dermatophagoides_farinae_small/SRR9005248.2
+
+
+input_Gavia_stellata.yaml
+
+::
+
+  genome: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/030/936/135/GCF_030936135.1_bGavSte3.hap2/GCF_030936135.1_bGavSte3.hap2_genomic.fna.gz
+  reads: txid37040[Organism] AND biomol_transcript[properties] NOT SRS024887[Accession]
+  taxid: 37040
+
+input_C_longicornis.yaml
+
+::
+
+  genome: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/029//603/195/GCF_029603195.1_ASM2960319v2/GCF_029603195.1_ASM2960319v2_genomic.fna.gz
+  reads: txid2530218[Organism] AND biomol_transcript[properties] NOT SRS024887[Accession]
+  taxid: 2530218
+
+Purpose
+========
+
+**This is not intended for production**
+
+Just a proof of concept.
+It is possibly too inefficient to be useful although it may turn out not to be a problem if run on a dedicated workstation.
+At least the efficiency can now be more easily estimated.
+
+This tool is not recommended for public deployment because of the resource demands.
+
+EGAPx Overview
+===============
+
+.. image:: $PATH_TO_IMAGES/Pipeline_sm_ncRNA_CAGE_80pct.png
+
+**Warning:**
+The current version is an alpha release with limited features and organism scope to collect initial feedback on execution. Outputs are not yet complete and not intended for production use. Please open a GitHub [Issue](https://github.com/ncbi/egapx/issues)  if you encounter any problems with EGAPx. You can also write to cgr@nlm.nih.gov to give us your feedback or if you have any questions.
+
+EGAPx is the publicly accessible version of the updated NCBI [Eukaryotic Genome Annotation Pipeline](https://www.ncbi.nlm.nih.gov/genome/annotation_euk/process/).
+
+EGAPx takes an assembly FASTA file, a taxid of the organism, and RNA-seq data. Based on the taxid, EGAPx will pick protein sets and HMM models. The pipeline runs `miniprot` to align protein sequences, and `STAR` to align RNA-seq to the assembly. Protein alignments and RNA-seq read alignments are then passed to `Gnomon` for gene prediction. In the first step of `Gnomon`, the short alignments are chained together into putative gene models.
+In the second step, these predictions are further supplemented by *ab-initio* predictions based on HMM models. The final annotation for the input assembly is produced as a `gff` file.
+
+**Security Notice:**
+
+EGAPx has dependencies in and outside of its execution path that include several thousand files from the [NCBI C++ toolkit](https://www.ncbi.nlm.nih.gov/toolkit), and more than a million total lines of code. Static Application Security Testing has shown a small number of verified buffer overrun security vulnerabilities. Users should consult with their organizational security team on risk and if there is concern, consider mitigating options like running via VM or cloud instance.
+
+
+*To specify an array of NCBI SRA datasets in yaml*
+
+::
+
+   reads:
+     - SRR8506572
+     - SRR9005248
+
+
+*To specify an SRA entrez query*
+
+::
+
+  reads: 'txid6954[Organism] AND biomol_transcript[properties] NOT SRS024887[Accession] AND (SRR8506572[Accession] OR SRR9005248[Accession] )'
+
+
+**Note:** Both the above examples will have more RNA-seq data than the `input_D_farinae_small.yaml` example. To make sure the entrez query does not produce a large number of SRA runs, please run it first at the [NCBI SRA page](https://www.ncbi.nlm.nih.gov/sra). If there are too many SRA runs, then select a few of them and list it in the input yaml.
+
+Output
+=======
+
+EGAPx output will appear as a collection in the user history. The main annotation file is called *complete.genomic.gff*.
+
+::
+
+ complete.genomic.gff
+ annot_builder_output
+ nextflow.log
+ run.report.html
+ run.timeline.html
+ run.trace.txt
+ run_params.yaml
+
+
+The *nextflow.log* is the log file that captures all the process information and their work directories. ``run_params.yaml`` has all the parameters that were used in the EGAPx run. More information about the process time and resources can be found in the other run* files.
+
+## Intermediate files
+
+In the log, each line denotes the process that completed in the workflow. The first column (_e.g._ `[96/621c4b]`) is the subdirectory where the intermediate output files and logs are found for the process in the same line, _i.e._, `egapx:miniprot:run_miniprot`. To see the intermediate files for that process, you can go to the work directory path that you had supplied and traverse to the subdirectory `96/621c4b`:
+
+::
+
+ $ aws s3 ls s3://temp_datapath/D_farinae/96/
+                           PRE 06834b76c8d7ceb8c97d2ccf75cda4/
+                           PRE 621c4ba4e6e87a4d869c696fe50034/
+ $ aws s3 ls s3://temp_datapath/D_farinae/96/621c4ba4e6e87a4d869c696fe50034/
+                           PRE output/
+ 2024-03-27 11:19:18          0
+ 2024-03-27 11:19:28          6 .command.begin
+ 2024-03-27 11:20:24        762 .command.err
+ 2024-03-27 11:20:26        762 .command.log
+ 2024-03-27 11:20:23          0 .command.out
+ 2024-03-27 11:19:18      13103 .command.run
+ 2024-03-27 11:19:18        129 .command.sh
+ 2024-03-27 11:20:24        276 .command.trace
+ 2024-03-27 11:20:25          1 .exitcode
+ $ aws s3 ls s3://temp_datapath/D_farinae/96/621c4ba4e6e87a4d869c696fe50034/output/
+ 2024-03-27 11:20:24   17127134 aligns.paf
+    ]]></help>
+    <expand macro="citations"/>
+    <expand macro="creators"/>
+</tool>
