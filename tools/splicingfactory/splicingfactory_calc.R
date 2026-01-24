@@ -187,20 +187,45 @@ if (grepl("\\.rds$", args$input, ignore.case = TRUE)) {
         stop("--genes parameter required for TSV input")
     }
 
-    # Read transcript counts matrix
-    readcounts <- as.matrix(read.table(
+    tc_df <- read.table(
         args$input,
         sep = "\t",
         header = TRUE,
-        row.names = 1
-    ))
-    readcounts <- apply(readcounts, 2, as.numeric) # Ensure numeric type
-    rownames(readcounts) <- rownames(as.matrix(read.table(
-        args$input,
-        sep = "\t",
-        header = TRUE,
-        row.names = 1
-    )))
+        stringsAsFactors = FALSE,
+        quote = '"',
+        check.names = FALSE,
+        fill = TRUE
+    )
+    if (ncol(tc_df) < 2) {
+        stop("Input matrix must contain at least one ID column and one sample column")
+    }
+    # Detect whether the first column is a transcript ID column or if the
+    # file is a pure numeric matrix (no ID column). If the first column is
+    # numeric for all rows, assume there's no ID column and use the full
+    # table as numeric matrix. Otherwise treat first column as transcript IDs.
+    first_col <- tc_df[[1]]
+    suppressWarnings(
+        first_col_numeric <- !any(is.na(as.numeric(as.character(first_col))))
+    )
+
+    if (first_col_numeric) {
+        # No explicit transcript ID column; use entire table as matrix
+        transcript_ids <- NULL
+        mat <- tc_df[, , drop = FALSE]
+    } else {
+        transcript_ids <- as.character(first_col)
+        if (any(duplicated(transcript_ids))) {
+            warning("Duplicate transcript IDs found in input; keeping duplicate IDs as provided")
+        }
+        mat <- tc_df[, -1, drop = FALSE]
+    }
+    # Ensure numeric conversion for all sample columns
+    mat <- as.matrix(mat)
+    mat <- apply(mat, 2, function(x) as.numeric(as.character(x)))
+    if (!is.null(transcript_ids)) {
+        rownames(mat) <- transcript_ids
+    }
+    readcounts <- mat
 
     # Read gene mapping
     # Read gene mapping: accept either two-column (transcript \t gene)
@@ -215,15 +240,28 @@ if (grepl("\\.rds$", args$input, ignore.case = TRUE)) {
     )
 
     if (ncol(gene_map_raw) == 1) {
-        # Single-column file: treat as gene vector aligned to rows of the matrix
+        # Single-column file: treat as gene vector aligned to rows of the matrix.
+        # Be tolerant of common formatting issues: drop empty/NA rows and detect
+        # a possible header row if it causes an off-by-one length.
         gene_vec <- as.character(gene_map_raw[[1]])
+        # Remove empty lines and NAs
+        gene_vec <- gene_vec[!is.na(gene_vec) & gene_vec != ""]
+
+        # If there's exactly one extra entry, it may be a header row; drop it.
+        if (length(gene_vec) == nrow(readcounts) + 1) {
+            warning("One extra line in gene mapping: assuming header, dropping first row")
+            gene_vec <- gene_vec[-1]
+        }
+
         if (length(gene_vec) != nrow(readcounts)) {
-            msg <- paste(
-                "Gene mapping file has 1 column but length does not match",
-                "number of transcripts"
+            msg <- paste0(
+                "Gene mapping file has 1 column but length (", length(gene_vec),
+                ") does not match number of transcripts (", nrow(readcounts),
+                "). Ensure the gene file has one entry per transcript row, or provide a two-column mapping."
             )
             stop(msg)
         }
+
         genes <- gene_vec
     } else {
         # Two-or-more-column file:
@@ -514,7 +552,7 @@ if (args$verbose) {
 # Output SummarizedExperiment (optional)
 # ============================================================================
 
-if (save_se_requested && !is.null(args$out_se)) {
+if (args$output_summarizedExperiment_RDS && !is.null(args$out_se)) {
     saveRDS(result_se, file = args$out_se)
     if (args$verbose) {
         cat(
