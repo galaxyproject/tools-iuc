@@ -42,13 +42,13 @@ parser$add_argument(
   required = FALSE
 )
 
-parser$add_argument(
-  "--assayno",
-  help = "Assay number for SummarizedExperiment input (default: 1)",
-  type = "integer",
-  default = 1,
-  required = FALSE
-)
+#parser$add_argument(
+#  "--assayno",
+#  help = "Assay number for SummarizedExperiment input (default: 1)",
+#  type = "integer",
+#  default = 1,
+#  required = FALSE
+#)
 
 parser$add_argument(
   "--method",
@@ -160,33 +160,6 @@ if (args$verbose) {
   cat("Reading input data...\n", file = stderr())
 }
 
-if (grepl("\\.rds$", args$input, ignore.case = TRUE)) {
-  # RDS input (SummarizedExperiment or tximport)
-  input_data <- readRDS(args$input)
-
-  if (is(input_data, "SummarizedExperiment")) {
-    # Direct SummarizedExperiment
-    se_data <- input_data
-    readcounts <- assay(se_data, i = args$assayno)
-    genes <- rownames(se_data)
-  } else if (is.list(input_data)) {
-    # tximport list
-    if (use_tpm && !is.null(input_data$abundance)) {
-      readcounts <- input_data$abundance
-    } else if (!is.null(input_data$counts)) {
-      readcounts <- input_data$counts
-    } else {
-      stop("RDS missing 'counts' or 'abundance' for tximport")
-    }
-    genes <- rownames(readcounts)
-  } else {
-    stop("RDS input must be either SummarizedExperiment or tximport list")
-  }
-} else {
-  # TSV input
-  if (is.null(args$genes)) {
-    stop("--genes parameter required for TSV input")
-  }
 
   tc_df <- read.table(
     args$input,
