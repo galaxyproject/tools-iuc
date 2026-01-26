@@ -1,0 +1,311 @@
+<tool id="liana_multi" name="Liana Multi-Sample" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>multi-sample and multi-condition analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements">
+        <requirement type="package">mudata</requirement>
+        <requirement type="package">scanpy</requirement>
+        <requirement type="package">decoupler</requirement>
+        <requirement type="package">cell2cell</requirement>
+    </expand>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+cp '$adata' 'anndata.h5ad' &&
+#if $advanced_common.show_log:
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output' 2>&1
+#else:
+python '$script_file' 2>&1
+#end if
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_IMPORTS@
+@CMD_READ_INPUTS@
+
+#if str($method.method) == 'to_tensor_c2c'
+tensor = li.multi.to_tensor_c2c(
+    adata=adata,
+    sample_key='$method.sample_key',
+#if str($method.score_key) != ''
+    score_key='$method.score_key',
+#end if
+    uns_key='$method.uns_key',
+    source_key='$method.source_key',
+    target_key='$method.target_key',
+    ligand_key='$method.ligand_key',
+    receptor_key='$method.receptor_key',
+#if str($method.non_expressed_fill) != ''
+    non_expressed_fill=$method.non_expressed_fill,
+#end if
+    non_negative=$method.non_negative,
+    return_dict=False)
+import numpy as np
+np.save('tensor_output.npy', tensor)
+
+#else if str($method.method) == 'lrs_to_views'
+mdata = li.multi.lrs_to_views(
+    adata=adata,
+#if str($method.score_key) != ''
+    score_key='$method.score_key',
+#end if
+    lr_prop=$method.lr_prop,
+    lrs_per_view=$method.lrs_per_view,
+    lrs_per_sample=$method.lrs_per_sample,
+    samples_per_view=$method.samples_per_view,
+    min_variance=$method.min_variance,
+    uns_key='$method.uns_key',
+    sample_key='$method.sample_key',
+    source_key='$method.source_key',
+    target_key='$method.target_key',
+    ligand_key='$method.ligand_key',
+    receptor_key='$method.receptor_key',
+    verbose=$method.verbose)
+mdata.write_h5mu('mdata_output.h5mu')
+
+#else if str($method.method) == 'adata_to_views'
+mdata = li.multi.adata_to_views(
+    adata=adata,
+    groupby='$method.groupby',
+    sample_key='$method.sample_key',
+#if str($method.obs_keys) != ''
+    obs_keys='$method.obs_keys'.split(','),
+#end if
+    keep_stats=$method.keep_stats,
+    verbose=$method.verbose)
+mdata.write_h5mu('mdata_output.h5mu')
+
+#else if str($method.method) == 'nmf'
+li.multi.nmf(
+    adata=adata,
+#if str($method.n_components) != ''
+    n_components=$method.n_components,
+#else
+    k_range=range($method.k_range_min, $method.k_range_max),
+#end if
+    inplace=True,
+    verbose=$method.verbose)
+adata.write_h5ad('anndata.h5ad', compression='gzip')
+
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="inputs_anndata"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method">
+                <option value="to_tensor_c2c" selected="true">to_tensor_c2c - Convert LIANA results to tensor for cell2cell analysis</option>
+                <option value="lrs_to_views">lrs_to_views - Convert LIANA results to MuData views</option>
+                <option value="adata_to_views">adata_to_views - Convert AnnData to MuData views by cell type</option>
+                <option value="nmf">nmf - Non-negative matrix factorization</option>
+            </param>
+            <when value="to_tensor_c2c">
+                <param argument="sample_key" type="text" value="sample" label="Sample key" help="Key in adata.obs for grouping by sample or context.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="score_key" type="text" value="" optional="true" label="Score key" help="Column name of the score in liana_res. If empty, inferred from method.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="uns_key" type="text" value="liana_res" label="LIANA results key" help="Key in adata.uns containing LIANA results.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="source_key" type="text" value="source" label="Source key" help="Column name of sender/source cell types.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="target_key" type="text" value="target" label="Target key" help="Column name of receiver/target cell types.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="ligand_key" type="text" value="ligand_complex" label="Ligand key" help="Column name of ligand.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="receptor_key" type="text" value="receptor_complex" label="Receptor key" help="Column name of receptor.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="non_expressed_fill" type="float" value="" optional="true" label="Non-expressed fill value" help="Value to fill for non-expressed ligand-receptor pairs."/>
+                <param argument="non_negative" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Non-negative" help="Whether to make the tensor non-negative."/>
+            </when>
+            <when value="lrs_to_views">
+                <param argument="sample_key" type="text" value="sample" label="Sample key" help="Key in adata.obs for grouping by sample or context.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="score_key" type="text" value="" optional="true" label="Score key" help="Column name of the score in liana_res. If empty, inferred from method.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="uns_key" type="text" value="liana_res" label="LIANA results key" help="Key in adata.uns containing LIANA results.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="source_key" type="text" value="source" label="Source key" help="Column name of sender/source cell types.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="target_key" type="text" value="target" label="Target key" help="Column name of receiver/target cell types.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="ligand_key" type="text" value="ligand_complex" label="Ligand key" help="Column name of ligand.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="receptor_key" type="text" value="receptor_complex" label="Receptor key" help="Column name of receptor.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="lr_prop" type="float" value="0.5" min="0" max="1" label="LR proportion" help="Minimum proportion of samples for an interaction to be considered."/>
+                <param argument="lrs_per_view" type="integer" value="20" min="1" label="LRs per view" help="Minimum number of interactions in a view."/>
+                <param argument="lrs_per_sample" type="integer" value="10" min="1" label="LRs per sample" help="Minimum number of interactions in a sample."/>
+                <param argument="samples_per_view" type="integer" value="3" min="1" label="Samples per view" help="Minimum samples to keep a view."/>
+                <param argument="min_variance" type="float" value="0" min="0" label="Minimum variance" help="Minimum variance across samples for each interaction."/>
+                <expand macro="param_verbose"/>
+            </when>
+            <when value="adata_to_views">
+                <param argument="groupby" type="text" value="" label="Group by" help="Key in adata.obs for grouping cells (e.g., cell type).">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="groupby is required"/>
+                </param>
+                <param argument="sample_key" type="text" value="sample" label="Sample key" help="Key in adata.obs for grouping by sample.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="obs_keys" type="text" value="" optional="true" label="Observation keys" help="Comma-separated list of keys in adata.obs to include.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="keep_stats" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Keep stats" help="Keep pseudobulk statistics in mdata.uns."/>
+                <expand macro="param_verbose"/>
+            </when>
+            <when value="nmf">
+                <param argument="n_components" type="integer" value="" optional="true" label="Number of components" help="Number of NMF components. If empty, uses k_range to estimate."/>
+                <param name="k_range_min" type="integer" value="2" min="1" label="K range minimum" help="Minimum k for elbow estimation (used if n_components is empty)."/>
+                <param name="k_range_max" type="integer" value="10" min="2" label="K range maximum" help="Maximum k for elbow estimation (used if n_components is empty)."/>
+                <expand macro="param_verbose"/>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="tensor_out" format="npy" from_work_dir="tensor_output.npy" label="${tool.name} (${method.method}) on ${on_string}: Tensor">
+            <filter>method['method'] == 'to_tensor_c2c'</filter>
+        </data>
+        <data name="mdata_out" format="h5mu" from_work_dir="mdata_output.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MuData">
+            <filter>method['method'] in ['lrs_to_views', 'adata_to_views']</filter>
+        </data>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
+            <filter>method['method'] == 'nmf'</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: to_tensor_c2c -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="multi_sample_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="to_tensor_c2c"/>
+                <param name="sample_key" value="sample"/>
+                <param name="score_key" value="magnitude_rank"/>
+                <param name="uns_key" value="liana_res"/>
+                <param name="source_key" value="source"/>
+                <param name="target_key" value="target"/>
+                <param name="ligand_key" value="ligand_complex"/>
+                <param name="receptor_key" value="receptor_complex"/>
+                <param name="non_negative" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="tensor_out" file="multi_to_tensor.npy" ftype="npy" compare="sim_size" delta="100000">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.multi.to_tensor_c2c"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: lrs_to_views -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="multi_sample_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="lrs_to_views"/>
+                <param name="sample_key" value="sample"/>
+                <param name="score_key" value="magnitude_rank"/>
+                <param name="uns_key" value="liana_res"/>
+                <param name="source_key" value="source"/>
+                <param name="target_key" value="target"/>
+                <param name="ligand_key" value="ligand_complex"/>
+                <param name="receptor_key" value="receptor_complex"/>
+                <param name="lr_prop" value="0.3"/>
+                <param name="lrs_per_view" value="5"/>
+                <param name="lrs_per_sample" value="3"/>
+                <param name="samples_per_view" value="2"/>
+                <param name="min_variance" value="0"/>
+                <param name="verbose" value="false"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="mdata_out" file="multi_lrs_to_views.h5mu" ftype="h5mu" compare="sim_size" delta="100000">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.multi.lrs_to_views"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: nmf -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="multi_nmf_input.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="nmf"/>
+                <param name="n_components" value="3"/>
+                <param name="verbose" value="false"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="anndata_out" file="multi_nmf_output.h5ad" ftype="h5ad" compare="sim_size" delta="50000">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.multi.nmf"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool provides multi-sample and multi-condition analysis functions from LIANA+.
+
+**Methods**
+
+- **to_tensor_c2c**: Converts LIANA results to a tensor format for Tensor-cell2cell analysis. Useful for decomposing cell-cell communication patterns across samples/conditions.
+
+- **lrs_to_views**: Converts LIANA results to a MuData object with views representing ligand-receptor interactions aggregated by cell type pairs. Each view contains interactions for a specific sender-receiver pair.
+
+- **adata_to_views**: Converts an AnnData object to a MuData object with views representing aggregated expression for each cell type. Useful for multi-sample analysis.
+
+- **nmf**: Performs Non-negative Matrix Factorization on the data to identify latent factors/patterns.
+
+**Inputs**
+
+- AnnData object with LIANA results (for to_tensor_c2c and lrs_to_views) or expression data (for adata_to_views and nmf)
+
+**Outputs**
+
+- **to_tensor_c2c**: NumPy tensor file (.npy)
+- **lrs_to_views/adata_to_views**: MuData file (.h5mu)
+- **nmf**: AnnData file with NMF results (.h5ad)
+
+**References**
+
+- Dimitrov, D., et al. (2022). Comparison of methods and resources for cell-cell communication inference from single-cell RNA-Seq data. Nature Communications.
+- https://liana-py.readthedocs.io/en/latest/notebooks/liana_c2c.html
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

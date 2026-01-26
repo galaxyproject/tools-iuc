@@ -1,0 +1,243 @@
+<tool id="liana_utils" name="Liana Utils" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>utility functions for data transformation and preprocessing</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements">
+        <requirement type="package">mudata</requirement>
+        <requirement type="package">scanpy</requirement>
+    </expand>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+cp '$adata' 'anndata.h5ad' &&
+#if $advanced_common.show_log:
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output' 2>&1
+#else:
+python '$script_file' 2>&1
+#end if
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_IMPORTS@
+@CMD_READ_INPUTS@
+
+#if str($method.method) == 'spatial_neighbors'
+li.ut.spatial_neighbors(
+    adata=adata,
+#if str($method.bandwidth) != ''
+    bandwidth=$method.bandwidth,
+#end if
+    cutoff=$method.cutoff,
+    max_neighbours=$method.max_neighbours,
+    kernel='$method.kernel',
+    set_diag=$method.set_diag,
+    zoi=$method.zoi,
+    standardize=$method.standardize,
+    spatial_key='$method.spatial_key',
+    key_added='$method.key_added',
+    inplace=True)
+adata.write_h5ad('anndata.h5ad', compression='gzip')
+
+#else if str($method.method) == 'obsm_to_adata'
+new_adata = li.ut.obsm_to_adata(
+    adata=adata,
+    obsm_key='$method.obsm_key')
+new_adata.write_h5ad('anndata.h5ad', compression='gzip')
+
+#else if str($method.method) == 'get_factor_scores'
+factor_scores = li.ut.get_factor_scores(
+    adata=adata,
+    obsm_key='$method.obsm_key')
+factor_scores.to_csv('factor_scores.tsv', sep='\t', index=True)
+
+#else if str($method.method) == 'get_variable_loadings'
+loadings = li.ut.get_variable_loadings(
+    adata=adata,
+    varm_key='$method.varm_key')
+loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
+
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="inputs_anndata"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method">
+                <option value="spatial_neighbors" selected="true">spatial_neighbors - Generate spatial connectivity weights</option>
+                <option value="obsm_to_adata">obsm_to_adata - Extract obsm to new AnnData</option>
+                <option value="get_factor_scores">get_factor_scores - Extract factor scores</option>
+                <option value="get_variable_loadings">get_variable_loadings - Extract variable loadings</option>
+            </param>
+            <when value="spatial_neighbors">
+                <param argument="bandwidth" type="float" value="" optional="true" label="Bandwidth" help="Signaling length controlling maximum distance. If empty, computed automatically."/>
+                <param argument="cutoff" type="float" value="0.1" min="0" max="1" label="Cutoff" help="Values below this cutoff will be set to 0."/>
+                <param argument="max_neighbours" type="integer" value="100" min="1" label="Maximum neighbours" help="Maximum nearest neighbours to consider."/>
+                <expand macro="param_kernel"/>
+                <param argument="set_diag" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Set diagonal" help="Set connectivity diagonal to 0 if False."/>
+                <param argument="zoi" type="float" value="0" min="0" label="Zone of indifference" help="Values below this will be set to infinity."/>
+                <param argument="standardize" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Standardize" help="L1 standardize spatial proximities to sum to 1."/>
+                <expand macro="param_spatial_key"/>
+                <param argument="key_added" type="text" value="spatial" label="Key added" help="Key to add to adata.obsp for connectivities.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="obsm_to_adata">
+                <param argument="obsm_key" type="text" value="" label="obsm key" help="Key in adata.obsm to extract.">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="obsm_key is required"/>
+                </param>
+            </when>
+            <when value="get_factor_scores">
+                <param argument="obsm_key" type="text" value="X_mofa" label="obsm key" help="Key in adata.obsm containing factor scores.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="get_variable_loadings">
+                <param argument="varm_key" type="text" value="LFs" label="varm key" help="Key in adata.varm containing variable loadings.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
+            <filter>method['method'] in ['spatial_neighbors', 'obsm_to_adata']</filter>
+        </data>
+        <data name="factor_scores_out" format="tabular" from_work_dir="factor_scores.tsv" label="${tool.name} (${method.method}) on ${on_string}: Factor scores">
+            <filter>method['method'] == 'get_factor_scores'</filter>
+        </data>
+        <data name="loadings_out" format="tabular" from_work_dir="variable_loadings.tsv" label="${tool.name} (${method.method}) on ${on_string}: Variable loadings">
+            <filter>method['method'] == 'get_variable_loadings'</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: spatial_neighbors -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="misty_small.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="spatial_neighbors"/>
+                <param name="bandwidth" value="100"/>
+                <param name="cutoff" value="0.1"/>
+                <param name="max_neighbours" value="20"/>
+                <param name="kernel" value="gaussian"/>
+                <param name="set_diag" value="false"/>
+                <param name="zoi" value="0"/>
+                <param name="standardize" value="false"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="key_added" value="spatial"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="anndata_out" file="spatial_neighbors.h5ad" ftype="h5ad" compare="sim_size" delta="50000">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.ut.spatial_neighbors"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: obsm_to_adata -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="utils_factor_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="obsm_to_adata"/>
+                <param name="obsm_key" value="X_embedding"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="anndata_out" file="utils_obsm_to_adata.h5ad" ftype="h5ad" compare="sim_size" delta="50000">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.ut.obsm_to_adata"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: get_factor_scores -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="utils_factor_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_factor_scores"/>
+                <param name="obsm_key" value="NMF_W"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="factor_scores_out" file="utils_factor_scores.tsv" ftype="tabular" compare="sim_size" delta="5000">
+                <assert_contents>
+                    <has_n_columns min="2"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.ut.get_factor_scores"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: get_variable_loadings -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="utils_factor_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_variable_loadings"/>
+                <param name="varm_key" value="NMF_H"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="loadings_out" file="utils_variable_loadings.tsv" ftype="tabular" compare="sim_size" delta="5000">
+                <assert_contents>
+                    <has_n_columns min="2"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.ut.get_variable_loadings"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool provides utility functions from LIANA+ for data transformation and preprocessing.
+
+**Methods**
+
+- **spatial_neighbors**: Generate spatial connectivity weights using Euclidean distance. Creates a spatial graph based on proximity between cells/spots. This is required for spatial analysis methods like bivariate metrics.
+
+- **obsm_to_adata**: Extract data from adata.obsm to create a new AnnData object. Useful for extracting embeddings or other obsm data as a standalone dataset.
+
+- **get_factor_scores**: Extract factor scores from adata.obsm (e.g., from MOFA or NMF analysis) as a tabular file.
+
+- **get_variable_loadings**: Extract variable loadings from adata.varm (e.g., from MOFA or NMF analysis) as a tabular file.
+
+**Inputs**
+
+- AnnData object
+
+**Outputs**
+
+- Modified AnnData object (for spatial_neighbors, obsm_to_adata)
+- Tabular file with factor scores or loadings (for extraction methods)
+
+**References**
+
+- Dimitrov, D., et al. (2022). Comparison of methods and resources for cell-cell communication inference from single-cell RNA-Seq data. Nature Communications.
+- https://liana-py.readthedocs.io/
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
