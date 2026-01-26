@@ -6,9 +6,9 @@
   "description": "host.fa",
   "number-of-letters": 100000,
   "number-of-sequences": 1,
-  "last-updated": "2025-11-07T14:12:00",
+  "last-updated": "2026-01-26T14:26:00",
   "number-of-volumes": 1,
-  "bytes-total": 62066,
+  "bytes-total": 62065,
   "bytes-to-cache": 25106,
   "files": [
     "host.fa.ndb",
