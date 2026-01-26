@@ -5,7 +5,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for cel
 
 ## Tools
 
-### 1. Single Cell Methods (`single_cell_copy.xml`)
+### 1. Single Cell Methods (`single_cell.xml`)
 
 Ligand-receptor inference methods for single-cell data.
 
@@ -20,15 +20,13 @@ Method | Description
 `geometric_mean` | Geometric mean ligand-receptor method
 `rank_aggregate` | Aggregate rankings from multiple methods
 
-### 2. Spatial Methods (`spatial_copy.xml`)
+### 2. Spatial Methods (`spatial.xml`)
 
-Spatial ligand-receptor analysis and MISTy modelling.
+Spatial ligand-receptor analysis using bivariate metrics.
 
 Method | Description
 --- | ---
 `bivariate` | Bivariate local spatial metrics for ligand-receptor analysis
-`genericMistyData` | Generic MISTy multi-view modelling
-`lrMistyData` | Ligand-receptor MISTy modelling
 
 #### Bivariate Metrics
 
@@ -52,6 +50,15 @@ Metric | Description
 `morans` | Moran's I (global spatial autocorrelation)
 `lee` | Lee's L (bivariate spatial association)
 
+### 3. Spatial Relationships (`spatial_relationships.xml`)
+
+Multi-view spatial modelling with MISTy.
+
+Method | Description
+--- | ---
+`genericMistyData` | Generic MISTy multi-view modelling
+`lrMistyData` | Ligand-receptor MISTy modelling
+
 #### MISTy Models
 
 Model | Description
@@ -69,7 +76,17 @@ Kernel | Description
 `exponential` | Exponential kernel
 `linear` | Linear kernel
 
-### 3. Available Resources
+### 4. Plotting (`plot.xml`)
+
+Visualization tools for LIANA results.
+
+Method | Description
+--- | ---
+`dotplot` | Dot plot of ligand-receptor interactions
+`tileplot` | Tile plot of interactions
+`connectivity` | Spatial connectivity visualization
+
+### 5. Available Resources
 
 Built-in ligand-receptor resources from `li.resource.show_resources()`:
 
@@ -94,5 +111,6 @@ Built-in ligand-receptor resources from `li.resource.show_resources()`:
 ## References
 
 - Dimitrov, D., Türei, D., Garrido-Rodriguez, M. et al. Comparison of methods and resources for cell-cell communication inference from single-cell RNA-Seq data. Nat Commun 13, 3224 (2022). https://doi.org/10.1038/s41467-022-30755-0
+- Tanevski, J., Flores, R.O.R., Gabor, A. et al. Explainable multiview framework for dissecting spatial relationships from highly multiplexed data. Genome Biol 23, 97 (2022).
 - [LIANA+ Documentation](https://liana-py.readthedocs.io/)
 - [LIANA+ GitHub](https://github.com/saezlab/liana-py)
