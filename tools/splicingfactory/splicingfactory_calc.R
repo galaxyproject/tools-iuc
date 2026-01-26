@@ -42,14 +42,6 @@ parser$add_argument(
   required = FALSE
 )
 
-#parser$add_argument(
-#  "--assayno",
-#  help = "Assay number for SummarizedExperiment input (default: 1)",
-#  type = "integer",
-#  default = 1,
-#  required = FALSE
-#)
-
 parser$add_argument(
   "--method",
   help = "Method: laplace, naive, gini, simpson, invsimpson, tsallis",
