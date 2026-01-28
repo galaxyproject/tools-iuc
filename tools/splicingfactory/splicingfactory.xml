@@ -21,17 +21,24 @@
   </stdio>
 
   <command detect_errors='exit_code'><![CDATA[
-ln -s '$input_type.input' ./input.tsv &&
-ln -s '$input_type.genes' ./genes.tsv &&
-#if $input_type.coldata
-ln -s '$input_type.coldata' ./coldata.tsv &&
+ln -s '$input' ./input.tsv &&
+ln -s '$genes' ./genes.tsv &&
+#if $differential_analysis.selector == 'true'
+  ln -s '$coldata' ./coldata.tsv &&
 #end if
 
 Rscript '${__tool_directory__}/splicingfactory_calc.R'
   --genes './genes.tsv'
   --input './input.tsv'
-  #if $input_type.coldata
-  --coldata './coldata.tsv'
+  #if $differential_analysis.selector == 'true'
+    --coldata './coldata.tsv'
+    --diff_method '$differential_analysis.diff_method'
+    --test '$test_select.test'
+    #if $test_select.test == 'shuffle'
+      --randomizations '$test_select.randomizations'
+    #end if
+    --pcorr '$differential_analysis.pcorr'
+    --out_diff './difference.tsv'
   #end if
   --method '$method_select.method'
   #if str($method_select.method) == 'tsallis'
@@ -54,7 +61,6 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
   <inputs>
     <param argument='--input' type='data' format='tsv,tabular' label='Transcript expression matrix (TSV)' help='A TSV file with transcript IDs as row names (first column) and samples as columns. ' />
     <param argument='--genes' type='data' format='tabular' label='Transcript to gene mapping (TSV)' help='Two-column TSV file without header: transcript_id in column 1, gene_id in column 2. ' />
-    <param argument='--coldata' type='data' format='tabular' optional='true' label='Sample metadata (TSV)' help='Optional tabular file with sample metadata.' />
     <conditional name='method_select'>
       <param argument='--method' type='select' label='Diversity method' help='Choose diversity metric: Laplace (recommended, robust), Naive (sensitive to rare), Gini (inequality), Simpson (richness+evenness), or Tsallis (generalized).'>
         <option value='laplace'>Laplace entropy (default) - Shannon entropy with pseudo-count, normalized to [0,1]</option>
@@ -77,7 +83,42 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
       </when>
       <when value='invsimpson'>
       </when>
-
+    </conditional>
+    <conditional name='differential_analysis'>
+      <param name='selector' type='select' label='Differential analysis' help='Run differential analysis when sample metadata is provided.'>
+        <option value='true'>Perform differential analysis</option>
+        <option value='false' selected='true'>Skip differential analysis</option>
+      </param>
+      <when value='true'>
+        <param argument='--coldata' type='data' format='tabular' optional='true' label='Sample metadata (TSV)' help='Tabular file with sample metadata. Must contain a grouping column (e.g. Condition or Group) used to split samples for differential comparisons.' />
+        <param argument='--diff_method' type='select' label='Group summary method' help='Method to summarize per-group diversity: mean or median.'>
+          <option value='mean' selected='true'>Mean</option>
+          <option value='median'>Median</option>
+        </param>
+        <conditional name='test_select'>
+          <param argument='--test' type='select' label='Statistical test' help='Test to use for significance: Wilcoxon rank-sum or label shuffling.'>
+            <option value='wilcoxon' selected='true'>Wilcoxon rank-sum test</option>
+            <option value='shuffle'>Label shuffling (permutation)</option>
+          </param>
+          <when value='shuffle'>
+            <param argument='--randomizations' type='integer' value='100' min='1' max='10000' label='Randomizations (for label shuffling)' help='Number of random label shuffles to perform when using label shuffling test.' />
+          </when>
+          <when value='wilcoxon'>
+          </when>
+        </conditional>
+        <param argument='--pcorr' type='select' label='P-value correction method' help='Method to correct p-values (multiple testing).'>
+          <option value='BH' selected='true'>Benjamini-Hochberg (BH)</option>
+          <option value='holm'>Holm</option>
+          <option value='hochberg'>Hochberg</option>
+          <option value='hommel'>Hommel</option>
+          <option value='bonferroni'>Bonferroni</option>
+          <option value='BY'>Benjamini-Yekutieli (BY)</option>
+          <option value='fdr'>FDR</option>
+          <option value='none'>None</option>
+        </param>
+      </when>
+      <when value='false'>
+      </when>
     </conditional>
     <param argument='--norm' type='boolean' truevalue='True' falsevalue='False' checked='True' label='Normalize entropy?' help='For entropy methods (Laplace, Naive), normalize values to [0,1] range by dividing by the maximum entropy (log number of transcripts). Gini and Simpson indices are bounded by definition.' />
     <param argument='--tpm' type='boolean' truevalue='True' falsevalue='False' checked='False' label='Input is TPM. If False (default), raw read counts are used. Set to True to use TPM values instead.' />
@@ -98,31 +139,17 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
       <filter>output_summarizedExperiment_RDS</filter>
     </data>
     <!-- Optional plot outputs -->
-    <data name='plot_density' format='png' from_work_dir='diversity_density.png' label='Diversity density plot'>
+    <data name='plot_violin' format='png' from_work_dir='diversity_violin.png' label='Diversity violin plot'>
       <filter>plotting['generate_plots']</filter>
       <filter>plotting['plot_format'] == 'png'</filter>
     </data>
-    <data name='plot_density_pdf' format='pdf' from_work_dir='diversity_density.pdf' label='Diversity density plot (PDF)'>
+    <data name='plot_violin_pdf' format='pdf' from_work_dir='diversity_violin.pdf' label='Diversity violin plot (PDF)'>
       <filter>plotting['generate_plots']</filter>
       <filter>plotting['plot_format'] == 'pdf'</filter>
     </data>
 
-    <data name='plot_boxplot' format='png' from_work_dir='diversity_boxplot.png' label='Diversity boxplot'>
-      <filter>plotting['generate_plots']</filter>
-      <filter>plotting['plot_format'] == 'png'</filter>
-    </data>
-    <data name='plot_boxplot_pdf' format='pdf' from_work_dir='diversity_boxplot.pdf' label='Diversity boxplot (PDF)'>
-      <filter>plotting['generate_plots']</filter>
-      <filter>plotting['plot_format'] == 'pdf'</filter>
-    </data>
-
-    <data name='plot_heatmap' format='png' from_work_dir='diversity_heatmap.png' label='Diversity heatmap'>
-      <filter>plotting['generate_plots']</filter>
-      <filter>plotting['plot_format'] == 'png'</filter>
-    </data>
-    <data name='plot_heatmap_pdf' format='pdf' from_work_dir='diversity_heatmap.pdf' label='Diversity heatmap (PDF)'>
-      <filter>plotting['generate_plots']</filter>
-      <filter>plotting['plot_format'] == 'pdf'</filter>
+    <data name='difference' format='tabular' from_work_dir='difference.tsv' label='Differential analysis (TSV)'>
+      <filter>differential_analysis['selector'] == 'true'</filter>
     </data>
   </outputs>
 
@@ -131,7 +158,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='laplace' />
       </conditional>
@@ -148,7 +178,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='naive' />
       </conditional>
@@ -163,7 +196,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='gini' />
       </conditional>
@@ -178,7 +214,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='simpson' />
       </conditional>
@@ -190,10 +229,13 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     </test>
 
     <!-- Test 5: Plotting enabled with PNG format -->
-    <test expect_num_outputs='6'>
+    <test expect_num_outputs='3'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='laplace' />
       </conditional>
@@ -203,19 +245,9 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
         <param name='generate_plots' value='true' />
         <param name='plot_format' value='png' />
       </section>
-      <output name='plot_density' ftype='png'>
+      <output name='plot_violin' ftype='png'>
         <assert_contents>
-          <has_size value='8795' delta='300'/>
-        </assert_contents>
-      </output>
-      <output name='plot_boxplot' ftype='png'>
-        <assert_contents>
-          <has_size value='8795' delta='300' />
-        </assert_contents>
-      </output>
-      <output name='plot_heatmap' ftype='png'>
-        <assert_contents>
-          <has_size value='18182' delta='300' />
+          <has_size value='51068' delta='300'/>
         </assert_contents>
       </output>
     </test>
@@ -224,7 +256,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='tsallis' />
         <param name='q' value='0.5' />
@@ -240,7 +275,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='invsimpson' />
       </conditional>
@@ -255,7 +293,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='2'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='gini' />
       </conditional>
@@ -273,10 +314,13 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     </test>
 
     <!-- Test 9: Plotting with PDF format -->
-    <test expect_num_outputs='6'>
+    <test expect_num_outputs='3'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='naive' />
       </conditional>
@@ -285,19 +329,9 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
         <param name='generate_plots' value='true' />
         <param name='plot_format' value='pdf' />
       </section>
-      <output name='plot_density_pdf' ftype='pdf'>
+      <output name='plot_violin_pdf' ftype='pdf'>
         <assert_contents>
-          <has_size value='8795' delta='300'/>
-        </assert_contents>
-      </output>
-      <output name='plot_boxplot_pdf' ftype='pdf'>
-        <assert_contents>
-          <has_size value='8795' delta='300' />
-        </assert_contents>
-      </output>
-      <output name='plot_heatmap_pdf' ftype='pdf'>
-        <assert_contents>
-          <has_size value='18182' delta='300' />
+          <has_size value='28048' delta='300'/>
         </assert_contents>
       </output>
     </test>
@@ -306,7 +340,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='gini' />
       </conditional>
@@ -323,7 +360,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='8'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='simpson' />
       </conditional>
@@ -350,7 +390,10 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
     <test expect_num_outputs='1'>
       <param name='input' value='transcripts.tsv' ftype='tabular' />
       <param name='genes' value='tx2gene.tsv' ftype='tabular' />
-      <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
       <conditional name='method_select'>
         <param name='method' value='tsallis' />
         <param name='q' value='2' />
@@ -361,6 +404,93 @@ Rscript '${__tool_directory__}/splicingfactory_calc.R'
         </assert_contents>
       </output>
     </test> 
+
+    <!-- Test 13: Differential analysis output -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <param name='norm' value='True' />
+      <param name='tpm' value='False' />
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 14: Differential analysis with label shuffling (randomizations) -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value='coldata.tsv' ftype='tabular' />
+        <param name='diff_method' value='mean' />
+        <conditional name='test_select'>
+          <param name='test' value='shuffle' />
+          <param name='randomizations' value='50' />
+        </conditional>
+        <param name='pcorr' value='BH' />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 15: Differential analysis with Bonferroni correction -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value='coldata.tsv' ftype='tabular' />
+        <param name='pcorr' value='bonferroni' />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 16: Differential analysis with median group summary -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value='coldata.tsv' ftype='tabular' />
+        <param name='diff_method' value='median' />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
 
   </tests>
 

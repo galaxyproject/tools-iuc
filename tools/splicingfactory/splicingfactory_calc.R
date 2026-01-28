@@ -89,6 +89,42 @@ parser$add_argument(
   required = FALSE
 )
 
+parser$add_argument(
+  "--diff_method",
+  help = "Method to summarize per-group diversity: mean or median",
+  default = "mean",
+  required = FALSE
+)
+
+parser$add_argument(
+  "--test",
+  help = "Test for significance: wilcoxon or label_shuffling",
+  default = "wilcoxon",
+  required = FALSE
+)
+
+parser$add_argument(
+  "--randomizations",
+  help = "Number of randomizations for label shuffling test",
+  type = "integer",
+  default = 100,
+  required = FALSE
+)
+
+parser$add_argument(
+  "--pcorr",
+  help = "P-value correction method (e.g. BH)",
+  default = "BH",
+  required = FALSE
+)
+
+parser$add_argument(
+  "--out_diff",
+  help = "Output differential analysis TSV file",
+  default = "difference.tsv",
+  required = FALSE
+)
+
 
 parser$add_argument(
   "--coldata",
@@ -363,13 +399,6 @@ if (!is.null(args$coldata) && file.exists(args$coldata)) {
 # ============================================================================
 
 if (!is.null(args$plot_dir) && dir.exists(args$plot_dir)) {
-  if (args$verbose) {
-    cat("Generating plots in format:",
-      args$plot_format,
-      "\n",
-      file = stderr()
-    )
-  }
 
   diversity_values <- assay(result_se)
 
@@ -386,12 +415,7 @@ if (!is.null(args$plot_dir) && dir.exists(args$plot_dir)) {
   # Create data frame for plotting
   plot_data <- as.data.frame(diversity_values)
   plot_data$Gene <- gene_ids
-  plot_data_long <- pivot_longer(
-    plot_data,
-    -Gene,
-    names_to = "Sample",
-    values_to = "Diversity"
-  )
+  plot_data_long <- pivot_longer(plot_data, -Gene, names_to = "Sample", values_to = "Diversity")
 
   # Auto-detect grouping column in colData (prefer 'Condition' or 'Group')
   group_col <- NULL
@@ -408,105 +432,59 @@ if (!is.null(args$plot_dir) && dir.exists(args$plot_dir)) {
 
     # Attach Group vector to plotting data (align by sample names)
     if (group_col %in% colnames(cd)) {
-      group_vec <- cd[[group_col]]
-      plot_data_long$Group <- group_vec[
-        match(plot_data_long$Sample, colnames(result_se))
-      ]
+      group_vec <- as.character(cd[[group_col]])
+      plot_data_long$Group <- group_vec[match(plot_data_long$Sample, colnames(result_se))]
     }
   }
 
-  # If Group exists, order samples by group and use group for density fill
-  if ("Group" %in% colnames(plot_data_long)) {
-    # create sample ordering by Group then Sample name (NA groups last)
-    sample_group_df <- unique(plot_data_long[, c("Sample", "Group")])
-    sample_group_df$Group <- as.character(sample_group_df$Group)
-    sample_group_df$Group[is.na(sample_group_df$Group)] <- "ZZZ_MISSING"
-    ord <- with(sample_group_df, order(Group, Sample))
-    sample_levels <- sample_group_df$Sample[ord]
-    plot_data_long$Sample <- factor(plot_data_long$Sample, levels = sample_levels)
+  # Build violin plot to match vignette: overlay Laplace and Gini per-sample-type
+  # Compute both Laplace and Gini entropies (normalized) for plotting
+  laplace_se <- SplicingFactory::calculate_diversity(readcounts, genes, method = "laplace", norm = TRUE, verbose = FALSE)
+  gini_se <- SplicingFactory::calculate_diversity(readcounts, genes, method = "gini", verbose = FALSE)
 
-    p_density <- ggplot(plot_data_long, aes(x = Diversity, fill = Group, color = Group)) +
-      geom_density(alpha = 0.5) +
-      theme_minimal() +
-      labs(
-        title = paste("Diversity Distribution -", args$method),
-        x = "Diversity Value",
-        y = "Density"
-      )
-  } else {
-    p_density <- ggplot(plot_data_long, aes(x = Diversity, fill = Sample)) +
-      geom_density(alpha = 0.5) +
-      theme_minimal() +
-      labs(
-        title = paste("Diversity Distribution -", args$method),
-        x = "Diversity Value",
-        y = "Density"
-      )
-  }
+  # Construct data.frames and reshape like the vignette
+  laplace_data <- cbind(assay(laplace_se), Gene = rowData(laplace_se)$genes)
+  laplace_data <- pivot_longer(as.data.frame(laplace_data), -Gene, names_to = "sample", values_to = "entropy")
+  laplace_data$sample_type <- apply(laplace_data[, "sample", drop = FALSE], 1, function(x) ifelse(grepl("_N$", x), "Normal", "Tumor"))
+  laplace_data <- tidyr::drop_na(laplace_data)
+  laplace_data$Gene <- paste0(laplace_data$Gene, "_", laplace_data$sample_type)
+  laplace_data$diversity <- "Normalized Laplace entropy"
 
-  # Boxplot
-  has_group_plot <- (!is.null(group_col) && "Group" %in% colnames(plot_data_long))
+  gini_data <- cbind(assay(gini_se), Gene = rowData(gini_se)$genes)
+  gini_data <- pivot_longer(as.data.frame(gini_data), -Gene, names_to = "sample", values_to = "gini")
+  gini_data$sample_type <- apply(gini_data[, "sample", drop = FALSE], 1, function(x) ifelse(grepl("_N$", x), "Normal", "Tumor"))
+  gini_data <- tidyr::drop_na(gini_data)
+  gini_data$Gene <- paste0(gini_data$Gene, "_", gini_data$sample_type)
+  gini_data$diversity <- "Gini index"
 
-  if (has_group_plot) {
-    p_boxplot <- ggplot(
-      plot_data_long,
-      aes(x = Group, y = Diversity, fill = Group)
-    ) +
-      geom_boxplot(alpha = 0.7) +
-      theme_minimal() +
-      labs(
-        title = paste("Diversity by", group_col),
-        x = group_col,
-        y = "Diversity Value"
-      )
-  } else {
-    p_boxplot <- ggplot(
-      plot_data_long,
-      aes(x = Sample, y = Diversity, fill = Sample)
-    ) +
-      geom_boxplot(alpha = 0.7) +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-      labs(
-        title = paste("Diversity by Sample -", args$method),
-        x = "Sample",
-        y = "Diversity Value"
-      )
-  }
+  # Mean per gene/sample_type (genes encoded with sample_type suffix)
+  laplace_entropy_mean <- aggregate(laplace_data$entropy, by = list(laplace_data$Gene), mean)
+  colnames(laplace_entropy_mean)[2] <- "mean_entropy"
+  laplace_entropy_mean <- as.data.frame(laplace_entropy_mean)
+  laplace_entropy_mean$sample_type <- ifelse(grepl("_Normal$", laplace_entropy_mean[,1]), "Normal", "Tumor")
+  laplace_entropy_mean$diversity <- "Normalized Laplace entropy"
 
-  # Save plots - ensure proper file naming based on format
+  gini_mean <- aggregate(gini_data$gini, by = list(gini_data$Gene), mean)
+  colnames(gini_mean)[2] <- "mean_gini"
+  gini_mean <- as.data.frame(gini_mean)
+  gini_mean$sample_type <- ifelse(grepl("_Normal$", gini_mean[,1]), "Normal", "Tumor")
+  gini_mean$diversity <- "Gini index"
+
+  p_violin <- ggplot() +
+    geom_violin(data = laplace_entropy_mean, aes(x = sample_type, y = mean_entropy, fill = diversity), alpha = 0.6) +
+    geom_violin(data = gini_mean, aes(x = sample_type, y = mean_gini, fill = diversity), alpha = 0.6) +
+    scale_fill_viridis_d(name = "Diversity") +
+    coord_flip() +
+    theme_minimal() +
+    labs(x = "Samples", y = "Diversity")
+
+  # Save violin plot
+  out_fname_base <- ifelse(args$plot_format == "pdf", "diversity_violin.pdf", "diversity_violin.png")
+  out_path <- file.path(args$plot_dir, out_fname_base)
   if (args$plot_format == "pdf") {
-    ggsave(
-      file.path(args$plot_dir, "diversity_density.pdf"),
-      plot = p_density,
-      device = "pdf",
-      width = 8,
-      height = 6
-    )
-    ggsave(
-      file.path(args$plot_dir, "diversity_boxplot.pdf"),
-      plot = p_boxplot,
-      device = "pdf",
-      width = 8,
-      height = 6
-    )
+    ggsave(out_path, plot = p_violin, device = "pdf", width = 8, height = 6)
   } else {
-    ggsave(
-      file.path(args$plot_dir, "diversity_density.png"),
-      plot = p_density,
-      device = "png",
-      width = 8,
-      height = 6,
-      dpi = 100
-    )
-    ggsave(
-      file.path(args$plot_dir, "diversity_boxplot.png"),
-      plot = p_boxplot,
-      device = "png",
-      width = 8,
-      height = 6,
-      dpi = 100
-    )
+    ggsave(out_path, plot = p_violin, device = "png", width = 8, height = 6, dpi = 100)
   }
 }
 
@@ -546,6 +524,77 @@ write.table(
 
 if (args$verbose) {
   cat("  Saved diversity table to:", args$out_div, "\n", file = stderr())
+}
+
+## Run differential analysis if a valid coldata file was provided
+if (!is.null(args$coldata) && file.exists(args$coldata)) {
+  if (args$verbose) cat("Running differential analysis (calculate_difference) using coldata...\n", file = stderr())
+
+  cd <- colData(result_se)
+  if (is.null(cd) || ncol(cd) == 0) {
+    warning("colData not attached to SummarizedExperiment; skipping differential analysis")
+  } else {
+    # Auto-detect grouping column in colData (prefer 'Condition' or 'Group')
+    candidates <- c("Condition", "condition", "Group", "group")
+    found <- intersect(candidates, colnames(cd))
+    if (length(found) > 0) {
+      group_col <- found[1]
+    } else {
+      group_col <- colnames(cd)[1]
+    }
+
+    if (args$verbose) cat("Using samples column for calculate_difference:", group_col, "\n", file = stderr())
+
+    # Auto-detect control group from colData values
+    group_vals <- unique(as.character(cd[[group_col]]))
+    group_vals <- group_vals[!is.na(group_vals)]
+    control_value <- NULL
+    if (length(group_vals) == 0) {
+      warning("No non-NA groups found in samples column; skipping differential analysis")
+    } else {
+      # prefer common control labels
+      preferred <- c("normal", "control", "wt", "health")
+      found_pref <- group_vals[tolower(group_vals) %in% preferred]
+      if (length(found_pref) > 0) {
+        control_value <- found_pref[1]
+      } else if (length(group_vals) == 2) {
+        # pick the first sorted value for reproducibility
+        control_value <- sort(group_vals)[1]
+      } else {
+        # fallback: pick the first value
+        control_value <- group_vals[1]
+      }
+      if (args$verbose) cat("Auto-selected control group:", control_value, "\n", file = stderr())
+    }
+
+    diff_args <- list(
+      x = result_se,
+      samples = group_col,
+      control = control_value,
+      method = args$diff_method,
+      test = args$test,
+      randomizations = args$randomizations,
+      pcorr = args$pcorr,
+      verbose = args$verbose
+    )
+
+    diff_args <- diff_args[!sapply(diff_args, is.null)]
+
+    diff_res <- do.call(SplicingFactory::calculate_difference, diff_args)
+
+    tryCatch({
+      write.table(
+        diff_res,
+        file = args$out_diff,
+        sep = "\t",
+        quote = FALSE,
+        row.names = FALSE
+      )
+      if (args$verbose) cat("  Saved differential analysis to:", args$out_diff, "\n", file = stderr())
+    }, error = function(e) {
+      warning("Failed to write differential analysis output: ", conditionMessage(e))
+    })
+  }
 }
 
 # ============================================================================
