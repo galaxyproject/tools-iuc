@@ -29,6 +29,16 @@
             $sig.case_insensitive
             $sig.exclusion
             -o match.sig.zip
+        #else if $sig.subcommand == "merge":
+            @list_inputs@
+            $sig.flatten
+            @sig_params@
+            -o merged.sig
+        #else if $sig.subcommand == "split":  
+            split
+            $sig.signature
+            @sig_params@
+            --outdir sigs
         #end if
     ]]></command>
     <inputs>
@@ -37,6 +47,8 @@
                 <option value="describe">describe</option>
                 <option value="cat">cat</option>
                 <option value="grep">grep</option>
+                <option value="merge">merge</option>
+                <option value="split">split</option>
             </param>
             <when value="describe">
                 <expand macro="single_signature"/>
@@ -46,11 +58,22 @@
             </when>
             <when value="grep">
                 <param name="input_files" type="data" format="json,zip" multiple="true" label="Input files" help="Signature files to search against. Accepts individual signature files or compressed archives containing multiple signatures."/>
-                <repeat name="patterns" title="Patterns" min="0"  help="Insert a pattern to match against the provided signature files.">    
-                    <param name="pattern" type="text" label="pattern"/> 
+                <repeat name="patterns" title="Patterns" min="0"  help="Insert a pattern to match against the provided signature files.">
+                    <param name="pattern" type="text" label="Pattern"/> 
                 </repeat>
                 <param name="case_insensitive" argument="-i" type="boolean" truevalue="-i" falsevalue="" checked="false" label="Case-insensitive" help="If checked, matching is performed in a case-insensitive manner."/> 
                 <param name="exclusion" argument="-v" type="boolean" truevalue="-v" falsevalue="" checked="false" label="Exclusion" help="If checked, exclude signatures that match the given patterns instead of including them."/> 
+            </when>
+            <when value="merge">
+                <expand macro="multiple_signatures"/>
+                <param argument="--flatten" type="boolean" truevalue="--flatten" falsevalue="" checked="false" label="Flatten" help="Remove abundances from all signatures."/>
+                <expand macro="sig_ksize" help="Specifies which k-mer size to merge when multiple signature files with different k-sizes are provided."/>
+                <expand macro="sig_moltype" help="Specifies which moltype to merge when multiple signature files with different moltypes are provided."/>
+            </when>
+            <when value="split">
+                <expand macro="single_signature"/>
+                <expand macro="sig_ksize" help="Select the k-mer size to extract when splitting a merged signatures file containing multiple k-sizes. Leave blank to keep all k-sizes."/>
+                <expand macro="sig_moltype" help="Select the molecule type to extract when splitting signatures with mixed moltypes. Leave blank to keep all moltypes."/>
             </when>
         </conditional>
     </inputs>
@@ -64,6 +87,13 @@
         <data name="grep" from_work_dir="match.sig.zip" format="zip" label="${tool.name} ${sig.subcommand} on ${on_string}: Found Matches">
             <filter>sig['subcommand'] == 'grep'</filter>
         </data>
+        <data name="merge" from_work_dir="merged.sig" format="json" label="${tool.name} ${sig.subcommand} on ${on_string}: Merged Sigantures">
+            <filter>sig['subcommand'] == 'merge'</filter>
+        </data>
+        <collection name="split_output" type="list" format="json" label="Splitted Signatures">
+            <discover_datasets pattern="__name_and_ext__" directory="sigs" />
+            <filter>sig['subcommand'] == 'split'</filter>
+        </collection>
     </outputs>
     <tests>
     <!-- 1) describe -->
@@ -92,7 +122,7 @@
             </assert_contents>
         </output>
     </test>
-    <!-- grep normal 2 patterns-->
+    <!-- 3) grep normal 2 patterns-->
     <test expect_num_outputs="1">
         <conditional name="sig">
             <param name="subcommand" value="grep"/>
@@ -102,13 +132,16 @@
         </conditional>
         <output name="grep" ftype="zip">
             <assert_contents>
-                <has_archive_member path=".*\csv" min="1">
+                <has_archive_member path=".*\.csv" min="1">
                     <has_n_lines n="4"/>
                 </has_archive_member>
             </assert_contents>
         </output>
+        <assert_stderr>
+            <has_text text="Kextracted 2 signatures from 3 file(s)"/>
+        </assert_stderr>
     </test>
-    <!-- grep - case insensitive-->
+    <!-- 4) grep - case insensitive-->
     <test expect_num_outputs="1">
         <conditional name="sig">
             <param name="subcommand" value="grep"/>
@@ -119,7 +152,7 @@
         </conditional>
         <output name="grep" ftype="zip">
             <assert_contents>
-                <has_archive_member path=".*\csv" min="1">
+                <has_archive_member path=".*\.csv" min="1">
                     <has_n_lines n="4"/>
                 </has_archive_member>
             </assert_contents>
@@ -128,7 +161,7 @@
             <has_text text="Kextracted 2 signatures from 3 file(s)"/>
         </assert_stderr>
     </test>
-    <!-- grep - EXCLUSION-->
+    <!-- 5) grep - EXCLUSION-->
     <test expect_num_outputs="1">
         <conditional name="sig">
             <param name="subcommand" value="grep"/>
@@ -140,13 +173,43 @@
         </conditional>
         <output name="grep" ftype="zip">
             <assert_contents>
-                <has_archive_member path=".*\csv" min="1">
+                <has_archive_member path=".*\.csv" min="1">
                     <has_n_lines n="3"/>
                 </has_archive_member>
             </assert_contents>
         </output>
         <assert_stderr>
             <has_text text="Kextracted 1 signatures from 3 file(s)"/>
+        </assert_stderr>
+    </test>
+    <!-- 6) Merge -->
+    <test expect_num_outputs="1">
+        <conditional name="sig">
+            <param name="subcommand" value="merge"/>
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <param name="mol_type" value="--dna"/>
+        </conditional>
+        <output name="merge" ftype="json">
+            <assert_contents>
+                <has_text text="1652243004613"/>
+            </assert_contents>
+        </output>
+        <assert_stderr>
+            <has_text text="Kloaded and merged 3 signatures"/>
+        </assert_stderr>
+    </test>
+    <!-- 7) split -->
+    <test expect_num_outputs="1">
+        <conditional name="sig">
+            <param name="subcommand" value="split"/>
+            <param name="signature" value="2.fa.sig"/>
+            <param name="ksize" value="51"/>
+        </conditional>
+        <output_collection name="split_output" type="list">
+            <element name="43f3b48e.k=51.scaled=1000.DNA.dup=0.2.fa" file="43f3b48e.k=51.scaled=1000.DNA.dup=0.2.fa" ftype="json" />
+        </output_collection>
+        <assert_stderr>
+            <has_text text="Kloaded and split 1 signatures total."/>
         </assert_stderr>
     </test>
     </tests>
@@ -157,8 +220,12 @@
 
         List of Subcomand to choose from:
             - **describe**:
-            - **index**:
-            - **classify**:
+            - **cat**:
+            - **grep**:
+            - **merge**: Merge two (or more) signatures. Please note that sig merge can only merge compatible sketches - if there are multiple k-mer sizes or molecule types present in any of the signature files, you will need to choose one k-mer size and/or one moltype.
+            - **split**: 
+
+            
     ]]></help>
     <expand macro="citations"/>
 </tool>
