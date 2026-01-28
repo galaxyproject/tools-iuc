@@ -1,0 +1,620 @@
+<tool id='splicingfactory' name='SplicingFactory' version='@TOOL_VERSION@+galaxy@SUFFIX_VERSION@'>
+  <description>Calculate splicing diversity</description>
+  <macros>
+      <import>macros.xml</import>
+  </macros>
+  <expand macro='xrefs'/>
+  <expand macro='requirements'/>
+  <stdio>
+    <regex match="Execution halted"
+       source="both"
+       level="fatal"
+       description="Execution halted." />
+    <regex match="Error in"
+       source="both"
+       level="fatal"
+       description="An undefined error occurred, please check your input carefully and contact your administrator." />
+    <regex match="Fatal error"
+       source="both"
+       level="fatal"
+       description="An undefined error occurred, please check your input carefully and contact your administrator." />
+  </stdio>
+
+  <command detect_errors='exit_code'><![CDATA[
+ln -s '$input' ./input.tsv &&
+ln -s '$genes' ./genes.tsv &&
+#if $differential_analysis.selector == 'true'
+  ln -s '$coldata' ./coldata.tsv &&
+#end if
+
+Rscript '${__tool_directory__}/splicingfactory_calc.R'
+  --genes './genes.tsv'
+  --input './input.tsv'
+  #if $differential_analysis.selector == 'true'
+    --coldata './coldata.tsv'
+    --diff_method '$differential_analysis.diff_method'
+    --test '$test_select.test'
+    #if $test_select.test == 'shuffle'
+      --randomizations '$test_select.randomizations'
+    #end if
+    --pcorr '$differential_analysis.pcorr'
+    --out_diff './difference.tsv'
+  #end if
+  --method '$method_select.method'
+  #if str($method_select.method) == 'tsallis'
+    --q '$method_select.q'
+  #end if
+  --norm '$norm'
+  --tpm '$tpm'
+  #if $plotting.generate_plots
+    --plot_dir '.'
+    --plot_format '$plotting.plot_format'
+  #end if
+  --out_div './diversity.tsv'
+  #if $output_summarizedExperiment_RDS
+    --output_summarizedExperiment_RDS
+    --out_se './diversity_se.rds'
+  #end if
+  --verbose
+]]></command>
+
+  <inputs>
+    <param argument='--input' type='data' format='tsv,tabular' label='Transcript expression matrix (TSV)' help='A TSV file with transcript IDs as row names (first column) and samples as columns. ' />
+    <param argument='--genes' type='data' format='tabular' label='Transcript to gene mapping (TSV)' help='Two-column TSV file without header: transcript_id in column 1, gene_id in column 2. ' />
+    <conditional name='method_select'>
+      <param argument='--method' type='select' label='Diversity method' help='Choose diversity metric: Laplace (recommended, robust), Naive (sensitive to rare), Gini (inequality), Simpson (richness+evenness), or Tsallis (generalized).'>
+        <option value='laplace'>Laplace entropy (default) - Shannon entropy with pseudo-count, normalized to [0,1]</option>
+        <option value='naive'>Naive entropy - Standard Shannon entropy, not bounded by [0,1]</option>
+        <option value='tsallis'>Tsallis entropy - Entropy with adjustable parameter q</option>
+        <option value='gini'>Gini index - Inequality measure, ranges from 0 (equality) to 1 (inequality)</option>
+        <option value='simpson'>Simpson index - Ranges from 0 (no diversity) to 1 (maximum diversity)</option>
+        <option value='invsimpson'>Inverse Simpson index - Reciprocal of Simpson, starts at 1 (low diversity)</option>
+      </param>
+      <when value='laplace'>
+      </when>
+      <when value='naive'>
+      </when>
+      <when value='tsallis'>
+        <param argument='--q' type='float' value='2' min='0.01' max='10' label='Tsallis entropy parameter (q)' help='The entropic index q for Tsallis entropy. Must be greater than 0. Default is 2. q less than 1 emphasizes rare isoforms, q greater than 1 emphasizes dominant isoforms.' />
+      </when>
+      <when value='gini'>
+      </when>
+      <when value='simpson'>
+      </when>
+      <when value='invsimpson'>
+      </when>
+    </conditional>
+    <conditional name='differential_analysis'>
+      <param name='selector' type='select' label='Differential analysis' help='Run differential analysis when sample metadata is provided.'>
+        <option value='true'>Perform differential analysis</option>
+        <option value='false' selected='true'>Skip differential analysis</option>
+      </param>
+      <when value='true'>
+        <param argument='--coldata' type='data' format='tabular' optional='true' label='Sample metadata (TSV)' help='Tabular file with sample metadata. Must contain a grouping column (e.g. Condition or Group) used to split samples for differential comparisons.' />
+        <param argument='--diff_method' type='select' label='Group summary method' help='Method to summarize per-group diversity: mean or median.'>
+          <option value='mean' selected='true'>Mean</option>
+          <option value='median'>Median</option>
+        </param>
+        <conditional name='test_select'>
+          <param argument='--test' type='select' label='Statistical test' help='Test to use for significance: Wilcoxon rank-sum or label shuffling.'>
+            <option value='wilcoxon' selected='true'>Wilcoxon rank-sum test</option>
+            <option value='shuffle'>Label shuffling (permutation)</option>
+          </param>
+          <when value='shuffle'>
+            <param argument='--randomizations' type='integer' value='100' min='1' max='10000' label='Randomizations (for label shuffling)' help='Number of random label shuffles to perform when using label shuffling test.' />
+          </when>
+          <when value='wilcoxon'>
+          </when>
+        </conditional>
+        <param argument='--pcorr' type='select' label='P-value correction method' help='Method to correct p-values (multiple testing).'>
+          <option value='BH' selected='true'>Benjamini-Hochberg (BH)</option>
+          <option value='holm'>Holm</option>
+          <option value='hochberg'>Hochberg</option>
+          <option value='hommel'>Hommel</option>
+          <option value='bonferroni'>Bonferroni</option>
+          <option value='BY'>Benjamini-Yekutieli (BY)</option>
+          <option value='fdr'>FDR</option>
+          <option value='none'>None</option>
+        </param>
+      </when>
+      <when value='false'>
+      </when>
+    </conditional>
+    <param argument='--norm' type='boolean' truevalue='True' falsevalue='False' checked='True' label='Normalize entropy?' help='For entropy methods (Laplace, Naive), normalize values to [0,1] range by dividing by the maximum entropy (log number of transcripts). Gini and Simpson indices are bounded by definition.' />
+    <param argument='--tpm' type='boolean' truevalue='True' falsevalue='False' checked='False' label='Input is TPM. If False (default), raw read counts are used. Set to True to use TPM values instead.' />
+    <section name='plotting' title='Plotting options' expanded='false' help='Configure visualization of diversity metrics.'>
+      <param argument='--generate_plots' type='boolean' checked='false' label='Generate ggplot figures (density, boxplot, heatmap)?' help='Create visualization plots showing diversity density distribution, sample comparison, and heatmaps.' />
+      <param argument='--plot_format' type='select' label='Plot image format' help='Choose between PNG for web viewing or PDF for publication quality.'>
+        <option value='png' selected='true'>PNG</option>
+        <option value='pdf'>PDF</option>
+      </param>
+    </section>
+    <param argument='--output_summarizedExperiment_RDS' type='boolean' truevalue='True' falsevalue='False' checked='false' label='Output SummarizedExperiment (RDS)?' help='If enabled, outputs a SummarizedExperiment object containing diversity values and metadata.' />
+  </inputs>
+
+
+  <outputs>
+    <data name='diversity' format='tabular' from_work_dir='diversity.tsv' label='Diversity table (TSV)' />
+    <data name='se' format='rds' from_work_dir='diversity_se.rds' label='Diversity SummarizedExperiment (RDS)'>
+      <filter>output_summarizedExperiment_RDS</filter>
+    </data>
+    <!-- Optional plot outputs -->
+    <data name='plot_violin' format='png' from_work_dir='diversity_violin.png' label='Diversity violin plot'>
+      <filter>plotting['generate_plots']</filter>
+      <filter>plotting['plot_format'] == 'png'</filter>
+    </data>
+    <data name='plot_violin_pdf' format='pdf' from_work_dir='diversity_violin.pdf' label='Diversity violin plot (PDF)'>
+      <filter>plotting['generate_plots']</filter>
+      <filter>plotting['plot_format'] == 'pdf'</filter>
+    </data>
+
+    <data name='difference' format='tabular' from_work_dir='difference.tsv' label='Differential analysis (TSV)'>
+      <filter>differential_analysis['selector'] == 'true'</filter>
+    </data>
+  </outputs>
+
+  <tests>
+    <!-- Test 1: Basic TSV input with laplace method and normalization -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <param name='norm' value='True' />
+      <param name='tpm' value='False' />
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 2: Naive entropy method -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='naive' />
+      </conditional>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 3: Gini index method -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='gini' />
+      </conditional>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 4: Simpson index method -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='simpson' />
+      </conditional>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 5: Plotting enabled with PNG format -->
+    <test expect_num_outputs='3'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <param name='norm' value='True' />
+      <param name='tpm' value='False' />
+      <section name='plotting'>
+        <param name='generate_plots' value='true' />
+        <param name='plot_format' value='png' />
+      </section>
+      <output name='plot_violin' ftype='png'>
+        <assert_contents>
+          <has_size value='51068' delta='300'/>
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 6: Tsallis method with q parameter -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='tsallis' />
+        <param name='q' value='0.5' />
+      </conditional>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 7: Inverse Simpson method -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='invsimpson' />
+      </conditional>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 8: Output SummarizedExperiment RDS -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='gini' />
+      </conditional>
+      <param name='output_summarizedExperiment_RDS' value='True' />
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+      <output name='se' ftype='rds'>
+        <assert_contents>
+          <has_size value='1000' delta='5000' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 9: Plotting with PDF format -->
+    <test expect_num_outputs='3'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='naive' />
+      </conditional>
+      <param name='norm' value='True' />
+      <section name='plotting'>
+        <param name='generate_plots' value='true' />
+        <param name='plot_format' value='pdf' />
+      </section>
+      <output name='plot_violin_pdf' ftype='pdf'>
+        <assert_contents>
+          <has_size value='28048' delta='300'/>
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 10: Gini without normalization and TPM scaling -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='gini' />
+      </conditional>
+      <param name='norm' value='False' />
+      <param name='tpm' value='True' />
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 11: Simpson with all outputs -->
+    <test expect_num_outputs='8'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='simpson' />
+      </conditional>
+      <param name='norm' value='True' />
+      <param name='tpm' value='False' />
+      <param name='output_summarizedExperiment_RDS' value='True' />
+      <section name='plotting'>
+        <param name='generate_plots' value='true' />
+        <param name='plot_format' value='png' />
+      </section>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+      <output name='se' ftype='rds'>
+        <assert_contents>
+          <has_size value='1000' delta='5000' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 12: Tsallis with q=2 and verbose logging -->
+    <test expect_num_outputs='1'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='tsallis' />
+        <param name='q' value='2' />
+      </conditional>
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+    </test> 
+
+    <!-- Test 13: Differential analysis output -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value="coldata.tsv" ftype="tabular" />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <param name='norm' value='True' />
+      <param name='tpm' value='False' />
+      <output name='diversity'>
+        <assert_contents>
+          <has_text text='Gene' />
+        </assert_contents>
+      </output>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 14: Differential analysis with label shuffling (randomizations) -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value='coldata.tsv' ftype='tabular' />
+        <param name='diff_method' value='mean' />
+        <conditional name='test_select'>
+          <param name='test' value='shuffle' />
+          <param name='randomizations' value='50' />
+        </conditional>
+        <param name='pcorr' value='BH' />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 15: Differential analysis with Bonferroni correction -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value='coldata.tsv' ftype='tabular' />
+        <param name='pcorr' value='bonferroni' />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- Test 16: Differential analysis with median group summary -->
+    <test expect_num_outputs='2'>
+      <param name='input' value='transcripts.tsv' ftype='tabular' />
+      <param name='genes' value='tx2gene.tsv' ftype='tabular' />
+      <conditional name='differential_analysis'>
+        <param name='selector' value='true' />
+        <param name='coldata' value='coldata.tsv' ftype='tabular' />
+        <param name='diff_method' value='median' />
+      </conditional>
+      <conditional name='method_select'>
+        <param name='method' value='laplace' />
+      </conditional>
+      <output name='difference'>
+        <assert_contents>
+          <has_text text='adjusted_p_values' />
+        </assert_contents>
+      </output>
+    </test>
+
+  </tests>
+
+  <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+SplicingFactory is an R package for analyzing alternative splicing isoform diversity in RNA-seq data. It quantifies transcript isoform diversity using various statistical measures, helping identify significant changes in splicing patterns between samples or conditions.
+
+-----
+
+.. class:: infomark
+
+**Input Data Requirements**
+
+The tool requires transcript-level expression data. Expression estimates should come from tools such as:
+
+- RSEM
+- Salmon
+- Kallisto
+- STAR + featureCounts/Stringtie
+
+**Input Format Options:**
+
+- **TSV Matrix** (recommended for small analyses): Transcript ID (row) × Sample (column) numeric matrix with corresponding transcript-to-gene mapping file
+- **RDS file** (recommended for production workflows): Pre-processed SummarizedExperiment object or tximport list
+
+**Important Notes:**
+
+- Expression values should be **TPM or similar length-normalized values**. Using non-normalized read counts can lead to misleading diversity estimates due to transcript length bias.
+- For TSV input, the transcript order in the matrix must match the order in the gene mapping file.
+- Only genes with 2+ isoforms are analyzed (single-isoform genes are automatically filtered).
+
+-----
+
+.. class:: infomark
+
+**Diversity Metrics Explained**
+
+All metrics are bounded between 0 and 1 except where noted:
+
+**Laplace Entropy** (default, recommended)
+  Shannon entropy with pseudo-count correction. Robust to low-abundance isoforms. Normalized values range [0, 1]. Best choice for most applications.
+
+**Naive Entropy**
+  Standard Shannon entropy. Not bounded by [0, 1]. More sensitive to rare isoforms. Use when rare isoforms are important.
+
+**Tsallis Entropy**
+  Generalized entropy with adjustable parameter q. q=2 (default). q<1 emphasizes rare isoforms, q>1 emphasizes dominant isoforms. Flexible for specific analyses.
+
+**Gini Index**
+  Measures inequality in isoform expression distribution. 0 = equal distribution, 1 = single dominant isoform. Useful for identifying genes dominated by one isoform.
+
+**Simpson Index**
+  Probability of drawing two different isoforms. 0 = no diversity (single isoform), 1 = maximum diversity. Accounts for both richness and evenness.
+
+**Inverse Simpson**
+  Reciprocal of Simpson index. Ranges from 1 (low diversity) to number of isoforms (maximum). Intuitive interpretation: 1 = low, higher numbers = more diversity.
+
+
+-----
+
+.. class:: infomark
+
+**Parameters Explained**
+
+**Input Format**
+  Select between TSV matrix with manual gene mapping or pre-processed RDS SummarizedExperiment/tximport object. In the matrix each row identifies a distinct transcript, each column a distinct sample. The table can contain only numeric values (expression counts or TPM). We recommend using TPM or similar length-normalized values for accurate diversity calculations. Rows should be in the same order as the genes file.
+
+**Diversity Method**
+  Choose statistical metric. See "Diversity Metrics Explained" above. Default (Laplace) recommended for most use cases.
+
+**Normalize Entropy?**
+  For entropy-based methods, normalize values to [0,1] range by dividing by maximum entropy. Recommended for cross-sample comparisons.
+
+**Input is TPM?**
+  Only applies to RDS input. Set to True if using tximport with TPM values; False (default) for raw read counts.
+
+**Generate Plots?**
+  Enable to create density, boxplot, and heatmap visualizations. Requires sufficient sample diversity for meaningful plots.
+
+**Verbose Logging**
+  Enable detailed diagnostic messages during analysis execution.
+
+-----
+
+.. class:: infomark
+
+**Outputs**
+
+- **diversity.tsv**: Primary results - Gene × Sample table with calculated diversity values
+- **diversity_se.rds** (optional): SummarizedExperiment object containing diversity metrics and metadata for downstream analysis in R
+- **diversity_density.(png|pdf)**: Density distribution plot of diversity across genes
+- **diversity_boxplot.(png|pdf)**: Box plots comparing diversity distribution across samples
+- **diversity_heatmap.(png|pdf)**: Heatmap visualization of diversity values across genes and samples
+
+-----
+
+.. class:: infomark
+
+**Best Practices**
+
+1. **Choose the right metric**: Use **Laplace entropy** (default) for most applications - combines robustness with good statistical properties
+2. **Method selection**: 
+   - **Gini index** when interested in dominant isoforms or inequality
+   - **Simpson/Inverse Simpson** for biodiversity-style analyses
+3. **Data preprocessing**: Always use **length-normalized TPM values** when possible
+4. **Quality control**: Filter low-expression genes/transcripts before analysis (typical cutoff: TPM > 1)
+5. **Visualization**: Enable plots for exploratory data visualization and quality assessment
+6. **Statistical testing**: Use output for downstream differential abundance testing with DESeq2 or similar
+
+-----
+
+.. class:: infomark
+
+**Troubleshooting**
+
+- **No plots generated**: Ensure "Generate Plots?" is enabled and plot format is specified
+- **RDS format errors**: Verify RDS file contains valid SummarizedExperiment or tximport object
+- **TSV parsing issues**: Check that first column contains transcript IDs and all numeric columns contain valid expression values
+- **Memory errors**: For large datasets, consider using RDS format input (more efficient) or filtering low-abundance isoforms
+
+  ]]></help>
+  <expand macro='citations' />
+</tool>
