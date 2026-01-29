@@ -1,5 +1,5 @@
 <tool id="bg_diamond_makedb" name="Diamond makedb" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.2" license="GPL-3.0">
-    <description>Build database from a FASTA file</description>
+    <description>build database from a FASTA file</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -9,29 +9,43 @@
     <command detect_errors="aggressive">
         <!-- DB has two files, *.dmnd and *.tx -->
     <![CDATA[
+    ln -s '$infile' database.$infile.ext &&
+
     diamond makedb
         --threads \${GALAXY_SLOTS:-12}
-        --in '$infile'
+        --in database.$infile.ext
         --db ./database
 
-      #if str($tax_cond.tax_select) == 'yes':
+      #if $tax_cond.tax_select == 'yes':
         --taxonmap '$tax_cond.taxonmap'
         --taxonnodes '$tax_cond.taxonnodes'
         --taxonnames '$tax_cond.taxonnames'
+      #else if $tax_cond.tax_select == 'yes_cached':
+        --taxonmap '$tax_cond.ncbi_taxonomy.fields.path'/prot.accession2taxid
+        --taxonnodes '$tax_cond.ncbi_taxonomy.fields.path'/nodes.dmp
+        --taxonnames '$tax_cond.ncbi_taxonomy.fields.path'/names.dmp
       #end if
     ]]>
     </command>
     <inputs>
-        <param name="infile" type="data" format="fasta" label="Input reference file in FASTA format"/>
+        <param name="infile" type="data" format="fasta,fasta.gz" label="Input reference file in FASTA format"/>
         <conditional name="tax_cond">
             <param name="tax_select" type="select" label="Add taxonomic data?" help="Needs to be supplied in order to provide taxonomy features of the aligner">
-                <option value="yes">Yes</option>
+                <option value="yes_cached">Using built in NCBI taxonomy</option>
+                <option value="yes">Yes using datasets from history</option>
                 <option value="no" selected="true">No</option>
             </param>
             <when value="yes">
                 <param argument="--taxonmap" type="data" format="tabular" label="Protein accession to taxid mapping file" help="Path to mapping file that maps NCBI protein accession numbers to taxon ids (gzip compressed). This parameter is optional and needs to be supplied in order to provide taxonomy features.                A custom file following the same format may be supplied here. Note that the first line of this file is assumed to contain headings and will be ignored"/>
                 <param argument="--taxonnodes" type="data" format="tabular" label="Taxonomy nodes.dmp from NCBI" help="This parameter is optional and needs to be supplied in order to provide taxonomy features"/>
                 <param argument="--taxonnames" type="data" format="tabular" label="Taxonomy names.dmp from NCBI" help="This parameter is optional and needs to be supplied in order to provide taxonomy features"/>
+            </when>
+            <when value="yes_cached">
+                <param name="ncbi_taxonomy" type="select" optional="true" label="NCBI taxonomy database" help="Needed for output of taxonomy columns in tabular output">
+                    <options from_data_table="ncbi_taxonomy">
+                        <validator message="No NCBI database is available. Ask your Galaxy adin" type="no_options"/>
+                    </options>
+                </param>
             </when>
             <when value="no"/>
         </conditional>
@@ -43,6 +57,18 @@
         <test>
             <param name="infile" value="db.fasta" ftype="fasta"/>
             <output name="outfile" value="db.dmnd" compare="sim_size" delta="2"/>
+            <assert_stderr>
+                <has_text_matching expression="Database sequences +5"/>
+                <has_text_matching expression="Database letters +2578"/>
+            </assert_stderr>
+        </test>
+        <test>
+            <param name="infile" value="db.fasta.gz" ftype="fasta.gz"/>
+            <output name="outfile" value="db.dmnd" compare="sim_size" delta="2"/>
+            <assert_stderr>
+                <has_text_matching expression="Database sequences +5"/>
+                <has_text_matching expression="Database letters +2578"/>
+            </assert_stderr>
         </test>
         <test>
             <param name="infile" value="db.fasta" ftype="fasta"/>
@@ -52,7 +78,32 @@
                 <param name="taxonnodes" ftype="tabular" value="nodes.dmp"/>
                 <param name="taxonnames" ftype="tabular" value="names.dmp"/>
             </conditional>
+            <!-- this test uses a taxdb with consecutive taxIDs which creates the small dmnd test file -->
             <output name="outfile" value="db-wtax.dmnd" compare="sim_size" delta="2"/>
+            <assert_stderr>
+                <has_text_matching expression="Entries in accession to taxid file +5"/>
+                <has_text_matching expression="Database accessions mapped to taxid +5"/>
+                <has_text_matching expression="Database sequences mapped to taxid +5"/>
+            </assert_stderr>
+        </test>
+        <test>
+            <param name="infile" value="db.fasta" ftype="fasta"/>
+            <conditional name="tax_cond">
+                <param name="tax_select" value="yes_cached"/>
+                <param name="ncbi_taxonomy" value="test"/>
+            </conditional>
+            <!-- note that this test uses a different taxDB (original taxIDs - not consecutive)
+                 and therefore we get a larger dmnd file -->
+            <output name="outfile">
+                <assert_contents>
+                    <has_size size="20279226"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text_matching expression="Entries in accession to taxid file +5"/>
+                <has_text_matching expression="Database accessions mapped to taxid +5"/>
+                <has_text_matching expression="Database sequences mapped to taxid +5"/>
+            </assert_stderr>
         </test>
     </tests>
     <help>
