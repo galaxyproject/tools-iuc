@@ -1,0 +1,145 @@
+<tool id="metamdbg_gfa" name="metaMDBG graph (GFA)" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+  <description>Generate a GFA graph from a metaMDBG assembly or list available k-values</description>
+
+  <macros><import>macros.xml</import></macros>
+  <expand macro="edam"/>
+  <expand macro="biotools"/>
+  <expand macro="requirements"/>
+  <expand macro="version"/>
+
+  <command detect_errors="exit_code"><![CDATA[
+    tar -xzf '$assembly_bundle' ;
+
+    ## Two modes: list k-values or build the graph
+    #if $mode.action == "list"
+      metaMDBG gfa --assembly-dir "./" --k 0 --threads "\${GALAXY_SLOTS:-4}" > k_values.txt 2>&1 ;
+    #else
+      ## (Re)write ./tmp/input.txt with the provided read files
+      #if $mode.reads
+        : > "./tmp/input.txt" ;
+        #for $r in $mode.reads
+          printf '%s\n' '${r.file_name}' >> "./tmp/input.txt" ;
+        #end for
+      #end if
+
+      metaMDBG gfa --assembly-dir "./" --k $mode.k --threads "\${GALAXY_SLOTS:-4}" ;
+
+      GFA_WITH="\$(ls -1 assemblyGraph_k*.gfa 2>/dev/null | grep -v 'noseq' | head -n 1)" ;
+      if [ -z "\$GFA_WITH" ]; then echo "No sequence-containing GFA produced." >&2 ; exit 1 ; fi ;
+      cp "\$GFA_WITH" metamdbg.gfa ;
+
+      GFA_NOSEQ="\$(ls -1 assemblyGraph_k*.noseq.gfa 2>/dev/null | head -n 1)" ;
+      if [ -z "\$GFA_NOSEQ" ]; then echo "No no-seq GFA produced." >&2 ; exit 1 ; fi ;
+      cp "\$GFA_NOSEQ" metamdbg.noseq.gfa ;
+    #end if
+  ]]></command>
+
+  <inputs>
+    <param name="assembly_bundle" type="data" format="tar.gz" label="Assembly bundle (tar.gz from metaMDBG assemble)"/>
+
+    <conditional name="mode">
+      <param name="action" type="select" label="What do you want to do?">
+        <option value="list" selected="true">List available k-values only (no graph)</option>
+        <option value="graph">Generate GFA graph</option>
+      </param>
+
+      <when value="list"/>
+      <when value="graph">
+        <param argument="--k" type="integer" min="1" label="k-mer size"/>
+        <param name="reads" type="data" multiple="true" optional="false" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" 
+               label="Raw reads used to generate the metaMDBG assembly that you want to construct a graph from."/>
+      </when>
+    </conditional>
+  </inputs>
+
+  <outputs>
+    <!-- Listing mode -->
+    <data name="k_values" format="txt" from_work_dir="k_values.txt"
+          label="${tool.name} on ${on_string}: available k-values">
+      <filter>mode['action'] == 'list'</filter>
+    </data>
+
+    <!-- Graph mode -->
+    <data name="gfa" format="gfa1" from_work_dir="metamdbg.gfa"
+          label="${tool.name} on ${on_string}:(k=${mode.k}) GFA">
+      <filter>mode['action'] == 'graph'</filter>
+    </data>
+    <data name="gfa_noseq" format="gfa1" from_work_dir="metamdbg.noseq.gfa"
+          label="${tool.name} on ${on_string}: (k=${mode.k}) GFA (no sequences)">
+      <filter>mode['action'] == 'graph'</filter>
+    </data>
+  </outputs>
+
+  <tests>
+    <!-- Graph mode -->
+    <test expect_num_outputs="2">
+      <param name="assembly_bundle" ftype="tar.gz" value="small_assembly_bundle.tar.gz"/>
+      <conditional name="mode">
+        <param name="action" value="graph"/>
+        <param name="k" value="11"/>
+        <param name="reads" value="hifi_reads_small.fastq.gz"/>
+      </conditional>
+      <output name="gfa">
+        <assert_contents><has_text text="utg0"/></assert_contents>
+      </output>
+      <output name="gfa_noseq">
+        <assert_contents><has_text text="LN:i:"/></assert_contents>
+      </output>
+    </test>
+
+    <!-- List mode -->
+    <test expect_num_outputs="1">
+      <param name="assembly_bundle" ftype="tar.gz" value="small_assembly_bundle.tar.gz"/>
+      <conditional name="mode">
+        <param name="action" value="list"/>
+      </conditional>
+      <output name="k_values">
+        <assert_contents><has_text text="- 11 (2015 bps)"/></assert_contents>
+      </output>
+    </test>
+  </tests>
+
+  <help><![CDATA[
+**What this tool does and why**
+
+This tool wraps `metaMDBG gfa` to build an assembly graph in **GFA1** from a completed metaMDBG assembly. It emits both a full graph (with sequences) and a compact **no-seq** graph. The original read paths are needed because the command consults the assembly’s `tmp/input.txt` to access reads.
+
+**How to use this tool effectively**
+
+1. **Run “List k-values” first.**
+
+   This reveals the valid k-mer sizes for your assembly (only those will work).
+
+   ::
+
+     metaMDBG gfa --assembly-dir ./assemblyDir/ --k 0
+
+2. **Generate the graph.**
+
+   Supply the **same raw reads** used during `metaMDBG asm`. The tool rewrites `./tmp/input.txt` so `gfa` can find the reads at their current paths.  
+   Choose a k from the list above, then run the tool.
+
+   ::
+
+    metaMDBG gfa --assembly-dir ./assemblyDir/  --k <k_value>
+
+**Outputs**
+- **`k_values.txt`** — text list containing valid k-values for your contigs.  
+- **`metamdbg.gfa`** — sequence-containing GFA (segment lines start with `S<TAB>`).  
+- **`metamdbg.noseq.gfa`** — GFA topology only (no sequences).
+
+**Modes**
+
+- **List k-values only** (`action = list`): runs `--k 0` to print available k’s in k_values.txt.  
+- **Generate GFA graph** (`action = graph`): requires reads and a valid k; generates both .gfa outputs.
+
+**Notes**
+
+- If the assembly directory has moved since `asm`, the rewritten `tmp/input.txt` ensures `gfa` can resolve read locations.  
+- GFA is tab-delimited; many viewers expect GFA1. See metaMDBG’s README for context.
+
+  ]]></help>
+
+  <expand macro="citations"/>
+</tool>
+
