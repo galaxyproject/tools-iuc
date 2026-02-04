@@ -117,7 +117,10 @@ def main():
         '--biapy_version', default='', type=str,
         help="BiaPy version to use."
     )
-
+    parser.add_argument(
+        '--num_cpus', default="1", type=str,
+        help="Number of CPUs to allocate."
+    )
     args = parser.parse_args()
 
     if args.new_config:
@@ -191,6 +194,14 @@ def main():
         except FileNotFoundError:
             print(f"Error: File {args.input_config_path} not found.")
             sys.exit(1)
+
+    # Always set NUM_CPUS
+    config.setdefault("SYSTEM", {})
+    try:
+        num_cpus = max(int(args.num_cpus), 1)
+    except BaseException:
+        num_cpus = 1
+    config["SYSTEM"].update({"NUM_CPUS": num_cpus})
 
     # Global overrides (Train/Test)
     config.setdefault("TRAIN", {})
