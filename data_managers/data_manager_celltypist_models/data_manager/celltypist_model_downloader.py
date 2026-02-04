@@ -1,0 +1,135 @@
+import argparse
+import json
+import os
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+MODEL_JSON_URL = "https://celltypist.cog.sanger.ac.uk/models/models.json"
+
+
+def fetch_json(url):
+    with urllib.request.urlopen(url) as r:
+        return json.load(r)
+
+
+def safe_download(url, dest):
+    dest_path = Path(dest)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = str(dest_path) + ".part"
+    try:
+        with urllib.request.urlopen(url) as r, open(tmp, "wb") as out:
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+        os.replace(tmp, dest_path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def model_version(filename, version):
+    base = Path(filename).stem.replace(" ", "_").replace("/", "_")
+    return f"{base}_{version}"
+
+
+def normalize_model_name(name):
+    return name.strip().lower()
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--out", required=True, help="Output JSON file")
+    p.add_argument("--model", default="all", help="Model name to download, or 'all' for all models")
+    p.add_argument("--version", default="", help="Model version to download, or empty for latest")
+    args = p.parse_args()
+
+    with open(args.out) as fh:
+        data_manager_input = json.load(fh)
+
+    print(f"Fetching model metadata from {MODEL_JSON_URL}...", file=sys.stderr)
+    models = fetch_json(MODEL_JSON_URL).get("models", [])
+
+    # Filter by model name if specified
+    if args.model and normalize_model_name(args.model) != "all":
+        target = normalize_model_name(args.model)
+        models = [m for m in models if normalize_model_name(m.get("filename", "").replace(".pkl", "")) == target]
+
+    # Handle version filtering
+    if args.version and models:
+        requested_version = args.version if args.version.startswith("v") else f"v{args.version}"
+
+        versioned_model = next((m for m in models if m.get("version", "") == requested_version), None)
+        if versioned_model:
+            models = [versioned_model]
+        else:
+            latest_model = models[0]
+            latest_url = latest_model.get("url", "")
+            if latest_url:
+                new_url = re.sub(r"/v\d+/", f"/{requested_version}/", latest_url)
+                if new_url != latest_url:
+                    modified_model = latest_model.copy()
+                    modified_model["url"] = new_url
+                    modified_model["version"] = requested_version
+                    models = [modified_model]
+                    print(
+                        f"Warning: Version {requested_version} not in catalog. Attempting to use URL: {new_url}",
+                        file=sys.stderr,
+                    )
+    # If no version specified, use all models from JSON (which contains only latest versions)
+
+    out_dir = Path(data_manager_input["output_data"][0]["extra_files_path"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    out_json = {"data_tables": {"celltypist_models": []}}
+    loc_path = out_dir / "celltypist_models.loc"
+
+    for m in models:
+        filename = m.get("filename", "")
+        url = m.get("url")
+        details = m.get("details", "")
+        version = m.get("version", "")
+        date = m.get("date", "")
+
+        model = model_version(filename, version)
+
+        # Download model files
+        if url:
+            dest_path = out_dir / filename
+            if not dest_path.exists():
+                print(f"Downloading {filename}...", file=sys.stderr)
+                safe_download(url, str(dest_path))
+        else:
+            dest_path = ""
+
+        out_json["data_tables"]["celltypist_models"].append({
+            "model": model,
+            "details": details,
+            "date": date,
+            "path": str(dest_path),
+        })
+
+    # Write back the data_manager_json with updated data tables
+    with open(args.out, "w") as f:
+        json.dump(out_json, f, indent=2)
+
+    # Write .loc file
+    with open(loc_path, "w") as f:
+        f.write("#model\tdetails\tdate\tpath\n")
+        for r in out_json["data_tables"]["celltypist_models"]:
+            f.write(
+                "\t".join([
+                    r["model"],
+                    r["details"].replace("\t", " "),
+                    r["date"],
+                    r["path"],
+                ])
+                + "\n"
+            )
+
+
+if __name__ == "__main__":
+    main()
