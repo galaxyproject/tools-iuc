@@ -7,7 +7,8 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-@CMD@
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output' 2>&1
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
@@ -23,24 +24,6 @@ with open('resources_list.txt', 'w') as f:
     for r in resources:
         f.write(r + '\n')
 
-#else if str($method.method) == 'generate_lr_geneset'
-geneset = li.resource.generate_lr_geneset(
-    resource_name='$method.resource_name',
-    lr_sep='$method.lr_sep')
-geneset.to_csv('lr_geneset.tsv', sep='\t', index=False)
-
-#else if str($method.method) == 'explode_complexes'
-#if str($method.resource_input.resource_source) == 'builtin'
-resource = li.resource.select_resource(resource_name='$method.resource_input.resource_name')
-#else
-resource = pd.read_csv('$method.resource_input.resource_file', sep='\t')
-#end if
-exploded = li.resource.explode_complexes(
-    resource=resource,
-    SOURCE='$method.source_col',
-    TARGET='$method.target_col')
-exploded.to_csv('exploded_resource.tsv', sep='\t', index=False)
-
 #else if str($method.method) == 'get_metalinks'
 metalinks = li.resource.get_metalinks(
 #if str($method.biospecimen_location) != ''
@@ -53,9 +36,29 @@ metalinks = li.resource.get_metalinks(
     uniprot=$method.uniprot)
 metalinks.to_csv('metalinks.tsv', sep='\t', index=False)
 
-#else if str($method.method) == 'describe_metalinks'
-description = li.resource.describe_metalinks()
-description.to_csv('metalinks_description.tsv', sep='\t', index=True)
+#else if str($method.method) == 'get_hcop_orthologs'
+#if str($method.url) == 'custom':
+hcop_url = '$method.custom_url'
+#else:
+hcop_url = '$method.url'
+#end if
+orthologs = li.resource.get_hcop_orthologs(
+    url=hcop_url,
+    min_evidence=$method.min_evidence)
+orthologs.to_csv('orthologs.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'translate_resource'
+#if str($method.resource_input.resource_source) == 'builtin':
+resource = li.resource.select_resource(resource_name='$method.resource_input.resource_name')
+#else:
+resource = pd.read_csv('$method.resource_input.resource_file', sep='\t')
+#end if
+map_df = pd.read_csv('$method.map_df', sep='\t')
+translated = li.resource.translate_resource(
+    resource=resource,
+    map_df=map_df,
+    columns='$method.columns'.split(',') if '$method.columns' else None)
+translated.to_csv('translated_resource.tsv', sep='\t', index=False)
 
 #end if
         ]]></configfile>
@@ -65,10 +68,9 @@ description.to_csv('metalinks_description.tsv', sep='\t', index=True)
             <param name="method" type="select" label="Method">
                 <option value="select_resource" selected="true">select_resource - Get ligand-receptor resource</option>
                 <option value="show_resources">show_resources - List available resources</option>
-                <option value="generate_lr_geneset">generate_lr_geneset - Generate LR gene set</option>
-                <option value="explode_complexes">explode_complexes - Explode LR complexes to subunits</option>
                 <option value="get_metalinks">get_metalinks - Get metabolite-protein interactions</option>
-                <option value="describe_metalinks">describe_metalinks - Describe metalinks database</option>
+                <option value="get_hcop_orthologs">get_hcop_orthologs - Get ortholog mappings from HCOP</option>
+                <option value="translate_resource">translate_resource - Translate resource to another species</option>
             </param>
             <when value="select_resource">
                 <expand macro="param_resource_name"/>
@@ -76,13 +78,30 @@ description.to_csv('metalinks_description.tsv', sep='\t', index=True)
             <when value="show_resources">
                 <!-- No parameters needed -->
             </when>
-            <when value="generate_lr_geneset">
-                <expand macro="param_resource_name"/>
-                <param argument="lr_sep" type="text" value="^" label="Ligand-receptor separator" help="Character separating ligand and receptor names in gene set identifiers">
+            <when value="get_metalinks">
+                <param argument="biospecimen_location" type="text" value="" optional="true" label="Biospecimen locations" help="Comma-separated biospecimen types to filter (e.g., Blood,Urine,Plasma). Empty = all locations. Limits metabolite-protein interactions by tissue/sample origin.">
                     <expand macro="sanitize_query"/>
                 </param>
+                <param argument="source" type="text" value="" optional="true" label="Source databases" help="Comma-separated database names to filter metabolite annotations (e.g., HMDB,Drugbank). Empty = all sources.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="hmdb" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include HMDB IDs" help="If enabled: include HMDB metabolite identifiers in output."/>
+                <param argument="uniprot" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include UniProt IDs" help="If enabled: include UniProt protein identifiers in output."/>
             </when>
-            <when value="explode_complexes">
+            <when value="get_hcop_orthologs">
+                <param argument="url" type="select" label="Species mapping">
+                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_mouse_hcop_fifteen_column.txt.gz" selected="true">Human to Mouse</option>
+                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_rat_hcop_fifteen_column.txt.gz">Human to Rat</option>
+                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_chicken_hcop_fifteen_column.txt.gz">Human to Chicken</option>
+                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_zebrafish_hcop_fifteen_column.txt.gz">Human to Zebrafish</option>
+                    <option value="custom">Custom URL</option>
+                </param>
+                <param name="custom_url" type="text" value="" optional="true" label="Custom HCOP URL" help="Only used if 'Custom URL' is selected above. See https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/ for available files.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_evidence" type="integer" value="3" min="1" label="Minimum evidence" help="Minimum number of orthology resources supporting the interaction."/>
+            </when>
+            <when value="translate_resource">
                 <conditional name="resource_input">
                     <param name="resource_source" type="select" label="Resource source">
                         <option value="builtin" selected="true">Built-in resource</option>
@@ -95,25 +114,10 @@ description.to_csv('metalinks_description.tsv', sep='\t', index=True)
                         <param name="resource_file" type="data" format="tabular" label="Resource file" help="Tabular file with ligand and receptor columns"/>
                     </when>
                 </conditional>
-                <param argument="source_col" type="text" value="ligand" label="Ligand column name" help="Column in resource containing ligand/source names">
+                <param name="map_df" type="data" format="tabular" label="Ortholog mapping file" help="Tabular file with 'source' and 'target' columns for ortholog mappings. Can be generated with get_hcop_orthologs."/>
+                <param argument="columns" type="text" value="ligand,receptor" label="Columns to translate" help="Comma-separated list of column names to translate (e.g., ligand,receptor).">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="target_col" type="text" value="receptor" label="Receptor column name" help="Column in resource containing receptor/target names">
-                    <expand macro="sanitize_query"/>
-                </param>
-            </when>
-            <when value="get_metalinks">
-                <param argument="biospecimen_location" type="text" value="" optional="true" label="Biospecimen locations" help="Comma-separated biospecimen types to filter (e.g., Blood,Urine,Plasma). Empty = all locations. Limits metabolite-protein interactions by tissue/sample origin.">
-                    <expand macro="sanitize_query"/>
-                </param>
-                <param argument="source" type="text" value="" optional="true" label="Source databases" help="Comma-separated database names to filter metabolite annotations (e.g., HMDB,Drugbank). Empty = all sources.">
-                    <expand macro="sanitize_query"/>
-                </param>
-                <param argument="hmdb" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include HMDB IDs" help="If enabled: include HMDB metabolite identifiers in output."/>
-                <param argument="uniprot" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include UniProt IDs" help="If enabled: include UniProt protein identifiers in output."/>
-            </when>
-            <when value="describe_metalinks">
-                <!-- No parameters needed -->
             </when>
         </conditional>
         <expand macro="inputs_common_advanced"/>
@@ -125,17 +129,14 @@ description.to_csv('metalinks_description.tsv', sep='\t', index=True)
         <data name="resources_list_out" format="txt" from_work_dir="resources_list.txt" label="${tool.name} (${method.method}): Available resources">
             <filter>method['method'] == 'show_resources'</filter>
         </data>
-        <data name="geneset_out" format="tabular" from_work_dir="lr_geneset.tsv" label="${tool.name} (${method.method}) on ${on_string}: LR gene set">
-            <filter>method['method'] == 'generate_lr_geneset'</filter>
-        </data>
-        <data name="exploded_out" format="tabular" from_work_dir="exploded_resource.tsv" label="${tool.name} (${method.method}) on ${on_string}: Exploded resource">
-            <filter>method['method'] == 'explode_complexes'</filter>
-        </data>
         <data name="metalinks_out" format="tabular" from_work_dir="metalinks.tsv" label="${tool.name} (${method.method}): Metalinks">
             <filter>method['method'] == 'get_metalinks'</filter>
         </data>
-        <data name="metalinks_desc_out" format="tabular" from_work_dir="metalinks_description.tsv" label="${tool.name} (${method.method}): Metalinks description">
-            <filter>method['method'] == 'describe_metalinks'</filter>
+        <data name="orthologs_out" format="tabular" from_work_dir="orthologs.tsv" label="${tool.name} (${method.method}): Ortholog mappings">
+            <filter>method['method'] == 'get_hcop_orthologs'</filter>
+        </data>
+        <data name="translated_out" format="tabular" from_work_dir="translated_resource.tsv" label="${tool.name} (${method.method}): Translated resource">
+            <filter>method['method'] == 'translate_resource'</filter>
         </data>
         <data name="hidden_output" format="txt" label="Log file">
             <filter>advanced_common['show_log']</filter>
@@ -184,21 +185,43 @@ description.to_csv('metalinks_description.tsv', sep='\t', index=True)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 3: explode_complexes -->
+        <!-- Test 3: get_hcop_orthologs -->
         <test expect_num_outputs="2">
             <conditional name="method">
-                <param name="method" value="explode_complexes"/>
-                <conditional name="resource_input">
-                    <param name="resource_source" value="builtin"/>
-                    <param name="resource_name" value="consensus"/>
-                </conditional>
-                <param name="source_col" value="ligand"/>
-                <param name="target_col" value="receptor"/>
+                <param name="method" value="get_hcop_orthologs"/>
+                <param name="url" value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_mouse_hcop_fifteen_column.txt.gz"/>
+                <param name="min_evidence" value="3"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
-            <output name="exploded_out" location="https://zenodo.org/records/18388645/files/resource_exploded.tsv" ftype="tabular">
+            <output name="orthologs_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="human_symbol"/>
+                    <has_n_columns min="2"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.resource.get_hcop_orthologs"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: translate_resource -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_resource"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="builtin"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="map_df" location="https://zenodo.org/records/18388645/files/ortholog_map.tsv"/>
+                <param name="columns" value="ligand,receptor"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
                 <assert_contents>
                     <has_text text="ligand"/>
                     <has_text text="receptor"/>
@@ -206,7 +229,7 @@ description.to_csv('metalinks_description.tsv', sep='\t', index=True)
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.resource.explode_complexes"/>
+                    <has_text_matching expression="li.resource.translate_resource"/>
                 </assert_contents>
             </output>
         </test>
@@ -224,11 +247,11 @@ This tool provides access to prior knowledge resources from LIANA+ for ligand-re
 
 - **generate_lr_geneset**: Generate a gene set from ligand-receptor pairs for use in enrichment analysis.
 
-- **explode_complexes**: Expand protein complexes into their individual subunits. Useful when you need to work with individual genes rather than complex names.
-
 - **get_metalinks**: Retrieve metabolite-protein interaction data from the Metalinks database. Useful for metabolite-mediated cell-cell communication analysis.
 
-- **describe_metalinks**: Get a description of the Metalinks database contents and statistics.
+- **get_hcop_orthologs**: Download ortholog mappings from the HCOP (HGNC Comparison of Orthology Predictions) database. Supports human-mouse, human-rat, human-chicken, and human-zebrafish mappings. Use this to translate human resources to other species.
+
+- **translate_resource**: Translate a ligand-receptor resource from one species to another using ortholog mappings. Requires an ortholog mapping file (can be generated with get_hcop_orthologs).
 
 **Available Resources**
 
