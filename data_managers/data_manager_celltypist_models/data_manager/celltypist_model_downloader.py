@@ -15,29 +15,14 @@ def fetch_json(url):
 
 
 def safe_download(url, dest):
-    dest_path = Path(dest)
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = str(dest_path) + ".part"
-    try:
-        with urllib.request.urlopen(url) as r, open(tmp, "wb") as out:
-            while True:
-                chunk = r.read(1 << 20)
-                if not chunk:
-                    break
-                out.write(chunk)
-        os.replace(tmp, dest_path)
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading {url} to {dest}")
+    urllib.request.urlretrieve(url, dest)
 
 
 def model_version(filename, version):
     base = Path(filename).stem.replace(" ", "_").replace("/", "_")
     return f"{base}_{version}"
-
-
-def normalize_model_name(name):
-    return name.strip().lower()
 
 
 def main():
@@ -48,15 +33,17 @@ def main():
     args = p.parse_args()
 
     with open(args.out) as fh:
-        data_manager_input = json.load(fh)
+        params = json.load(fh)
+    target_directory = Path(params["output_data"][0]["extra_files_path"])
+    target_directory.mkdir(parents=True, exist_ok=True)
 
     print(f"Fetching model metadata from {MODEL_JSON_URL}...", file=sys.stderr)
     models = fetch_json(MODEL_JSON_URL).get("models", [])
 
     # Filter by model name if specified
-    if args.model and normalize_model_name(args.model) != "all":
-        target = normalize_model_name(args.model)
-        models = [m for m in models if normalize_model_name(m.get("filename", "").replace(".pkl", "")) == target]
+    if args.model and args.model != "all":
+        target = args.model
+        models = [m for m in models if m.get("filename", "").replace(".pkl", "") == target]
 
     # Handle version filtering
     if args.version and models:
@@ -81,12 +68,9 @@ def main():
                     )
     # If no version specified, use all models from JSON (which contains only latest versions)
 
-    out_dir = Path(data_manager_input["output_data"][0]["extra_files_path"])
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     out_json = {"data_tables": {"celltypist_models": []}}
-    loc_path = out_dir / "celltypist_models.loc"
 
+  
     for m in models:
         filename = m.get("filename", "")
         url = m.get("url")
@@ -98,38 +82,24 @@ def main():
 
         # Download model files
         if url:
-            dest_path = out_dir / filename
+            dest_path = target_directory / f"{model}.pkl"
             if not dest_path.exists():
                 print(f"Downloading {filename}...", file=sys.stderr)
                 safe_download(url, str(dest_path))
+            path_value = str(dest_path)
         else:
-            dest_path = ""
+            path_value = ""
 
         out_json["data_tables"]["celltypist_models"].append({
-            "model": model,
+            "value": model,
             "details": details,
             "date": date,
-            "path": str(dest_path),
+            "path": path_value,
         })
 
     # Write back the data_manager_json with updated data tables
     with open(args.out, "w") as f:
         json.dump(out_json, f, indent=2)
-
-    # Write .loc file
-    with open(loc_path, "w") as f:
-        f.write("#model\tdetails\tdate\tpath\n")
-        for r in out_json["data_tables"]["celltypist_models"]:
-            f.write(
-                "\t".join([
-                    r["model"],
-                    r["details"].replace("\t", " "),
-                    r["date"],
-                    r["path"],
-                ])
-                + "\n"
-            )
-
 
 if __name__ == "__main__":
     main()
