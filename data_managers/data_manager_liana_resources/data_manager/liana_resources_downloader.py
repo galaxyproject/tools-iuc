@@ -18,10 +18,9 @@ from pathlib import Path
 
 try:
     import liana as li
-    import pandas as pd
 except ImportError as e:
     sys.exit(f"Error: Required packages not available: {e}\n"
-             f"Please ensure 'liana' and 'pandas' are installed.")
+             f"Please ensure 'liana' is installed.")
 
 # Setup logging
 logging.basicConfig(
@@ -33,7 +32,7 @@ log = logging.getLogger(__name__)
 
 class LianaResourcesDownloader:
     """Download all LIANA resource types and generate Galaxy data manager output."""
-    
+
     # Ligand-Receptor resource metadata (17 databases)
     LR_RESOURCES_METADATA = {
         'consensus': {
@@ -122,7 +121,7 @@ class LianaResourcesDownloader:
             'type': 'ligand_receptor'
         },
     }
-    
+
     # Ortholog mapping resources (HCOP)
     ORTHOLOG_RESOURCES_METADATA = {
         'hcop_human_mouse': {
@@ -150,7 +149,7 @@ class LianaResourcesDownloader:
             'url': 'https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_zebrafish_hcop_fifteen_column.txt.gz'
         },
     }
-    
+
     # Metalinks resource
     METALINKS_RESOURCES_METADATA = {
         'metalinks_all': {
@@ -182,10 +181,10 @@ class LianaResourcesDownloader:
             'source': None,
         },
     }
-    
+
     # Combined metadata for easy lookup
     ALL_RESOURCES_METADATA = {}
-    
+
     # Resource groupings for selective download
     RESOURCE_GROUPS = {
         'ligand_receptor_all': None,  # All L-R databases
@@ -199,18 +198,18 @@ class LianaResourcesDownloader:
         'metalinks_all': list(METALINKS_RESOURCES_METADATA.keys()),
         'all': None,  # All resources of all types
     }
-    
+
     def __init__(self, output_json):
         """Initialize downloader with output path."""
         self.output_json = output_json
         self.entries = []
-        
+
         # Build combined metadata dictionary
         self.ALL_RESOURCES_METADATA = {}
         self.ALL_RESOURCES_METADATA.update(self.LR_RESOURCES_METADATA)
         self.ALL_RESOURCES_METADATA.update(self.ORTHOLOG_RESOURCES_METADATA)
         self.ALL_RESOURCES_METADATA.update(self.METALINKS_RESOURCES_METADATA)
-    
+
     def get_available_lr_resources(self):
         """Get list of all available LIANA ligand-receptor resources."""
         try:
@@ -220,43 +219,43 @@ class LianaResourcesDownloader:
         except Exception as e:
             log.error(f"Failed to get available L-R resources: {e}")
             raise
-    
+
     def download_lr_resource(self, resource_name):
         """Download a single ligand-receptor resource."""
         try:
             log.info(f"Downloading L-R resource: {resource_name}...")
             df = li.resource.select_resource(resource_name=resource_name)
-            
+
             # Save as TSV
             output_path = Path(resource_name) / f"{resource_name}.tsv"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(output_path, sep='\t', index=False)
-            
+
             log.info(f"  Saved {len(df)} interactions to {output_path}")
             return df, str(output_path)
-            
+
         except Exception as e:
             log.error(f"Error downloading L-R resource {resource_name}: {e}")
             raise
-    
+
     def download_ortholog_resource(self, resource_id, url):
         """Download ortholog mapping resource from HCOP."""
         try:
             log.info(f"Downloading ortholog mapping: {resource_id}...")
             df = li.resource.get_hcop_orthologs(url=url, min_evidence=3)
-            
+
             # Save as TSV
             output_path = Path(resource_id) / f"{resource_id}.tsv"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(output_path, sep='\t', index=False)
-            
+
             log.info(f"  Saved {len(df)} ortholog mappings to {output_path}")
             return df, str(output_path)
-            
+
         except Exception as e:
             log.error(f"Error downloading ortholog resource {resource_id}: {e}")
             raise
-    
+
     def download_metalinks_resource(self, resource_id, biospecimen_location=None, source=None):
         """Download metabolite-protein interaction resource."""
         try:
@@ -267,19 +266,19 @@ class LianaResourcesDownloader:
                 hmdb=True,
                 uniprot=True
             )
-            
+
             # Save as TSV
             output_path = Path(resource_id) / f"{resource_id}.tsv"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(output_path, sep='\t', index=False)
-            
+
             log.info(f"  Saved {len(df)} interactions to {output_path}")
             return df, str(output_path)
-            
+
         except Exception as e:
             log.error(f"Error downloading metalinks {resource_id}: {e}")
             raise
-    
+
     def create_data_table_entry(self, resource_id, df, output_path):
         """Create a Galaxy data table entry for a resource."""
         metadata = self.ALL_RESOURCES_METADATA.get(
@@ -290,7 +289,7 @@ class LianaResourcesDownloader:
                 'type': 'unknown'
             }
         )
-        
+
         return {
             'value': resource_id,
             'name': metadata['name'],
@@ -298,7 +297,7 @@ class LianaResourcesDownloader:
             'path': output_path,
             'type': metadata.get('type', 'unknown')
         }
-    
+
     def get_resources_to_download(self, resource_select):
         """Determine which resources to download based on selection."""
         if resource_select in self.RESOURCE_GROUPS:
@@ -319,17 +318,17 @@ class LianaResourcesDownloader:
                 return [resource_select]
             else:
                 raise ValueError(f"Resource '{resource_select}' not found. "
-                               f"Available groups: {', '.join(self.RESOURCE_GROUPS.keys())}")
-    
+                                 f"Available groups: {', '.join(self.RESOURCE_GROUPS.keys())}")
+
     def download_resource(self, resource_id):
         """Download a single resource (detects type and calls appropriate method)."""
         metadata = self.ALL_RESOURCES_METADATA.get(resource_id)
-        
+
         if not metadata:
             raise ValueError(f"Unknown resource: {resource_id}")
-        
+
         resource_type = metadata.get('type')
-        
+
         if resource_type == 'ligand_receptor':
             return self.download_lr_resource(resource_id)
         elif resource_type == 'ortholog_mapping':
@@ -342,26 +341,26 @@ class LianaResourcesDownloader:
             )
         else:
             raise ValueError(f"Unknown resource type: {resource_type}")
-    
+
     def download_resources(self, resource_select):
         """Download selected resources and generate data table entries."""
         resources_to_download = self.get_resources_to_download(resource_select)
-        
+
         log.info(f"Downloading {len(resources_to_download)} resource(s)...")
-        
+
         for resource_id in resources_to_download:
             try:
                 df, output_path = self.download_resource(resource_id)
                 entry = self.create_data_table_entry(resource_id, df, output_path)
                 self.entries.append(entry)
-                
+
             except Exception as e:
                 log.error(f"Failed to download {resource_id}: {e}")
                 raise
-        
+
         log.info(f"Successfully downloaded {len(self.entries)} resource(s)")
         return self.entries
-    
+
     def write_output(self):
         """Write Galaxy data manager JSON output."""
         output_data = {
@@ -369,12 +368,12 @@ class LianaResourcesDownloader:
                 'liana_resources': self.entries
             }
         }
-        
+
         with open(self.output_json, 'w') as f:
             json.dump(output_data, f, indent=2)
-        
+
         log.info(f"Wrote data manager output to {self.output_json}")
-    
+
     def run(self, resource_select):
         """Execute the download and output generation."""
         try:
@@ -415,35 +414,35 @@ ALL:
 Examples:
   # Download all L-R databases
   python liana_resources_downloader.py --resource all --output output.json
-  
+
   # Download consensus L-R + common orthologs
   python liana_resources_downloader.py --resource consensus --output output.json
   python liana_resources_downloader.py --resource orthologs_common --output orthologs.json
-  
+
   # Download metalinks
   python liana_resources_downloader.py --resource metalinks_all --output metalinks.json
         '''
     )
-    
+
     parser.add_argument(
         '--resource',
         default='ligand_receptor_consensus',
         help='Resources to download. See examples above. (default: ligand_receptor_consensus)'
     )
-    
+
     parser.add_argument(
         '--output',
         required=True,
         help='Output JSON file for Galaxy data manager (required)'
     )
-    
+
     return parser.parse_args()
 
 
 def main():
     """Main entry point."""
     args = parse_arguments()
-    
+
     try:
         downloader = LianaResourcesDownloader(args.output)
         return downloader.run(args.resource)
