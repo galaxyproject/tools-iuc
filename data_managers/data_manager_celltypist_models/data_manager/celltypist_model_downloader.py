@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import re
 import sys
 import urllib.request
@@ -70,7 +69,6 @@ def main():
 
     out_json = {"data_tables": {"celltypist_models": []}}
 
-  
     for m in models:
         filename = m.get("filename", "")
         url = m.get("url")
@@ -100,6 +98,7 @@ def main():
     # Write back the data_manager_json with updated data tables
     with open(args.out, "w") as f:
         json.dump(out_json, f, indent=2)
+
 
 if __name__ == "__main__":
     main()
