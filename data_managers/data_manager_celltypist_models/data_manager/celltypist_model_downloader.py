@@ -76,6 +76,11 @@ def main():
         version = m.get("version", "")
         date = m.get("date", "")
 
+        if details and version:
+            details_with_version = f"{details} ({version})"
+        else:
+            details_with_version = details
+
         model = model_version(filename, version)
 
         # Download model files
@@ -90,7 +95,7 @@ def main():
 
         out_json["data_tables"]["celltypist_models"].append({
             "value": model,
-            "details": details,
+            "details": details_with_version,
             "date": date,
             "path": path_value,
         })
