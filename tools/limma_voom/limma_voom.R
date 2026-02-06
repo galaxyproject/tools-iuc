@@ -8,6 +8,7 @@
 #       matrixPath", "m", 2, "character"    -Path to count matrix
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
+#       formula", "Y", 2, "character".      -String containing a formula to override default use of factInput
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
 #       contrastFile", "C", 1, "character"  -Path to contrasts information file
 #       contrastInput", "D", 1, "character" -String containing contrasts of interest
@@ -107,6 +108,12 @@ unmake_names <- function(string) {
     return(string)
 }
 
+# Sanitise file base names coming from factors or contrasts
+sanitise_basename <- function(string) {
+    string <- gsub("[/^]", "_", string)
+    return(string)
+}
+
 # Generate output folder and paths
 make_out <- function(filename) {
     return(paste0(opt$outPath, "/", filename))
@@ -183,6 +190,7 @@ spec <- matrix(
         "filesPath", "j", 2, "character",
         "matrixPath", "m", 2, "character",
         "factFile", "f", 2, "character",
+        "formula", "Y", 2, "character",
         "factInput", "i", 2, "character",
         "annoPath", "a", 2, "character",
         "contrastFile", "C", 1, "character",
@@ -340,7 +348,7 @@ if (!is.null(opt$filesPath)) {
         }
         # order samples as in counts matrix
         factordata <- factordata[match(colnames(counts), factordata[, 1]), ]
-        factors <- factordata[, -1, drop = FALSE]
+        factors <- data.frame(sapply(factordata[, -1, drop = FALSE], make.names))
     } else {
         factors <- unlist(strsplit(opt$factInput, "|", fixed = TRUE))
         factordata <- list()
@@ -354,6 +362,7 @@ if (!is.null(opt$filesPath)) {
         factordata <- factordata[, -1]
         factordata <- sapply(factordata, sanitise_groups)
         factordata <- sapply(factordata, strsplit, split = ",")
+        factordata <- sapply(factordata, make.names)
         # Transform factor data into data frame of R factor objects
         factors <- data.frame(factordata)
     }
@@ -362,8 +371,6 @@ if (!is.null(opt$filesPath)) {
 if (nrow(factors) != ncol(counts)) {
     stop("There are a different number of samples in the counts files and factors")
 }
-# make groups valid R names, required for makeContrasts
-factors <- sapply(factors, make.names)
 factors <- data.frame(factors, stringsAsFactors = TRUE)
 
 # if annotation file provided
@@ -429,7 +436,7 @@ mdvol_png <- character()
 top_out <- character()
 glimma_out <- character()
 for (i in seq_along(cons)) {
-    con <- cons[i]
+    con <- sanitise_basename(cons[i])
     con <- gsub("\\(|\\)", "", con)
     md_pdf[i] <- make_out(paste0("mdplot_", con, ".pdf"))
     vol_pdf[i] <- make_out(paste0("volplot_", con, ".pdf"))
@@ -591,10 +598,19 @@ y <- new("DGEList", data)
 
 print("Generating Design")
 factor_list <- sapply(names(factors), paste_listname)
-formula <- "~0"
-for (i in seq_along(factor_list)) {
-    formula <- paste(formula, factor_list[i], sep = "+")
+if (!is.null(opt$formula)) {
+    formula <- opt$formula
+    # sanitisation can be getting rid of the "~"
+    if (!startsWith(formula, "~")) {
+        formula <- paste0("~", formula)
+    }
+} else {
+    formula <- "~0"
+    for (i in seq_along(factor_list)) {
+        formula <- paste(formula, factor_list[i], sep = "+")
+    }
 }
+
 formula <- formula(formula)
 design <- model.matrix(formula)
 for (i in seq_along(factor_list)) {
@@ -698,7 +714,7 @@ png(mdsscree_png, width = 1000, height = 500)
 par(mfrow = c(1, 2))
 plotMDS(y, labels = samplenames, col = as.numeric(factors[, 1]), main = "MDS Plot: Dims 1 and 2")
 barplot(eigen$eigen, names.arg = eigen$name, main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las = 1)
-img_name <- paste0("MDSPlot_", names(factors)[1], ".png")
+img_name <- paste0("MDSPlot_", sanitise_basename(names(factors)[1]), ".png")
 img_addr <- "mdsscree.png"
 image_data <- rbind(image_data, data.frame(Label = img_name, Link = img_addr, stringsAsFactors = FALSE))
 invisible(dev.off())
@@ -707,7 +723,7 @@ pdf(mdsscree_pdf, width = 14)
 par(mfrow = c(1, 2))
 plotMDS(y, labels = samplenames, col = as.numeric(factors[, 1]), main = "MDS Plot: Dims 1 and 2")
 barplot(eigen$eigen, names.arg = eigen$name, main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las = 1)
-link_name <- paste0("MDSPlot_", names(factors)[1], ".pdf")
+link_name <- paste0("MDSPlot_", sanitise_basename(names(factors)[1]), ".pdf")
 link_addr <- "mdsscree.pdf"
 link_data <- rbind(link_data, data.frame(Label = link_name, Link = link_addr, stringsAsFactors = FALSE))
 invisible(dev.off())
@@ -913,8 +929,8 @@ for (i in seq_along(cons)) {
         top <- topTable(fit, coef = i, adjust.method = opt$pAdjOpt, number = Inf, sort.by = "P")
     }
     write.table(top, file = top_out[i], row.names = FALSE, sep = "\t", quote = FALSE)
-    link_name <- paste0(de_method, "_", con, ".tsv")
-    link_addr <- paste0(de_method, "_", con, ".tsv")
+    link_name <- paste0(de_method, "_", sanitise_basename(con), ".tsv")
+    link_addr <- paste0(de_method, "_", sanitise_basename(con), ".tsv")
     link_data <- rbind(link_data, c(link_name, link_addr))
 
     # Plot MD (log ratios vs mean average) using limma package on weighted
@@ -926,8 +942,8 @@ for (i in seq_along(cons)) {
         xlab = "Average Expression", ylab = "logFC"
     )
     abline(h = 0, col = "grey", lty = 2)
-    link_name <- paste0("MDPlot_", con, ".pdf")
-    link_addr <- paste0("mdplot_", con, ".pdf")
+    link_name <- paste0("MDPlot_", sanitise_basename(con), ".pdf")
+    link_addr <- paste0("mdplot_", sanitise_basename(con), ".pdf")
     link_data <- rbind(link_data, c(link_name, link_addr))
     invisible(dev.off())
 
@@ -951,8 +967,8 @@ for (i in seq_along(cons)) {
             main = paste("MD Plot:", unmake_names(con)), side.main = colnames(y$genes)[2],
             folder = paste0("glimma_", unmake_names(con)), launch = FALSE
         )
-        link_name <- paste0("Glimma_MDPlot_", con, ".html")
-        link_addr <- paste0("glimma_", con, "/MD-Plot.html")
+        link_name <- paste0("Glimma_MDPlot_", sanitise_basename(con), ".html")
+        link_addr <- paste0("glimma_", sanitise_basename(con), "/MD-Plot.html")
         link_data <- rbind(link_data, c(link_name, link_addr))
 
         # Volcano plot
@@ -963,8 +979,8 @@ for (i in seq_along(cons)) {
             xlab = "logFC", ylab = "-log10(P-value)",
             folder = paste0("glimma_volcano_", unmake_names(con)), launch = FALSE
         )
-        link_name <- paste0("Glimma_VolcanoPlot_", con, ".html")
-        link_addr <- paste0("glimma_volcano_", con, "/XY-Plot.html")
+        link_name <- paste0("Glimma_VolcanoPlot_", sanitise_basename(con), ".html")
+        link_addr <- paste0("glimma_volcano_", sanitise_basename(con), "/XY-Plot.html")
         link_data <- rbind(link_data, c(link_name, link_addr))
     }
 
@@ -982,8 +998,8 @@ for (i in seq_along(cons)) {
         highlight = opt$topgenes,
         names = labels
     )
-    link_name <- paste0("VolcanoPlot_", con, ".pdf")
-    link_addr <- paste0("volplot_", con, ".pdf")
+    link_name <- paste0("VolcanoPlot_", sanitise_basename(con), ".pdf")
+    link_addr <- paste0("volplot_", sanitise_basename(con), ".pdf")
     link_data <- rbind(link_data, c(link_name, link_addr))
     invisible(dev.off())
 
@@ -1015,8 +1031,8 @@ for (i in seq_along(cons)) {
         )
     }
 
-    img_name <- paste0("MDVolPlot_", con)
-    img_addr <- paste0("mdvolplot_", con, ".png")
+    img_name <- paste0("MDVolPlot_", sanitise_basename(con))
+    img_addr <- paste0("mdvolplot_", sanitise_basename(con), ".png")
     image_data <- rbind(image_data, c(img_name, img_addr))
     title(paste0("Contrast: ", con_name), outer = TRUE, cex.main = 1.5)
     invisible(dev.off())
@@ -1043,8 +1059,8 @@ for (i in seq_along(cons)) {
             trace = "none", density.info = "none", lhei = c(2, 10), margin = c(8, 6), labRow = labels, cexRow = 0.7, srtCol = 45,
             col = mycol, ColSideColors = col_group
         )
-        link_name <- paste0("Heatmap_", con, ".pdf")
-        link_addr <- paste0("heatmap_", con, ".pdf")
+        link_name <- paste0("Heatmap_", sanitise_basename(con), ".pdf")
+        link_addr <- paste0("heatmap_", sanitise_basename(con), ".pdf")
         link_data <- rbind(link_data, c(link_name, link_addr))
         invisible(dev.off())
     }
@@ -1070,8 +1086,8 @@ for (i in seq_along(cons)) {
                 )
             }
         }
-        link_name <- paste0("Stripcharts_", con, ".pdf")
-        link_addr <- paste0("stripcharts_", con, ".pdf")
+        link_name <- paste0("Stripcharts_", sanitise_basename(con), ".pdf")
+        link_addr <- paste0("stripcharts_", sanitise_basename(con), ".pdf")
         link_data <- rbind(link_data, c(link_name, link_addr))
         invisible(dev.off())
     }
