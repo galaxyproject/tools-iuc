@@ -14,7 +14,7 @@
     <configfiles>
         <configfile name="spdata_operation_config" filename="spdata_operation.py">
 import spatialdata as sd
-from spatialdata import bounding_box_query, polygon_query, get_extent, transform, aggregate, to_circles, to_polygons, get_values, get_element_instances, get_centroids, deepcopy
+from spatialdata import bounding_box_query, polygon_query, get_extent, transform, aggregate, to_circles, to_polygons, get_values, get_element_instances, get_centroids
 
 ## Load the SpatialData object
 sdata = sd.read_zarr("./input/spatialdata")
@@ -149,8 +149,16 @@ result = sdata
 
 #else if $operation_condi.operation == 'to_polygons':
 ## Convert to polygons
+## it is recommended to configure Dask to use ‘processes’ rather than ‘threads’
+import dask
+dask.config.set(scheduler='processes')
+
 element = sdata['$operation_condi.element_name']
+    #if $operation_condi.buffer_resolution:
 result_element = to_polygons(element, buffer_resolution=$operation_condi.buffer_resolution)
+    #else:
+result_element = to_polygons(element)
+    #end if
 sdata['$operation_condi.output_element_name'] = result_element
 result = sdata
 
@@ -166,6 +174,7 @@ result = get_values(
     #if $operation_condi.table_layer:
     table_layer='$operation_condi.table_layer',
     #end if
+    return_obsm_as_is=$operation_condi.return_obsm_as_is
 )
 
 #else if $operation_condi.operation == 'get_element_instances':
@@ -187,17 +196,13 @@ result_element = get_centroids(
 sdata['$operation_condi.output_element_name'] = result_element
 result = sdata
 
-#else if $operation_condi.operation == 'deepcopy':
-## Deep copy
-result = deepcopy(sdata)
-
 #end if
 
 print("\nOperation result:")
 print(result)
 
 ## Save the result
-#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'deepcopy']:
+#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids']:
 result.write("./output/spatialdata", overwrite=True)
 #else if $operation_condi.operation in ['get_extent', 'get_values', 'get_element_instances']:
 import json
@@ -241,7 +246,6 @@ print("\nOperation completed successfully!")
                 <option value="get_values">Get Values</option>
                 <option value="get_element_instances">Get Element Instances</option>
                 <option value="get_centroids">Get Centroids</option>
-                <option value="deepcopy">Deep Copy</option>
             </param>
             <when value="bounding_box_query">
                 <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that min_coordinate and max_coordinate refer to (e.g., 'x,y' or 'x,y,z')">
@@ -328,8 +332,6 @@ print("\nOperation completed successfully!")
                     </when>
                 </conditional>
             </when>
-
-
             <when value="aggregate">
                 <param name="values_element" type="text" label="Values element name" help="Name of the element of spatialdata containing values to aggregate">
                     <expand macro="sanitize_query"/>
@@ -361,13 +363,11 @@ print("\nOperation completed successfully!")
                 <param name="deepcopy_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Deep copy shapes?" help="Whether to deepcopy shapes in result"/>
                 <param name="buffer_resolution" type="integer" value="16" label="Resolution resolution" help=" A higher value results in a more accurate representation of the circle, but also in a more complex polygon and computation." />
             </when>
-
-
             <when value="to_circles">
                 <param name="element_name" type="text" label="Element name" help="Name of the element to convert to circles">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param name="output_element_name" type="text" label="Output element name" help="Name for the circles element">
+                <param name="output_element_name" type="text" value="circle_element" label="Output element name">
                     <expand macro="sanitize_query"/>
                 </param>
                 <param name="radius" type="float" optional="true" label="Radius (optional)" help="Radius for circles. Required for points, automatic for other elements"/>
@@ -376,10 +376,10 @@ print("\nOperation completed successfully!")
                 <param name="element_name" type="text" label="Element name" help="Name of the element to convert to polygons">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param name="output_element_name" type="text" label="Output element name" help="Name for the polygons element">
+                <param name="output_element_name" type="text" value="polygon_element" label="Output element name" help="Name for the polygons element">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param name="buffer_resolution" type="integer" value="16" min="1" label="Buffer resolution" help="Resolution for converting circles to polygons"/>
+                <param name="buffer_resolution" type="integer" value="" min="1" label="Buffer resolution" help="Resolution for converting circles to polygons"/>
             </when>
             <when value="get_values">
                 <param name="value_key" type="text" label="Value key" help="Column name(s) to retrieve values from">
@@ -394,6 +394,7 @@ print("\nOperation completed successfully!")
                 <param name="table_layer" type="text" optional="true" label="Table layer (optional)" help="Layer of table to get values from. If None, values from X are used">
                     <expand macro="sanitize_query"/>
                 </param>
+                <param name="return_obsm_as_is" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Return_obsm_as_is" help="In case the value is in obsm the value of the key can be returned as is if return_obsm_as_is is True, otherwise creates a dataframe and returns it." />
             </when>
             <when value="get_element_instances">
                 <param name="element_name" type="text" label="Element name" help="Name of the element to get instances from">
@@ -413,14 +414,11 @@ print("\nOperation completed successfully!")
                 </param>
                 <param name="return_background_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include background?" help="If True, centroid of background label (0) is included"/>
             </when>
-            <when value="deepcopy">
-                <!-- No additional parameters -->
-            </when>
         </conditional>
     </inputs>
     <outputs>
         <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="output/spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation}">
-            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'deepcopy']</filter>
+            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids']</filter>
             <actions>
                 <action type="format">
                     <option type="from_param" name="input_spatialdata"/>
@@ -467,22 +465,6 @@ print("\nOperation completed successfully!")
                 <assert_contents>
                     <has_text text="min_coordinate"/>
                     <has_text text="max_coordinate"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 3: deepcopy -->
-        <test>
-            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
-            <conditional name="operation_condi">
-                <param name="operation" value="deepcopy"/>
-            </conditional>
-            <assert_stdout>
-                <has_text text="deepcopy"/>
-                <has_text text="Operation completed successfully"/>
-            </assert_stdout>
-            <output name="spatialdata_output">
-                <assert_contents>
-                    <has_size value="0" delta="100000"/>
                 </assert_contents>
             </output>
         </test>
