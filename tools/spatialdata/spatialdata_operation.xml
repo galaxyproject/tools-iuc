@@ -1,0 +1,579 @@
+<tool id="spatialdata_operation" name="SpatialData Operations" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>perform operations on SpatialData objects</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        unzip -q '$input_spatialdata' -d input &&
+
+        ## run the operation pipeline
+        python3 'spdata_operation.py' &&
+        cat 'spdata_operation.py'
+    ]]></command>
+    <configfiles>
+        <configfile name="spdata_operation_config" filename="spdata_operation.py">
+import spatialdata as sd
+from spatialdata import bounding_box_query, polygon_query, get_extent, transform, aggregate, to_circles, to_polygons, get_values, get_element_instances, get_centroids, deepcopy
+
+## Load the SpatialData object
+sdata = sd.read_zarr("./input/spatialdata")
+
+print("Input SpatialData object:")
+print(sdata)
+
+#if $operation_condi.operation == 'bounding_box_query':
+## Bounding box query
+    #set axes_list = [str(x.strip()) for x in str($operation_condi.axes).split(',')]
+    #set min_coord_list = [float(x.strip()) for x in str($operation_condi.min_coordinate).split(',')]
+    #set max_coord_list = [float(x.strip()) for x in str($operation_condi.max_coordinate).split(',')]
+result = bounding_box_query(
+    sdata,
+    axes=tuple($axes_list),
+    min_coordinate=$min_coord_list,
+    max_coordinate=$max_coord_list,
+    target_coordinate_system='$operation_condi.target_coordinate_system',
+    filter_table=$operation_condi.filter_table_bool
+)
+
+#else if $operation_condi.operation == 'polygon_query':
+## Polygon query
+from shapely.geometry import Polygon
+    #set coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in str($operation_condi.polygon_coords).split(';')]
+polygon = Polygon($coords_list)
+result = polygon_query(
+    sdata,
+    polygon=polygon,
+    target_coordinate_system='$operation_condi.target_coordinate_system',
+    filter_table=$operation_condi.filter_table_bool,
+    clip=$operation_condi.clip_bool
+)
+
+#else if $operation_condi.operation == 'get_extent':
+## Get extent
+    #if $operation_condi.element_name:
+result = get_extent(
+    sdata['$operation_condi.element_name'],
+    coordinate_system='$operation_condi.coordinate_system',
+    exact=$operation_condi.exact_bool
+)
+    #else:
+result = get_extent(
+    sdata,
+    coordinate_system='$operation_condi.coordinate_system',
+    exact=$operation_condi.exact_bool,
+    has_images=$operation_condi.has_images_bool,
+    has_labels=$operation_condi.has_labels_bool,
+    has_points=$operation_condi.has_points_bool,
+    has_shapes=$operation_condi.has_shapes_bool
+)
+    #end if
+
+#else if $operation_condi.operation == 'transform':
+## Transform element
+element = sdata['$operation_condi.element_name']
+    #if $operation_condi.maintain_positioning_condi.maintain_positioning == 'yes':
+## Apply transformation with maintain_positioning=True
+        #if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'translation':
+from spatialdata.transformations import Translation
+            #set translation_list = [float(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.translation).split(',')]
+            #set axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.axes).split(',')]
+transformation = Translation($translation_list, axes=tuple($axes_list))
+        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'scale':
+from spatialdata.transformations import Scale
+            #set scale_list = [float(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.scale).split(',')]
+            #set axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.axes).split(',')]
+transformation = Scale($scale_list, axes=tuple($axes_list))
+        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'rotation':
+import math
+from spatialdata.transformations import Affine
+            #set theta = math.radians(float($operation_condi.maintain_positioning_condi.transformation_condi.angle))
+transformation = Affine(
+    [
+        [math.cos($theta), -math.sin($theta), 0],
+        [math.sin($theta), math.cos($theta), 0],
+        [0, 0, 1],
+    ],
+    input_axes=('x', 'y'),
+    output_axes=('x', 'y'),
+)
+        #end if
+result_element = transform(
+    element,
+    transformation=transformation,
+    maintain_positioning=True
+)
+    #else:
+## Transform to a different coordinate system with maintain_positioning=False
+result_element = transform(
+    element,
+    to_coordinate_system='$operation_condi.maintain_positioning_condi.to_coordinate_system'
+)
+    #end if
+
+sdata['$operation_condi.output_element_name'] = result_element
+result = sdata
+
+#else if $operation_condi.operation == 'aggregate':
+## Aggregate values by regions
+result = aggregate(
+    values_sdata=sdata,
+    values='$operation_condi.values_element',
+    by_sdata=None,
+    by='$operation_condi.by_element',
+    #if $operation_condi.value_key:
+    value_key='$operation_condi.value_key',
+    #end if
+    agg_func='$operation_condi.agg_func',
+    target_coordinate_system='$operation_condi.target_coordinate_system',
+    fractions=$operation_condi.fractions_bool,
+    region_key='$operation_condi.region_key',
+    instance_key='$operation_condi.instance_key',
+    deepcopy=$operation_condi.deepcopy_bool,
+    #if $operation_condi.table_name:
+    table_name='$operation_condi.table_name',
+    #end if
+    buffer_resolution=$operation_condi.buffer_resolution
+)
+
+#else if $operation_condi.operation == 'to_circles':
+## Convert to circles
+element = sdata['$operation_condi.element_name']
+    #if str($operation_condi.radius) != '':
+result_element = to_circles(element, radius=$operation_condi.radius)
+    #else:
+result_element = to_circles(element)
+    #end if
+sdata['$operation_condi.output_element_name'] = result_element
+result = sdata
+
+#else if $operation_condi.operation == 'to_polygons':
+## Convert to polygons
+element = sdata['$operation_condi.element_name']
+result_element = to_polygons(element, buffer_resolution=$operation_condi.buffer_resolution)
+sdata['$operation_condi.output_element_name'] = result_element
+result = sdata
+
+#else if $operation_condi.operation == 'get_values':
+## Get values
+result = get_values(
+    value_key='$operation_condi.value_key',
+    sdata=sdata,
+    element_name='$operation_condi.element_name',
+    #if $operation_condi.table_name:
+    table_name='$operation_condi.table_name',
+    #end if
+    #if $operation_condi.table_layer:
+    table_layer='$operation_condi.table_layer',
+    #end if
+)
+
+#else if $operation_condi.operation == 'get_element_instances':
+## Get element instances
+element = sdata['$operation_condi.element_name']
+result = get_element_instances(
+    element,
+    return_background=$operation_condi.return_background_bool
+)
+
+#else if $operation_condi.operation == 'get_centroids':
+## Get centroids
+element = sdata['$operation_condi.element_name']
+result_element = get_centroids(
+    element,
+    coordinate_system='$operation_condi.coordinate_system',
+    return_background=$operation_condi.return_background_bool
+)
+sdata['$operation_condi.output_element_name'] = result_element
+result = sdata
+
+#else if $operation_condi.operation == 'deepcopy':
+## Deep copy
+result = deepcopy(sdata)
+
+#end if
+
+print("\nOperation result:")
+print(result)
+
+## Save the result
+#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'deepcopy']:
+result.write("./output/spatialdata", overwrite=True)
+#else if $operation_condi.operation in ['get_extent', 'get_values', 'get_element_instances']:
+import json
+import pandas as pd
+import numpy as np
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, pd.Series):
+            return obj.tolist()
+        if isinstance(obj, pd.Index):
+            return obj.tolist()
+        if isinstance(obj, pd.DataFrame):
+            return obj.to_dict(orient='records')
+        return super(NumpyEncoder, self).default(obj)
+
+with open('./output/result.json', 'w') as f:
+    json.dump(result, f, cls=NumpyEncoder, indent=2)
+#end if
+
+print("\nOperation completed successfully!")
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="input_spatialdata" type="data" format="spatialdata.zip" label="SpatialData object"/>
+        <conditional name="operation_condi">
+            <param name="operation" type="select" label="Operation">
+                <option value="bounding_box_query">Bounding Box Query</option>
+                <option value="polygon_query">Polygon Query</option>
+                <option value="get_extent">Get Extent</option>
+                <option value="transform">Transform Element</option>
+                <option value="aggregate">Aggregate Values by Regions</option>
+                <option value="to_circles">Convert to Circles</option>
+                <option value="to_polygons">Convert to Polygons</option>
+                <option value="get_values">Get Values</option>
+                <option value="get_element_instances">Get Element Instances</option>
+                <option value="get_centroids">Get Centroids</option>
+                <option value="deepcopy">Deep Copy</option>
+            </param>
+            <when value="bounding_box_query">
+                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that min_coordinate and max_coordinate refer to (e.g., 'x,y' or 'x,y,z')">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="min_coordinate" type="text" label="Minimum coordinates" help="Comma-separated minimum coordinates along all dimensions (e.g., '0,0')">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="max_coordinate" type="text" label="Maximum coordinates" help="Comma-separated maximum coordinates along all dimensions (e.g., '100,100')">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="target_coordinate_system" type="text" value="global" label="Target coordinate system" help="The coordinate system the bounding box is defined in">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="filter_table_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter table?" help="If True, the table is filtered to only contain rows annotating regions within the bounding box"/>
+            </when>
+            <when value="polygon_query">
+                <param name="polygon_coords" type="text" label="Polygon coordinates" help="Semicolon-separated list of coordinate pairs (x,y). Example: '0,0;100,0;100,100;0,100' for a square">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="target_coordinate_system" type="text" value="global" label="Target coordinate system" help="The coordinate system of the polygon">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="filter_table_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter table?" help="Filter tables to only include tables annotating elements in the query result"/>
+                <param name="clip_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Clip shapes?" help="If True, shapes are clipped to the polygon. This behavior is implemented only when querying polygons/multipolygons or circles, and it is ignored for other types of elements (images, labels, points). Importantly, when clipping is enabled, the circles will be converted to polygons before the clipping. This may affect downstream operations that rely on the circle radius or on performance, so it is recommended to disable clipping when querying circles or when querying a SpatialData object that contains circles."/>
+            </when>
+            <when value="get_extent">
+                <param name="element_name" type="text" optional="true" label="Element name (optional)" help="Name of a specific element to get extent from. Leave empty to get extent of entire SpatialData object">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="coordinate_system" type="text" value="global" label="Coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="exact_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Compute exact extent?" help="If False, an approximation faster to compute is given"/>
+                <param name="has_images_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include images?" help="Include images in extent computation (only for SpatialData objects)"/>
+                <param name="has_labels_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include labels?" help="Include labels in extent computation (only for SpatialData objects)"/>
+                <param name="has_points_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include points?" help="Include points in extent computation (only for SpatialData objects)"/>
+                <param name="has_shapes_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Include shapes?" help="Include shapes in extent computation (only for SpatialData objects)"/>
+            </when>
+            <when value="transform">
+                <param name="element_name" type="text" label="Element name" help="Name of the element to transform">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_element_name" type="text" value="transformed_element" label="Output element name" help="Name for the transformed element">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <conditional name="maintain_positioning_condi">
+                    <param name="maintain_positioning" type="select" label="Maintain positioning?">
+                        <option value="yes">Yes - Apply transformation while maintaining positioning in existing coordinate systems</option>
+                        <option value="no" selected="true">No - Transform to a different coordinate system</option>
+                    </param>
+                    <when value="yes">
+                        <conditional name="transformation_condi">
+                            <param name="transformation_type" type="select" label="Transformation type">
+                                <option value="translation">Translation</option>
+                                <option value="scale">Scale</option>
+                                <option value="rotation">Rotation</option>
+                            </param>
+                            <when value="translation">
+                                <param name="translation" type="text" label="Translation vector" help="Comma-separated translation values (e.g., '10,20' for 2D)">
+                                    <expand macro="sanitize_digits"/>
+                                </param>
+                                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that the translation applies to (e.g., 'x,y')">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                            </when>
+                            <when value="scale">
+                                <param name="scale" type="text" label="Scale factors" help="Comma-separated scale values (e.g., '2,2' for 2D)">
+                                    <expand macro="sanitize_digits"/>
+                                </param>
+                                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that the scale applies to (e.g., 'x,y' or 'y' for single axis)">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                            </when>
+                            <when value="rotation">
+                                <param name="angle" type="float" label="Rotation angle" help="Rotation angle in degrees"/>
+                            </when>
+                        </conditional>
+                    </when>
+                    <when value="no">
+                        <param name="to_coordinate_system" type="text" value="global" label="Target coordinate system" help="The coordinate system to which the data should be transformed. Must be present in the element.">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                    </when>
+                </conditional>
+            </when>
+
+
+            <when value="aggregate">
+                <param name="values_element" type="text" label="Values element name" help="Name of the element of spatialdata containing values to aggregate">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="by_element" type="text" label="Regions element name" help="Name of the element defining regions to aggregate by">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="value_key" type="text" optional="true" label="Value key (optional)" help="Column name containing values to aggregate. Leave empty to count occurrences">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="agg_func" type="select" label="Aggregation function">
+                    <option value="sum" selected="true">Sum</option>
+                    <option value="mean">Mean</option>
+                    <option value="count">Count</option>
+                </param>
+                <param name="target_coordinate_system" type="text" value="global" label="Target coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="fractions_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Adjust for partial overlap?" help="If True, values are weighted by overlap fraction"/>
+                <param name="region_key" type="text" value="region" label="Region key" help="Name for the region column in output table">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="instance_key" type="text" value="instance_id" label="Instance key" help="Name for the instance ID column in output table">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" optional="true" label="Table name (optional)" help="Table containing the value_key">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="deepcopy_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Deep copy shapes?" help="Whether to deepcopy shapes in result"/>
+                <param name="buffer_resolution" type="integer" value="16" label="Resolution resolution" help=" A higher value results in a more accurate representation of the circle, but also in a more complex polygon and computation." />
+            </when>
+
+
+            <when value="to_circles">
+                <param name="element_name" type="text" label="Element name" help="Name of the element to convert to circles">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_element_name" type="text" label="Output element name" help="Name for the circles element">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="radius" type="float" optional="true" label="Radius (optional)" help="Radius for circles. Required for points, automatic for other elements"/>
+            </when>
+            <when value="to_polygons">
+                <param name="element_name" type="text" label="Element name" help="Name of the element to convert to polygons">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_element_name" type="text" label="Output element name" help="Name for the polygons element">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="buffer_resolution" type="integer" value="16" min="1" label="Buffer resolution" help="Resolution for converting circles to polygons"/>
+            </when>
+            <when value="get_values">
+                <param name="value_key" type="text" label="Value key" help="Column name(s) to retrieve values from">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="element_name" type="text" label="Element name" help="Name of the element">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" optional="true" label="Table name (optional)" help="Name of table containing the value_key">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_layer" type="text" optional="true" label="Table layer (optional)" help="Layer of table to get values from. If None, values from X are used">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="get_element_instances">
+                <param name="element_name" type="text" label="Element name" help="Name of the element to get instances from">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="return_background_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include background?" help="If True, background label (0) is included"/>
+            </when>
+            <when value="get_centroids">
+                <param name="element_name" type="text" label="Element name" help="Name of the element to get centroids from">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_element_name" type="text" label="Output element name" help="Name for the centroids points element">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="coordinate_system" type="text" value="global" label="Coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="return_background_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include background?" help="If True, centroid of background label (0) is included"/>
+            </when>
+            <when value="deepcopy">
+                <!-- No additional parameters -->
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="output/spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation}">
+            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'deepcopy']</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="input_spatialdata"/>
+                </action>
+            </actions>
+        </data>
+        <data name="result_json" format="json" from_work_dir="output/result.json" label="${tool.name} on ${on_string}: ${operation_condi.operation} result">
+            <filter>operation_condi['operation'] in ['get_extent', 'get_values', 'get_element_instances']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: bounding_box_query -->
+        <test>
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="bounding_box_query"/>
+                <param name="axes" value="x,y"/>
+                <param name="min_coordinate" value="0,0"/>
+                <param name="max_coordinate" value="100,100"/>
+                <param name="target_coordinate_system" value="global"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="bounding_box_query"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="0" delta="200000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: get_extent -->
+        <test>
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_extent"/>
+                <param name="coordinate_system" value="global"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_extent"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_json">
+                <assert_contents>
+                    <has_text text="min_coordinate"/>
+                    <has_text text="max_coordinate"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: deepcopy -->
+        <test>
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="deepcopy"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="deepcopy"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="0" delta="100000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool performs various operations on SpatialData objects, including:
+
+- **Bounding Box Query**: Extract data within a specified bounding box
+- **Polygon Query**: Extract data within a polygon region
+- **Get Extent**: Calculate the spatial extent (bounding box) of elements
+- **Transform**: Apply geometric transformations (translation, scale, rotation)
+- **Aggregate**: Aggregate values from one element by regions defined in another
+- **Convert to Circles**: Approximate geometries as circles
+- **Convert to Polygons**: Convert geometries to polygons
+- **Get Values**: Extract values from elements or tables
+- **Get Element Instances**: Get the instance IDs of elements
+- **Get Centroids**: Calculate centroids of geometries
+- **Deep Copy**: Create a deep copy of the SpatialData object
+
+-----
+
+**Operations**
+
+**Bounding Box Query**
+
+Extracts data within a rectangular bounding box. Specify the axes (e.g., 'x,y'), minimum coordinates, and maximum coordinates.
+
+**Polygon Query**
+
+Extracts data within a polygon region. Define the polygon by providing coordinate pairs separated by semicolons.
+
+**Get Extent**
+
+Computes the spatial extent (bounding box) of the SpatialData object or a specific element. Can compute exact or approximate extents.
+
+**Transform**
+
+Applies geometric transformations to elements. There are two modes:
+
+**Mode 1: Apply transformation with maintain_positioning=True**
+
+- Applies a geometric transformation (translation, scale, or rotation) to the data
+- The transformation is prepended to each coordinate system's transformations
+- The positioning within each coordinate system is maintained
+- Use this to change orientation/scale of data while keeping alignment
+
+**Mode 2: Transform to a different coordinate system (maintain_positioning=False, recommended)**
+
+- Transforms the data to a target coordinate system that already exists in the element
+- The data is transformed and positioning changes
+- Only the target coordinate system is kept
+- For raster data, only linear transformations are applied (rotation/scaling), not translations
+
+Transformation types:
+- **Translation**: shifts data by specified amounts along specified axes
+- **Scale**: resizes data by specified factors along specified axes
+- **Rotation**: rotates data by a specified angle (in degrees) in the x-y plane
+
+**Aggregate**
+
+Aggregates values from one element based on regions defined in another element. Useful for computing statistics like total transcript counts per cell.
+
+**Convert to Circles/Polygons**
+
+Converts geometries to approximate circles or polygons, useful for standardizing shape representations.
+
+**Get Values**
+
+Extracts column values from elements or associated tables, returning them as a structured result.
+
+**Get Centroids**
+
+Computes the centroids (center points) of geometries, returning them as a new points element.
+
+-----
+
+**Inputs and Outputs**
+
+Most operations take a SpatialData object as input and produce either:
+- A modified SpatialData object (saved as .spatialdata.zip)
+- A JSON file with results (for operations like get_extent, get_values)
+
+-----
+
+**More Information**
+
+- `SpatialData documentation <https://spatialdata.scverse.org/>`__
+- `SpatialData operations API <https://spatialdata.scverse.org/en/stable/api.html>`__
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>
