@@ -5,20 +5,24 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-        ### manually unzip zipped input file
-    #if $sig.subcommand == "grep":
-        mkdir -p sig_tmp &&
-        #set has_zip = False
-        #for $file in $sig.input_files:
-            #if $file.ext == "zip":
-                #set has_zip = True
-                unzip -q '$file' -d sig_tmp
-            #end if
-        #end for
+    #if $sig.subcommand == "cat":
+        @Picklist_copy_file@
+    #end if
 
-        #if $has_zip:
-            &&
+    ### manually unzip zipped input file
+    #if $sig.subcommand == "grep":
+    mkdir -p sig_tmp &&
+    #set has_zip = False
+    #for $file in $sig.input_files:
+        #if $file.ext == "zip":
+            #set has_zip = True
+            unzip -q '$file' -d sig_tmp
         #end if
+    #end for
+
+    #if $has_zip:
+        &&
+    #end if
     
     #else if $sig.subcommand == "manifest":
         #set has_zip = False
@@ -37,6 +41,7 @@
             > describe.txt
         #else if $sig.subcommand == "cat": 
             @list_inputs@
+            @Picklist_commandline@
             -o all.sig.zip
         #else if $sig.subcommand == "grep": 
             grep
@@ -113,6 +118,19 @@
         #else if $sig.subcommand == "overlap":
             @list_inputs@
             > overlap.txt
+        #else if $sig.subcommand == "kmers":
+            $sig.subcommand
+            --signatures
+            #for $s in $sig.signatures:
+                $s
+            #end for
+            --sequences
+            #for $s in $sig.sequences:
+                $s
+            #end for
+            $sig.translate
+            --save-sequences matches.fasta
+            --save-kmers kmer-matches.csv
         #else if $sig.subcommand == "manifest":
         manifest
         #if $has_zip:
@@ -147,15 +165,16 @@
                 <option value="import">import</option>
                 <option value="export">export</option>
                 <option value="overlap">overlap</option>
+                <option value="kmers">kmers</option>
                 <option value="manifest">manisfest</option>
                 <option value="check">check</option>
-                <option value="collect">collect</option>
             </param>
             <when value="describe">
                 <expand macro="single_signature"/>
             </when>
             <when value="cat">
                 <expand macro="multiple_signatures"/>
+                <expand macro="picklist_macro"/>
             </when>
             <when value="grep">
                 <param name="input_files" type="data" format="json,zip" multiple="true" label="Input files" help="Signature files to search against. Accepts individual signature files or compressed archives containing multiple signatures."/>
@@ -231,14 +250,17 @@
             <when value="overlap">
                 <expand macro="multiple_signatures"/>
             </when>
+            <when value="kmers">
+                <expand macro="multiple_signatures"/>
+                <param name="sequences" type="data" format="fasta,fastq" multiple="true" label="Sequences Files" help="Input sequences to search for matching kmers. can be in FASTA or FASTQ format, and either flat text or compressed"/>
+                <param name="translate" type="boolean" truevalue="--translate" falsevalue="" checked="false" label="Translate DNA to Protein" help="If the sketches are protein sketches and the input sequences are DNA, this option enables automatic translation of the DNA sequences into protein before matching."/>
+            </when>
             <when value="manifest">
-                <param name="input" type="data" format="json,zip" label="Input file" help="signature, database, or a zipped collection of signatures."/>
+                <param name="input" type="data" format="json,zip" label="Input File" help="Signature, database, or a zipped collection of signatures."/>
             </when>
             <when value="check">
                 <expand macro="multiple_signatures"/>
                 <param name="list" type="data" format="csv" label="Picklist" help="A list against which the input signature is compared, with matching entries saved to a manifest file."/>
-            </when>
-            <when value="collect">
             </when>
         </conditional>
     </inputs>
@@ -286,17 +308,18 @@
         <data name="overlap" from_work_dir="overlap.txt" format="txt" label="${tool.name} on ${on_string}: Overlap">
             <filter>sig['subcommand'] == 'overlap'</filter>
         </data>
+        <data name="sequences_matched" from_work_dir="matches.fasta" format="fasta" label="${tool.name} on ${on_string}: Matched Sequences">
+            <filter>sig['subcommand'] == 'kmers'</filter>
+        </data>
+        <data name="kmer_matches" from_work_dir="kmer-matches.csv" format="csv" label="${tool.name} on ${on_string}: Kmer Matches">
+            <filter>sig['subcommand'] == 'kmers'</filter>
+        </data>
         <data name="manifest" from_work_dir="manifest.csv" format="csv" label="${tool.name} on ${on_string}: Manifest">
             <filter>sig['subcommand'] == 'manifest'</filter>
         </data>
         <data name="check" from_work_dir="matches.csv" format="csv" label="${tool.name} on ${on_string}: Matches">
             <filter>sig['subcommand'] == 'check'</filter>
         </data>
-        <!-- 
-        <data name="collect" from_work_dir="mf.csv" format="csv" label="${tool.name} on ${on_string}: Collect manifests">
-            <filter>sig['subcommand'] == 'collect'</filter>
-        </data>
-        -->
     </outputs>
     <tests>
     <!-- 1) describe -->
@@ -592,6 +615,27 @@
             <has_text text="Kfor given picklist, found 3 matches to 4 distinct values"/>
         </assert_stderr>
     </test>
+    <!-- 19) kmer -->
+    <test expect_num_outputs="2">
+        <conditional name="sig">
+            <param name="subcommand" value="kmers"/>
+            <param name="signatures" value="short.sig"/>
+            <param name="sequences" value="short.fa"/>
+        </conditional>
+        <output name="sequences_matched" ftype="fasta">
+            <assert_contents>
+                <has_text text="TCTGATCTCGGATAAACAAGC"/>
+            </assert_contents>
+        </output>
+        <output name="kmer_matches" ftype="csv">
+            <assert_contents>
+                <has_n_lines n="971"/>
+            </assert_contents>
+        </output>
+        <assert_stderr>
+            <has_text text="found 970 distinct matching hashes (97.2%)"/>
+        </assert_stderr>
+    </test>
     </tests>
     <help><![CDATA[
         **Sourmash Signature**
@@ -659,6 +703,10 @@
                 - Description: Display a detailed comparison of two signatures.
                 - Input: Two signature files
                 - Output: Text file output containing the comparisopn details
+            - **kmers**: 
+                - Description: Given one or more compatible sketches and some sequence files, extract the k-mers and/or sequences corresponding to the hash values in the sketch.
+                - Input: Signature file/s and sequences in FASTA/FASTQ format.
+                - Output: A file containing the mathced FASTA sequences and a file providing the kmer matches.
             - **manifest**: 
                 - Description: Creates a CSV file, in the internal sourmash manifest format. The manifest will contain an entry for every signature in the file, database, or collection. This format is largely meant for internal use, but it can serve as a picklist pickfile for subsetting large collections.
                 - Input: A single file that is either a ZIP containing multiple signatures or a single signature file with multiple signatures inside.
