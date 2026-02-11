@@ -1,0 +1,215 @@
+<tool id="deacon_filter" name="Deacon Filter" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>remove contaminant reads</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code">
+        <![CDATA[
+
+            #import re
+
+            #if $index_type.is_select == "own"
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($index_type.index_file.element_identifier))
+                ln -s '$index_type.index_file' "${identifier}.deacon.idx" &&
+            #end if
+
+            #if $fastx_input.is_select == "single"
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($fastx_input.single_file.element_identifier))
+                ln -s '$fastx_input.single_file' "${identifier}.${fastx_input.single_file.ext}" &&
+            #else
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($fastx_input.pair.forward.element_identifier))
+                ln -s '$fastx_input.pair.forward' "${identifier}.${fastx_input.pair.forward.ext}" &&
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($fastx_input.pair.reverse.element_identifier))
+                ln -s '$fastx_input.pair.reverse' "${identifier}.${fastx_input.pair.reverse.ext}" &&
+            #end if
+
+            deacon filter
+            #if $index_type.is_select == "own"
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($index_type.index_file.element_identifier))
+                "${identifier}.deacon.idx"
+            #else
+                '$index_type.from_dm.fields.path'
+            #end if
+            #if $fastx_input.is_select == "single"
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($fastx_input.single_file.element_identifier))
+                "${identifier}.${fastx_input.single_file.ext}"
+                -o 'output_single.${fastx_input.single_file.ext}'
+            #else
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($fastx_input.pair.forward.element_identifier))
+                "${identifier}.${fastx_input.pair.forward.ext}"
+                -o 'output_forward.${fastx_input.pair.forward.ext}'
+                #set $identifier = re.sub("[^\s\w\-]", "_", str($fastx_input.pair.reverse.element_identifier))
+                "${identifier}.${fastx_input.pair.reverse.ext}"
+                -O 'output_reverse.${fastx_input.pair.reverse.ext}'
+            #end if
+            -a ${abs_threshold}
+            -r ${rel_threshold}
+            -p ${prefix_length}
+            $deplete
+            $rename
+            $summary
+            -t "\${GALAXY_SLOTS:-8}"
+
+            &&
+
+            #if $fastx_input.is_select == "single"
+                mv 'output_single.${fastx_input.single_file.ext}' '$file_single'
+            #else
+                mv 'output_forward.${fastx_input.pair.forward.ext}' '$pair_out.forward' &&
+                mv 'output_reverse.${fastx_input.pair.reverse.ext}' '$pair_out.reverse'
+            #end if
+
+        ]]>
+    </command>
+    <inputs>
+        <conditional name="index_type">
+            <param name="is_select" type="select" label="Select if index file will be used from DM or own index file">
+                <option value="own">Use own index file</option>
+                <option value="dm">Use index file from DM</option>
+            </param>
+            <when value="own">
+                <param name="index_file" type="data" format="deacon.idx" label="Input own index file"/>
+            </when>
+            <when value="dm">
+                <expand macro="dm_ref"/>
+            </when>
+        </conditional>
+        <conditional name="fastx_input">
+            <param name="is_select" type="select" label="Single or paired input">
+                <option value="single">Single input</option>
+                <option value="paired">Paired with 2 single files</option>
+            </param>
+            <when value="single">
+                <param name="single_file" type="data" format="fasta,fastqsanger,fastqillumina,fasta.gz,fastqsanger.gz,fastqillumina.gz" label="Input file to be filtered"/>
+            </when>
+            <when value="paired">
+                <param name="pair" type="data_collection" collection_type="paired" format="fasta,fastqsanger,fastqillumina,fasta.gz,fastqsanger.gz,fastqillumina.gz" label="Input first file here from pair"/>
+            </when>
+        </conditional>
+        <param argument="--abs-threshold" type="integer" min="0" max="65535" value="2" label="Set absolute number threshold" help="Minimum absolute number of minimizer hits for a match"/>
+        <param argument="--rel-threshold" type="float" min="0.0" value="0.01" max="1.0" label="Set relative proportion threshold" help="Minimum relative proportion of minimizer hits for a match"/>
+        <param argument="--prefix-length" type="integer" value="0" label="Set prefix length" help=" Search only the first N nucleotides per sequence (0 = entire sequence)"/>
+        <param argument="--deplete" type="boolean" falsevalue="" truevalue="--deplete" checked="false" label="Invert filtering" help="The output will contained the non-matching sequences instead of the matching sequences when this flag is set"/>
+        <param argument="--rename" type="boolean" falsevalue="" truevalue="--rename" checked="false" label="Rename headers" help="Replace sequence headers with incrementing numbers"/>
+        <param argument="--summary" type="boolean" falsevalue="" truevalue="--summary '$json'" checked="false" label="Output a JSON summary file"/>
+        </inputs>
+    <outputs>
+        <data name="json" format="json" label="${tool.name} on ${on_string}: JSON summary file">
+            <filter>summary</filter>
+        </data>
+        <data name="file_single" format_source="single_file" label="${tool.name} on ${on_string}: Single file">
+            <filter>fastx_input['is_select'] == "single"</filter>
+        </data>
+        <collection name="pair_out" type="paired" format_source="pair" label="${tool.name} on ${on_string}: Paired output">
+            <filter>fastx_input['is_select'] == "paired"</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <conditional name="index_type">
+                <param name="is_select" value="own"/>
+                <param name="index_file" value="A1.deacon.idx" ftype="deacon.idx"/>
+            </conditional>
+            <conditional name="fastx_input">
+                <param name="is_select" value="single"/>
+                <param name="single_file" value="A1_forward.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <output name="file_single" file="filter_single.fasta.gz" ftype="fasta.gz" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="index_type">
+                <param name="is_select" value="dm"/>
+                <param name="from_dm" value="test_index"/>
+            </conditional>
+            <conditional name="fastx_input">
+                <param name="is_select" value="single"/>
+                <param name="single_file" value="A1_forward.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <output name="file_single" file="filter_single.fasta.gz" ftype="fasta.gz" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="index_type">
+                <param name="is_select" value="own"/>
+                <param name="index_file" value="A1.deacon.idx" ftype="deacon.idx"/>
+            </conditional>
+            <conditional name="fastx_input">
+                <param name="is_select" value="single"/>
+                <param name="single_file" value="A1_forward.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="deplete" value="true"/>
+            <output name="file_single" file="filter_single_inverted.fasta.gz" ftype="fasta.gz" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="index_type">
+                <param name="is_select" value="own"/>
+                <param name="index_file" value="A1.deacon.idx" ftype="deacon.idx"/>
+            </conditional>
+            <conditional name="fastx_input">
+                <param name="is_select" value="single"/>
+                <param name="single_file" value="A1_forward.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="rename" value="true"/>
+            <output name="file_single" file="filter_single_rename.fasta.gz" ftype="fasta.gz" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="index_type">
+                <param name="is_select" value="own"/>
+                <param name="index_file" value="A1.deacon.idx" ftype="deacon.idx"/>
+            </conditional>
+            <conditional name="fastx_input">
+                <param name="is_select" value="single"/>
+                <param name="single_file" value="A1_forward.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="summary" value="true"/>
+            <param name="abs_threshold" value="5"/>
+            <param name="rel_threshold" value="0.5"/>
+            <param name="prefix_length" value="3"/>
+            <param name="compression_level" value="8"/>
+            <output name="file_single" file="filter_single_setting.fasta.gz" ftype="fasta.gz" compare="sim_size"/>
+            <output name="json" file="test.json" ftype="json" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="index_type">
+                <param name="is_select" value="own"/>
+                <param name="index_file" value="test_fastq_gz.deacon.idx" ftype="deacon.idx"/>
+            </conditional>
+            <conditional name="fastx_input">
+                <param name="is_select" value="paired"/>
+                <param name="pair">
+                    <collection type="paired">
+                        <element name="forward" value="A1_forward.fastqsanger.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="A1_reverse.fastqsanger.gz" ftype="fastqsanger.gz" />
+                    </collection>
+                </param>
+            </conditional>
+            <param name="rename" value="true"/>
+            <output_collection name="pair_out" type="paired" count="2">
+                <element name="forward" value="filter_pair_first.fastq.gz" ftype="fastqsanger.gz" compare="sim_size"/>
+                <element name="reverse" value="filter_pair_second.fastq.gz" ftype="fastqsanger.gz" compare="sim_size"/>
+            </output_collection>
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+        
+            **WHAT DOES THIS TOOL**
+
+            This tool filter out sequence data from fasta/fastq file base on the given index file
+
+            **Input**
+
+            - Index file which is used as base to filter out all sequences not contain in this file (Own file or a file from DM can be used)
+            - A fasta/fastq file (gzip supported)
+            - Optional: A second fasta/fastq file when paired input is chosen 
+            
+            **Output**
+
+            - A fasta/fastq file (gzip or not depend on the input) where matching sequences are stored. NOTE: when deplete option is used then this file contained all non-matching sequences
+            - Optional: When paired input is chosen then there will be a second fasta/fastq output
+            - Optional: A summary file in JSON format            
+        
+        ]]>
+    </help>
+    <expand macro="citation"/>
+</tool>
