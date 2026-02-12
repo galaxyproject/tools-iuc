@@ -1,0 +1,169 @@
+<tool id="alphagenome_ism_scanner" name="AlphaGenome ISM Scanner" version="0.1.0" profile="23.0">
+    <description>In-silico saturation mutagenesis</description>
+
+    <requirements>
+        <requirement type="package" version="0.5.1">alphagenome</requirement>
+        <requirement type="package" version="0.30.24">cyvcf2</requirement>
+        <credentials name="alphagenome" version="1.0"
+                     label="AlphaGenome API"
+                     description="API key from Google DeepMind AlphaGenome">
+            <secret name="api_key" inject_as_env="ALPHAGENOME_API_KEY"
+                    label="API Key" description="Your AlphaGenome API key" />
+        </credentials>
+    </requirements>
+
+    <version_command>python '$__tool_directory__/alphagenome_ism_scanner.py' --version</version_command>
+
+    <command detect_errors="exit_code"><![CDATA[
+        python '$__tool_directory__/alphagenome_ism_scanner.py'
+            --input '$input_bed'
+            --output '$output_tsv'
+            --organism '$organism'
+            --scorers
+            #for $scorer in $scorers
+                '$scorer'
+            #end for
+            --sequence-length '$sequence_length'
+            --max-regions $max_regions
+            --max-region-width $max_region_width
+            --max-workers $max_workers
+            #if $verbose
+                --verbose
+            #end if
+    ]]></command>
+
+    <inputs>
+        <param name="input_bed" type="data" format="bed" label="Input BED file"
+               help="Genomic regions to scan with saturation mutagenesis"/>
+
+        <param name="organism" type="select" label="Organism">
+            <option value="human" selected="true">Human (hg38)</option>
+            <option value="mouse">Mouse (mm10)</option>
+        </param>
+
+        <param name="scorers" type="select" multiple="true" display="checkboxes"
+               label="Variant scorers">
+            <option value="RNA_SEQ" selected="true">RNA-seq expression</option>
+            <option value="RNA_SEQ_ACTIVE">RNA-seq active</option>
+            <option value="ATAC" selected="true">ATAC-seq chromatin</option>
+            <option value="ATAC_ACTIVE">ATAC-seq active</option>
+            <option value="DNASE">DNase-seq chromatin</option>
+            <option value="DNASE_ACTIVE">DNase-seq active</option>
+            <option value="CAGE">CAGE transcription</option>
+            <option value="CAGE_ACTIVE">CAGE active</option>
+            <option value="PROCAP">PRO-cap transcription</option>
+            <option value="PROCAP_ACTIVE">PRO-cap active</option>
+            <option value="CHIP_TF">ChIP-seq TF binding</option>
+            <option value="CHIP_TF_ACTIVE">ChIP-seq TF active</option>
+            <option value="CHIP_HISTONE">ChIP-seq histone marks</option>
+            <option value="CHIP_HISTONE_ACTIVE">ChIP-seq histone active</option>
+            <option value="SPLICE_SITES">Splice sites</option>
+            <option value="SPLICE_SITE_USAGE">Splice site usage</option>
+            <option value="SPLICE_JUNCTIONS">Splice junctions</option>
+            <option value="CONTACT_MAPS">Contact maps</option>
+            <option value="POLYADENYLATION">Polyadenylation</option>
+            <validator type="no_options" message="Select at least one scorer"/>
+        </param>
+
+        <param name="sequence_length" type="select" label="Prediction window size">
+            <option value="16KB">16 KB</option>
+            <option value="128KB">128 KB</option>
+            <option value="512KB">512 KB</option>
+            <option value="1MB" selected="true">1 MB</option>
+        </param>
+
+        <param name="max_regions" type="integer" value="10" min="1" max="100"
+               label="Maximum regions to scan"
+               help="Each region generates 3 x width mutations; start small"/>
+
+        <param name="max_region_width" type="integer" value="200" min="1" max="1000"
+               label="Maximum region width (bp)"
+               help="Regions wider than this are trimmed to center. 200bp = 600 mutations per region."/>
+
+        <param name="max_workers" type="integer" value="5" min="1" max="20"
+               label="Parallel workers"
+               help="Number of parallel API workers for ISM chunks"/>
+
+        <param name="verbose" type="boolean" checked="false" truevalue="true" falsevalue="false"
+               label="Verbose logging"/>
+    </inputs>
+
+    <outputs>
+        <data name="output_tsv" format="tabular" label="${tool.name} on ${on_string}: ISM Scores"/>
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_bed" value="test_regions.bed"/>
+            <param name="organism" value="human"/>
+            <param name="scorers" value="RNA_SEQ"/>
+            <param name="sequence_length" value="16KB"/>
+            <param name="max_regions" value="1"/>
+            <param name="max_region_width" value="10"/>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="region"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**AlphaGenome ISM Scanner**
+
+Performs in-silico saturation mutagenesis (ISM) using AlphaGenome's
+``score_ism_variants()`` API. Every position in each input region is
+systematically mutated to all 3 alternative bases and scored, replacing
+expensive wet-lab saturation mutagenesis experiments.
+
+-----
+
+**What it does**
+
+For each region in the input BED file:
+
+1. Creates a prediction window encompassing the region
+2. Calls ``score_ism_variants()`` which auto-splits regions >10bp into chunks
+3. Scores all possible single-base substitutions (3 per position)
+4. Converts results to tabular format using ``tidy_scores()``
+
+-----
+
+**Output columns**
+
+- ``region`` — region name from BED
+- ``position`` — genomic position of the mutation
+- ``mutation_index`` — index of the alternate base (0-2)
+- ``gene_id`` — Ensembl gene ID
+- ``gene_name`` — gene symbol
+- ``output_type`` — RNA_SEQ, ATAC, etc.
+- ``variant_scorer`` — scorer name
+- ``track_name`` — specific track
+- ``raw_score`` — raw effect score
+- ``quantile_score`` — empirical quantile (0-1)
+
+-----
+
+**Compute cost**
+
+Each region generates **3 x width** API calls. A 200bp region = 600 mutations.
+Start with small regions and few scorers to verify results before scaling up.
+
+- 10bp region: 30 mutations (fast)
+- 100bp region: 300 mutations
+- 200bp region: 600 mutations (default limit)
+- 1000bp region: 3000 mutations (maximum, use with caution)
+
+-----
+
+**Citation**
+
+Avsec et al. (2025). "Predicting the impact of genetic variants on chromatin,
+genes, and RNA processing with a unified model." *Nature*.
+DOI: 10.1038/s41586-025-10014-0
+    ]]></help>
+
+    <citations>
+        <citation type="doi">10.1038/s41586-025-10014-0</citation>
+    </citations>
+</tool>

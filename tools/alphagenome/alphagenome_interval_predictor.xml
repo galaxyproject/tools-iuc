@@ -1,0 +1,182 @@
+<tool id="alphagenome_interval_predictor" name="AlphaGenome Interval Predictor" version="0.1.0" profile="23.0">
+    <description>Predict regulatory tracks for genomic intervals</description>
+
+    <requirements>
+        <requirement type="package" version="0.5.1">alphagenome</requirement>
+        <credentials name="alphagenome" version="1.0"
+                     label="AlphaGenome API"
+                     description="API key from Google DeepMind AlphaGenome">
+            <secret name="api_key" inject_as_env="ALPHAGENOME_API_KEY"
+                    label="API Key" description="Your AlphaGenome API key" />
+        </credentials>
+    </requirements>
+
+    <version_command>python '$__tool_directory__/alphagenome_interval_predictor.py' --version</version_command>
+
+    <command detect_errors="exit_code"><![CDATA[
+        python '$__tool_directory__/alphagenome_interval_predictor.py'
+            --input '$input_bed'
+            --output '$output_tsv'
+            --organism '$organism'
+            --output-types
+            #for $otype in $output_types
+                '$otype'
+            #end for
+            --sequence-length '$sequence_length'
+            --max-intervals $max_intervals
+            --output-mode '$output_mode.mode'
+            #if str($output_mode.mode) == "binned"
+                --bin-size $output_mode.bin_size
+            #end if
+            #if str($ontology_terms).strip()
+                --ontology-terms '$ontology_terms'
+            #end if
+            #if $verbose
+                --verbose
+            #end if
+    ]]></command>
+
+    <inputs>
+        <param name="input_bed" type="data" format="bed" label="Input BED file"
+               help="Genomic intervals to predict regulatory tracks for"/>
+
+        <param name="organism" type="select" label="Organism">
+            <option value="human" selected="true">Human (hg38)</option>
+            <option value="mouse">Mouse (mm10)</option>
+        </param>
+
+        <param name="output_types" type="select" multiple="true" display="checkboxes"
+               label="Output types to predict">
+            <option value="RNA_SEQ" selected="true">RNA-seq</option>
+            <option value="ATAC">ATAC-seq</option>
+            <option value="CAGE">CAGE</option>
+            <option value="DNASE">DNase</option>
+            <option value="CHIP_HISTONE">ChIP-seq histone</option>
+            <option value="CHIP_TF">ChIP-seq TF</option>
+            <option value="SPLICE_SITES">Splice sites</option>
+            <option value="PROCAP">PRO-cap</option>
+            <validator type="no_options" message="Select at least one output type"/>
+        </param>
+
+        <param name="ontology_terms" type="text" value="" label="Ontology terms (optional)"
+               help="Comma-separated UBERON/CL terms for tissue context, e.g. UBERON:0002107,CL:0000746"/>
+
+        <param name="sequence_length" type="select" label="Prediction window size">
+            <option value="16KB">16 KB</option>
+            <option value="128KB">128 KB</option>
+            <option value="512KB">512 KB</option>
+            <option value="1MB" selected="true">1 MB</option>
+        </param>
+
+        <param name="max_intervals" type="integer" value="50" min="1" max="1000"
+               label="Maximum intervals to process"
+               help="API is rate-limited; start small to verify results"/>
+
+        <conditional name="output_mode">
+            <param name="mode" type="select" label="Output mode">
+                <option value="summary" selected="true">Summary (one row per interval x track)</option>
+                <option value="binned">Binned (spatial resolution within intervals)</option>
+            </param>
+            <when value="summary"/>
+            <when value="binned">
+                <param name="bin_size" type="integer" value="128" min="1" max="4096"
+                       label="Bin size (bp)"
+                       help="Divide each interval into bins of this width for spatial resolution"/>
+            </when>
+        </conditional>
+
+        <param name="verbose" type="boolean" checked="false" truevalue="true" falsevalue="false"
+               label="Verbose logging"/>
+    </inputs>
+
+    <outputs>
+        <data name="output_tsv" format="tabular" label="${tool.name} on ${on_string}: Predictions"/>
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_bed" value="test_intervals.bed"/>
+            <param name="organism" value="human"/>
+            <param name="output_types" value="RNA_SEQ"/>
+            <param name="sequence_length" value="16KB"/>
+            <param name="max_intervals" value="3"/>
+            <conditional name="output_mode">
+                <param name="mode" value="summary"/>
+            </conditional>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="chrom"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**AlphaGenome Interval Predictor**
+
+Predicts regulatory tracks for genomic intervals using AlphaGenome's
+``predict_interval()`` API. No variants — just baseline characterization
+of the chromatin, expression, and splicing landscape at each region.
+
+-----
+
+**What it does**
+
+For each interval in the input BED file:
+
+1. Creates a prediction window centered on the interval
+2. Calls ``predict_interval()`` for selected output types
+3. Computes summary statistics (mean, max) over the original BED region
+4. Reports per-track values in tabular format
+
+-----
+
+**Output modes**
+
+- **Summary** (default): One row per interval x track with mean and max signal.
+  Compact output good for screening many regions.
+- **Binned**: Divides each interval into fixed-width bins (default 128bp) and
+  reports mean signal per bin. Provides spatial resolution for visualizing
+  signal patterns across a region.
+
+-----
+
+**Output columns — summary mode**
+
+- ``chrom``, ``start``, ``end`` — interval coordinates
+- ``name`` — region name from BED
+- ``output_type`` — RNA_SEQ, ATAC, etc.
+- ``track_name`` — specific experimental track
+- ``ontology_curie`` — tissue/cell type ontology term
+- ``mean_signal`` — mean predicted signal across the region
+- ``max_signal`` — maximum predicted signal in the region
+
+**Output columns — binned mode**
+
+- ``chrom``, ``bin_start``, ``bin_end`` — bin coordinates
+- ``region_name`` — original region name
+- ``output_type``, ``track_name``, ``ontology_curie`` — as above
+- ``mean_signal`` — mean predicted signal in the bin
+
+-----
+
+**Use cases**
+
+- Characterize regulatory activity at GWAS loci
+- Compare predicted chromatin landscapes between regions
+- Identify active promoters, enhancers, or splice sites
+- Generate baseline predictions for regions of interest
+
+-----
+
+**Citation**
+
+Avsec et al. (2025). "Predicting the impact of genetic variants on chromatin,
+genes, and RNA processing with a unified model." *Nature*.
+DOI: 10.1038/s41586-025-10014-0
+    ]]></help>
+
+    <citations>
+        <citation type="doi">10.1038/s41586-025-10014-0</citation>
+    </citations>
+</tool>

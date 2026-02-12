@@ -1,0 +1,163 @@
+<tool id="alphagenome_variant_scorer" name="AlphaGenome Variant Scorer" version="0.1.0" profile="23.0">
+    <description>Gene-level variant scoring with quantile normalization</description>
+
+    <requirements>
+        <requirement type="package" version="0.5.1">alphagenome</requirement>
+        <requirement type="package" version="0.30.24">cyvcf2</requirement>
+        <credentials name="alphagenome" version="1.0"
+                     label="AlphaGenome API"
+                     description="API key from Google DeepMind AlphaGenome">
+            <secret name="api_key" inject_as_env="ALPHAGENOME_API_KEY"
+                    label="API Key" description="Your AlphaGenome API key" />
+        </credentials>
+    </requirements>
+
+    <version_command>python '$__tool_directory__/alphagenome_variant_scorer.py' --version</version_command>
+
+    <command detect_errors="exit_code"><![CDATA[
+        python '$__tool_directory__/alphagenome_variant_scorer.py'
+            --input '$input_vcf'
+            --output '$output_tsv'
+            --organism '$organism'
+            --scorers
+            #for $scorer in $scorers
+                '$scorer'
+            #end for
+            --sequence-length '$sequence_length'
+            --max-variants $max_variants
+            #if $verbose
+                --verbose
+            #end if
+    ]]></command>
+
+    <inputs>
+        <param name="input_vcf" type="data" format="vcf" label="Input VCF file"
+               help="VCF file containing variants to score"/>
+
+        <param name="organism" type="select" label="Organism">
+            <option value="human" selected="true">Human (hg38)</option>
+            <option value="mouse">Mouse (mm10)</option>
+        </param>
+
+        <param name="scorers" type="select" multiple="true" display="checkboxes"
+               label="Variant scorers">
+            <option value="RNA_SEQ" selected="true">RNA-seq expression</option>
+            <option value="RNA_SEQ_ACTIVE">RNA-seq active</option>
+            <option value="ATAC" selected="true">ATAC-seq chromatin</option>
+            <option value="ATAC_ACTIVE">ATAC-seq active</option>
+            <option value="DNASE">DNase-seq chromatin</option>
+            <option value="DNASE_ACTIVE">DNase-seq active</option>
+            <option value="CAGE">CAGE transcription</option>
+            <option value="CAGE_ACTIVE">CAGE active</option>
+            <option value="PROCAP">PRO-cap transcription</option>
+            <option value="PROCAP_ACTIVE">PRO-cap active</option>
+            <option value="CHIP_TF">ChIP-seq TF binding</option>
+            <option value="CHIP_TF_ACTIVE">ChIP-seq TF active</option>
+            <option value="CHIP_HISTONE">ChIP-seq histone marks</option>
+            <option value="CHIP_HISTONE_ACTIVE">ChIP-seq histone active</option>
+            <option value="SPLICE_SITES" selected="true">Splice sites</option>
+            <option value="SPLICE_SITE_USAGE">Splice site usage</option>
+            <option value="SPLICE_JUNCTIONS">Splice junctions</option>
+            <option value="CONTACT_MAPS">Contact maps</option>
+            <option value="POLYADENYLATION">Polyadenylation</option>
+            <validator type="no_options" message="Select at least one scorer"/>
+        </param>
+
+        <param name="sequence_length" type="select" label="Prediction window size">
+            <option value="16KB">16 KB</option>
+            <option value="128KB">128 KB</option>
+            <option value="512KB">512 KB</option>
+            <option value="1MB" selected="true">1 MB</option>
+        </param>
+
+        <param name="max_variants" type="integer" value="100" min="1" max="10000"
+               label="Maximum variants to process"
+               help="API is rate-limited; start small to verify results"/>
+
+        <param name="verbose" type="boolean" checked="false" truevalue="true" falsevalue="false"
+               label="Verbose logging"/>
+    </inputs>
+
+    <outputs>
+        <data name="output_tsv" format="tabular" label="${tool.name} on ${on_string}: Scores"/>
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_vcf" value="test_input.vcf"/>
+            <param name="organism" value="human"/>
+            <param name="scorers" value="RNA_SEQ"/>
+            <param name="sequence_length" value="16KB"/>
+            <param name="max_variants" value="3"/>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="variant_id"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**AlphaGenome Variant Scorer**
+
+Scores genetic variants using AlphaGenome's ``score_variant()`` API, which
+performs server-side gene-level aggregation with spatial masking and empirical
+quantile normalization. Returns structured per-gene, per-track scores.
+
+-----
+
+**What it does**
+
+For each variant the tool:
+
+1. Creates a prediction window centered on the variant
+2. Calls ``score_variant()`` with selected scorers from ``RECOMMENDED_VARIANT_SCORERS``
+3. Converts structured AnnData results to tabular format using ``tidy_scores()``
+4. Outputs one row per variant x gene x track x scorer combination
+
+This differs from the Variant Effect tool which uses ``predict_variant()`` with
+manual max-abs-LFC scoring. ``score_variant()`` provides proper gene-level
+aggregation, quantile normalization, and richer annotation.
+
+-----
+
+**Output columns**
+
+- ``variant_id`` — chr:pos:ref>alt
+- ``scored_interval`` — genomic interval used for scoring
+- ``gene_id`` — Ensembl gene ID
+- ``gene_name`` — gene symbol
+- ``gene_type`` — protein_coding, lncRNA, etc.
+- ``gene_strand`` — +/-
+- ``output_type`` — RNA_SEQ, ATAC, etc.
+- ``variant_scorer`` — scorer name
+- ``track_name`` — specific track
+- ``raw_score`` — raw effect score
+- ``quantile_score`` — empirical quantile (0-1)
+
+Plus optional metadata columns (ontology_curie, gtex_tissue, biosample_name, etc.)
+
+-----
+
+**Scorer categories**
+
+- **Expression**: RNA_SEQ, RNA_SEQ_ACTIVE
+- **Chromatin**: ATAC, DNASE, ATAC_ACTIVE, DNASE_ACTIVE
+- **Transcription**: CAGE, PROCAP, CAGE_ACTIVE, PROCAP_ACTIVE
+- **TF/Histone**: CHIP_TF, CHIP_HISTONE, CHIP_TF_ACTIVE, CHIP_HISTONE_ACTIVE
+- **Splicing**: SPLICE_SITES, SPLICE_SITE_USAGE, SPLICE_JUNCTIONS
+- **Other**: CONTACT_MAPS, POLYADENYLATION
+
+-----
+
+**Citation**
+
+Avsec et al. (2025). "Predicting the impact of genetic variants on chromatin,
+genes, and RNA processing with a unified model." *Nature*.
+DOI: 10.1038/s41586-025-10014-0
+    ]]></help>
+
+    <citations>
+        <citation type="doi">10.1038/s41586-025-10014-0</citation>
+    </citations>
+</tool>
