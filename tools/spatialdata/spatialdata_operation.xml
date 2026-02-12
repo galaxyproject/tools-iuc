@@ -14,7 +14,16 @@
     <configfiles>
         <configfile name="spdata_operation_config" filename="spdata_operation.py">
 import spatialdata as sd
-from spatialdata import bounding_box_query, polygon_query, get_extent, transform, aggregate, to_circles, to_polygons, get_values, get_element_instances, get_centroids
+from spatialdata import (
+    bounding_box_query, polygon_query, get_extent, transform, aggregate,
+    to_circles, to_polygons, get_values, get_element_instances, get_centroids,
+    join_spatialelement_table, match_element_to_table, match_table_to_element,
+    match_sdata_to_table, filter_by_table_query, concatenate,
+    rasterize, rasterize_bins, rasterize_bins_link_table_to_labels,
+    map_raster, unpad_raster, relabel_sequential, are_extents_equal,
+    get_pyramid_levels, sanitize_name, sanitize_table
+)
+import narwhals as an
 
 ## Load the SpatialData object
 sdata = sd.read_zarr("./input/spatialdata")
@@ -196,15 +205,247 @@ result_element = get_centroids(
 sdata['$operation_condi.output_element_name'] = result_element
 result = sdata
 
+#else if $operation_condi.operation == 'join_spatialelement_table':
+## Join SpatialElement and table
+    #set element_names_list = [str(x.strip()) for x in str($operation_condi.spatial_element_names).split(',')]
+elements_dict, result_table = join_spatialelement_table(
+    sdata=sdata,
+    spatial_element_names=$element_names_list,
+    table_name='$operation_condi.table_name',
+    how='$operation_condi.how',
+    match_rows='$operation_condi.match_rows'
+)
+## Update sdata with filtered elements and table
+for elem_name, elem_data in elements_dict.items():
+    sdata[elem_name] = elem_data
+sdata.tables['$operation_condi.table_name'] = result_table
+result = sdata
+
+#else if $operation_condi.operation == 'match_element_to_table':
+## Match element to table
+    #set element_names_list = [str(x.strip()) for x in str($operation_condi.element_names).split(',')]
+elements_dict, result_table = match_element_to_table(
+    sdata=sdata,
+    element_name=$element_names_list,
+    table_name='$operation_condi.table_name'
+)
+for elem_name, elem_data in elements_dict.items():
+    sdata[elem_name] = elem_data
+sdata.tables['$operation_condi.table_name'] = result_table
+result = sdata
+
+#else if $operation_condi.operation == 'match_table_to_element':
+## Match table to element
+result_table = match_table_to_element(
+    sdata=sdata,
+    element_name='$operation_condi.element_name',
+    table_name='$operation_condi.table_name'
+)
+sdata.tables['$operation_condi.table_name'] = result_table
+result = sdata
+
+#else if $operation_condi.operation == 'match_sdata_to_table':
+## Match SpatialData to table
+result = match_sdata_to_table(
+    sdata=sdata,
+    table_name='$operation_condi.table_name',
+    how='$operation_condi.how'
+)
+
+#else if $operation_condi.operation == 'filter_by_table_query':
+## Filter by table query
+import annsel as an
+
+result = filter_by_table_query(
+    sdata=sdata,
+    table_name='$operation_condi.table_name',
+    filter_tables=$operation_condi.filter_tables_bool,
+    #if $operation_condi.element_names:
+        #set element_names_list = [str(x.strip()) for x in str($operation_condi.element_names).split(',')]
+    element_names = $element_names_list
+    #else:
+    element_names = None
+    #end if
+    #if $operation_condi.obs_expr:
+    obs_expr = $operation_condi.obs_expr
+    #end if
+    #if $operation_condi.var_expr:
+    var_expr = $operation_condi.var_expr
+    #end if
+    #if $operation_condi.x_expr:
+    x_expr = $operation_condi.x_expr
+    #end if
+    #if $operation_condi.obs_names_expr:
+    obs_names_expr = $operation_condi.obs_names_expr
+    #end if
+    #if $operation_condi.var_names_expr:
+    var_names_expr = $operation_condi.var_names_expr
+    #end if
+    #if $operation_condi.layer:
+    layer = '$operation_condi.layer'
+    #end if
+    how='$operation_condi.how'
+)
+
+#else if $operation_condi.operation == 'rasterize':
+## Rasterize element
+    #set axes_list = [str(x.strip()) for x in str($operation_condi.axes).split(',')]
+    #set min_coord_list = [float(x.strip()) for x in str($operation_condi.min_coordinate).split(',')]
+    #set max_coord_list = [float(x.strip()) for x in str($operation_condi.max_coordinate).split(',')]
+element = sdata['$operation_condi.element_name']
+rasterized = rasterize(
+    data=element,
+    axes=tuple($axes_list),
+    min_coordinate=$min_coord_list,
+    max_coordinate=$max_coord_list,
+    target_coordinate_system='$operation_condi.target_coordinate_system',
+    #if $operation_condi.target_unit_to_pixels:
+    target_unit_to_pixels=$operation_condi.target_unit_to_pixels,
+    #end if
+    target_width=$operation_condi.target_width,
+    target_height=$operation_condi.target_height,
+    target_depth=$operation_condi.target_depth,
+    sdata=sdata,
+    #if $operation_condi.value_key:
+    value_key='$operation_condi.value_key',
+    #end if
+    #if $operation_condi.table_name:
+    table_name='$operation_condi.table_name',
+    #end if
+    #if $operation_condi.agg_func:
+    agg_func='$operation_condi.agg_func',
+    #end if
+    return_regions_as_labels=$operation_condi.return_regions_as_labels_bool,
+    return_single_channel=$operation_condi.return_single_channel_bool
+)
+sdata.images['rasterized_' + '$operation_condi.element_name'] = rasterized
+result = sdata
+
+#else if $operation_condi.operation == 'rasterize_bins':
+## Rasterize bins
+rasterized = rasterize_bins(
+    sdata=sdata,
+    bins='$operation_condi.bins_element',
+    table_name='$operation_condi.table_name',
+    col_key='$operation_condi.col_key',
+    row_key='$operation_condi.row_key',
+    #if $operation_condi.value_key:
+    value_key='$operation_condi.value_key',
+    #end if
+    return_region_as_labels=$operation_condi.return_regions_as_labels_bool
+)
+sdata.images['rasterized_bins'] = rasterized
+result = sdata
+
+#else if $operation_condi.operation == 'rasterize_bins_link_table_to_labels':
+## Link table to rasterized labels
+rasterize_bins_link_table_to_labels(
+    sdata=sdata,
+    table_name='$operation_condi.table_name',
+    rasterized_labels_name='$operation_condi.rasterized_labels_name'
+)
+result = sdata
+
+#else if $operation_condi.operation == 'map_raster':
+## Map raster
+element = sdata['$operation_condi.element_name']
+import importlib
+func_module, func_name = '$operation_condi.func_name'.rsplit('.', 1)
+func = getattr(importlib.import_module(func_module), func_name)
+mapped = map_raster(
+    data=element,
+    func=func,
+    blockwise=$operation_condi.blockwise_bool,
+    #if $operation_condi.depth:
+    depth=$operation_condi.depth,
+    #end if
+    #if $operation_condi.chunks:
+    chunks=eval('$operation_condi.chunks'),
+    #end if
+    #if $operation_condi.c_coords:
+        #set c_coords_list = [x.strip() for x in str($operation_condi.c_coords).split(',')]
+        ## Try to convert to int, otherwise keep as string
+        #set c_coords_parsed = []
+        #for coord in $c_coords_list:
+            #try:
+                #silent c_coords_parsed.append(int(coord))
+            #except ValueError:
+                #silent c_coords_parsed.append(str(coord))
+            #end try
+        #end for
+    c_coords=$c_coords_parsed,
+    #end if
+    #if $operation_condi.dims:
+        #set dims_list = [str(x.strip()) for x in str($operation_condi.dims).split(',')]
+    dims=tuple($dims_list),
+    #end if
+    #if $operation_condi.transformations:
+    transformations=eval('$operation_condi.transformations'),
+    #end if
+    relabel=$operation_condi.relabel_bool
+)
+sdata.images['mapped_' + '$operation_condi.element_name'] = mapped
+result = sdata
+
+#else if $operation_condi.operation == 'unpad_raster':
+## Unpad raster
+element = sdata['$operation_condi.element_name']
+unpadded = unpad_raster(element)
+sdata.images['unpadded_${operation_condi.element_name}'] = unpadded
+result = sdata
+
+#else if $operation_condi.operation == 'relabel_sequential':
+## Relabel sequential
+import dask.array as da
+element = sdata.labels['$operation_condi.element_name']
+relabeled_arr = relabel_sequential(element.data)
+relabeled = element.copy()
+relabeled.data = relabeled_arr
+sdata.labels['$operation_condi.output_element_name'] = relabeled
+result = sdata
+
+#else if $operation_condi.operation == 'are_extents_equal':
+## Check if extents are equal
+extent1 = get_extent(sdata['$operation_condi.element1_name'], coordinate_system='$operation_condi.coordinate_system')
+extent2 = get_extent(sdata['$operation_condi.element2_name'], coordinate_system='$operation_condi.coordinate_system')
+result = are_extents_equal(extent1, extent2, atol=$operation_condi.atol)
+
+#else if $operation_condi.operation == 'get_pyramid_levels':
+## Get pyramid levels
+element = sdata.images['$operation_condi.element_name']
+result = get_pyramid_levels(
+    element,
+    #if $operation_condi.attr:
+    attr='$operation_condi.attr',
+    #end if
+    #if $operation_condi.n:
+    n=$operation_condi.n
+    #end if
+)
+
+#else if $operation_condi.operation == 'sanitize_name':
+## Sanitize name
+result = sanitize_name(
+    '$operation_condi.name',
+    is_dataframe_column=$operation_condi.is_dataframe_column_bool
+)
+
+#else if $operation_condi.operation == 'sanitize_table':
+## Sanitize table
+adata = sdata['$operation_condi.table_name']
+sanitize_table(adata, inplace=True)
+sdata.tables['$operation_condi.table_name'] = adata
+result = sdata
+
 #end if
 
 print("\nOperation result:")
 print(result)
 
 ## Save the result
-#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids']:
+#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table']:
 result.write("./output/spatialdata", overwrite=True)
-#else if $operation_condi.operation in ['get_extent', 'get_values', 'get_element_instances']:
+#else if $operation_condi.operation in ['get_extent', 'get_values', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels', 'sanitize_name']:
 import json
 import pandas as pd
 import numpy as np
@@ -246,6 +487,21 @@ print("\nOperation completed successfully!")
                 <option value="get_values">Get Values</option>
                 <option value="get_element_instances">Get Element Instances</option>
                 <option value="get_centroids">Get Centroids</option>
+                <option value="join_spatialelement_table">Join SpatialElement and Table</option>
+                <option value="match_element_to_table">Match Element to Table</option>
+                <option value="match_table_to_element">Match Table to Element</option>
+                <option value="match_sdata_to_table">Match SpatialData to Table</option>
+                <option value="filter_by_table_query">Filter by Table Query</option>
+                <option value="rasterize">Rasterize</option>
+                <option value="rasterize_bins">Rasterize Bins</option>
+                <option value="rasterize_bins_link_table_to_labels">Link Bins Table to Labels</option>
+                <option value="map_raster">Map Raster</option>
+                <option value="unpad_raster">Unpad Raster</option>
+                <option value="relabel_sequential">Relabel Sequential</option>
+                <option value="are_extents_equal">Are Extents Equal</option>
+                <option value="get_pyramid_levels">Get Pyramid Levels</option>
+                <option value="sanitize_name">Sanitize Name</option>
+                <option value="sanitize_table">Sanitize Table</option>
             </param>
             <when value="bounding_box_query">
                 <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that min_coordinate and max_coordinate refer to (e.g., 'x,y' or 'x,y,z')">
@@ -414,11 +670,221 @@ print("\nOperation completed successfully!")
                 </param>
                 <param name="return_background_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include background?" help="If True, centroid of background label (0) is included"/>
             </when>
+            <when value="join_spatialelement_table">
+                <param name="spatial_element_names" type="text" label="Spatial element name(s)" help="Comma-separated list of element names to join with table">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="how" type="select" label="Join type">
+                    <option value="left" selected="true">Left</option>
+                    <option value="left_exclusive">Left Exclusive</option>
+                    <option value="inner">Inner</option>
+                    <option value="right">Right</option>
+                    <option value="right_exclusive">Right Exclusive</option>
+                </param>
+                <param name="match_rows" type="select" label="Match rows">
+                    <option value="no" selected="true">No</option>
+                    <option value="left">Left (element indices priority)</option>
+                    <option value="right">Right (table instance IDs priority)</option>
+                </param>
+            </when>
+            <when value="match_element_to_table">
+                <param name="element_names" type="text" label="Element name(s)" help="Comma-separated list of element names to match to table">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="match_table_to_element">
+                <param name="element_name" type="text" label="Element name" help="Name of element to match table to">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="match_sdata_to_table">
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="how" type="select" label="Join type">
+                    <option value="right" selected="true">Right</option>
+                    <option value="left">Left</option>
+                    <option value="left_exclusive">Left Exclusive</option>
+                    <option value="inner">Inner</option>
+                    <option value="right_exclusive">Right Exclusive</option>
+                </param>
+            </when>
+            <when value="filter_by_table_query">
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="filter_tables_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter tables?" help="Filter table to contain only rows annotating regions in element_names"/>
+                <param name="element_names" type="text" optional="true" label="Element names (optional)" help="Comma-separated list of element names to filter by">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="obs_expr" type="text" optional="true" label="Obs expression (optional)" help="Narwhals expression to filter .obs (e.g., an.col('cell_type') == 'A' or an.col('region') == 'blobs_labels'). Use an.col() to reference columns.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="var_expr" type="text" optional="true" label="Var expression (optional)" help="Narwhals expression to filter .var">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="x_expr" type="text" optional="true" label="X expression (optional)" help="Narwhals expression to filter .X expression matrix (e.g., an.col('channel_0_sum') > 125). Use an.col() to reference columns.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="obs_names_expr" type="text" optional="true" label="Obs names expression (optional)" help="Narwhals expression to filter .obs_names">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="var_names_expr" type="text" optional="true" label="Var names expression (optional)" help="Narwhals expression to filter .var_names">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="layer" type="text" value="table" label="The layer of the anndata.AnnData to filter the SpatialData object by" help="Only used with x_expr">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="how" type="select" label="Join type">
+                    <option value="right" selected="true">Right</option>
+                    <option value="left">Left</option>
+                    <option value="left_exclusive">Left Exclusive</option>
+                    <option value="inner">Inner</option>
+                    <option value="right_exclusive">Right Exclusive</option>
+                </param>
+            </when>
+            <when value="rasterize">
+                <param name="element_name" type="text" label="Element name" help="Name of element to rasterize">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="axes" type="text" value="x,y" label="Axes">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="min_coordinate" type="text" label="Minimum coordinates" help="Comma-separated (e.g., '0,0')">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="max_coordinate" type="text" label="Maximum coordinates" help="Comma-separated (e.g., '100,100')">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="target_coordinate_system" type="text" value="global" label="Target coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="target_unit_to_pixels" type="float" optional="true" label="Target unit to pixels (optional)" help="Pixels per unit"/>
+                <param name="target_width" type="float" optional="true" label="Target width (optional)" help="Width of the rasterized image in pixels"/>
+                <param name="target_height" type="float" optional="true" label="Target height (optional)" help="Height of the rasterized image in pixels"/>
+                <param name="target_depth" type="float" optional="true" label="Target depth (optional)" help="Depth of the rasterized image in pixels. Only used for 3D rasterization"/>
+                <param name="value_key" type="text" optional="true" label="Value key (optional)" help="Column name containing values to aggregate">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" optional="true" label="Table name (optional)" help="The table optionally containing the value_key and the name of the table in the returned SpatialData object">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="agg_func" type="select" optional="true" label="Aggregation function" help="Available only when rasterizing points and shapes.">
+                    <option value="sum" selected="true">Sum</option>
+                    <option value="mean">Mean</option>
+                    <option value="count">Count</option>
+                </param>
+                <param name="return_regions_as_labels_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Return as labels?" help="Return as labels (y,x) instead of image (c,y,x)"/>
+                <param name="return_single_channel" type="boolean" truevalue="True" falsevalue="None" checked="false" label="Return single channel?" help="Only used when rasterizing points and shapes and when value_key refers to a categorical column. If False, each category will be rasterized in a separate channel." />
+            </when>
+            <when value="rasterize_bins">
+                <param name="bins_element" type="text" label="Bins element name" help="Name of grid-like binned element">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="col_key" type="text" label="Column key" help="Column in table.obs with column indices">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="row_key" type="text" label="Row key" help="Column in table.obs with row indices">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="value_key" type="text" optional="true" label="Value key(s) (optional)" help="Obs columns or var names to rasterize. If None, all the var names will be used, and the returned object will be lazily constructed. Ignored if return_regions_as_labels_bool is True">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="return_regions_as_labels_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Return as labels?" help="If False this function returns a xarray.DataArray of shape (c, y, x) with dimension of c equal to the number of key(s) specified in value_key, or the number of var names in table_name if value_key is None. If True, will return labels of shape (y, x), where each bin of the bins element will be represented as a pixel."/>
+            </when>
+            <when value="rasterize_bins_link_table_to_labels">
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="rasterized_labels_name" type="text" label="Rasterized labels element name" help="Name of the rasterized labels element created by rasterize_bins">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="map_raster">
+                <param name="element_name" type="text" label="Raster element name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="func_name" type="text" label="Function name" help="Name of numpy/scipy function to apply (e.g., 'numpy.mean')">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="blockwise_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Process blockwise?" help="If True, func will be distributed with dask.array.map_overlap() or dask.array.map_blocks(), otherwise func is applied to the full data. If False, depth and chunks are ignored."/>
+                <param name="depth" type="integer" optional="true" label="Overlap between chunks (optional)" help="the number of elements that each chunk should share with its neighboring chunks"/>
+                <param name="chunks" type="text" optional="true" label="Chunks (optional)" help="Chunk shape of resulting blocks if the callable does not preserve the data shape. Format: nested tuples like '((1,),(100,),(100,))' for shape (1,100,100). Passed to dask.array.map_overlap() or dask.array.map_blocks(). Ignored if blockwise is False.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="c_coords" type="text" optional="true" label="Channel coordinates (optional)" help="Comma-separated channel coordinates for output data (integers or strings). If not provided, input channel coordinates are used. Required if func changes number of channels.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="dims" type="text" optional="true" label="Output dimensions (optional)" help="Comma-separated dimensions of output data (e.g., 'c,y,x' or 'y,x'). If not provided, input dimensions are used. Must be specified if callable changes dimensions.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="transformations" type="text" optional="true" label="Transformations JSON (optional)" help="JSON string for output transformations. If not provided, input transformations are copied. Should be specified if callable changes transformations.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="relabel_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Relabel blocks?" help="Whether to relabel blocks of output data. Ignored when output is not a labels layer. Recommended if func returns labels not unique across chunks."/>
+            </when>
+            <when value="unpad_raster">
+                <param name="element_name" type="text" label="Raster element name" help="Name of raster element to unpad">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="relabel_sequential">
+                <param name="element_name" type="text" label="Labels element name" help="Name of labels element to relabel. Note that currently if a cell or entity to be labeled is split across adjacent chunks the same label is not assigned to the cell across blocks.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_element_name" type="text" value="relabeled_element" label="Output element name">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="are_extents_equal">
+                <param name="element1_name" type="text" label="First element name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="element2_name" type="text" label="Second element name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="coordinate_system" type="text" value="global" label="Coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="atol" type="float" value="0.1" label="Absolute tolerance"/>
+            </when>
+            <when value="get_pyramid_levels">
+                <param name="element_name" type="text" label="Multiscale image element name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="attr" type="text" optional="true" label="Attribute name (optional)" help="Return specific attribute instead of data.  If None, return the data of the pyramid level as a DataArray, if not None, return the specified attribute within the DataArray data.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="n" type="integer" optional="true" label="Level number (optional)" help="Return only specific pyramid level"/>
+            </when>
+            <when value="sanitize_name">
+                <param name="name" type="text" label="Name to sanitize">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="is_dataframe_column_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Is dataframe column?"/>
+            </when>
+            <when value="sanitize_table">
+                <param name="table_name" type="text" value="table" label="Table name">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
         </conditional>
     </inputs>
     <outputs>
         <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="output/spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation}">
-            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids']</filter>
+            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table']</filter>
             <actions>
                 <action type="format">
                     <option type="from_param" name="input_spatialdata"/>
@@ -426,7 +892,7 @@ print("\nOperation completed successfully!")
             </actions>
         </data>
         <data name="result_json" format="json" from_work_dir="output/result.json" label="${tool.name} on ${on_string}: ${operation_condi.operation} result">
-            <filter>operation_condi['operation'] in ['get_extent', 'get_values', 'get_element_instances']</filter>
+            <filter>operation_condi['operation'] in ['get_extent', 'get_values', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels', 'sanitize_name']</filter>
         </data>
     </outputs>
     <tests>
@@ -474,6 +940,7 @@ print("\nOperation completed successfully!")
 
 This tool performs various operations on SpatialData objects, including:
 
+**Spatial Operations:**
 - **Bounding Box Query**: Extract data within a specified bounding box
 - **Polygon Query**: Extract data within a polygon region
 - **Get Extent**: Calculate the spatial extent (bounding box) of elements
@@ -484,7 +951,27 @@ This tool performs various operations on SpatialData objects, including:
 - **Get Values**: Extract values from elements or tables
 - **Get Element Instances**: Get the instance IDs of elements
 - **Get Centroids**: Calculate centroids of geometries
-- **Deep Copy**: Create a deep copy of the SpatialData object
+
+**Table Operations:**
+- **Join SpatialElement and Table**: SQL-like joins between elements and tables
+- **Match Element to Table**: Filter elements to match table indices
+- **Match Table to Element**: Filter and reorder table to match element instances
+- **Match SpatialData to Table**: Filter SpatialData to match table rows
+- **Filter by Table Query**: Filter SpatialData based on table queries
+
+**Rasterization Operations:**
+- **Rasterize**: Convert spatial elements to raster images
+- **Rasterize Bins**: Rasterize grid-like binned data (e.g., Visium HD)
+- **Link Bins Table to Labels**: Link table to rasterized labels
+- **Map Raster**: Apply functions to raster data
+- **Unpad Raster**: Remove padding from rasterized data
+
+**Utility Operations:**
+- **Relabel Sequential**: Relabel integers in labels sequentially
+- **Are Extents Equal**: Check if two extents are equal
+- **Get Pyramid Levels**: Access multiscale image pyramid levels
+- **Sanitize Name**: Sanitize names to comply with SpatialData rules
+- **Sanitize Table**: Sanitize all keys in an AnnData table
 
 -----
 
@@ -540,6 +1027,75 @@ Extracts column values from elements or associated tables, returning them as a s
 **Get Centroids**
 
 Computes the centroids (center points) of geometries, returning them as a new points element.
+
+**Join SpatialElement and Table**
+
+Performs SQL-like joins between spatial elements and tables. Supports left, right, inner, and exclusive joins. Elements and tables are filtered based on matching indices/region keys.
+
+**Match Element to Table**
+
+Filters elements to match table indices. Elements are modified to only contain rows present in the table.
+
+**Match Table to Element**
+
+Filters and reorders table rows to match element instances. Useful for ensuring table-element correspondence.
+
+**Match SpatialData to Table**
+
+Filters all elements in a SpatialData object to match only rows present in the table.
+
+**Filter by Table Query**
+
+Filters SpatialData based on table queries using narwhals expressions for obs or X (expression matrix). Supports filtering by element names and various join types.
+
+Expression syntax uses narwhals (imported as ``an``):
+
+- To filter obs by cell type: ``an.col("cell_type") == "A"``
+- To filter obs by region: ``an.col("region") == "blobs_labels"``
+- To filter by expression values: ``an.col("channel_0_sum") > 125`` (use x_expr parameter)
+- Supports comparison operators: ``==``, ``!=``, ``>``, ``<``, ``>=``, ``<=``
+
+Use ``an.col("column_name")`` to reference any column in the table's obs or X data.
+
+**Rasterize**
+
+Converts spatial elements (points, shapes, labels) to raster images. Specify bounding box and target resolution. Can aggregate values using various functions.
+
+**Rasterize Bins**
+
+Specialized rasterization for grid-like binned data (e.g., Visium HD). Each bin becomes a pixel with optional value aggregation from the table.
+
+**Link Bins Table to Labels**
+
+Changes the annotation target of a table to rasterized labels created by rasterize_bins. Must be called after rasterizing bins with return_regions_as_labels=True.
+
+**Map Raster**
+
+Applies a callable/function to raster data, with optional blockwise processing for distributed computation.
+
+**Unpad Raster**
+
+Removes padding from raster data that was added during rotation transformations.
+
+**Relabel Sequential**
+
+Relabels integer labels sequentially starting from 1, useful for standardizing label numbering.
+
+**Are Extents Equal**
+
+Checks if two extents are equal within a tolerance, useful for validating spatial alignment.
+
+**Get Pyramid Levels**
+
+Accesses data or attributes from multiscale image pyramid levels.
+
+**Sanitize Name**
+
+Sanitizes names to comply with SpatialData naming rules, removing invalid characters.
+
+**Sanitize Table**
+
+Sanitizes all keys in an AnnData table to comply with naming rules.
 
 -----
 
