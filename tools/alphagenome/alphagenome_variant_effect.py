@@ -103,24 +103,37 @@ def run(args):
     logging.info("Sequence length: %s", args.sequence_length)
     logging.info("Max variants: %d", args.max_variants)
 
-    # Resolve API key from CLI arg or environment variable
-    api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
-    if not api_key and not args.local_model:
-        logging.error("No API key provided. Set ALPHAGENOME_API_KEY or use --api-key")
-        sys.exit(1)
+    # Fixture mode for CI testing (bypasses API)
+    fixture_lookup = None
+    if args.test_fixture:
+        import json
+        with open(args.test_fixture) as f:
+            fixture_data = json.load(f)
+        fixture_lookup = {}
+        for v in fixture_data["variants"]:
+            key = (v["chrom"], v["pos"], v["ref"], v["alt"])
+            fixture_lookup[key] = v["scores"]
+        logging.info("Fixture mode: %d pre-computed variants", len(fixture_lookup))
 
-    # Resolve parameters
-    organism = ORGANISM_MAP[args.organism]
-    seq_length = SEQUENCE_LENGTH_MAP[args.sequence_length]
-    requested_outputs = [OUTPUT_TYPE_MAP[t] for t in args.output_types]
-    ontology_terms = []
-    if args.ontology_terms:
-        ontology_terms = [t.strip() for t in args.ontology_terms.split(",") if t.strip()]
+    if not fixture_lookup:
+        # Resolve API key from CLI arg or environment variable
+        api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
+        if not api_key and not args.local_model:
+            logging.error("No API key provided. Set ALPHAGENOME_API_KEY or use --api-key")
+            sys.exit(1)
 
-    # Create model
-    logging.info("Connecting to AlphaGenome...")
-    model = create_model(api_key, local_model=args.local_model)
-    logging.info("Model ready.")
+        # Resolve parameters
+        organism = ORGANISM_MAP[args.organism]
+        seq_length = SEQUENCE_LENGTH_MAP[args.sequence_length]
+        requested_outputs = [OUTPUT_TYPE_MAP[t] for t in args.output_types]
+        ontology_terms = []
+        if args.ontology_terms:
+            ontology_terms = [t.strip() for t in args.ontology_terms.split(",") if t.strip()]
+
+        # Create model
+        logging.info("Connecting to AlphaGenome...")
+        model = create_model(api_key, local_model=args.local_model)
+        logging.info("Model ready.")
 
     # Open input VCF
     vcf_reader = cyvcf2.VCF(args.input)
@@ -174,37 +187,45 @@ def run(args):
             alt = record.ALT[0]
 
             try:
-                variant = genome.Variant(
-                    chromosome=chrom,
-                    position=pos,
-                    reference_bases=ref,
-                    alternate_bases=alt,
-                )
-                interval = variant.reference_interval.resize(seq_length)
-
-                outputs = model.predict_variant(
-                    interval=interval,
-                    variant=variant,
-                    organism=organism,
-                    ontology_terms=ontology_terms,
-                    requested_outputs=requested_outputs,
-                )
-
-                # Compute per-output-type scores
                 all_scores = []
-                for otype in args.output_types:
-                    ref_vals = get_track_values(outputs.reference, otype)
-                    alt_vals = get_track_values(outputs.alternate, otype)
-                    if ref_vals is not None and alt_vals is not None:
-                        score = compute_max_abs_lfc(ref_vals, alt_vals)
-                        info_id = INFO_FIELD_MAP[otype]
-                        record.INFO[info_id] = round(score, 6)
-                        all_scores.append(score)
-                    else:
-                        logging.warning(
-                            "No %s track in output for %s:%d %s>%s",
-                            otype, chrom, pos, ref, alt,
-                        )
+                if fixture_lookup is not None:
+                    fixture_scores = fixture_lookup.get((chrom, pos, ref, alt), {})
+                    for otype in args.output_types:
+                        if otype in fixture_scores:
+                            score = fixture_scores[otype]
+                            info_id = INFO_FIELD_MAP[otype]
+                            record.INFO[info_id] = round(score, 6)
+                            all_scores.append(score)
+                else:
+                    variant = genome.Variant(
+                        chromosome=chrom,
+                        position=pos,
+                        reference_bases=ref,
+                        alternate_bases=alt,
+                    )
+                    interval = variant.reference_interval.resize(seq_length)
+
+                    outputs = model.predict_variant(
+                        interval=interval,
+                        variant=variant,
+                        organism=organism,
+                        ontology_terms=ontology_terms,
+                        requested_outputs=requested_outputs,
+                    )
+
+                    for otype in args.output_types:
+                        ref_vals = get_track_values(outputs.reference, otype)
+                        alt_vals = get_track_values(outputs.alternate, otype)
+                        if ref_vals is not None and alt_vals is not None:
+                            score = compute_max_abs_lfc(ref_vals, alt_vals)
+                            info_id = INFO_FIELD_MAP[otype]
+                            record.INFO[info_id] = round(score, 6)
+                            all_scores.append(score)
+                        else:
+                            logging.warning(
+                                "No %s track in output for %s:%d %s>%s",
+                                otype, chrom, pos, ref, alt,
+                            )
 
                 if all_scores:
                     record.INFO["AG_MAX_EFFECT"] = round(max(all_scores), 6)
@@ -265,6 +286,8 @@ def parse_arguments():
         "--local-model", action="store_true",
         help="Use local HuggingFace model instead of API",
     )
+    parser.add_argument("--test-fixture", default=None,
+                        help="Test fixture JSON for CI testing (bypasses API)")
     parser.add_argument("--verbose", action="store_true", help="Debug logging")
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}",

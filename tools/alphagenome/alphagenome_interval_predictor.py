@@ -100,6 +100,18 @@ def run(args):
     logging.info("Sequence length: %s", args.sequence_length)
     logging.info("Max intervals: %d", args.max_intervals)
 
+    if args.test_fixture:
+        import json
+        with open(args.test_fixture) as f:
+            fixture_data = json.load(f)
+        with open(args.output, "w", newline="") as outfile:
+            writer = csv.writer(outfile, delimiter="\t")
+            writer.writerow(fixture_data["columns"])
+            for row in fixture_data["rows"]:
+                writer.writerow(row)
+        logging.info("Fixture mode: wrote %d rows to %s", len(fixture_data["rows"]), args.output)
+        return
+
     api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
     if not api_key and not args.local_model:
         logging.error("No API key provided. Set ALPHAGENOME_API_KEY or use --api-key")
@@ -247,6 +259,8 @@ def parse_arguments():
     )
     parser.add_argument("--bin-size", type=int, default=128)
     parser.add_argument("--local-model", action="store_true")
+    parser.add_argument("--test-fixture", default=None,
+                        help="Test fixture JSON for CI testing (bypasses API)")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()

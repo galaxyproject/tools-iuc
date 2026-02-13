@@ -47,6 +47,16 @@ def run(args):
     logging.info("Sequence length: %s", args.sequence_length)
     logging.info("Max variants: %d", args.max_variants)
 
+    if args.test_fixture:
+        import json
+        import pandas as pd
+        with open(args.test_fixture) as f:
+            fixture_data = json.load(f)
+        df = pd.DataFrame(fixture_data["rows"], columns=fixture_data["columns"])
+        df.to_csv(args.output, sep="\t", index=False)
+        logging.info("Fixture mode: wrote %d rows to %s", len(df), args.output)
+        return
+
     api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
     if not api_key and not args.local_model:
         logging.error("No API key provided. Set ALPHAGENOME_API_KEY or use --api-key")
@@ -166,6 +176,8 @@ def parse_arguments():
         "--max-variants", type=int, default=100,
     )
     parser.add_argument("--local-model", action="store_true")
+    parser.add_argument("--test-fixture", default=None,
+                        help="Test fixture JSON for CI testing (bypasses API)")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()
