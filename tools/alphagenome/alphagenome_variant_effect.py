@@ -115,7 +115,7 @@ def run(args):
             fixture_lookup[key] = v["scores"]
         logging.info("Fixture mode: %d pre-computed variants", len(fixture_lookup))
 
-    if not fixture_lookup:
+    if fixture_lookup is None:
         # Resolve API key from CLI arg or environment variable
         api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
         if not api_key and not args.local_model:
