@@ -18,7 +18,7 @@ from alphagenome.data import genome
 from alphagenome.models import dna_client
 from alphagenome.models.variant_scorers import RECOMMENDED_VARIANT_SCORERS
 
-__version__ = "0.1.0"
+__version__ = "0.5.1"
 
 ORGANISM_MAP = {
     "human": dna_client.Organism.HOMO_SAPIENS,

@@ -16,7 +16,7 @@ import numpy as np
 from alphagenome.data import genome
 from alphagenome.models import dna_client
 
-__version__ = "0.1.0"
+__version__ = "0.5.1"
 
 OUTPUT_TYPE_MAP = {
     "RNA_SEQ": dna_client.OutputType.RNA_SEQ,

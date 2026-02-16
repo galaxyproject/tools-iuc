@@ -16,7 +16,7 @@ import numpy as np
 from alphagenome.data import genome
 from alphagenome.models import dna_client
 
-__version__ = "0.1.0"
+__version__ = "0.5.1"
 
 # Map CLI output type names to dna_client.OutputType enum values
 OUTPUT_TYPE_MAP = {
