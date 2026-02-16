@@ -41,7 +41,6 @@ def create_model(api_key, local_model=False):
 
 
 def parse_bed(bed_path, max_regions, max_region_width):
-    """Parse BED file and return list of (chrom, start, end, name) tuples."""
     regions = []
     with open(bed_path) as f:
         for line_num, line in enumerate(f):

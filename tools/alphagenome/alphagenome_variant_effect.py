@@ -18,7 +18,6 @@ from alphagenome.models import dna_client
 
 __version__ = "0.5.1"
 
-# Map CLI output type names to dna_client.OutputType enum values
 OUTPUT_TYPE_MAP = {
     "RNA_SEQ": dna_client.OutputType.RNA_SEQ,
     "ATAC": dna_client.OutputType.ATAC,
@@ -33,7 +32,6 @@ OUTPUT_TYPE_MAP = {
     "PROCAP": dna_client.OutputType.PROCAP,
 }
 
-# Map output type names to VCF INFO field IDs
 INFO_FIELD_MAP = {
     "RNA_SEQ": "AG_RNA_LFC",
     "ATAC": "AG_ATAC_LFC",
@@ -62,10 +60,6 @@ SEQUENCE_LENGTH_MAP = {
 
 
 def create_model(api_key, local_model=False):
-    """Create an AlphaGenome model client.
-
-    Swappable between API and local model for future TACC deployment.
-    """
     if local_model:
         from alphagenome_research.model import dna_model
         return dna_model.create_from_huggingface("all_folds")
@@ -73,7 +67,6 @@ def create_model(api_key, local_model=False):
 
 
 def compute_max_abs_lfc(ref_values, alt_values):
-    """Compute max absolute log-fold-change between ref and alt predictions."""
     ref_vals = np.asarray(ref_values, dtype=np.float64)
     alt_vals = np.asarray(alt_values, dtype=np.float64)
     epsilon = 1e-6
@@ -82,11 +75,7 @@ def compute_max_abs_lfc(ref_values, alt_values):
 
 
 def get_track_values(prediction_output, output_type_name):
-    """Extract the .values array from a prediction output for a given type.
-
-    The attribute name on the output object is the lowercase version of the
-    OutputType enum name (e.g. OutputType.RNA_SEQ -> output.rna_seq).
-    """
+    """Attribute name is lowercase OutputType enum (e.g. RNA_SEQ -> output.rna_seq)."""
     attr_name = output_type_name.lower()
     track = getattr(prediction_output, attr_name, None)
     if track is None:
@@ -95,7 +84,6 @@ def get_track_values(prediction_output, output_type_name):
 
 
 def run(args):
-    """Main processing loop."""
     logging.info("AlphaGenome Variant Effect Predictor v%s", __version__)
     logging.info("Input: %s", args.input)
     logging.info("Output types: %s", ", ".join(args.output_types))
@@ -116,13 +104,11 @@ def run(args):
         logging.info("Fixture mode: %d pre-computed variants", len(fixture_lookup))
 
     if fixture_lookup is None:
-        # Resolve API key from CLI arg or environment variable
         api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
         if not api_key and not args.local_model:
             logging.error("No API key provided. Set ALPHAGENOME_API_KEY or use --api-key")
             sys.exit(1)
 
-        # Resolve parameters
         organism = ORGANISM_MAP[args.organism]
         seq_length = SEQUENCE_LENGTH_MAP[args.sequence_length]
         requested_outputs = [OUTPUT_TYPE_MAP[t] for t in args.output_types]
@@ -130,15 +116,12 @@ def run(args):
         if args.ontology_terms:
             ontology_terms = [t.strip() for t in args.ontology_terms.split(",") if t.strip()]
 
-        # Create model
         logging.info("Connecting to AlphaGenome...")
         model = create_model(api_key, local_model=args.local_model)
         logging.info("Model ready.")
 
-    # Open input VCF
     vcf_reader = cyvcf2.VCF(args.input)
 
-    # Add INFO headers for each selected output type
     for otype in args.output_types:
         info_id = INFO_FIELD_MAP[otype]
         vcf_reader.add_info_to_header({
@@ -155,7 +138,6 @@ def run(args):
     })
     vcf_reader.add_to_header(f"##AlphaGenomeVariantEffectVersion={__version__}")
 
-    # Open output VCF
     vcf_writer = cyvcf2.Writer(args.output, vcf_reader)
 
     stats = {"total": 0, "scored": 0, "errors": 0, "skipped": 0}
@@ -243,7 +225,6 @@ def run(args):
         vcf_writer.close()
         vcf_reader.close()
 
-    # Report
     logging.info("=" * 50)
     logging.info("DONE — %d total, %d scored, %d errors, %d skipped (over limit)",
                  stats["total"], stats["scored"], stats["errors"], stats["skipped"])

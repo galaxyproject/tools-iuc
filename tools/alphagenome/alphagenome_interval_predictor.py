@@ -50,7 +50,6 @@ def create_model(api_key, local_model=False):
 
 
 def parse_bed(bed_path, max_intervals):
-    """Parse BED file and return list of (chrom, start, end, name) tuples."""
     intervals = []
     with open(bed_path) as f:
         for line_num, line in enumerate(f):
@@ -73,16 +72,7 @@ def parse_bed(bed_path, max_intervals):
 
 
 def extract_region_slice(values, interval_start, region_start, region_end):
-    """Slice the prediction array to only cover the original BED region.
-
-    The prediction covers the full resized interval; we want stats only for the
-    user's original region within it.
-
-    values: numpy array of shape (seq_length, num_tracks)
-    interval_start: 0-based start of the resized prediction interval
-    region_start: 0-based start of the user's BED region
-    region_end: 0-based end of the user's BED region
-    """
+    """Slice prediction array to the original BED region within the resized interval."""
     offset_start = region_start - interval_start
     offset_end = region_end - interval_start
     # Clamp to valid bounds
@@ -178,7 +168,6 @@ def run(args):
                     values = track_data.values  # (seq_length, num_tracks)
                     metadata = track_data.metadata  # DataFrame with track info
 
-                    # Slice to the original BED region
                     region_values = extract_region_slice(
                         values, interval.start, start, end,
                     )

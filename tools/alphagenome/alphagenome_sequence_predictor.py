@@ -49,7 +49,6 @@ def create_model(api_key, local_model=False):
 
 
 def parse_fasta(fasta_path, max_sequences):
-    """Parse FASTA file and return list of (seq_id, sequence) tuples."""
     sequences = []
     current_id = None
     current_seq = []
@@ -77,12 +76,7 @@ def parse_fasta(fasta_path, max_sequences):
 
 
 def prepare_sequence(seq, target_length):
-    """Pad or trim sequence to target length.
-
-    Short sequences are N-padded (centered). Long sequences are center-trimmed.
-    Returns (prepared_seq, content_start, content_end) where content_start/end
-    are the indices of the actual sequence content within the prepared sequence.
-    """
+    """Pad (N-centered) or center-trim to target_length. Returns (seq, content_start, content_end)."""
     seq = seq.upper()
     if len(seq) == target_length:
         return seq, 0, len(seq)
