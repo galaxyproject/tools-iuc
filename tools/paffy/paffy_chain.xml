@@ -1,5 +1,5 @@
 <tool id="paffy_chain" name="Paffy chain" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>chains records in the PAF file into chains</description>
+    <description>connects PAF alignemnts into larger structures</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -7,19 +7,21 @@
     <expand macro="stdio"/>
     <command detect_errors="aggressive">
         <![CDATA[
-        #if $input_paf.ext.endswith('.gz')
-            gunzip -c '$input_paf' |
-        #end if
+        set -o pipefail; 
+        
+        ## Uncompress input PAF file if necessary and pipe it
+        @UNCOMPRESS_PAF@
+
+        ## Run main command
         paffy chain
             --maxGapLength $maxGapLength
             --chainGapOpen $chainGapOpen
             --chainGapExtend $chainGapExtend
             --trimFraction $trimFraction
             --logLevel 'INFO'
-            --outputFile '$out_file'
-            #if not $input_paf.ext.endswith('.gz')
-                --inputFile '$input_paf'
-            #end if
+        
+        ## Compress output if requested by user 
+        @COMPRESS_PAF@
     ]]></command>
     <inputs>
         <expand macro="input_paf"/>
@@ -27,44 +29,83 @@
         <param argument="--chainGapOpen" type="integer" min="0" value="5000" label="Chain gap open" help="The cost of opening a chain gap"/> 
         <param argument="--chainGapExtend" type="integer" min="1" value="1" label="Chain gap extend" help="The cost of extending a chain gap"/> 
         <expand macro="params_trimFraction"/>
+        <expand macro="params_conditional_compression"/>  
     </inputs>
     <outputs>
-        <data name="out_file" format="paf" label="${tool.name} on ${on_string}: Chained PAF"/>
+        <data name="out_file" format="paf" label="${tool.name} on ${on_string}: Chained PAF">
+            <change_format>
+                <when input="compression.type" value="gz" format="paf.gz"/>
+            </change_format>
+        </data>
     </outputs>
     <tests>
+        <!-- Test 1: Tool defaults. Output serves as input for paffy_filter -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf"/>
             <output name="out_file" ftype="paf" file="paffy_chain_output.paf"/>
         </test>
+        <!-- Test 2: Compressed input & output (.gz) -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf.gz"/>
-            <output name="out_file" ftype="paf" file="paffy_chain_output.paf"/>
+            <conditional name="compression">
+                <param name="type" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="paf.gz">
+                <assert_contents>
+                    <has_size size="38583"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="1">
+        <!-- Test 3: Modified maxGapLength and gap costs -->
+     <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf"/>
             <param name="maxGapLength" value="10000"/>
+            <param name="chainGapOpen" value="1000"/>
             <param name="chainGapExtend" value="5"/>
-            <output name="out_file" ftype="paf" file="paffy_chain_maxGapLength_chainGapExtend_output.paf"/>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="cn:i:2&#009;s1:i:725981" n="1"/>
+                    <has_text text="cn:i:189&#009;s1:i:3307" n="1"/>
+                    <has_text text="cn:i:190" negate="true"/>
+                </assert_contents>
+            </output>
         </test>
+        <!-- Test 4: Modified maxGapLength with less trimming ends -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf"/>
             <param name="maxGapLength" value="10000"/>
-            <param name="chainGapOpen" value="1000"/>
-            <output name="out_file" ftype="paf" file="paffy_chain_maxGapLength_chainGapOpen_output.paf"/>
-        </test>
-        <test expect_num_outputs="1">
-            <param name="input_paf" value="testPaf.paf"/>
-            <param name="maxGapLength" value="10000"/>
-            <param name="chainGapOpen" value="1000"/>
-            <param name="trimFraction" value="0.75"/>
-            <output name="out_file" ftype="paf" file="paffy_chain_maxGapLength_chainGapOpen_trimFraction_output.paf"/>
+            <param name="trimFraction" value="0.1"/>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="cn:i:2&#009;s1:i:2021553" n="11"/>
+                    <has_text text="cn:i:158&#009;s1:i:3307" n="1"/>
+                    <has_text text="cn:i:159" negate="true"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
-Paffy chain groups individual PAF alignment records into chains that represent longer alignment blocks between sequences. 
-Chaining is useful for getting synteny information, where multiple local alignments belong to the same larger structure. 
-Each chain is rescored as a whole, and chain membership is indicated in the output PAF using the 'cn' tag.
-Optionally, alignments can be trimmed from each end, allowing slightly overlapping alignments to be chained.
+Paffy chain connects each alignment with each other in order to identify the longest structure. 
+This is useful for getting synteny information, where multiple local alignments belong to the same larger structure.
+
+The tool connects only alignments with matching 'Query', 'Target', and 'Strand orientation' to find the optimal longest chain.
+For each such group, the tool explores all possible connections but selects the single best path.
+To allow chaining of overlapping alignments, records are trimmed at both ends by default. 
+The trimming amount is defined by the formula: (length * trimFraction) / 2, where length is the smaller of the query or target alignment length.
+
+Chaining is governed by gap costs between consecutive alignments. 
+The gap cost is defined by the formula: chainGapOpen + chainGapExtend * (queryGapLength + targetGapLength).
+Based on this, a connection between two alignments is allowed only if:
+
+#. The gap cost does not exceed the alignment score of the alignment being added
+#. The gap cost does not exceed the total chain score accumulated so far
+
+If an alignment fits into multiple chains, only the single best connection is chosen. Each alignment is used once across all chains.
+
+In the output PAF, alignments are sorted by their alignment score. 
+Each alignment is annotated with the 'cn' (chain ID) tag, indicating to which chain the alignment belongs to. 
+Each chain is assigned a total score using the 's1' (chain score) tag. 
+The chain score represents the sum of alignment scores across the chain, minus all gap costs, and reflects the overall strength of the chained alignment.
     ]]></help>
     <expand macro="citation"/>
     <expand macro="creator"/>

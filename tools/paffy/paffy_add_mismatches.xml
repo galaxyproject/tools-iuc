@@ -7,70 +7,75 @@
     <expand macro="stdio"/>
     <command detect_errors="aggressive">
         <![CDATA[
-        #if $input_paf.ext.endswith('.gz')
-            gunzip -c '$input_paf' |
-        #end if
+        set -o pipefail; 
+
+        ## Uncompress input FASTA files if necessary and create symlinks for uncompressed files
+        @UNCOMPRESS_FASTA@
+
+        ## Uncompress input PAF file if necessary and pipe it
+        @UNCOMPRESS_PAF@
+
+        ## Run main command
         paffy add_mismatches
-            #for $fasta_file in $input_fasta:
-                #if $fasta_file.ext.endswith('.gz')
-                    <(gunzip -c '$fasta_file')
-                #else if $fasta_file.ext.endswith('.bz2')
-                    <(bzip2 -dk '$fasta_file')
-                #else
-                    '$fasta_file'
-                #end if
-            #end for
+            @LOOP_UNCOMPRESS_FASTA@
             $removeMismatches
             --logLevel 'INFO'
-            --outputFile '$out_file'
-            #if not $input_paf.ext.endswith('.gz')
-                --inputFile '$input_paf'
-            #end if
+        
+        ## Compress output if requested by user 
+        @COMPRESS_PAF@
     ]]></command>
     <inputs>
         <expand macro="input_paf"/>
         <expand macro="params_fastaList"/>
-        <param argument="--removeMismatches" type="boolean" truevalue="--removeMismatches" falsevalue="" checked="false" label="Remove mismatches" help="This will remove 'X' and '=' encoding and replacing with 'M'"/>  
+        <param argument="--removeMismatches" type="boolean" truevalue="--removeMismatches" falsevalue="" checked="false" label="Remove mismatches" help="This will remove 'X' and '=' encodings and revert them back to 'M'"/>  
+        <expand macro="params_conditional_compression"/>  
     </inputs>
     <outputs>
-        <data name="out_file" format="paf" label="${tool.name} on ${on_string}"/>
+        <data name="out_file" format="paf" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="compression.type" value="gz" format="paf.gz"/>
+            </change_format>
+        </data>
     </outputs>
     <tests>
+        <!-- Test 1: Tool defaults. Output used as input for test 4 and paffy_filter -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf"/>
-            <param name="input_fasta">
-                <collection type="list">
-                    <element name="001" value="simCow.chr6.fasta.bz2" ftype="fasta"/>
-                    <element name="002" value="simDog.chr6.fasta" ftype="fasta"/>
-                </collection>
-            </param>
+            <param name="input_fasta" value="simCow.chr6.fasta,simDog.chr6.fasta"/>
             <output name="out_file" ftype="paf" file="paffy_add_mismatches_output.paf"/>
         </test>
+        <!-- Test 2: Compressed input (.gz). Output used as input for test 4 and paffy_filter -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf.gz"/>
-            <param name="input_fasta">
-                <collection type="list">
-                    <element name="001" value="simCow.chr6.fasta.gz" ftype="fasta"/>
-                    <element name="002" value="simDog.chr6.fasta" ftype="fasta"/>
-                </collection>
-            </param>
+            <param name="input_fasta" value="simCow.chr6.fasta.gz,simDog.chr6.fasta"/>
             <output name="out_file" ftype="paf" file="paffy_add_mismatches_output.paf"/>
         </test>
+        <!-- Test 3: Compressed input & output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_paf" value="testPaf.paf.gz"/>
+            <param name="input_fasta" value="simCow.chr6.fasta.gz,simDog.chr6.fasta"/>
+            <conditional name="compression">
+                <param name="type" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="paf.gz">
+                <assert_contents>
+                    <has_size size="124996"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: Reverse the tool to remove encoded mismatches. Output used as input for test 1 -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="paffy_add_mismatches_output.paf"/>
-            <param name="input_fasta">
-                <collection type="list">
-                    <element name="001" value="simCow.chr6.fasta" ftype="fasta"/>
-                    <element name="002" value="simDog.chr6.fasta" ftype="fasta"/>
-                </collection>
-            </param>
+            <param name="input_fasta" value="simCow.chr6.fasta,simDog.chr6.fasta"/>
             <param name="removeMismatches" value="true"/>
             <output name="out_file" ftype="paf" file="testPaf.paf"/>
         </test>
     </tests>
     <help><![CDATA[
 Paffy add mismatches processes an input PAF file and updates the CIGAR strings to encode matches and mismatches. 
-Standard 'M' encodings are converted into '=' for matching bases and 'X' for mismatching bases by comparing the aligned sequences against given FASTA files referencing the original sequence data.
+Standard 'M' encodings are converted into '=' for matching bases and 'X' for mismatching bases. 
+E.g. the CIGAR string '10M5I' will be converted to '5=5X5I' if the first 5 bases match and the followed 5 bases mismatch.
+This requires the original Query and Target FASTA sequences as input to verify base identity.
 The tool can also reverse this process, collapsing '=' and 'X' operations back into 'M'.
 As output, a new PAF file is generated with the updated CIGAR strings.
     ]]></help>

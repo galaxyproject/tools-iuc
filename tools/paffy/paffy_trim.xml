@@ -1,5 +1,5 @@
 <tool id="paffy_trim" name="Paffy trim" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>trims the ends of a PAF alignment</description>
+    <description>truncates the ends of PAF alignments</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -7,9 +7,12 @@
     <expand macro="stdio"/>
     <command detect_errors="aggressive">
         <![CDATA[
-        #if $input_paf.ext.endswith('.gz')
-            gunzip -c '$input_paf' |
-        #end if
+        set -o pipefail; 
+        
+        ## Uncompress input PAF file if necessary and pipe it
+        @UNCOMPRESS_PAF@
+
+        ## Run main command
         paffy trim
             #if $trim.byIdentity == 'true':
                 --trimFraction $trim.trimFraction
@@ -19,40 +22,66 @@
                 --fixedTrim
             #end if
             --logLevel 'INFO'
-            --outputFile '$out_file'
-            #if not $input_paf.ext.endswith('.gz')
-                --inputFile '$input_paf'
-            #end if
+
+        ## Compress output if requested by user 
+        @COMPRESS_PAF@
     ]]></command>
     <inputs>
         <expand macro="input_paf"/>
         <conditional name="trim">
             <param name="byIdentity" type="select" label="Trimming options">
-                <option value="true" selected="true">Trim based on identity (Default)</option>
-                <option value="false">Trim by fixed length</option>
+                <option value="true" selected="true">Trim by identity (Default)</option>
+                <option value="false">Trim by fixed fraction</option>
             </param>
             <when value="true">
-                <param argument="--trimIdentity" type="float" min="0" value="0.05" max="1" label="Trim identity threshold" help="Trims tails where the identity falls below a threshold relative to the overall alignment identity. Formula: x - (x * t), where t is this value and x is the overall alignment identity based on the fraction of aligned and matched bases (if CIGAR encodes mismatches as 'X') or simply aligned bases. A value of 1 will result in no trim, while 0 will result in maximal trim. The final length trimmed is capped by the given 'Trim fraction' value below"/> 
-                <expand macro="params_trimFraction"/>
+                <param argument="--trimIdentity" type="float" min="0" value="0.05" max="1" label="Tolerance fraction" help="Trims alignment ends where the local sequence identity falls below a dynamic threshold. The threshold is based on the overall alignment identity (x) and this tolerance fraction (t), using the formula: x − (x * t). The final length trimmed is capped by the 'Max fraction to trim' value below"/> 
+                <param argument="--trimFraction" type="float" min="0" value="1" max="1" label="Max fraction to trim" help="Max fraction to trim from each end of the alignment. This cap is calculated by multiplying the sum of aligned bases and indels by the this parameter"/>   
             </when>
             <when value="false">
                 <expand macro="params_trimFraction"/>
             </when>
         </conditional>
+        <expand macro="params_conditional_compression"/>
     </inputs>
     <outputs>
-        <data name="out_file" format="paf" label="${tool.name} on ${on_string}: Trimmed PAF"/>
+        <data name="out_file" format="paf" label="${tool.name} on ${on_string}: Trimmed PAF">
+            <change_format>
+                <when input="compression.type" value="gz" format="paf.gz"/>
+            </change_format>
+        </data>
     </outputs>
     <tests>
+        <!-- Test 1: Trim based on identity -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf"/>
             <conditional name="trim">
                 <param name="byIdentity" value="true"/>
-                <param name="trimIdentity" value="0.95"/>
+                <param name="trimIdentity" value="0.25"/>
                 <param name="trimFraction" value="1"/>
             </conditional>
-            <output name="out_file" ftype="paf" file="paffy_trim_byIdentity_output.paf"/>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="simDog.chr6&#009;593897&#009;98570&#009;98709&#009;+&#009;simCow.chr6&#009;602619&#009;93324&#009;93477&#009;106&#009;154&#009;255&#009;AS:i:6363&#009;cg:Z:17M11D63M4D42M1I16M" negate="true"/>
+                    <has_text text="simDog.chr6&#009;593897&#009;98587&#009;98709&#009;+&#009;simCow.chr6&#009;602619&#009;93352&#009;93477&#009;106&#009;154&#009;255&#009;AS:i:6363&#009;cg:Z:63M4D42M1I16M"/>
+                </assert_contents>
+            </output>
         </test>
+        <!-- Test 2: Same parameters as test 1, just with compressed input (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_paf" value="testPaf.paf.gz"/>
+            <conditional name="trim">
+                <param name="byIdentity" value="true"/>
+                <param name="trimIdentity" value="0.25"/>
+                <param name="trimFraction" value="1"/>
+            </conditional>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="simDog.chr6&#009;593897&#009;98570&#009;98709&#009;+&#009;simCow.chr6&#009;602619&#009;93324&#009;93477&#009;106&#009;154&#009;255&#009;AS:i:6363&#009;cg:Z:17M11D63M4D42M1I16M" negate="true"/>
+                    <has_text text="simDog.chr6&#009;593897&#009;98587&#009;98709&#009;+&#009;simCow.chr6&#009;602619&#009;93352&#009;93477&#009;106&#009;154&#009;255&#009;AS:i:6363&#009;cg:Z:63M4D42M1I16M"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: Same parameters as test 1, just with compressed input & output (.gz) -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf.gz"/>
             <conditional name="trim">
@@ -60,22 +89,56 @@
                 <param name="trimIdentity" value="0.95"/>
                 <param name="trimFraction" value="1"/>
             </conditional>
-            <output name="out_file" ftype="paf" file="paffy_trim_byIdentity_output.paf"/>
+            <conditional name="compression">
+                <param name="type" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="paf.gz">
+                <assert_contents>
+                    <has_size size="37953"/>
+                </assert_contents>
+            </output>
         </test>
+        <!-- Test 4: Trim fixed length -->
         <test expect_num_outputs="1">
             <param name="input_paf" value="testPaf.paf"/>
             <conditional name="trim">
                 <param name="byIdentity" value="false"/>
                 <param name="trimFraction" value="0.75"/>
             </conditional>
-            <output name="out_file" ftype="paf" file="paffy_trim_output.paf"/>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="simDog.chr6&#009;593897&#009;526897&#009;527043&#009;+&#009;simCow.chr6&#009;602619&#009;20537&#009;20683&#009;122&#009;146&#009;255&#009;AS:i:10183&#009;cg:Z:146M" negate="true"/>
+                    <has_text text="simDog.chr6&#009;593897&#009;526951&#009;526989&#009;+&#009;simCow.chr6&#009;602619&#009;20591&#009;20629&#009;122&#009;146&#009;255&#009;AS:i:10183&#009;cg:Z:38M"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
-Paffy trim removes bases from both ends of alignments in a PAF file.
-The tool trims alignment ends where local identity drops below a threshold relative to the overall alignment identity, where the overall alignment identity is based on the fraction of aligned and matched bases (if CIGAR encodes mismatches as 'X') or simply aligned bases.
-Alternatively, a fixed fraction of aligned bases can be trimmed from each end regardless of identity.
+Paffy trim removes bases from both ends of alignments in a PAF file and updates their coordinates and CIGAR strings accordingly. 
 As output, a new PAF file is generated with the trimmed alignments.
+The tool offers two trimming methods:
+
+**1. Trim by Identity:** 
+Trims alignment ends where the local sequence identity falls below a dynamic threshold.
+This threshold is based on the overall alignment identity (x) and a given tolerance fraction (t), which acts as a percentage of allowed degradation. 
+The formula beeing used for this is: x − (x * t).
+
+* If 't' is 1: The threshold becomes 0. No trimming occurs, as all ends are accepted regardless of quality (100% Tolerance).
+* If 't' is 0: The threshold equals 'x'. Maximum trimming occurs, as the ends must perfectly match the overall alignment quality to be kept (0% Tolerance).
+* If 't' is between 0 and 1: It tells how much worse the ends are allowed to be compared to the rest of the alignment (Partial Tolerance). E.g. The overall alignment identity is 90% (x=0.9) and 't' gets set to 0.2 (allowing a 20% drop in quality), the threshold becomes 0.72. The tool will then trim the number of bases at the ends that is on average worse than 72%.
+
+The overall alignment identity is calculated differently based on the CIGAR string encoding. 
+In both cases, the identity is calculated as a fraction of matches over the sum of aligned bases and indels.
+
+* For '=' (match) and 'X' (mismatch) encodings: Uses the number of strict matches ('=') as the numerator.
+* For standard 'M' (match/mismatch) encodings: Uses the number of aligned bases ('M') as the numerator.
+
+To prevent excessive shortening of sequences, the final trimmed amount is restricted by a safeguard cap.
+This cap is calculated by multiplying the sum of aligned bases and indels by the max_fraction_to_trim parameter.
+
+**2. Trim by Fixed Fraction:** 
+Alternatively, a fixed fraction of aligned bases can be trimmed from each end, regardless of local sequence identity. 
+The number of bases removed from each end is calculated as: (num_aligned_bases * fraction) / 2
     ]]></help>
     <expand macro="citation"/>
     <expand macro="creator"/>
