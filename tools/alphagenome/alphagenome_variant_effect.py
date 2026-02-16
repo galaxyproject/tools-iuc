@@ -162,7 +162,7 @@ def run(args):
             ref = record.REF
 
             # Process first ALT allele only for POC
-            if not record.ALT or len(record.ALT) == 0:
+            if not record.ALT:
                 vcf_writer.write_record(record)
                 continue
 

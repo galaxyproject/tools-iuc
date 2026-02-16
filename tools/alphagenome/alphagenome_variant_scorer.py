@@ -101,7 +101,7 @@ def run(args):
             pos = record.POS
             ref = record.REF
 
-            if not record.ALT or len(record.ALT) == 0:
+            if not record.ALT:
                 continue
 
             alt = record.ALT[0]
