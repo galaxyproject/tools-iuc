@@ -5,6 +5,7 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
+        mkdir -p input output &&
         unzip -q '$input_spatialdata' -d input &&
 
         ## run the operation pipeline
@@ -41,8 +42,9 @@ result = sd.bounding_box_query(
 #else if $operation_condi.operation == 'polygon_query':
 ## Polygon query
 from shapely.geometry import Polygon
-    #set coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in str($operation_condi.polygon_coords).split(';')]
-polygon = Polygon($coords_list)
+coords_str = '$operation_condi.polygon_coords'
+coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in coords_str.split(';')]
+polygon = Polygon(coords_list)
 result = sd.polygon_query(
     sdata,
     polygon=polygon,
@@ -116,10 +118,17 @@ elements_dict, result_table = sd.join_spatialelement_table(
     how='$operation_condi.how',
     match_rows='$operation_condi.match_rows'
 )
-## Update sdata with filtered elements and table
-for elem_name, elem_data in elements_dict.items():
-    sdata[elem_name] = elem_data
-sdata.tables['$operation_condi.table_name'] = result_table
+## Update sdata with filtered table
+table = sdata.update_annotated_regions_metadata(table=result_table,
+                                            #if $operation_condi.region_key:
+                                            region_key='$operation_condi.region_key'
+                                            #end if
+                                            )
+
+table_name =sd.sanitize_name('$operation_condi.output_table_name')
+sdata[f"filtered_{table_name}"] = table
+sdata[table_name] = result_table
+
 result = sdata
 
 #else if $operation_condi.operation == 'match_element_to_table':
@@ -464,7 +473,17 @@ print(result)
 ## Save the result
 #if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table']:
 result.write("./output/spatialdata", overwrite=True)
-#else if $operation_condi.operation in ['get_extent', 'get_values', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels']:
+
+#else if $operation_condi.operation in ['get_values']:
+import pandas as pd
+## Save DataFrame as TSV
+if isinstance(result, pd.DataFrame):
+    result.to_csv('./output/result.tabular', sep='\t', index=True)
+else:
+    ## If result is a Series or other, convert to DataFrame
+    pd.DataFrame(result).to_csv('./output/result.tabular', sep='\t', index=True)
+
+    #else if $operation_condi.operation in ['get_extent', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels']:
 import json
 import pandas as pd
 import numpy as np
@@ -539,7 +558,9 @@ print("\nOperation completed successfully!")
             </when>
             <when value="polygon_query">
                 <param name="polygon_coords" type="text" label="Polygon coordinates" help="Semicolon-separated list of coordinate pairs (x,y). Example: '0,0;100,0;100,100;0,100' for a square">
-                    <expand macro="sanitize_digits"/>
+                    <expand macro="sanitize_digits">
+                        <add value=";"/>
+                    </expand>
                 </param>
                 <param name="target_coordinate_system" type="text" value="global" label="Target coordinate system" help="The coordinate system of the polygon">
                     <expand macro="sanitize_query"/>
@@ -600,6 +621,9 @@ print("\nOperation completed successfully!")
                 <param name="table_name" type="text" value="table" label="Table name">
                     <expand macro="sanitize_query"/>
                 </param>
+                <param name="region_key" type="text" value="" optional="true" label="Region key" help="The column in table.obs containing the rows specifying the SpatialElements being annotated. If None the current value for region_key in the annotation metadata of the table is used. If specified but different from the current region_key, the current region_key is overwritten.">
+                    <expand macro="sanitize_query"/>
+                </param>
                 <param name="how" type="select" label="Join type">
                     <option value="left" selected="true">Left</option>
                     <option value="left_exclusive">Left Exclusive</option>
@@ -611,6 +635,9 @@ print("\nOperation completed successfully!")
                     <option value="no" selected="true">No</option>
                     <option value="left">Left (element indices priority)</option>
                     <option value="right">Right (table instance IDs priority)</option>
+                </param>
+                <param name="output_table_name" type="text" value="out_table" label="Output table name">
+                    <expand macro="sanitize_query"/>
                 </param>
             </when>
             <when value="match_element_to_table">
@@ -922,12 +949,15 @@ print("\nOperation completed successfully!")
                 </action>
             </actions>
         </data>
-        <data name="result_json" format="json" from_work_dir="output/result.json" label="${tool.name} on ${on_string}: ${operation_condi.operation} result">
-            <filter>operation_condi['operation'] in ['get_extent', 'get_values', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels']</filter>
+        <data name="result_tabular" format="tabular" from_work_dir="output/result.tabular" label="${tool.name} on ${on_string}: ${operation_condi.operation} tabular result">
+            <filter>operation_condi['operation'] == 'get_values'</filter>
+        </data>
+        <data name="result_json" format="json" from_work_dir="output/result.json" label="${tool.name} on ${on_string}: ${operation_condi.operation} json result">
+            <filter>operation_condi['operation'] in ['get_extent', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels']</filter>
         </data>
     </outputs>
     <tests>
-        <!-- Test 1: bounding_box_query -->
+       <!-- Test 1: bounding_box_query -->
         <test expect_num_outputs="1">
             <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
             <conditional name="operation_condi">
@@ -949,6 +979,135 @@ print("\nOperation completed successfully!")
             <output name="spatialdata_output">
                 <assert_contents>
                     <has_size value="55000" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: polygon_query -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="polygon_query"/>
+                <param name="polygon_coords" value="0,0;100,0;100,100;0,100"/>
+                <param name="target_coordinate_system" value="global"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="polygon_query"/>
+                <has_text text="from shapely.geometry import Polygon"/>
+                <has_text text="0,0;100,0;100,100;0,100"/>
+                <has_text text="clip=False"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="50000" delta="10000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: get_values -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_values"/>
+                <param name="value_key" value="ABCC11"/>
+                <param name="element_name" value="cell_labels"/>
+                <param name="table_name" value="table"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_values"/>
+                <has_text_matching expression="value_key='ABCC11',\n    sdata=sdata,\n    element_name='cell_labels',\n    table_name='table',\n    return_obsm_as_is=False"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_tabular">
+                <assert_contents>
+                    <has_n_lines n="359"/>
+                    <has_n_columns n="2"/>
+                    <has_text text="ABCC11"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: get_element_instances -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_element_instances"/>
+                <param name="element_name" value="cell_labels"/>
+                <param name="return_background_bool" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_element_instances"/>
+                <has_text_matching expression="    element,\n    return_background=False"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_json">
+                <assert_contents>
+                    <has_n_lines n="360"/>
+                </assert_contents>
+            </output>
+        </test>
+         <!-- Test 5: get_extent -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_extent"/>
+                <param name="coordinate_system" value="global"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_extent"/>
+                <has_text_matching expression="has_images=True,\n    has_labels=True,\n    has_points=True,\n    has_shapes=True"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_json">
+                <assert_contents>
+                    <has_text text="6915.0"/>
+                    <has_text text="2963.0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: get_centroids -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_centroids"/>
+                <param name="element_name" value="cell_labels"/>
+                <param name="output_element_name" value="cell_centroids"/>
+                <param name="coordinate_system" value="global"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_centroids"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="7500000" delta="100000"/>
+                    <has_archive_member path="spatialdata/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="points/cell_centroids"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: join_spatialelement_table -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18488787/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="join_spatialelement_table"/>
+                <param name="spatial_element_names" value="cell_labels"/>
+                <param name="table_name" value="table"/>
+                <param name="region_key" value="region"/>
+                <param name="output_table_name" value="filtered_table"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="join_spatialelement_table"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="7600000" delta="100000"/>
+                    <has_archive_member path="spatialdata/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/filtered_table"/>
+                        <has_text text="tables/filtered_filtered_table"/>
+                    </has_archive_member>
                 </assert_contents>
             </output>
         </test>
