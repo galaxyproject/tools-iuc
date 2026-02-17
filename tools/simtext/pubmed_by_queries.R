@@ -47,22 +47,19 @@ parser$add_argument("-a", "--abstract",
     action = "store_true", default = FALSE,
     help = "If abstracts instead of PMIDs should be retrieved use --abstracts "
 )
-parser$add_argument("-k", "--key",
-    type = "character",
-    help = "If ncbi API key is available, add it to speed up the download of PubMed data. For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information)."
-)
 parser$add_argument("--install_packages",
     action = "store_true", default = FALSE,
     help = "If you want to auto install missing required packages."
 )
 args <- parser$parse_args()
 
-if (!is.null(args$key)) {
-    if (file.exists(args$key)) {
-        credentials <- read.table(args$key, quote = "\"", comment.char = "")
-        args$key <- credentials[1, 1]
-    }
+# Read API key from environment variable NCBI_API_KEY
+api_key <- Sys.getenv("NCBI_API_KEY", unset = NA)
+if (is.na(api_key) || !nzchar(api_key)) {
+    api_key <- NULL
 }
+
+
 
 max_web_tries <- 100
 
@@ -285,7 +282,7 @@ for (i in seq(nrow(data))) {
         row = i,
         query = data[i, id_col_index],
         number = args$number,
-        key = args$key,
+        key = api_key,
         abstract = args$abstract
     ), error = function(e) {
         print("main error")
