@@ -2,21 +2,30 @@ import argparse
 import json
 import re
 import sys
-import urllib.request
 from pathlib import Path
+
+import requests
 
 MODEL_JSON_URL = "https://celltypist.cog.sanger.ac.uk/models/models.json"
 
 
-def fetch_json(url):
-    with urllib.request.urlopen(url) as r:
-        return json.load(r)
+def fetch_json(url, timeout=30):
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
 
 
-def safe_download(url, dest):
+def safe_download(url, dest, timeout=30, chunk_size=1024 * 1024):
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
     print(f"Downloading {url} to {dest}")
-    urllib.request.urlretrieve(url, dest)
+
+    # Stream download to avoid holding the whole file in memory.
+    with requests.get(url, stream=True, timeout=timeout) as response:
+        response.raise_for_status()
+        with open(dest, "wb") as fh:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    fh.write(chunk)
 
 
 def model_version(filename, version):
@@ -72,7 +81,7 @@ def main():
     for m in models:
         filename = m.get("filename", "")
         url = m.get("url")
-        name = m.get("name", "")
+        name = m.get("details", "")
         version = m.get("version", "")
         date = m.get("date", "")
 

@@ -1,4 +1,4 @@
-<tool id="celltypist" name="CellTypist" version="@TOOL_VERSION@" profile="24.0">
+<tool id="celltypist" name="CellTypist" version="@TOOL_VERSION@" profile="25.0">
     <description>Automated cell type annotation for scRNA-seq datasets</description>
     <macros>
         <token name="@TOOL_VERSION@">1.7.1</token>
@@ -47,9 +47,12 @@ predictions = celltypist.annotate(adata,
                 mode='$mode',
                 p_thres=$p_thres,
                 min_prop=$min_prop)
-
 adata = predictions.to_adata()
 adata.write_h5ad('$anndata_out', compression='gzip')
+
+#if $dotplot.generate == "yes"
+celltypist.dotplot(predictions, use_as_reference='$dotplot.reference', use_as_prediction='$dotplot.prediction',  save='.$dotplot.format', show=None)
+#end if
 ]]>
         </configfile>
     </configfiles>
@@ -77,7 +80,14 @@ adata.write_h5ad('$anndata_out', compression='gzip')
                     </when>
                     <when value="train_model">
                         <param type="data" format="h5ad" name="train_anndata" label="Select an AnnData file from history." />
-                        <param type="text" name="labels" label="The column name in the .obs attribute of the training AnnData file that contains the cell type labels." />
+                        <param type="text" name="labels" optional="false" label="The column name in the .obs attribute of the training AnnData file that contains the cell type labels." >
+                            <sanitizer invalid_char="">
+                                <valid initial="string.letters,string.digits">
+                                    <add value="_" />
+                                </valid>
+                            </sanitizer>
+                            <validator type="regex">[0-9a-zA-Z_]+</validator>
+                        </param>
                         <param type="integer" name="batch_number" value="100" label="Batch number per epoch" help="The number of batches used for training in each epoch; only relevant when mini-batch SGD training is used (use_SGD = True and mini_batch = True)." />
                         <param type="integer" name="batch_size" value="1000" label="Cells per batch" help="The number of cells within each batch; only relevant when mini-batch SGD training is used (use_SGD = True and mini_batch = True)." />
                         <param type="integer" name="epochs" value="10" label="Epochs for mini-batch training" help="The number of epochs for the mini-batch training procedure; only relevant when mini-batch SGD training is used (use_SGD = True and mini_batch = True)." />
@@ -95,12 +105,47 @@ adata.write_h5ad('$anndata_out', compression='gzip')
         </param>
         <param name="p_thres" type="float" value="0.5" min="0" max="1" label="Probability threshold for the multi-label classification" help="Ignored if mode is best match." />
         <param name="min_prop" type="float" value="0" min="0" max="1" label="The minimum proportion of cells required to support naming of the subcluster by this cell type" help="Ignored if majority_voting is set to False"/>
+        <conditional name="dotplot">
+            <param name="generate" type="select" label="Generate a dotplot of the predicted cell types" >
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="reference" type="text" label="Reference column in AnnData.obs for dotplot" value="cell_type" help="The value can also be clustering column. For eg. 'leiden'">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="_" />
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9a-zA-Z_]+</validator>
+                </param>
+                <param name="prediction" type="select" label="Prediction label in AnnData.obs for dotplot">
+                    <option value="majority_voting" selected="true">majority_voting</option>
+                    <option value="predicted_labels">predicted_labels</option>
+                </param>
+                <param name="format" type="select" label="Dotplot format">
+                    <option value="png" selected="true">png</option>
+                    <option value="pdf">pdf</option>
+                    <option value="svg">svg</option>
+                </param>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
         <data name="anndata_out" format="h5ad" label="${tool.name} on ${on_string}: AnnData with celltype annotations" />
+        <data name="out_png" format="png" from_work_dir="figures/*.png" label="on ${on_string}: Dotplot PNG">
+            <filter>dotplot['generate'] == 'yes' and dotplot['format'] == 'png'</filter>
+        </data>
+        <data name="out_pdf" format="pdf" from_work_dir="figures/*.pdf" label="on ${on_string}: Dotplot PDF">
+            <filter>dotplot['generate'] == 'yes' and dotplot['format'] == 'pdf'</filter>
+        </data>
+        <data name="out_svg" format="svg" from_work_dir="figures/*.svg" label="on ${on_string}: Dotplot SVG">
+            <filter>dotplot['generate'] == 'yes' and dotplot['format'] == 'svg'</filter>
+        </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="1">
+        <test expect_num_outputs="2">
             <param name="adata" location="https://celltypist.cog.sanger.ac.uk/Notebook_demo_data/demo_500_cells.h5ad"/>
             <conditional name="model_source">
                 <param name="source" value="cached" />
@@ -110,6 +155,12 @@ adata.write_h5ad('$anndata_out', compression='gzip')
             <param name="mode" value="best match" />
             <param name="p_thres" value="0.5" />
             <param name="min_prop" value="0.05" />
+            <conditional name="dotplot">
+                <param name="generate" value="yes"/>
+                <param name="reference" value="cell_type"/>
+                <param name="prediction" value="majority_voting"/>
+                <param name="format" value="png"/>
+            </conditional>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
                     <has_h5_keys keys="obs/predicted_labels"/>
@@ -118,6 +169,7 @@ adata.write_h5ad('$anndata_out', compression='gzip')
                     <has_h5_keys keys="obs/conf_score"/>
                 </assert_contents>
             </output>
+            <output name="out_png" ftype="png" value="majority_voting.png"/>
         </test>
         <test expect_num_outputs="1">
             <param name="adata" location="https://celltypist.cog.sanger.ac.uk/Notebook_demo_data/demo_500_cells.h5ad"/>
@@ -139,7 +191,7 @@ adata.write_h5ad('$anndata_out', compression='gzip')
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="1">
+        <test expect_num_outputs="2">
             <param name="adata" location="https://celltypist.cog.sanger.ac.uk/Notebook_demo_data/demo_500_cells.h5ad"/>
             <conditional name="model_source">
                 <param name="source" value="history" />
@@ -154,12 +206,19 @@ adata.write_h5ad('$anndata_out', compression='gzip')
             <param name="mode" value="prob match" />
             <param name="p_thres" value="0.5" />
             <param name="min_prop" value="0.05" />
+            <conditional name="dotplot">
+                <param name="generate" value="yes" />
+                <param name="reference" value="cell_type"/>
+                <param name="prediction" value="predicted_labels"/>
+                <param name="format" value="pdf"/>
+            </conditional>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
                     <has_h5_keys keys="obs/predicted_labels"/>
                     <has_h5_keys keys="obs/conf_score"/>
                 </assert_contents>
             </output>
+            <output name="out_pdf" ftype="pdf" value="predicted_labels.pdf"/>
         </test>
     </tests>
     <help><![CDATA[
