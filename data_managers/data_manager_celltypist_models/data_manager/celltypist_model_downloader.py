@@ -15,17 +15,14 @@ def fetch_json(url, timeout=30):
     return response.json()
 
 
-def safe_download(url, dest, timeout=30, chunk_size=1024 * 1024):
+def safe_download(url, dest, timeout=30):
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
     print(f"Downloading {url} to {dest}")
 
-    # Stream download to avoid holding the whole file in memory.
-    with requests.get(url, stream=True, timeout=timeout) as response:
-        response.raise_for_status()
-        with open(dest, "wb") as fh:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    fh.write(chunk)
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    with open(dest, "wb") as fh:
+        fh.write(response.content)
 
 
 def model_version(filename, version):
