@@ -22,8 +22,19 @@ from celltypist import models
 adata = sc.read_h5ad('$adata')
 #if $model_source.source == "cached"
 model = models.Model.load(model='$model_source.cached_model.fields.path')
-#elif $model_source.source == "history"
-model = models.Model.load(model='$model_source.history_model')
+#else if $model_source.source == "history"
+    #if $model_source.history_model_source.history_model_select == "select_model"
+model = models.Model.load(model='$model_source.history_model_source.history_model')
+    #else if $model_source.history_model_source.history_model_select == "train_model"
+train_adata = sc.read_h5ad('$model_source.history_model_source.train_anndata')
+model = celltypist.train(X=train_adata, 
+                    labels = '$model_source.history_model_source.labels',
+                    batch_number = $model_source.history_model_source.batch_number,
+                    batch_size = $model_source.history_model_source.batch_size,
+                    epochs = $model_source.history_model_source.epochs,
+                    feature_selection = $model_source.history_model_source.feature_selection,
+                    top_genes = $model_source.history_model_source.top_genes)
+    #end if
 #end if
 predictions = celltypist.annotate(adata,
                 model=model,
@@ -56,11 +67,28 @@ adata.write_h5ad('$anndata_out', compression='gzip')
                 </param>
             </when>
             <when value="history">
-                <param type="data" format="binary" name="history_model" label="Select compatible models from history." />
+                <conditional name="history_model_source">
+                    <param type="select" label="Select a models or train a model from history." name="history_model_select">
+                        <option value="select_model" selected="true">Select a compatible model</option>
+                        <option value="train_model">Train a model on an existing AnnData and use it</option>
+                    </param>
+                    <when value="select_model">
+                        <param type="data" format="binary" name="history_model" label="Select compatible models from history." />
+                    </when>
+                    <when value="train_model">
+                        <param type="data" format="h5ad" name="train_anndata" label="Select an AnnData file from history." />
+                        <param type="text" name="labels" label="The column name in the .obs attribute of the training AnnData file that contains the cell type labels." />
+                        <param type="integer" name="batch_number" value="100" label="Batch number per epoch" help="The number of batches used for training in each epoch; only relevant when mini-batch SGD training is used (use_SGD = True and mini_batch = True)." />
+                        <param type="integer" name="batch_size" value="1000" label="Cells per batch" help="The number of cells within each batch; only relevant when mini-batch SGD training is used (use_SGD = True and mini_batch = True)." />
+                        <param type="integer" name="epochs" value="10" label="Epochs for mini-batch training" help="The number of epochs for the mini-batch training procedure; only relevant when mini-batch SGD training is used (use_SGD = True and mini_batch = True)." />
+                        <param type="boolean" name="feature_selection" checked="false" truevalue="True" falsevalue="False" label="Enable two-pass feature selection" help="If true, performs two-pass training where the first round selects important genes using SGD learning; increases training time." />
+                        <param type="integer" name="top_genes" value="300" label="Top genes per class" help="Number of top genes per class/cell-type based on absolute regression coefficients; the final feature set is the union across classes." />
+                    </when>
+                </conditional>
             </when>
         </conditional>
-        <param name="majority_voting" type="boolean" label="Refine the predicted labels by running the majority voting classifier after over-clustering" value="False" />
-        <param name="transpose_input" type="boolean" label="Transpose the input matrix is provided in the gene-by-cell format." value="False" help="Note Celltypist requires the cell-by-gene format"/>
+        <param name="majority_voting" type="boolean" checked="false" truevalue="True" falsevalue="False" label="Refine the predicted labels by running the majority voting classifier after over-clustering" />
+        <param name="transpose_input" type="boolean" checked="false" truevalue="True" falsevalue="False" label="Transpose the input matrix is provided in the gene-by-cell format." help="Note Celltypist requires the cell-by-gene format"/>
         <param name="mode" type="select" label="Annotation mode">
             <option value="best match">Choose the cell type with the largest score/probability as the final prediction</option>
             <option value="prob match">Enable a multi-label classification utilising a probability threshold</option>
@@ -95,7 +123,32 @@ adata.write_h5ad('$anndata_out', compression='gzip')
             <param name="adata" location="https://celltypist.cog.sanger.ac.uk/Notebook_demo_data/demo_500_cells.h5ad"/>
             <conditional name="model_source">
                 <param name="source" value="history" />
-                <param name="history_model" location="https://celltypist.cog.sanger.ac.uk/models/Pan_Immune_CellTypist/v2/Immune_All_Low.pkl" />
+                    <conditional name="history_model_source">
+                        <param name="history_model_select" value="select_model"/>
+                        <param name="history_model" location="https://celltypist.cog.sanger.ac.uk/models/Pan_Immune_CellTypist/v2/Immune_All_Low.pkl" />
+                    </conditional>
+            </conditional>
+            <param name="majority_voting" value="False" />
+            <param name="mode" value="prob match" />
+            <param name="p_thres" value="0.5" />
+            <param name="min_prop" value="0.05" />
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/predicted_labels"/>
+                    <has_h5_keys keys="obs/conf_score"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="adata" location="https://celltypist.cog.sanger.ac.uk/Notebook_demo_data/demo_500_cells.h5ad"/>
+            <conditional name="model_source">
+                <param name="source" value="history" />
+                <conditional name="history_model_source">
+                    <param name="history_model_select" value="train_model"/>
+                    <param name="train_anndata" location="https://celltypist.cog.sanger.ac.uk/Notebook_demo_data/demo_500_cells.h5ad" />
+                    <param name="labels" value="cell_type" />
+                    <param name="top_genes" value="100"/>
+                </conditional>
             </conditional>
             <param name="majority_voting" value="False" />
             <param name="mode" value="prob match" />
