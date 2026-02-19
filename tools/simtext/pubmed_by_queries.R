@@ -161,19 +161,22 @@ fetch_abstracts <- function(data, number, query, pubmed_search) {
         # Check if error
         if (!is.null(out_data) &&
             class(out_data) == "character" &&
-            grepl("<ERROR>", substr(paste(utils::head(out_data, n = 100),
-                collapse = ""
-            ), 1, 250))) {
+            grepl("<ERROR>", substr(
+                paste(utils::head(out_data, n = 100), collapse = ""),
+                1, 250
+            ))) {
             out_data <- NULL
         }
         try_num <- try_num + 1
     }
     if (is.null(out_data)) {
-        message(
-            "Killing the request! Something is not working. Please, try again later",
-            "\n"
+        stop(
+            paste0(
+                "Failed to retrieve PubMed abstracts after multiple retries. ",
+                "Query: ", query
+            ),
+            call. = FALSE
         )
-        return(data)
     } else {
         return(out_data)
     }
@@ -276,18 +279,24 @@ pubmed_data_in_table <- function(data, row, query, number, key, abstract) {
 }
 
 for (i in seq(nrow(data))) {
-    data <- tryCatch(pubmed_data_in_table(
-        data = data,
-        row = i,
-        query = data[i, id_col_index],
-        number = args$number,
-        key = api_key,
-        abstract = args$abstract
-    ), error = function(e) {
-        print("main error")
-        print(e)
-        Sys.sleep(5)
-    })
+    data <- tryCatch(
+        pubmed_data_in_table(
+            data = data,
+            row = i,
+            query = data[i, id_col_index],
+            number = args$number,
+            key = api_key,
+            abstract = args$abstract
+        ),
+        error = function(e) {
+            message(
+                "Fatal error while processing query: ",
+                data[i, id_col_index]
+            )
+            message(conditionMessage(e))
+            quit(status = 1, save = "no")
+        }
+    )
 }
 
 write.table(data, args$output, append = FALSE, sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
