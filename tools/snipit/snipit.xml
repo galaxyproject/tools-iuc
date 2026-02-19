@@ -1,7 +1,21 @@
-<tool id="snipit" name="snipit" version="@TOOL_VERSION@+galaxy0">
+<tool id="snipit" name="snipit" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.1">
     <description>Summarise snps relative to a reference sequence</description>
     <macros>
-        <token name="@TOOL_VERSION@">1.2</token>
+        <token name="@TOOL_VERSION@">1.7</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <xml name="ref_select" token_help="">
+            <conditional name="ref">
+                <param name="select" type="select" label="The reference sequence ..."
+                help="@HELP@">
+                    <option value="first">is the first sequence in the input</option>
+                    <option value="by_id">should be picked via its ID</option>
+                </param>
+                <when value="first" />
+                <when value="by_id">
+                    <param name="id" argument="--reference" type="text" label="ID of reference sequence" />
+                </when>
+            </conditional>
+        </xml>
         <xml name="handle_background" tokens="format">
             <when value="@FORMAT@">
                 <param argument="--solid-background" name="transparent_background" type="boolean" truevalue="" falsevalue="--solid-background" label="Plot on transparent background?" />
@@ -17,8 +31,33 @@
     <version_command>snipit -v</version_command>
     <command detect_errors="exit_code"><![CDATA[
         snipit '$alignment'
-            #if str($ref.select) == 'by_id'
+            --sequence-type $mode.sequence_type
+            ## --cds-mode flag broken in this version of snipit
+            ## but this is how it'd be used.
+            ##if str($mode.sequence_type) == 'nt'
+            ##    $mode.cds_mode
+            ##end if
+            #if str($mode.ref.select) == 'by_id'
                 -r '$ref.id'
+            #end if
+            #if not str($mode.colouring.palette)
+                --recombi-mode --recombi-references '$mode.colouring.parent1,$mode.colouring.parent2'
+            #else
+                -c $mode.colouring.palette
+            #end if
+            $pos_restrict.show_indels
+            --ambig-mode $pos_restrict.ambig_mode
+            #if len($pos_restrict.include_positions)
+                --include-positions
+                #for $p in $pos_restrict.include_positions
+                    '$p.pos'
+                #end for
+            #end if
+            #if len($pos_restrict.exclude_positions)
+                --exclude-positions
+                #for $p in $pos_restrict.exclude_positions
+                    '$p.pos'
+                #end for
             #end if
             #if str($style.labels.choose)
                 -l '$style.labels.source'
@@ -26,6 +65,7 @@
                     --l-header '${style.labels.names_column},${style.labels.labels_column}'
                 #end if
             #end if
+            $style.position_labels
             -f $plot.format
             #if str($plot.format) in ['png', 'svg', 'tiff']
                 $plot.transparent_background
@@ -39,20 +79,6 @@
             #end if
             $dims.size_option
             $style.flip_vertical
-            $show_indels
-            #if len($pos_restrict.include_positions)
-                --include-positions
-                #for $p in $pos_restrict.include_positions
-                    '$p.pos'
-                #end for
-            #end if
-            #if len($pos_restrict.exclude_positions)
-                --exclude-positions
-                #for $p in $pos_restrict.exclude_positions
-                    '$p.pos'
-                #end for
-            #end if
-            $pos_restrict.exclude_ambig_pos
             $style.sort.order
             #if str($style.sort.order) == '--sort-by-mutation-number'
                 $style.sort.high_to_low
@@ -60,30 +86,66 @@
                 #echo ','.join([str(p['pos']) for p in $style.sort.positions])
                 $style.sort.high_to_low
             #end if
-            #if not str($style.colouring.palette)
-                --recombi-mode --recombi-references '$style.colouring.parent1,$style.colouring.parent2'
-            #else
-                -c $style.colouring.palette
-            #end if
     ]]></command>
     <environment_variables>
         <environment_variable name="MPLCONFIGDIR">.matplotlib</environment_variable>
     </environment_variables>
     <inputs>
         <param name="alignment" format="fasta" type="data" label="Input alignment fasta file" />
-        <conditional name="ref">
-            <param name="select" type="select" label="The reference sequence ..."
-            help="Please note that you will HAVE to specify the reference explicitly via its ID if you choose the 'recombinant mutations colouring' scheme and in this case the reference can NOT be one of the recombinant parents.">
-                <option value="first">is the first sequence in the input</option>
-                <option value="by_id">should be picked via its ID</option>
+        <conditional name="mode">
+            <param argument="--sequence-type" type="select" label="Type of input">
+                <option value="nt">DNA sequence alignment</option>
+                <option value="aa">Protein sequence alignment</option>
             </param>
-            <when value="first" />
-            <when value="by_id">
-                <param name="id" argument="--reference" type="text" label="ID of reference sequence" />
+            <when value="nt">
+                <expand macro="ref_select" help="Please note that you will HAVE to specify the reference explicitly via its ID if you choose the 'recombinant mutations colouring' scheme and in this case the reference can NOT be one of the recombinant parents." />
+                <!-- cds-mode flag is broken in this version of snipit
+                so not enabling the param for now.
+                When enabling remember to fix the double dashes!
+                <param argument="- -cds-mode" type="boolean" truevalue="- -cds-mode" falsevalue="" label="Perform coding sequence alignment check?" help="By selecting this option you are indicating that your input is an alignment of coding sequences. The tool will check that all sequence lengths are multiples of three and will fail if that is not the case." />
+                -->
+                <conditional name="colouring">
+                    <param name="palette" argument="--colour-palette" type="select" label="Plotted Mutations colouring scheme" help="Mutations can be coloured by base change or, alternatively, by their presence/absence in any of two parent sequences in the alignment (recombinant mode).">
+                        <option value="primary">primary</option>
+                        <option value="classic" selected="true">classic</option>
+                        <option value="classic_extended">classic_extended (only scheme defining colours for ambiguous bases)</option>
+                        <option value="purine-pyrimidine">purine-pyrimidine</option>
+                        <option value="greyscale">greyscale</option>
+                        <option value="wes">wes</option>
+                        <option value="verity">verity</option>
+                        <option value="">recombinant mutations colouring</option>
+                    </param>
+                    <when value="primary" />
+                    <when value="classic" />
+                    <when value="classic_extended" />
+                    <when value="purine-pyrimidine" />
+                    <when value="greyscale" />
+                    <when value="wes" />
+                    <when value="verity" />
+                    <when value="">
+                        <param name="parent1" type="text" label="Sequence ID of first recombinant parent sequence in alignment" />
+                        <param name="parent2" type="text" label="Sequence ID of second recombinant parent sequence in alignment" />
+                    </when>
+                </conditional>
+            </when>
+            <when value="aa">
+                <expand macro="ref_select" />
+                <conditional name="colouring">
+                    <param name="palette" argument="--colour-palette" type="select" label="Plotted Mutations colouring scheme" help="The only currently available colour scheme for protein sequences is 'ugene', which defines colours for the 20 AAs and all AA ambiguity symbols.">
+                        <option value="ugene">ugene</option>
+                    </param>
+                    <when value="ugene" />
+                </conditional>
             </when>
         </conditional>
-        <section name="pos_restrict" title="Restrict genome positions to be plotted" expanded="false">
-            <repeat name='include_positions' title="Restrict plot to specific regions/positions" min="0" default="0">
+        <section name="pos_restrict" title="Restrict alignment positions to be plotted" expanded="true">
+            <param argument="--show-indels" type="boolean" truevalue="--show-indels" falsevalue="" label="Include insertion and deletion mutations" />
+            <param argument="--ambig-mode" type="select" label="Plotting of positions with ambiguity symbols">
+                <option value="all">Treat ambiguity symbols like mutations; plot all such positions (all)</option>
+                <option value="snps" selected="true">Show ambiguity symbols for positions with mutations in other sequences (snps)</option>
+                <option value="exclude">Never plot positions that involve ambiguous symbols (exclude)</option>
+            </param>
+            <repeat name="include_positions" title="Restrict plot to specific regions/positions" min="0" default="0">
                 <param argument="--include-positions" name="pos" type="text" label="Include position/region" help="A range (closed, inclusive; one-indexed) or specific position to include in the output, e.g. '100-150' or '100'">
                     <validator type="regex" message="Either a single position, e.g. 8347, or an interval like 8000-8500 is required">[0-9]+(-[0-9]+)*$</validator>
                 </param>
@@ -93,7 +155,6 @@
                     <validator type="regex" message="Either a single position, e.g. 8347, or an interval like 8000-8500 is required">[0-9]+(-[0-9]+)*$</validator>
                 </param>
             </repeat>
-            <param argument="--exclude-ambig-pos" type="boolean" truevalue="--exclude-ambig-pos" falsevalue="" label="Exclude ambig positions?" help="Exclude positions with an ambiguous base in any sequences; considered after '--include-positions'." />
         </section>
         <section name="style" title="Customize rendering of samples and mutations" expanded="true">
             <conditional name="labels">
@@ -112,27 +173,7 @@
                     <param name="labels_column" type="text" label="Name of the column with desired labels" />
                 </when>
             </conditional>
-            <conditional name="colouring">
-                <param name="palette" type="select" value="classic" label="Mutations colouring scheme" help="Mutations can be coloured by base change or, alternatively, by their presence/absence in any of two parent sequences in the alignment (recombinant mode).">
-                    <option value="primary">primary</option>
-                    <option value="classic" selected="true">classic</option>
-                    <option value="purine-pyrimidine">purine-pyrimidine</option>
-                    <option value="greyscale">greyscale</option>
-                    <option value="wes">wes</option>
-                    <option value="verity">verity</option>
-                    <option value="">recombinant mutations colouring</option>
-                </param>
-                <when value="primary" />
-                <when value="classic" />
-                <when value="purine-pyrimidine" />
-                <when value="greyscale" />
-                <when value="wes" />
-                <when value="verity" />
-                <when value="">
-                    <param name="parent1" type="text" label="Sequence ID of first recombinant parent sequence in alignment" />
-                    <param name="parent2" type="text" label="Sequence ID of second recombinant parent sequence in alignment" />
-                </when>
-            </conditional>
+            <param name="position_labels" type="boolean" truevalue="" falsevalue="--remove-site-text" checked="true" label="Label plotted sites with position" />
             <conditional name="sort">
                 <param name="order" type="select" label="Order of samples in the plot">
                     <option value="">Go with default</option>
@@ -176,7 +217,6 @@
                 <option value="" selected="true">scale</option>
             </param>
         </section>
-        <param argument="--show-indels" type="boolean" truevalue="--show-indels" falsevalue="" label="Try to plot indels" help="This is newly introduced functionality for which you may encounter bugs still." />
         <param argument="--write-snps" type="boolean" truevalue="-s" falsevalue="" label="Write out SNPs?" help="Produces extra CSV output with lists of SNPs per sequence in the alignment if enabled." />
     </inputs>
     <outputs>
@@ -207,9 +247,11 @@
         </test>
         <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
-            <conditional name="ref">
-                <param name="select" value="by_id" />
-                <param name="id" value="USA_2" />
+            <conditional name="mode">
+                <conditional name="ref">
+                    <param name="select" value="by_id" />
+                    <param name="id" value="USA_2" />
+                </conditional>
             </conditional>
             <section name="style">
                 <param name="flip_vertical" value="true" />
@@ -225,11 +267,11 @@
         </test>
         <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
-            <section name="style">
+            <conditional name="mode">
                 <conditional name="colouring">
                     <param name="palette" value="verity" />
                 </conditional>
-            </section>
+            </conditional>
             <conditional name="plot">
                 <param name="format" value="jpg" />
                 <param name="transparent_background" value="true" />
@@ -239,6 +281,7 @@
         <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
             <section name="pos_restrict">
+                <param name="ambig_mode" value="exclude" />
                 <repeat name="include_positions">
                     <param name="pos" value="1-10000" />
                 </repeat>
@@ -248,7 +291,6 @@
                 <repeat name="exclude_positions">
                     <param name="pos" value="1000-2000" />
                 </repeat>
-                <param name="exclude_ambig_pos" value="true" />
             </section>
             <section name="style">
                 <conditional name="sort">
@@ -272,7 +314,7 @@
             <assert_command>
                 <has_text text="--include-positions '1-10000' '10001-30000'" />
                 <has_text text="--exclude-positions '1000-2000'" />
-                <has_text text="--exclude-ambig-pos" />
+                <has_text text="--ambig-mode exclude" />
                 <has_text text="--sort-by-mutations 3,1,2" />
                 <has_text text="--high-to-low" />
             </assert_command>
@@ -281,7 +323,7 @@
                     <!-- check that the plot does NOT refer to excluded
                     position 1059, uses darkseagreen (to highlight Ts) and
                     transparent (i.e. NOT white) background -->
-                    <not_has_text text="&lt;!-- 1059 --&gt;" />
+                    <has_line_matching expression=".*&lt;text .+&gt;1059&lt;/text&gt;" negate="true" />
                     <has_text text="style=&quot;fill: #8fbc8f" />
                     <not_has_text text="style=&quot;fill: #ffffff&quot;" />
                 </assert_contents>
@@ -289,17 +331,17 @@
         </test>
         <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
-            <conditional name="ref">
-                <param name="select" value="by_id" />
-                <param name="id" value="reference" />
-            </conditional>
-            <section name="style">
+            <conditional name="mode">
+                <conditional name="ref">
+                    <param name="select" value="by_id" />
+                    <param name="id" value="reference" />
+                </conditional>
                 <conditional name="colouring">
                     <param name="palette" value="" />
                     <param name="parent1" value="USA_1" />
                     <param name="parent2" value="USA_5" />
                 </conditional>
-            </section>
+            </conditional>
             <conditional name="plot">
                 <param name="format" value="svg" />
             </conditional>
@@ -309,7 +351,7 @@
                     uses goldenrod and #EA5463 as colors (to
                     indicate private and parent2 mutations, respectively, in
                     recombi-mode) and uses a solid white background -->
-                    <has_text text="&lt;!-- 1059 --&gt;" />
+                    <has_line_matching expression=".*&lt;text .+&gt;1059&lt;/text&gt;" />
                     <has_text text="style=&quot;fill: #daa520" />
                     <has_text text="style=&quot;fill: #ea5463" />
                     <has_text text="style=&quot;fill: #ffffff&quot;" />
@@ -343,7 +385,7 @@
     <help><![CDATA[
 **What it does**
 
-Snipit finds the SNPs relative to a reference in a multiple sequence alignment and highlights these changes as a figure.
+Snipit finds mutations relative to a reference in a multiple sequence alignment and presents these changes in a nice overview plot.
     ]]>
     </help>
     <citations>

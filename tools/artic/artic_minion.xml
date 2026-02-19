@@ -1,4 +1,4 @@
-<tool id="artic_minion" name="ARTIC minion" version="@PACKAGE_VERSION@+galaxy0" profile="20.09">
+<tool id="artic_minion" name="ARTIC minion" version="@TOOL_VERSION@+galaxy0" profile="23.2">
     <description>Build consensus sequence and call variants from amplicon-based nanopore sequence data</description>
     <macros>
         <import>macros.xml</import>
@@ -6,91 +6,207 @@
     <xrefs>
         <xref type="bio.tools">artic</xref>
     </xrefs>
-    <requirements>
-        <requirement type="package" version="@PACKAGE_VERSION@">artic</requirement>
-    </requirements>
+    <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-        mkdir -p 'scheme/name/V1' &&
-        #if str( $primer_scheme_source.primer_scheme_source_selector ) == "tool_data_table":
-          ln -s '${primer_scheme_source.primer_scheme_bedfile.fields.path}' 'scheme/name/V1/name.scheme.bed' &&
-        #else:
-          ln -s '${primer_scheme_source.primer_scheme_bedfile}' 'scheme/name/V1/name.scheme.bed' &&
+
+        #if $model_source.source == "built-in":
+            ln -s \$(dirname \$(which run_clair3.sh))/models/$model_source.select_built_in clair3_model &&
+        #else if $model_source.source == "datatable":
+            #if $model_source.model.fields.source == "rerio" and $ont_license_agree != "true"
+                echo "You must agree to the terms of the Oxford Nanopore Technologies, Ltd. Public License agreement to use Rerio models." >&2 &&
+                exit 2 ;
+            #end if          
+            ln -s $model_source.model.fields.path clair3_model &&            
+        #else if $model_source.source == "history":
+            OUTNAME=`tar -tf $model_source.model | head -1 | cut -f1 -d"/"` &&
+            tar -xf $model_source.model && 
+            mv \$OUTNAME clair3_model &&
         #end if
-        #if str( $reference_source.reference_source_selector ) == "history":
-          ln -s '${reference_source.reference}' 'scheme/name/V1/name.reference.fasta' &&
-          samtools faidx 'scheme/name/V1/name.reference.fasta' &&
-        #else:
-          ln -s '${reference_source.reference.fields.path}' 'scheme/name/V1/name.reference.fasta' &&
-          samtools faidx 'scheme/name/V1/name.reference.fasta' &&
+
+        #if str( $fetch_primer_scheme.fetch ) == "no":
+            #if str( $fetch_primer_scheme.primer_scheme_source.primer_scheme_source_selector ) == "tool_data_table":
+            ln -s '${fetch_primer_scheme.primer_scheme_source.bed.fields.path}' primer.bed &&
+            #else:
+            ln -s '${fetch_primer_scheme.primer_scheme_source.bed}' primer.bed &&
+            #end if
+
+            #if str( $fetch_primer_scheme.reference_source.reference_source_selector ) == "history":
+            ln -s '${fetch_primer_scheme.reference_source.reference}' reference.fasta &&
+            samtools faidx reference.fasta &&
+            #else:
+            ln -s '${fetch_primer_scheme.reference_source.reference.fields.path}' reference.fasta &&
+            samtools faidx reference.fasta &&
+            #end if
         #end if
+
         artic minion
+            --read-file '${read_file}'
             --threads \${GALAXY_SLOTS:-1}
+        #if str( $fetch_primer_scheme.fetch ) == "yes":
+            --scheme-name '${fetch_primer_scheme.scheme_name}'
+            --scheme-version '${fetch_primer_scheme.scheme_version}'
+            #if $fetch_primer_scheme.scheme_length > 0:
+                --scheme-length ${fetch_primer_scheme.scheme_length}
+            #end if
+        #else
+            --bed primer.bed
+            --ref reference.fasta
+        #end if
+            --model-dir .
+            --model clair3_model
+
+            --min-depth $min_depth
+            --min-mapq $min_mapq
+            --primer-match-threshold $primer_match_threshold
+            $align_consensus
+            $linearise_fasta
+            $allow_mismatched_primers
+
         #if $normalise > 0:
             --normalise ${normalise}
         #end if
-            --read-file '${read_file}'
-            --scheme-directory 'scheme'
-            --medaka
-            --medaka-model '$medaka_model'
-            $bwa
-            'name/V1'
-            ## enclose the sample name in extra single quotes because
-            ## the minion pipeline script doesn't care about passing
-            ## its arguments safely.
-            "'"'${read_file.element_identifier}'"'"
+
+        ## enclose the sample name in extra single quotes because
+        ## the minion pipeline script doesn't care about passing
+        ## its arguments safely.
+        "'"'${read_file.element_identifier}'"'"
+        
         && bgzip -f '${read_file.element_identifier}.fail.vcf'
         ## remove enclosing single-quotes from header of output consensus fasta
         && sed -i "1s/'${read_file.element_identifier}'/${read_file.element_identifier}/" '${read_file.element_identifier}.consensus.fasta'
     ]]></command>
     <inputs>
-        <param argument="--read-file" type="data" format="fastq,fastqsanger,fastq.gz,fastqsanger.gz" label="Input Read File"/>
-        <param argument="--normalise" type="integer" min="0" value="0"
+        <param argument="--read-file" type="data" format="fastq,fastqsanger,fastq.gz,fastqsanger.gz" 
+        label="Input Read File"/>
+
+        <param argument="--min-mapq" type="integer" min="0" value="20" 
+        label="Minimum mapping score"
+        help="Minimum mapping quality to consider (default: 20)"/>
+        
+        <param argument="--normalise" type="integer" min="0" value="100"
         label="Coverage normalisation depth"
-        help="Sample at most this number of reads per amplicon and strand. default=0 (use all reads)" />
-        <param argument="--bwa" type="boolean" truevalue="--bwa" falsevalue="" label="Use bwa aligner"/>
-        <conditional name="primer_scheme_source">
-            <param name="primer_scheme_source_selector" type="select" label="Select a primer scheme from your history or use one from a tool data table?"
-                   help="Screening files must be stored in the 'primer_scheme_bedfiles' tool data table">
-                <option value="tool_data_table">From tool data table</option>
-                <option value="history">From history</option>
+        help="Sample at most this number of reads per amplicon and strand. Set to 0 to use all available data (default: 100)" />
+        
+        <param argument="--primer-match-threshold" type="integer" value="35"
+        label="Primer Match Threshold"
+        help="Allow fuzzy primer matching within this threshold (default: 35)" />
+
+        <param argument="--min-depth" type="integer" value="20"
+        label="Minimum Depth"
+        help="Minimum depth required to call a variant (default: 20)" />
+
+        <param argument="--align-consensus" type="boolean" truevalue="--align-consensus" falsevalue=""
+        label="Align Consensus to reference"
+        help="Run a MAFFT to align consensus to reference" />
+
+        <param argument="--linearise-fasta" type="boolean" truevalue="--linearise-fasta" falsevalue=""
+        label="Linearise output fasta"
+        help="Output linearised (unwrapped) FASTA consensus files" />
+
+        <param argument="--allow-mismatched-primers" type="boolean" truevalue="--allow-mismatched-primers" falsevalue=""
+        label="Allow primer mismatch"
+        help="Reads will not be discarded by align_trim if they appear to have primers from different amplicons." />
+
+        <!-- Primer and Reference fetching -->
+        
+        <conditional name="fetch_primer_scheme">
+            <param name="fetch" type="select" label="Fetch primer BED and reference"
+                help="Fetch primer BED and reference FASTA from labs.primalscheme.com for the specified amplicon scheme. This is recommended for schemes (e.g. artic-inrb-mpox) that have a dynamically selected reference">
+                <option value="yes" selected="true">Yes</option>
+                <option value="no">No</option>
             </param>
-            <when value="tool_data_table">
-                <param name="primer_scheme_bedfile" type="select" format="tabular" label="Primer Scheme">
-	            <options from_data_table="primer_scheme_bedfiles">
-	                <validator type="no_options" message="No primer scheme .bed files are available" />
-                    </options>
-	        </param>
+            <when value="yes">
+                <param argument="--scheme-name" type="text" label="Amplicon scheme name" optional="false"
+                    help="Name of the amplicon scheme on labs.primalscheme.com to fetch primer BED and reference for" />
+                <param argument="--scheme-version" type="text" label="Amplicon scheme version" optional="false"
+                    help="Version of the amplicon scheme on labs.primalscheme.com in format vX.X.X" />
+                <param argument="--scheme-length" type="integer" value="0" min="0" label="Amplicon scheme amplicon length"
+                    help="Length of the amplicons in the scheme. Only required if the scheme named has multiple lengths" />
             </when>
-            <when value="history">
-                <param name="primer_scheme_bedfile" type="data" format="tabular" label="Primer Scheme" />
+            <when value="no">
+                <!-- Primer selection -->
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" type="select"
+                    label="Select primer file"
+                    help="See Help section below for how to find primer scheme data files.">
+                        <option value="tool_data_table">From tool data table</option>
+                        <option value="history">From history</option>
+                    </param>
+                    <when value="tool_data_table">
+                        <param name="bed" type="select" format="tabular" label="Primer Scheme">
+                        <options from_data_table="primer_scheme_bedfiles">
+                            <validator type="no_options" message="No primer.bed files are available" />
+                        </options>
+                    </param>
+                    </when>
+                    <when value="history">
+                        <param name="bed" type="data" format="tabular" label="Primer Scheme" 
+                        help="Primer scheme bed file" />
+                    </when>
+                </conditional>
+
+                <!-- reference selection -->
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" type="select" format="fasta"
+                    label="Will you select a reference genome from your history or use a built-in reference?" >
+                        <option value="cached">Use a built-in reference</option>
+                        <option value="history">Use a reference from history</option>
+                    </param>
+                    <when value="cached">
+                        <param name="reference" type="select" label="Using reference genome" help="Select genome from the list">
+                            <options from_data_table="all_fasta">
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No references are available" />
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="reference" type="data" format="fasta" label="Use the following dataset as the reference sequence"
+                            help="You can upload a FASTA sequence to the history and use it as reference" />
+                    </when>
+                </conditional>
             </when>
         </conditional>
-        <conditional name="reference_source">
-            <param name="reference_source_selector" type="select" label="Will you select a reference genome from your history or use a built-in reference?" >
-                <option value="cached">Use a built-in reference</option>
-                <option value="history">Use a reference from history</option>
+
+        <!-- Model selection -->
+        <param name="ont_license_agree"
+            label="I agree to the terms of the Oxford Nanopore Technologies, Ltd. Public License agreement"
+            type="boolean" checked="false"
+            help="To use Rerio models (e.g. for ONT R10 chemistry) you must agree to the terms of the Oxford Nanopore Technologies, Ltd. Public License agreement, which can be found in the nanoporetech/rerio Github repository."
+        />
+        <conditional name="model_source">
+            <param name="source" type="select" label="Clair3 model"
+            help="Select if you want to use a built-in model shipping with the tool or a model cached on this Galaxy server.">
+                <option value="built-in">Built-in</option>
+                <option value="datatable">Cached</option>
+                <option value="history">History</option>
             </param>
-            <when value="cached">
-                <param name="reference" type="select" label="Using reference genome" help="Select genome from the list">
-                    <options from_data_table="all_fasta">
-                        <filter type="sort_by" column="2" />
-                        <validator type="no_options" message="No references are available" />
+            <when value="built-in">
+                <param type="select" name="select_built_in" label="model" >
+                    <option value="r941_prom_sup_g5014">r941_prom_sup_g5014</option>
+                    <option value="r941_prom_hac_g360+g422">r941_prom_hac_g360+g422</option>
+                </param>
+            </when>
+            <when value="datatable">
+                <param  name="model" type="select" label="Cached model from server"
+                help="See Help section below for instructions on how to select the appropriate model for you dataset.">
+                    <options from_data_table="clair3_models">
+                        <validator type="no_options" message="no cached models available" />
                     </options>
                 </param>
             </when>
             <when value="history">
-                <param name="reference" type="data" format="fasta" label="Use the following dataset as the reference sequence"
-                       help="You can upload a FASTA sequence to the history and use it as reference" />
+                <param name="model" type="data" format="tar.gz" label="Select Clair3 model from history"
+                       help="Manually specify Clair3 Model. See Help section below for instructions on where to download models." />
             </when>
         </conditional>
-        <param type="text" name="medaka_model" label="Medaka model" help="Model string to pass to medaka (see https://github.com/nanoporetech/medaka#models)">
-            <validator type="expression" message="Please specify a valid medaka model string (see https://github.com/nanoporetech/medaka#models)">(len(value.strip().split('_')) == 3 or len(value.strip().split('_')) == 4) and value.strip().startswith('r')</validator>
-        </param>
+
     </inputs>
+
     <outputs>
         <data name="alignment_trimmed" format="bam" from_work_dir="*.primertrimmed.rg.sorted.bam" label="${tool.name} on ${on_string}: trimmed alignment" />
-        <data name="alignment_report" format="tabular" from_work_dir="*.alignreport.txt" label="${tool.name} on ${on_string}: alignment report" />
-        <data name="variants_merged_vcf" format="vcf_bgzip" from_work_dir="*.merged.vcf.gz" label="${tool.name} on ${on_string}: medaka variant calls" />
+        <data name="alignment_report" format="tabular" from_work_dir="*.alignreport.txt" label="${tool.name} on ${on_string}: alignment trimming report" />
+        <data name="variants_merged_vcf" format="vcf_bgzip" from_work_dir="*.merged.vcf.gz" label="${tool.name} on ${on_string}: clair3 variant calls" />
         <data name="variants_fail_vcf" format="vcf_bgzip" from_work_dir="*.fail.vcf.gz" label="${tool.name} on ${on_string}: variants fail" />
         <data name="variants_pass_vcf" format="vcf_bgzip" from_work_dir="*.pass.vcf.gz" label="${tool.name} on ${on_string}: variants pass" />
         <data name="consensus_fasta" format="fasta" from_work_dir="*.consensus.fasta" label="${tool.name} on ${on_string}: consensus sequence" />
@@ -98,52 +214,206 @@
         <data name="analysis_log" format="txt" from_work_dir="*.minion.log.txt" label="${tool.name} on ${on_string}: analysis log" />
     </outputs>
     <tests>
+        <!-- Test: built in model selection, primer/reference selection from history -->
         <test>
-            <param name="reference_source_selector" value="history" />
-            <param name="read_file" value="SRR11410539_seqtk_sample_500_1.fastq" />
-            <param name="reference" value="nCoV-2019.reference.fasta" />
-            <param name="primer_scheme_source_selector" value="tool_data_table" />
-            <param name="primer_scheme_bedfile" value="test_entry" />
-            <param name="medaka_model" value="r941_min_high_g360" />
-            <output name="consensus_fasta" file="SRR11410539_seqtk_sample_500_1.fastq.consensus.fasta" />
+            <param name="read_file" value="test.fastq.gz" />
+            <conditional name="fetch_primer_scheme">
+                <param name="fetch" value="no" />
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" value="history" />
+                    <param name="bed" value="primers.bed" />
+                </conditional>
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="history" />
+                    <param name="reference" value="reference.fasta" />
+                </conditional>
+            </conditional>
+            <conditional name="model_source">
+                <param name="source" value="built-in" />
+                <param name="select_built_in" value="r941_prom_hac_g360+g422" />
+            </conditional>
+            <output name="consensus_fasta">
+                <assert_contents>
+                    <has_text text=">test.fastq.gz MN908947.3_artic-network/fieldbioinformatics_" />
+                </assert_contents>
+            </output>
+            <output name="alignment_trimmed">
+                <assert_contents>
+                    <has_size value="151000" delta="1000" />
+                </assert_contents>
+            </output>
+            <output name="variants_merged_vcf">
+                <assert_contents>
+                    <has_size value="1800" delta="200" />
+                </assert_contents>
+            </output>
         </test>
+        <!-- Test: primer/reference selection from data table -->
         <test>
+            <conditional name="fetch_primer_scheme">
+                <param name="fetch" value="no" />
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" value="tool_data_table" />
+                    <param name="bed" value="test_bed" />
+                </conditional>
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="tool_data_table" />
+                    <param name="reference" value="test_fasta" />
+                </conditional>
+            </conditional>
+            <param name="read_file" value="test.fastq.gz" />
+            <conditional name="model_source">
+                <param name="source" value="built-in"/>
+                <param name="select_built_in" value="r941_prom_hac_g360+g422"/>
+            </conditional>
+            <output name="consensus_fasta">
+                <assert_contents>
+                    <has_text text=">test.fastq.gz MN908947.3_artic-network/fieldbioinformatics_" />
+                </assert_contents>
+            </output>
+            <output name="alignment_trimmed">
+                <assert_contents>
+                    <has_size value="151000" delta="1000" />
+                </assert_contents>
+            </output>
+            <output name="variants_merged_vcf">
+                <assert_contents>
+                    <has_size value="1800" delta="200" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test: advanced input params -->
+        <test>
+            <param name="read_file" value="test.fastq.gz" />
+            <conditional name="fetch_primer_scheme">
+                <param name="fetch" value="no" />
+                <conditional name="primer_scheme_source">
+                    <param name="primer_scheme_source_selector" value="history" />
+                    <param name="bed" value="primers.bed" />
+                </conditional>
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="history" />
+                    <param name="reference" value="reference.fasta" />
+                </conditional>
+            </conditional>
+            <param name="min_mapq" value="20" />
+            <param name="min_depth" value="10" />
+            <param name="align_consensus" value="True" />
+            <conditional name="model_source">
+                <param name="source" value="built-in" />
+                <param name="select_built_in" value="r941_prom_hac_g360+g422" />
+            </conditional>
+            <output name="consensus_fasta">
+                <assert_contents>
+                    <has_text text=">test.fastq.gz MN908947.3_artic-network/fieldbioinformatics_" />
+                </assert_contents>
+            </output>
+            <output name="alignment_trimmed">
+                <assert_contents>
+                    <has_size value="151000" delta="1000" />
+                </assert_contents>
+            </output>
+            <output name="variants_merged_vcf">
+                <assert_contents>
+                    <has_size value="1800" delta="200" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test the working of the ont_license_agree checkbox -->
+        <test expect_failure="true" expect_exit_code="2">
+            <param name="read_file" value="test.fastq.gz" />
             <param name="reference_source_selector" value="history" />
-            <param name="read_file" value="SRR11410539_seqtk_sample_500_1.fastq" />
-            <param name="reference" value="nCoV-2019.reference.fasta" />
+            <param name="reference" value="reference.fasta" />
             <param name="primer_scheme_source_selector" value="history" />
-            <param name="primer_scheme_bedfile" value="nCoV-2019.scheme.V1.bed" />
-            <param name="medaka_model" value="r941_min_high_g360" />
-            <output name="consensus_fasta" file="SRR11410539_seqtk_sample_500_1.fastq.consensus.fasta" />
+            <param name="bed" value="primers.bed" />
+            <conditional name="model_source">
+                <param name="source" value="datatable" />
+                <param name="model" value="r1041_e82_400bps_sup_v500" />
+            </conditional>
         </test>
-        <test>
-            <param name="reference_source_selector" value="tool_data_table" />
-            <param name="read_file" value="SRR11410539_seqtk_sample_500_1.fastq" />
-            <param name="reference" value="test_entry" />
+        <!-- Test: select clair3 model from history -->
+        <!-- Note: this test can only run locally due to the size of the model -->
+        <!-- <test>
+            <param name="read_file" value="test.fastq.gz" />
+            <param name="reference_source_selector" value="tool_data_ta ble" />
+            <param name="reference" value="test_fasta" />
             <param name="primer_scheme_source_selector" value="tool_data_table" />
-            <param name="primer_scheme_bedfile" value="test_entry" />
-            <param name="medaka_model" value="r941_min_high_g360" />
-            <output name="consensus_fasta" file="SRR11410539_seqtk_sample_500_1.fastq.consensus.fasta" />
-        </test>
+            <param name="bed" value="test_bed" />
+            <conditional name="model_source">
+                <param name="source" value="history"/>  
+                <param name="model" value="r1041_e82_400bps_hac_v430.tar.gz"/>
+            </conditional>
+            <output name="consensus_fasta" file="test.fastq.consensus.fasta">
+                <assert_contents>
+                    <has_line line=">test.fastq.gz/MN908947.3/ARTIC/clair3 MN908947.3" />
+                </assert_contents>
+            </output>
+            <output name="alignment_trimmed" file="test.primertrimmed.rg.sorted.bam">
+                <assert_contents>
+                    <has_size value="151000" delta="1000" />
+                </assert_contents>
+            </output>
+            <output name="variants_merged_vcf" file="test.merged.vcf.gz">
+                <assert_contents>
+                    <has_size value="1110" delta="200" />
+                </assert_contents>
+            </output>
+        </test> -->
     </tests>
     <help><![CDATA[
-ARTIC_ minion aligns Nanopore reads that were generated from a tiling amplicon library against a viral reference sequence. 
-It generates a consensus fasta file and a vcf variant file.
+ARTIC minion is a pipeline for working with viral nanopore sequencing data, generated from tiling amplicon schemes. It is designed to help run the artic bioinformatics protocols; for example the `MPXV protocol`_.
 
-This tool is configured to use the experimental 'medaka' variant caller and must be supplied with the name of
-a model file to use with 'medaka', see the `medaka web page`_ for details.
+As of v1.5.1 Medaka is no longer used due to issues with long indels and has been replaced with `clair3`_ as the variant caller.
 
-.. _ARTIC: https://artic.readthedocs.io/en/latest/
-.. _medaka web page: https://github.com/nanoporetech/medaka#models
+ONT provides models for some latest or specific chemistries and basecallers through `Rerio`_. 
 
-Note that you should choose an appropriate model for the medaka version used by ARTIC minion.
+.. class:: warningmark
 
-==================  ==================
-  ARTIC version     medaka version
-==================  ==================
- 1.2.1                1.0.3
- 1.3.0-dev            1.2.3
-==================  ==================
+**Please note:** By using these models you agree to ONT licensing which you `can read here`_.
+
+**Where to find amplicon schemes?**
+
+The central location for publically available amplicon schemes is the `primalscheme website`_.
+
+Download the "primer.bed" and "reference.fasta" for input into this tool.
+
+**Amplicon Scheme Settings**
+
+Each amplicon scheme will require slightly different minimum and maximum read length settings. On the `primalscheme website`_, under "Scheme Details" look for the 'ampliconsize' value. Set the maximum value to the ampliconsize+100. If you are using the rapid kit, set the minimum to 200. For ligation kits, set the minimum read length to ampliconsize-200. For example, if the ampliconsize is 2500, maximum=2600, minimum(for ligation)=2300.
+
+**Which clair3 model to choose?**
+
+Model information is encoded in the fastq headers. In Galaxy, click on the `Display` (👁) icon, then inspect the end of the header file. For example: 
+
+- Older software version would show only the model: `dna_r.9.4.1_minion_384`
+- New version would provide all the required information: `basecall_model_version_id=dna_r10.4.1_e8.2_400bps_hac@v4.3.0`
+
+See the documentation on how to read model names https://github.com/nanoporetech/dorado/?tab=readme-ov-file#decoding-dorado-model-names
+
+The three most important segments are:
+
+- Pore type - Flowcell chemistry - usually r1041 (R10) or r941 (R9). 
+- Model type - Model speed/accuracy - fast, hac or sup. 
+- Model version - eg v4.3.0 is equivalent to v430. 
+
+Choose the model that is closest to your data.
+
+**Downloading Models**
+
+First check with your Galaxy admins if preloaded Clair3 models are available. Or select 'Data Table' under models to see if any are cached on your server. Only if required, you can download available models from the Rerio repository: https://github.com/nanoporetech/rerio.  Please note: By using these models you agree to ONT licensing which you `can read here`_
+
+**Advanced pipeline parameters**
+For majority of users the default parameter values will result in a good consensus sequence. You may wish to tweak the following parameters:
+
+- minimum mapping quality: The minimap2 mapping quality (phred) of reads against the specified reference.
+- normalise: Increase this value to include more reads in the consensus generation step. This is per amplicon per strand, a value of a 100 would equate to an effective depth of 200. 
+- primer match threshold: When matching a read to a primer site, the pipeline allows for some deviation from the primer location. This value represents the max nucleotide distance between primer site and alignment position.
+
+.. _MPXV protocol: https://artic.network/mpxv/mpxv-bioinformatics-sop.html 
+.. _clair3: https://github.com/HKU-BAL/Clair3
+.. _Rerio: https://github.com/nanoporetech/rerio
+.. _can read here: https://raw.githubusercontent.com/nanoporetech/rerio/refs/heads/master/LICENCE.txt
+.. _primalscheme website: labs.primalscheme.com
     ]]></help>
     <expand macro="citations" />
 </tool>

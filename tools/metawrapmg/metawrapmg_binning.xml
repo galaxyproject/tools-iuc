@@ -1,10 +1,14 @@
 <tool id="metawrapmg_binning" name="MetaWRAP" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
-    <description>metagenome binning pipeline</description>
+    <description>metagenome binning</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="xrefs"/>
-    <expand macro="requirements"/>
+
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">metawrap-binning</requirement>
+    </requirements>
+
     <command detect_errors="exit_code"><![CDATA[
         ## set memory usage
         if [ -n "\${GALAXY_MEMORY_MB}" ] ; then
@@ -16,13 +20,10 @@
         ##################
 
         ## only plain FASTA and FASTQ
-        ln -s '$metagenome' metagenome.fasta
-        &&
+        ln -s '$metagenome' metagenome.fasta &&
         ## Metawrap checks for files named _1.fastq and _2.fastq.
-        ln -s '$input_1' reads_1.fastq
-        &&
-        ln -s '$input_2' reads_2.fastq
-        &&
+        ln -s '$input.forward' reads_1.fastq &&
+        ln -s '$input.reverse' reads_2.fastq &&
 
         #####################
         ## INITIAL BINNING ##
@@ -36,91 +37,47 @@
         -t "\${GALAXY_SLOTS:-4}"
         reads_1.fastq
         reads_2.fastq
-        &&
-
-        ## Check which binning programs produced bins            
-        bin_dirs=(INITIAL_BINNING/concoct_bins INITIAL_BINNING/maxbin2_bins INITIAL_BINNING/metabat2_bins) &&
-        switches=('-A' '-B' '-C') &&
-
-        i=0 &&
-        bin_string="" &&
-
-        for dir in "\${bin_dirs[@]}" ; do
-            if [ "\$(find "\$dir" -mindepth 1 -maxdepth 1 -exec echo found \;)" ]; then
-                bin_string+=" \${switches[\$i]} \$dir" ;
-                ((i++)) ;
-            fi
-        done &&
-
-        ####################
-        ## BIN REFINEMENT ##
-        ####################
-
-        ## The checkm database is in the conda package, see
-        ## https://github.com/bioconda/bioconda-recipes/pull/38299.
-
-        metawrap bin_refinement
-        -t "\${GALAXY_SLOTS:-4}"
-        -m "\${GALAXY_MEMORY_GB:-16}"
-        '$hidden_quick'
-        -c '${binning.c}'
-        -x '${binning.x}'
-        -o BIN_REFINEMENT
-        ## Only run bin_refinement on bins with contigs
-        "\${bin_string}"
     ]]></command>
     <inputs>
         <param name="metagenome" format="fasta" type="data" label="Metagenome" help="Metagenome co-assembly for binning"/>
-        <param name="input_1" format="fastqsanger" type="data" label="Read 1" help="Original reads that were used for the assembly: read 1."/>
-        <param name="input_2" format="fastqsanger" type="data" label="Read 2" help="Original reads that were used for the assembly: read 2."/>
-        <section name="binning" title="Binning parameters" expanded="false">
-            <param argument="-c" type="integer" value="70" min="50" max="100" label="Percent completion" help="Minimum % completion of bins"/>
-            <param argument="-x" type="integer" value="10" min="0" max="100" label="Percent contamination" help="Maximum % contamination of bins that is acceptable"/>
-        </section>
-        <!-- the pplacer component requires 40 GB per thread. Skip pplacer for
-         testing by setting this to "quick" -->
-        <param name="hidden_quick" type="hidden" value=""/>
+        <param name="input" type="data_collection" collection_type="paired" label="Reads" help="Original reads that were used for the assembly"/>
     </inputs>
     <outputs>
-        <!-- contigs binned into fasta files -->
-        <collection name="metawrap_bins" type="list" label="MetaWRAP on ${on_string}: bins">
-            <discover_datasets pattern="metawrap_\d+_\d+_bins/(?P&lt;designation&gt;.+)\.fa" format="fasta" directory="BIN_REFINEMENT" recurse="true" match_relative_path="true"/>
+        <collection name="concoct_bins" type="list" label="${tool.name} on ${on_string}: concoct bins">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fa" format="fasta" directory="INITIAL_BINNING/concoct_bins" recurse="true" match_relative_path="true"/>
         </collection>
-        <!-- summary figures -->
-        <collection name="metawrap_figures" type="list" label="MetaWRAP on ${on_string}: summary figures">
-            <discover_datasets pattern="__designation_and_ext__" directory="BIN_REFINEMENT/figures"/>
+        <collection name="maxbin2_bins" type="list" label="${tool.name} on ${on_string}: maxbin2 bins">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fa" format="fasta" directory="INITIAL_BINNING/maxbin2_bins" recurse="true" match_relative_path="true"/>
         </collection>
-        <!-- statistics on binning -->
-        <collection name="metawrap_stats" type="list" label="MetaWRAP on ${on_string}: stat files">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.stats" format="tabular" directory="BIN_REFINEMENT"/>
-        </collection>
-        <!-- which contig went into which bin -->
-        <collection name="metawrap_contigs" type="list" label="MetaWRAP on ${on_string}: contig assignments">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.contigs" format="tabular" directory="BIN_REFINEMENT"/>
+        <collection name="metabat_bins" type="list" label="${tool.name} on ${on_string}: metabat2 bins">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fa" format="fasta" directory="INITIAL_BINNING/metabat2_bins" recurse="true" match_relative_path="true"/>
         </collection>
     </outputs>
     <tests>
         <!-- 01: basic function -->
         <test>
             <param name="metagenome" value="subset.fasta.gz"/>
-            <param name="input_1" value="mapped_reads.r1.fastq.gz"/>
-            <param name="input_2" value="mapped_reads.r2.fastq.gz"/>
-            <param name="c" value="60"/>
-            <param name="x" value="15"/>
-            <param name="hidden_quick" value="--quick"/>
-            <output_collection name="metawrap_bins" type="list">
+            <param name="input">
+                <collection type="paired">
+                    <element name="forward" value="mapped_reads.r1.fastq.gz"/>
+                    <element name="reverse" value="mapped_reads.r2.fastq.gz"/>
+                </collection>
+            </param>
+            <output_collection name="concoct_bins" type="list" count="27">
                 <element name="bin.1" ftype="fasta">
                     <assert_contents>
-                        <has_text text="NODE_2_length_"/>
+                        <has_text text=">NODE_"/>
                     </assert_contents>
                 </element>
             </output_collection>
-            <output_collection name="metawrap_stats" type="list">
-                <element name="metawrap_60_15_bins" file="test02.stats" ftype="tabular"/>
+            <output_collection name="maxbin2_bins" type="list" count="2">
+                <element name="bin.1" ftype="fasta">
+                    <assert_contents>
+                        <has_text text="NODE_"/>
+                    </assert_contents>
+                </element>
             </output_collection>
-            <output_collection name="metawrap_contigs" type="list">
-                <element name="metawrap_60_15_bins" file="test02.contigs" ftype="tabular"/>
-            </output_collection>
+            <output_collection name="metabat_bins" type="list" count="0"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -144,40 +101,14 @@ First the metagenomic assembly is indexed with bwa-index, and then
 paired end reads from any number of samples are aligned to it. The
 alignments are sorted and compressed with samtools, and library insert
 size statistics are also gathered at the same time (insert size average
-and standard deviation). metaBAT2’s jgi_summarize_bam_contig_depths
+and standard deviation). metaBAT2's jgi_summarize_bam_contig_depths
 function is used to generate contig adundance table, and it is then
 converted into the correct format for each of the three binners to take
 as input. After MaxBin2, metaBAT2, and CONCOCT finish binning the
 contigs with default settings, the final bins folders are created with
-formatted bin fasta files. CheckM’s lineage_wf function is used to
+formatted bin fasta files. CheckM's lineage_wf function is used to
 predict essential genes and estimate the completion and contamination of
 each bin.
-
-MetaWRAP bin refinement
-~~~~~~~~~~~~~~~~~~~~~~~
-
-The metaWRAP::Bin_refinement module utilizes a hybrid approach to take
-in two or three bin sets that were obtained with different software and
-produces a consolidated, improved bin set. First, binning_refiner is
-used to create hybridized bins from every possible combination of sets.
-If there were three bin sets: A, B, and C, then the following hybrid
-sets will be produced with binning_refiner: AB, BC, AC, and ABC. CheckM
-is then run to evaluate the completion and contamination of the bins in
-each of the 7 bin sets (3 originals, 4 hybridized). The bins sets are
-then iteratively compared to each other, and each pair is consolidated
-into an improved bin set. To do this, the same bin is identified within
-the two bin sets based on a minimum of 80% overlap in genome length, and
-the better bin is determined based on which bin has the higher score.
-The scoring function is S=Completion-5*Contamination. After all bin sets
-are incorporated into the consolidated bin collection, a de-replication
-function removes any duplicate contigs. If a contig is present in more
-than one bin, it is removed from all but the best bin (based on scoring
-function). CheckM is then run on the final bin set and a final report
-file is generated showing the completion, contamination, and other
-statistics generated by CheckM for each bin. Completion and
-contamination rank plots are also generated to evaluate the success of
-the Bin_refinement module, and compare its output to the quality of the
-original bins.
 
 --------------
 

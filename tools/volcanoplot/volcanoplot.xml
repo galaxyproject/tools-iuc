@@ -1,15 +1,22 @@
-<tool id="volcanoplot" name="Volcano Plot" version="0.0.6" profile="20.09">
+<tool id="volcanoplot" name="Volcano Plot" version="@TOOL_VERSION@+galaxy0" profile="20.09">
     <description>create a volcano plot</description>
+    <macros>
+        <import>macros.xml</import>
+        <token name="@TOOL_VERSION@">4.0.2</token>
+    </macros>
+
     <edam_topics>
         <edam_topic>topic_0092</edam_topic>
     </edam_topics>
+
     <edam_operations>
         <edam_operation>operation_0337</edam_operation>
     </edam_operations>
+
     <requirements>
-        <requirement type="package" version="3.3.3">r-ggplot2</requirement>
-        <requirement type="package" version="0.9.1">r-ggrepel</requirement>
-        <requirement type="package" version="1.0.6">r-dplyr</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">r-ggplot2</requirement>
+        <requirement type="package" version="0.9.6">r-ggrepel</requirement>
+        <requirement type="package" version="1.2.0">r-dplyr</requirement>
     </requirements>
     <version_command><![CDATA[
 echo $(R --version | grep version | grep -v GNU)", ggplot2 version" $(R --vanilla --slave -e "library(ggplot2); cat(sessionInfo()\$otherPkgs\$ggplot2\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", ggrepel version" $(R --vanilla --slave -e "library(ggrepel); cat(sessionInfo()\$otherPkgs\$ggrepel\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", dplyr version" $(R --vanilla --slave -e "library(dplyr); cat(sessionInfo()\$otherPkgs\$dplyr\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
@@ -64,11 +71,18 @@ if (is.numeric(first_pvalue)) {
 
 # Format data  ------------------------------------------------------------
 
-# Create columns from the column numbers specified
-results <- results %>% mutate(fdr = .[[$fdr_col]],
-                              pvalue = .[[$pval_col]],
-                              logfc = .[[$lfc_col]],
-                              labels = .[[$label_col]])
+# Create columns from the column numbers specified and use the existing category_symbol column for shapes
+results <- results %>% mutate(
+    fdr = .[[$fdr_col]],
+    pvalue = .[[$pval_col]],
+    logfc = .[[$lfc_col]],
+    labels = .[[$label_col]],
+)
+
+# Check if shape_col is provided 
+#if $shape_col:
+results <- results %>% mutate(category_symbol = .[[$shape_col]])  # Use the shape column if it exists
+#end if
 
 # Get names for legend
 down <- unlist(strsplit('$plot_options.legend_labs', split = ","))[1]
@@ -120,15 +134,25 @@ results <- mutate(results, labels = ifelse(labels %in% toplabels, labels, ""))
 # Open file to save plot as PDF
 pdf("volcano_plot.pdf")
 
-# Set up base plot
+# Set up base plot with faceting by category_symbol instead of shapes
 p <- ggplot(data = results, aes(x = logfc, y = -log10(pvalue))) +
-    geom_point(aes(colour = sig)) +
     scale_color_manual(values = colours) +
     theme(panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.line = element_line(colour = "black"),
-        legend.key = element_blank())
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black"),
+          legend.key = element_blank()) 
+
+# Conditional logic to use either shape or facet based on user selection
+#if $shape_col:
+if ('$shape_or_facet' == 'facet') {
+    p <- p + facet_wrap(~ category_symbol)  # Facet the plot based on category_symbol
+} else {
+    p <- p + geom_point(aes(colour = sig, shape = factor(category_symbol)))  # Use shapes for categories
+}
+#else:
+p <- p + geom_point(aes(colour = sig)) #only add color
+#end if
 
 #if $labels.label_select != "none"
 # Add gene labels
@@ -186,15 +210,27 @@ sessionInfo()
 </configfiles>
     <inputs>
         <param name="input" type="data" format="tabular" label="Specify an input file" />
-        <param name="header" type="select" label="File has header?" help="Does the differentially expressed results file contain a header row. The tool can auto-detect by checking if the first row in the P value column is a number or not. Default: Auto-detect">
-            <option value="auto" selected="True">Auto-detect</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
+        <conditional name="with_header">
+            <param name="header" type="select" label="File has header?" refresh_on_change="true" help="Does the differentially expressed results file contain a header row. The tool can auto-detect by checking if the first row in the P value column is a number or not. Default: Auto-detect">
+                <option value="auto" selected="True">Auto-detect</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+            </param>
+            <when value="auto">
+                <expand macro="columns" header="false"/>
+            </when>
+            <when value="yes">
+                <expand macro="columns" header="true"/>
+            </when>
+            <when value="no">
+                <expand macro="columns" header="false"/>
+            </when>
+        </conditional>
+
+        <param name="shape_or_facet" type="select" label="Display categories by:" help="Choose whether to display categories by faceting the plot or using shape." optional="true">
+            <option value="facet">Facet</option>
+            <option value="shape">Shape</option>
         </param>
-        <param name="fdr_col" type="data_column" data_ref="input" label="FDR (adjusted P value) column number" />
-        <param name="pval_col" type="data_column" data_ref="input" label="P value (raw) column number" />
-        <param name="lfc_col" type="data_column" data_ref="input" label="Log Fold Change column number" />
-        <param name="label_col" type="data_column" data_ref="input" label="Labels column number" />
         <param name="signif_thresh" type="float" max="1" value="0.05" label="Significance threshold" help="Default: 0.05"/>
         <param name="lfc_thresh" type="float" value="0" label="LogFC threshold to colour" help="Default: 0"/>
         <conditional name="labels">
@@ -248,6 +284,7 @@ sessionInfo()
                 </assert_contents>
             </output>
         </test>
+
         <test expect_num_outputs="1">
             <!-- Ensure input labels and plot options work -->
             <param name="input" ftype="tabular" value="input.tab"/>
@@ -283,6 +320,45 @@ sessionInfo()
             </output>
             <output name="rscript" value= "out.rscript" lines_diff="4"/>
         </test>
+
+    <test expect_num_outputs="1">
+        <!-- Ensure input labels and plot options work with faceting -->
+        <param name="input" ftype="tabular" value="category.tab"/>
+        <param name="fdr_col" value="4" />
+        <param name="pval_col" value="3" />
+        <param name="lfc_col" value="2" />
+        <param name="label_col" value="1" />
+        <param name="shape_col" value="5" /> <!-- Assuming the shape is in column 5 -->
+        <param name="lfc_thresh" value="0" />
+        <param name="label_select" value="file"/>
+        <param name="label_file" ftype="tabular" value="labels.tab" />
+        <param name="shape_or_facet" value="facet" /> <!-- Testing the facet option -->
+        <output name="plot">
+            <assert_contents>
+                <has_size value="5007" delta="1000" />
+            </assert_contents>
+        </output>
+    </test>
+
+    <test expect_num_outputs="1">
+        <!-- Ensure input labels and plot options work with shape option -->
+        <param name="input" ftype="tabular" value="category.tab"/>
+        <param name="fdr_col" value="4" />
+        <param name="pval_col" value="3" />
+        <param name="lfc_col" value="2" />
+        <param name="label_col" value="1" />
+        <param name="shape_col" value="5" /> <!-- Assuming the shape is in column 5 -->
+        <param name="lfc_thresh" value="0" />
+        <param name="label_select" value="file"/>
+        <param name="label_file" ftype="tabular" value="labels.tab" />
+        <param name="shape_or_facet" value="shape" /> <!-- Testing the shape option -->
+        <output name="plot">
+            <assert_contents>
+                <has_size value="5533" delta="1000" />
+            </assert_contents>
+        </output>
+    </test>
+
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -291,9 +367,11 @@ sessionInfo()
 
 This tool creates a Volcano plot using ggplot2. Points can be labelled via ggrepel. It was inspired by this Getting Genetics Done `blog post`_.
 
-In statistics, a `Volcano plot`_ is a type of scatter-plot that is used to quickly identify changes in large data sets composed of replicate data. It plots significance versus fold-change on the y and x axes, respectively. These plots are increasingly common in omic experiments such as genomics, proteomics, and metabolomics where one often has a list of many thousands of replicate data points between two conditions and one wishes to quickly identify the most meaningful changes. A volcano plot combines a measure of statistical significance from a statistical test (e.g., a p value from an ANOVA model) with the magnitude of the change, enabling quick visual identification of those data-points (genes, etc.) that display large magnitude changes that are also statistically significant.
+In statistics, a `Volcano plot`_ is a type of scatter plot that is used to quickly identify changes in large data sets composed of replicate data. It plots significance versus fold-change on the y and x axes, respectively. These plots are increasingly common in omic experiments such as genomics, proteomics, and metabolomics where one often has a list of many thousands of replicate data points between two conditions and one wishes to quickly identify the most meaningful changes. A volcano plot combines a measure of statistical significance from a statistical test (e.g., a p-value from an ANOVA model) with the magnitude of the change, enabling quick visual identification of those data points (genes, etc.) that display large magnitude changes that are also statistically significant.
 
-A volcano plot is constructed by plotting the negative log of the p value on the y axis (usually base 10). This results in data points with low p values (highly significant) appearing toward the top of the plot. The x axis is the log of the fold change between the two conditions. The log of the fold change is used so that changes in both directions appear equidistant from the center. Plotting points in this way results in two regions of interest in the plot: those points that are found toward the top of the plot that are far to either the left- or right-hand sides. These represent values that display large magnitude fold changes (hence being left or right of center) as well as high statistical significance (hence being toward the top).
+A volcano plot is constructed by plotting the negative log of the p-value on the y-axis (usually base 10). This results in data points with low p-values (highly significant) appearing toward the top of the plot. The x-axis is the log of the fold change between the two conditions. The log of the fold change is used so that changes in both directions appear equidistant from the center. Plotting points in this way results in two regions of interest in the plot: those points that are found toward the top of the plot that are far to either the left or right-hand sides. These represent values that display large magnitude fold changes (hence being left or right of center) as well as high statistical significance (hence being toward the top).
+
+Additionally, users can specify a `shape_col`, which allows the differentiation of points in the plot based on categorical variables. The shapes of the points can represent distinct groups or categories within the data, providing another layer of visual information. This feature is particularly useful when comparing multiple groups or conditions in the same plot.
 
 Source: Wikipedia
 
@@ -303,12 +381,13 @@ Source: Wikipedia
 
 A tabular file containing the columns below (additional columns may be present):
 
-    * P value
-    * FDR / adjusted P value
-    * Log fold change
-    * Labels (e.g. Gene symbols or IDs)
+* P value
+* FDR / adjusted P value
+* Log fold change
+* Labels (e.g. Gene symbols or IDs)
+* Shape (optional; categorical data for point shapes)
 
-All significant points, those meeting the specified FDR and Log Fold Change thresholds, will be coloured, red for upregulated, blue for downregulated. Users can choose to apply labels to the points (such as gene symbols) from the Labels column. To label all significant points, select "Significant" for the **Points to label** option, or to only label the top most significant specify a number under "Only label top most significant". Users can label any points of interest through selecting **Points to label** "Input from file" and providing a tabular labels file. The labels file must contain a header row and have the labels in the first column. These labels must match the labels in the main input file.
+All significant points, those meeting the specified FDR and Log Fold Change thresholds, will be coloured: red for upregulated, blue for downregulated. Users can choose to apply labels to the points (such as gene symbols) from the Labels column. To label all significant points, select "Significant" for the **Points to label** option, or to only label the top most significant, specify a number under "Only label top most significant". Users can label any points of interest through selecting **Points to label** "Input from file" and providing a tabular labels file. The labels file must contain a header row and have the labels in the first column. These labels must match the labels in the main input file.
 
 **Outputs**
 
@@ -318,6 +397,7 @@ A PDF containing a Volcano plot like below. The R code can be output through *Ou
 
 .. _Volcano plot: https://en.wikipedia.org/wiki/Volcano_plot_(statistics)
 .. _blog post: https://gettinggeneticsdone.blogspot.com/2016/01/
+
 
     ]]></help>
     <citations>

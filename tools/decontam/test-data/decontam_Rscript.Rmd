@@ -1,0 +1,176 @@
+---
+title: "decontam_docs"
+output: html_document
+date: "2024-09-10"
+---
+
+# This R markdown generates the test data for the wrapper and can be used to test the functions used in the configfile
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install test env and run studio in this env
+
+```{bash install}
+mamba create --name decontam bioconductor-decontam bioconductor-phyloseq r-tidyverse
+mamba activate decontam
+rstudio
+```
+
+### Check correct R home
+
+```{r home}
+R.home()
+```
+
+## Get test data
+
+Create test data for wrapper, it should be able to use a matrix and vector as well as phyloseq object as input.
+
+```{r store test data}
+R.home()
+library(phyloseq)
+packageVersion("phyloseq")
+library(ggplot2)
+packageVersion("ggplot2")
+library(decontam)
+packageVersion("decontam")
+
+ps <- readRDS(system.file("extdata", "MUClite.rds", package = "decontam"))
+
+# Sample from a physeq object with a sampling function.
+#   ps: physeq object to be sampled
+#   fun: function to use for sampling (default `sample`)
+#   ...: parameters to be passed to fun,
+# see `help(sample)` for default parameters
+sample_ps <- function(ps, fun = sample, ...) {
+    ids <- sample_names(ps)
+    sampled_ids <- fun(ids, ...)
+    ps <- prune_samples(sampled_ids, ps)
+    return(ps)
+}
+
+# the initial object is to big for the test case so we subsample
+ps <- sample_ps(ps, size = 200)
+
+## ps
+# get otu table
+otu <- as(otu_table(ps), "matrix")
+head(otu[, 1:10], 10)
+
+# add control column to sample data
+sample_data(ps)$control <- sample_data(ps)$Sample_or_Control == "Control Sample"
+# store as 0 and 1
+sample_data(ps)$control <- as.integer(sample_data(ps)$control)
+head(sample_data(ps), 1000)
+
+metadata <- as(sample_data(ps), "matrix")
+head(metadata, 1000)
+
+# store test data
+# stores the row names as column,
+# see https://stackoverflow.com/questions/2478352
+# /write-table-writes-unwanted-leading-empty-column-to-header-when-has-rownames
+write.table(data.frame("SampleID" = rownames(otu), otu),
+    file = file.path(getwd(), "otu_input.tsv"),
+    sep = "\t",
+    row.names = FALSE,
+    quote = FALSE
+)
+write.table(data.frame("SampleID" = rownames(metadata), metadata),
+    file = file.path(getwd(), "metadata_input.tsv"),
+    sep = "\t",
+    row.names = FALSE,
+    quote = FALSE
+)
+
+saveRDS(ps, file.path(getwd(), "phyloseq_input.rds"))
+```
+
+## Load test data
+
+```{r load test data}
+library(tidyverse)
+
+# get OTU table (first column is the OTU/ASV ID)
+otu <- read_tsv(file.path(getwd(), "otu_input.tsv"))
+# use first column as colname
+otu2 <- otu %>% tibble::column_to_rownames(colnames(otu)[1])
+otu <- otu_table(otu2, taxa_are_rows = FALSE)
+
+# get metadata table must have matching OTU/ASV ID in first column
+meta <- read_tsv(file.path(getwd(), "metadata_input.tsv"))
+# use first column as colname
+
+meta2 <- meta %>% tibble::column_to_rownames(colnames(meta)[1])
+control_column <- "control"
+
+# convert 0/1 to bool for the control column and store in control column
+meta2$control <- as.logical(meta2[[control_column]])
+sampledata <- sample_data(meta2)
+
+# create dummy tax table (actually not needed,
+# but nice to learn how to load phyloseq objects)
+taxmat <- as.data.frame(matrix(sample(letters, 10, replace = TRUE),
+    nrow = ncol(otu2), ncol = 7
+))
+rownames(taxmat) <- colnames(otu2)
+tax <- tax_table(as.matrix(taxmat))
+
+ps <- phyloseq(otu, tax, sampledata)
+```
+
+# plot 1
+
+```{r plot library size vs control}
+# Put sample_data into a ggplot-friendly data.frame
+df <- as.data.frame(sample_data(ps))
+df$LibrarySize <- sample_sums(ps)
+df <- df[order(df$LibrarySize), ]
+df$Index <- seq_len(nrow(df))
+ggplot(data = df, aes(x = Index, y = LibrarySize, color = control)) +
+    geom_point()
+```
+
+# plot 2
+
+```{r plot prevalence}
+contamdf_prev <- isContaminant(ps,
+    method = "prevalence",
+    neg = "control",
+    threshold = 0.5
+)
+table(contamdf_prev$contaminant)
+
+ps_pa <- transform_sample_counts(ps, function(abund) 1 * (abund > 0))
+ps_pa_neg <- prune_samples(sample_data(ps_pa)$control == TRUE, ps_pa)
+ps_pa_pos <- prune_samples(sample_data(ps_pa)$control == FALSE, ps_pa)
+# Make data_frame of prevalence in positive and negative samples
+df_pa <- data.frame(
+    pa_pos = taxa_sums(ps_pa_pos), pa_neg = taxa_sums(ps_pa_neg),
+    contaminant = contamdf_prev$contaminant
+)
+ggplot(data = df_pa, aes(x = pa_neg, y = pa_pos, color = contaminant)) +
+    geom_point() +
+    xlab("Prevalence (Negative Controls)") +
+    ylab("Prevalence (True Samples)")
+```
+
+# generate output
+
+```{r remove contams}
+id_name <- colnames(otu)[1]
+
+ps_noncontam <- prune_taxa(!contamdf_prev$contaminant, ps)
+
+otu_table(ps_noncontam) %>%
+    as.data.frame() %>%
+    rownames_to_column(id_name) <- otu
+
+write.table(otu,
+    file = file.path(getwd(), "otu_output.tsv"),
+    sep = "\t",
+    row.names = FALSE,
+)
+```

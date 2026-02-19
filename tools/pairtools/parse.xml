@@ -1,30 +1,42 @@
-<tool id="pairtools_parse" name="Pairtools parse" version="@TOOL_VERSION@+galaxy@SUFFIX_VERSION@" profile="23.2" license="MIT">
+<tool id="pairtools_parse" name="Pairtools parse" version="@TOOL_VERSION@+galaxy@SUFFIX_VERSION@" profile="@PROFILE_VERSION@" license="MIT">
     <description>Find ligation pairs in alignments and create pairs.</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
+        #set $output = "output" + str($compress_output)
+        ln -s '$output_parsed_pairs' '$output' &&
         pairtools parse
             '$sam_path'
             -c '$chroms_path'
             #if str($assembly_name).strip(): 
                 --assembly '$assembly_name'
             #end if
-            -o '$output_parsed_pairs'
             --min-mapq '$min_mapq'
             --max-molecule-size '$max_molecule_size'
             $drop_readid
             $drop_seq
-            $output_stats
             $drop_sam
             #if $output_stats:
-                '$parsed_pairs_stats'
+                 --output-stats '$parsed_pairs_stats'
+            #end if
+            #if $select_add_columns.add_columns_selection == "yes":
+                --add-columns '$select_add_columns.add_columns'
             #end if
             --walks-policy '$walks_policy'
             --max-inter-align-gap '$max_inter_algn_gap'
             --nproc-in \${GALAXY_SLOTS:-4}
             --nproc-out \${GALAXY_SLOTS:-4}
+            #if $sort_output:
+                |
+            pairtools sort -o '$output'
+                --nproc-in \${GALAXY_SLOTS:-4}
+                --nproc-out \${GALAXY_SLOTS:-4}
+            #else
+                 -o '$output'
+            #end if
+
     ]]></command>
     <inputs>
         <param name="sam_path" type="data" format="sam,qname_input_sorted.bam,qname_sorted.bam" label="Input SAM/BAM file" help="Input SAM or BAM (unsorted/name-sorted) file with paired-end sequence alignments of Hi-C molecules."/>
@@ -36,14 +48,45 @@
         <param argument="--drop-seq" type="boolean" truevalue="--drop-seq" falsevalue="" checked="False" label="remove sequences and PHREDs from the sam fields"></param>
         <param argument="--output-stats" type="boolean" truevalue="--output-stats" falsevalue="" checked="False" label="Generate various statistics of pairs file"></param>
         <param argument="--drop-sam" type="boolean" truevalue="--drop-sam" falsevalue="" checked="False" label="Do not add sams to the output"></param>    
+        <conditional name="select_add_columns">
+            <param name="add_columns_selection" type="select" label="Add additional columns to the output" help="Select if additional columns needs to be added to the output pairs file.">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="yes">
+                <param argument="--add-columns" type="select" multiple="true" label="Select extra columns describing alignments" help="Multiple options can be selected.">
+                    <option value="mapq">MAPQ</option>
+                    <option value="pos5">POS5</option>
+                    <option value="pos3">POS3</option>
+                    <option value="cigar">CIGAR</option>
+                    <option value="read_len">Read length</option>
+                    <option value="matched_bp">Matched bp</option>
+                    <option value="algn_ref_span">algn_ref_span</option>
+                    <option value="dist_to_5">dist_to_5</option>
+                    <option value="dist_to_3">dist_to_3</option>
+                    <option value="seq">seq</option>
+                    <option value="mismatches">mismatches</option>
+                    <option value="read_side">read_side</option>
+                    <option value="algn_idx">algn_idx</option>
+                    <option value="same_side_algn_count">same_side_algn_count</option>
+                </param>
+            </when>
+            <when value="no"/>
+        </conditional>
         <param argument="--walks-policy" type="select" label="Walks Policy" help="The policy for reporting unrescuable walks.">
             <expand macro="walks_policy_options"/>
-        </param>   
+        </param>
+        <param name="compress_output" type="boolean" truevalue=".gz" falsevalue="" checked="false" label="Compress output file" />   
+        <param name="sort_output" type="boolean"  checked="true" label="generate sorted output file" />
         <param argument="max_inter_algn_gap" type="integer" min="0" value="30" label="Max alignment gap" help="read segments that are not covered by any alignment and longer than the specified value are treated as null alignments."/>
     </inputs>
     <outputs>
-        <data name="output_parsed_pairs" format="4dn_pairs" label="${tool.name} on ${on_string}: .pairs"/>
-        <data name="parsed_pairs_stats" format="txt,tabular" label="${tool.name} on ${on_string}: parsed.stats">
+        <data name="output_parsed_pairs" format="4dn_pairsam" label="${tool.name} on ${on_string}:  .pairs">
+            <change_format>
+                <when input="compress_output" value=".gz" format="4dn_pairsam.gz"/>
+            </change_format>
+        </data>
+        <data name="parsed_pairs_stats" format="tabular" label="${tool.name} on ${on_string}: parsed.stats">
             <filter>output_stats</filter>
         </data>
     </outputs>
@@ -55,36 +98,50 @@
             <param name="min_mapq" value="1"/>
             <param name="walks_policy" value="mask"/>
             <param name="max_inter_algn_gap" value="20"/>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_sam.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_sam.pairs" lines_diff="10"/>
         </test>
-        <!--Test 02 with BAM file as input and default parameters-->
+        <!--Test 02 with SAM file as input and sorted output default parameters-->
+        <test expect_num_outputs="1">
+            <param name="sam_path" value="test.sam"/>
+            <param name="chroms_path" value="test.genome"/>
+            <param name="min_mapq" value="1"/>
+            <param name="walks_policy" value="mask"/>
+            <param name="max_inter_algn_gap" value="20"/>
+            <param name="sort_output" value="true"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_sam.sorted.pairs" lines_diff="10"/>
+        </test>
+        <!--Test 03 with BAM file as input and default parameters-->
         <test expect_num_outputs="1">
             <param name="sam_path" value="test.bam"/>
             <param name="chroms_path" value="test.reduced.chrom.sizes"/>
             <param name="min_mapq" value="1"/>
             <param name="walks_policy" value="mask"/>
             <param name="max_inter_algn_gap" value="20"/>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_bam.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_bam.pairs" lines_diff="10"/>
         </test>
-        <!--Test 03 with BAM file as input and minimal mapq of 40-->
+        <!--Test 04 with BAM file as input and minimal mapq of 40-->
         <test expect_num_outputs="1">
             <param name="sam_path" value="test.bam"/>
             <param name="chroms_path" value="test.reduced.chrom.sizes"/>
             <param name="min_mapq" value="40"/>
             <param name="walks_policy" value="mask"/>
             <param name="max_inter_algn_gap" value="20"/>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_bam_min_mapq_40.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_bam_min_mapq_40.pairs" lines_diff="10"/>
         </test>
-        <!--Test 04 with BAM file as input and walk policy of 5unique-->
+        <!--Test 05 with BAM file as input and walk policy of 5unique-->
         <test expect_num_outputs="1">
             <param name="sam_path" value="test.bam"/>
             <param name="chroms_path" value="test.reduced.chrom.sizes"/>
             <param name="min_mapq" value="40"/>
             <param name="walks_policy" value="5unique"/>
             <param name="max_inter_algn_gap" value="20"/>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_bam_5unique.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_bam_5unique.pairs" lines_diff="10"/>
         </test>
-        <!--Test 05 with BAM file as input and read id dropped-->
+        <!--Test 06 with BAM file as input and read id dropped-->
         <test expect_num_outputs="1">
             <param name="sam_path" value="test.bam"/>
             <param name="chroms_path" value="test.reduced.chrom.sizes"/>
@@ -92,9 +149,10 @@
             <param name="walks_policy" value="5unique"/>
             <param name="max_inter_algn_gap" value="20"/>
             <param name="drop_readid" value="true"></param>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_bam_readid_dropped.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_bam_readid_dropped.pairs" lines_diff="10"/>
         </test>
-        <!--Test 06 with SAM file as input and drop_seq enabled-->
+        <!--Test 07 with SAM file as input and drop_seq enabled-->
         <test expect_num_outputs="1">
             <param name="sam_path" value="test.sam"/>
             <param name="chroms_path" value="test.genome"/>
@@ -102,9 +160,10 @@
             <param name="walks_policy" value="5unique"/>
             <param name="max_inter_algn_gap" value="20"/>
             <param name="drop_seq" value="true"></param>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_bam_readid_dropped_seq.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_bam_readid_dropped_seq.pairs" lines_diff="10"/>
         </test>
-        <!--Test 07 with SAM file as input and output_stats enabled-->
+        <!--Test 08 with SAM file as input and output_stats enabled-->
         <test expect_num_outputs="2">
             <param name="sam_path" value="test.sam"/>
             <param name="chroms_path" value="test.genome"/>
@@ -114,7 +173,7 @@
             <param name="output_stats" value="true"></param>
             <output name="parsed_pairs_stats" file="output_parsed_pairs.stats" lines_diff="10"/>
         </test>
-        <!--Test 08 with SAM file as input and default parameters and assembly name -->
+        <!--Test 09 with SAM file as input and default parameters and assembly name -->
         <test expect_num_outputs="1">
             <param name="sam_path" value="test.sam"/>
             <param name="chroms_path" value="test.genome"/>
@@ -122,9 +181,46 @@
             <param name="min_mapq" value="1"/>
             <param name="walks_policy" value="mask"/>
             <param name="max_inter_algn_gap" value="20"/>
-            <output name="output_parsed_pairs" ftype="4dn_pairs" file="output_parsed_pairs_sam_assemblyname.pairs" lines_diff="10"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_sam_assemblyname.pairs" lines_diff="10"/>
         </test>
-
+        <!--Test 10 with SAM file as input and default parameters and assembly name and compressed output-->
+        <test expect_num_outputs="1">
+            <param name="sam_path" value="test.sam"/>
+            <param name="chroms_path" value="test.genome"/>
+            <param name="assembly_name" value="test_assembly"/>
+            <param name="min_mapq" value="1"/>
+            <param name="walks_policy" value="mask"/>
+            <param name="max_inter_algn_gap" value="20"/>
+            <param name="compress_output" value="true"/>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam.gz" file="output_parsed_pairs_sam_assemblyname.pairs.gz" decompress="true" lines_diff="10"/>
+        </test>
+        <!--Test 11 with SAM file as input and default parameters and assembly name and sorted, compressed output-->
+        <test expect_num_outputs="1">
+            <param name="sam_path" value="test.sam"/>
+            <param name="chroms_path" value="test.genome"/>
+            <param name="assembly_name" value="test_assembly"/>
+            <param name="min_mapq" value="1"/>
+            <param name="walks_policy" value="mask"/>
+            <param name="max_inter_algn_gap" value="20"/>
+            <param name="compress_output" value="true"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam.gz" file="output_parsed_pairs_sam_assemblyname.sorted.pairs.gz" decompress="true" lines_diff="10"/>
+        </test>
+        <!--Test 12 with SAM file as input and add columns-->
+        <test expect_num_outputs="1">
+            <param name="sam_path" value="test.sam"/>
+            <param name="chroms_path" value="test.genome"/>
+            <param name="min_mapq" value="1"/>
+            <param name="walks_policy" value="mask"/>
+            <param name="max_inter_algn_gap" value="20"/>
+            <conditional name="select_add_columns">
+                <param name="add_columns_selection" value="yes"/>
+                <param name="add_columns" value="mapq,seq"/>
+            </conditional>
+            <param name="sort_output" value="false"/>
+            <output name="output_parsed_pairs" ftype="4dn_pairsam" file="output_parsed_pairs_sam_mapq.pairs" lines_diff="10"/>
+        </test>
     </tests>
     <help><![CDATA[
         **Pairtools parse**
@@ -132,7 +228,9 @@
         Detects ligation events in the aligned sequences of DNA molecules formed in Hi-C experiments and reports them in the .pairs/.pairsam format.
         
         sam_path : an input .sam/.bam (unsorted/name-sorted) file with paired-end sequence alignments of Hi-C molecules. 
-              
+
+        By default, the generated .pair/.pairsam output is sorted by piping it through pairtools sort. You can disable this behavior by unchecking the “Generate sorted output file” checkbox.
+
     ]]></help>
     <expand macro="citations"/>
     <expand macro="creator"/>

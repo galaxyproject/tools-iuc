@@ -1,0 +1,322 @@
+<tool id="preprocess_muon" name="muon filter and  normalize" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+@COPY_MUDATA@
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+@CMD_read_inputs@
+
+#if $method.method == 'pp.intersect_obs'
+mu.pp.intersect_obs(
+    mdata
+)
+## Update the features. Only union features of the modalities are considered
+mdata.update_var()
+
+
+#else if $method.method == 'pp.l2norm'
+mu.pp.l2norm(
+    mdata,
+    #if $method.mod
+    mod='$method.mod',
+    #end if
+    #if $method.rep
+    rep='$method.rep',
+    #end if
+    n_pcs=$method.n_pcs,
+    copy=False
+)
+
+#else if $method.method == 'pp.neighbors'
+mu.pp.neighbors(
+    mdata,
+    #if str($method.n_neighbors)
+    n_neighbors=$method.n_neighbors,
+    #end if
+    n_bandwidth_neighbors=$method.n_bandwidth_neighbors,
+    n_multineighbors=$method.n_multineighbors,
+    @CMD_neighbor_keys@
+    metric='$method.metric',
+    #if $method.key_added
+    key_added='$method.key_added',
+    #end if
+    weight_key='$method.weight_key',
+    add_weights_to_modalities=$method.add_weights_to_modalities,
+    eps=$method.eps,
+    random_state=$method.random_state,
+    copy=False
+)
+
+#else if $method.method == 'pp.sample_obs'
+mu.pp.sample_obs(
+    mdata,
+    frac=$method.frac,
+    #if $method.groupby
+    groupby='$method.groupby',
+    #end if
+    #if str($method.min_n)
+    min_n=$method.min_n
+    #end if
+)
+#end if
+
+@CMD_mudata_write_outputs@
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="inputs_mudata"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method used for plotting">
+                    <option value="pp.intersect_obs">Subset: Subset observations present only in all modalities, using 'muon.pp.intersect_obs'</option>
+                    <option value="pp.l2norm">Normalize: Normalize observations to unit L2 norm, using 'muon.pp.l2norm'</option>
+                    <option value="pp.neighbors">Search: Multimodal nearest neighbor search, using 'muon.pp.neighbors'</option>
+                    <option value="pp.sample_obs">Return an object with some of the observations (subsampling). 'muon.pp.sample_obs'</option>
+            </param>
+            <when value="pp.intersect_obs"/>
+            <when value="pp.l2norm">
+                <param argument="mod" type="text" optional="true" label="Names of the modalities to normalize" help="Leave empty to use all modalities">
+                    <expand macro="sanitize_string" />
+                </param>
+                <param argument="rep" type="text" optional="true" label="The representation to normalize." help="X or any key for .obsm is valid, for all modalities">
+                    <expand macro="sanitize_query" />
+                </param>
+                <param argument="n_pcs" type="integer" min="0" value="0" label="The number of principal components to use." help="This affects the result only if a PCA representation is being normalized"/>
+            </when>
+            <when value="pp.neighbors">
+                <param argument="n_neighbors" type="integer" optional="true" label="Number of nearest neighbors to find"
+                    help="If not set, arithmetic mean of per-modality neighbors will be used"/>
+                <param argument="n_bandwidth_neighbors" type="integer" value="20" label="Number of nearest neighbors to use for bandwidth selection"/>
+                <param argument="n_multineighbors" type="integer" value="200" label="Number of nearest neighbors in each modality to consider as candidates for multimodal nearest neighbors"
+                    help="Only points in the union of per-modality nearest neighbors are candidates for multimodal nearest neighbors.
+                    This will use the same metric that was used for the nearest neighbor search in the respective modality."/>
+                <expand macro="param_neighbor_keys"/>
+                <param argument="metric" type="select" label="Distance measure to use" help="This will only be used in the final step to search for nearest neighbors in the set of candidates.">
+                    <option value="euclidean" selected="true">euclidean</option>
+                    <option value="braycurtis">braycurtis</option>
+                    <option value="canberra">canberra</option>
+                    <option value="chebyshev">chebyshev</option>
+                    <option value="cityblock">cityblock</option>
+                    <option value="correlation">correlation</option>
+                    <option value="cosine">cosine</option>
+                    <option value="dice">dice</option>
+                    <option value="hamming">hamming</option>
+                    <option value="jaccard">jaccard</option>
+                    <option value="jensenshannon">jensenshannon</option>
+                    <option value="kulsinski">kulsinski</option>
+                    <option value="mahalanobis">mahalanobis</option>
+                    <option value="matching">matching</option>
+                    <option value="minkowski">minkowski</option>
+                    <option value="rogerstanimoto">rogerstanimoto</option>
+                    <option value="russellrao">russellrao</option>
+                    <option value="seuclidean">seuclidean</option>
+                    <option value="sokalmichener">sokalmichener</option>
+                    <option value="sokalsneath">sokalsneath</option>
+                    <option value="sqeuclidean">sqeuclidean</option>
+                    <option value="wminkowski">wminkowski</option>
+                    <option value="yule">yule</option>
+                </param>
+                <expand macro="param_key_added_common"/>
+                <param argument="weight_key" type="text" value="mod_weight" label="Weight key to add to each modality’s .obs or to mdata.obs">
+                    <expand macro="sanitize_query" />
+                </param>
+                <param argument="add_weights_to_modalities" type="boolean" truevalue="True" falsevalue="False" checked="false" label="If to add weights to individual modalities" help="By default, the weights will be added to mdata.obs"/>
+                <expand macro="param_eps" eps_value="0.0001"/>
+                <expand macro="param_random_state" seed="42"/>
+            </when>
+            <when value="pp.sample_obs">
+                <param argument="frac" type="float" min="0" max="1" value="0.1" label="A fraction of observations to return"/>
+                <param argument="groupby" type="text" optional="true" label="Categorical column in .obs that is used for prior grouping before sampling observations">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_n" type="integer" min="0" optional="true" label="Return min_n observations if fraction frac of observations is below min_n"
+                    help="When groupby is not None, min_n is applied per group."/>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced" />
+    </inputs>
+    <outputs>
+        <expand macro="muon_outputs"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <!-- test1: intersect_obs -->
+            <param name="mdata" ftype="h5ad" location="https://zenodo.org/records/12570984/files/pbmc3k_chr21.h5mu"/>
+            <param name="method" value="pp.intersect_obs"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="mu.pp.intersect_obs"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text_matching expression="179 × 490"/>
+                <has_text_matching expression="179 x 178"/>
+                <has_text_matching expression="179 x 312"/>
+            </assert_stdout>
+            <output name="mudata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="mod/rna"/>
+                    <has_h5_keys keys="mod/atac"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test2: l2norm -->
+            <param name="mdata" ftype="h5ad" location="https://zenodo.org/records/12570984/files/pbmc3k_chr21.h5mu"/>
+            <param name="method" value="pp.l2norm"/>
+            <param name="n_pcs" value="5"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="mu.pp.l2norm"/>
+                    <has_text_matching expression="copy=False"/>
+                    <has_text_matching expression="n_pcs=5"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text_matching expression="179 × 490"/>
+                <has_text_matching expression="179 x 178"/>
+                <has_text_matching expression="179 x 312"/>
+            </assert_stdout>
+            <output name="mudata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="mod/rna"/>
+                    <has_h5_keys keys="mod/atac"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test3: neighbors -->
+            <param name="mdata" ftype="h5ad" location="https://zenodo.org/records/12570984/files/pbmc3k_chr21_pp.neighbors_in.h5mu"/>
+            <param name="method" value="pp.neighbors"/>
+            <param name="n_neighbors" value="2"/>
+            <param name="n_bandwidth_neighbors" value="3"/>
+            <param name="n_multineighbors" value="5"/>
+            <conditional name="n_keys">
+                <param name="type" value="separate"/>
+                <repeat name="modalities">
+                    <param name="mod_name" value="rna"/>
+                    <param name="neighbor_keys" value="neighbors"/>
+                </repeat>
+                <repeat name="modalities">
+                    <param name="mod_name" value="atac"/>
+                    <param name="neighbor_keys" value="neighbors"/>
+                </repeat>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="mu.pp.neighbors"/>
+                    <has_text_matching expression="copy=False"/>
+                    <has_text_matching expression="n_neighbors=2"/>
+                    <has_text_matching expression="n_bandwidth_neighbors=3"/>
+                    <has_text_matching expression="n_multineighbors=5"/>
+                    <has_text_matching expression="metric='euclidean'"/>
+                    <has_text_matching expression="weight_key='mod_weight'"/>
+                    <has_text_matching expression="add_weights_to_modalities=False"/>
+                    <has_text_matching expression="eps=0.0001"/>
+                    <has_text_matching expression="random_state=42"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text_matching expression="2711 × 1781"/>
+                <has_text_matching expression="2711 x 555"/>
+                <has_text_matching expression="2711 x 1226"/>
+            </assert_stdout>
+            <output name="mudata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="mod/rna"/>
+                    <has_h5_keys keys="mod/atac"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test4: sample_obs -->
+            <param name="mdata" ftype="h5ad" location="https://zenodo.org/records/12570984/files/pbmc3k_chr21.h5mu"/>
+            <param name="method" value="pp.sample_obs"/>
+            <param name="frac" value="0.5"/>
+            <param name="min_n" value="10"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="mu.pp.sample_obs"/>
+                    <has_text_matching expression="frac=0.5"/>
+                    <has_text_matching expression="min_n=10"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text_matching expression="179 × 490"/>
+                <has_text_matching expression="179 x 178"/>
+                <has_text_matching expression="179 x 312"/>
+            </assert_stdout>
+            <output name="mudata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="mod/rna"/>
+                    <has_h5_keys keys="mod/atac"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Filter: Filter observations (samples or cells) in-place using any column in .obs or in .X ('muon.pp.filter_obs')
+================================================================================================================
+
+        Filter observations (samples or cells) in-place using any column in .obs or in .X.
+
+        More details on the `muon documentation
+        <https://muon.readthedocs.io/en/latest/api/generated/muon.pp.filter_obs.html#muon.pp.filter_obs>`__
+
+Filter: Filter variables (features) ('muon.pp.filter_var')
+==========================================================
+
+        Filter variables (features, e.g. genes) in-place using any column in .var or row in .X.
+
+        More details on the `muon documentation
+        <https://muon.readthedocs.io/en/latest/api/generated/muon.pp.filter_var.html#muon.pp.filter_var>`__
+
+Subset: Subset observations (samples or cells) in-place taking observations present only in all modalities ('muon.pp.intersect_obs')
+====================================================================================================================================
+
+        Subset observations (samples or cells) in-place taking observations present only in all modalities.
+
+        More details on the `muon documentation
+        <https://muon.readthedocs.io/en/latest/api/generated/muon.pp.intersect_obs.html#muon.pp.intersect_obs>`__
+
+Normalize: Normalize observations to unit L2 norm ('muon.pp.l2norm')
+====================================================================
+
+        Normalize observations to unit L2 norm.
+
+        More details on the `muon documentation
+        <https://muon.readthedocs.io/en/latest/api/generated/muon.pp.l2norm.html#muon.pp.l2norm>`__
+
+Search: Multimodal nearest neighbor search ('muon.pp.neighbors')
+================================================================
+
+        Multimodal nearest neighbor search by implementing the multimodal nearest neighbor method of Hao et al. and Swanson et al.
+        The neighbor search efficiency on this heavily relies on UMAP. In particular, you may want to decrease
+        n_multineighbors for large data set to avoid excessive peak memory use. To achieve results as close as possible
+        to the Seurat implementation, observations must be normalized to unit L2 norm prior to running per-modality
+        nearest-neighbor search.
+
+        More details on the `muon documentation
+        <https://muon.readthedocs.io/en/latest/api/generated/muon.pp.neighbors.html#muon.pp.neighbors>`__
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

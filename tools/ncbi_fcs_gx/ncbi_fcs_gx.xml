@@ -6,17 +6,22 @@
     <expand macro="biotools"/>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-GX_NUM_CORES=\${GALAXY_SLOTS:-2}
 #if $mode.mode_selector == "screen"
-    ## copy data to local storage
-    #set manifest_pathname = $mode.screen_adv.database.fields.name
+    #set manifest_pathname = $mode.config_tag.fields.local_manifest
     #if $mode.config_tag.fields.use_source_manifest == "1"
-        #set manifest_pathname = $mode.screen_adv.database.fields.source_manifest
+        #set manifest_pathname = $mode.config_tag.fields.source_manifest
     #end if
-    mkdir -p '$mode.config_tag.fields.node_cache_dir' &&
-    sync_files.py get --mft '$manifest_pathname' --dir '$mode.config_tag.fields.node_cache_dir' > /dev/null 2>&1 &&
+    GX_DB_DIR="\${TMPDIR}/$mode.config_tag" &&
+    ## skip checksumming the database if the db_state_file exists
+    if [ ! -e "\${GX_DB_DIR}/sync-files-completed.txt" ]; then
+        ## copy data to local storage
+        mkdir -p "\${GX_DB_DIR}" &&
+        sync_files.py get --mft '$manifest_pathname' --dir "\${GX_DB_DIR}" > sync_files.log 2>&1 ||
+        { cat sync_files.log >&2 ; false ; } &&
+        touch "\${GX_DB_DIR}/sync-files-completed.txt";
+    fi &&
     ## run gx
-    run_gx.py
+    GX_NUM_CORES=\${GALAXY_SLOTS:-2} run_gx.py
     #if $mode.config_tag.fields.phone_home == "1"
         --phone-home-label '$mode.config_tag.fields.phone_home_label'
     #end if
@@ -31,16 +36,19 @@ GX_NUM_CORES=\${GALAXY_SLOTS:-2}
         --species '$mode.species'
     #end if
         --split-fasta '$mode.screen_adv.split_fasta'
-    #if $mode.screen_adv.div:
+    #if $mode.screen_adv.div
         --div '$mode.screen_adv.div'
     #end if
-        --gx-db '$mode.config_tag.fields.node_cache_dir'
+    #if $mode.screen_adv.ignore_same_kingdom
+        --ignore-same-kingdom
+    #end if
+        --gx-db "\${GX_DB_DIR}"
         --out-basename output
         --action-report true
         --generate-logfile false
 #elif $mode.mode_selector == "clean"
     ## run gx
-    gx clean-genome
+    GX_NUM_CORES=\${GALAXY_SLOTS:-2} gx clean-genome
         --input '$mode.input'
         --action-report '$mode.action_report'
         --contam-fasta-out 'contam.fa'
@@ -59,10 +67,10 @@ GX_NUM_CORES=\${GALAXY_SLOTS:-2}
                 <option value="clean">Clean genome</option>
             </param>
             <when value="screen">
-                <!-- value, name, use_source_manifest, phone_home, phone_home_label, node_cache_dir -->
+                <!-- value, description, source_manifest, use_source_manifest, phone_home, phone_home_label, local_manifest -->
                 <param name="config_tag" type="select" label="Database">
-                    <options from_data_table="ncbi_fcs_gx_config">
-                        <filter type="sort_by" name="sorted_description" column="1"/>
+                    <options from_data_table="ncbi_fcs_gx_databases_ext">
+                        <filter type="sort_by" column="1"/>
                     </options>
                     <validator message="No database is available" type="no_options"/>
                 </param>
@@ -73,10 +81,11 @@ GX_NUM_CORES=\${GALAXY_SLOTS:-2}
                         <option value="ncbi_tax">NCBI Taxonomic identifier</option>
                     </param>
                     <when value="gx_div">
-                        <param argument="--div" type="select">
+                        <!-- value, tag, description -->
+                        <param argument="--div" type="select" optional="true">
                             <options from_data_table="ncbi_fcs_gx_divisions">
                                 <filter type="param_value" ref="config_tag" column="1" />
-                                <filter type="sort_by" name="sorted_description" column="2" />
+                                <filter type="sort_by" column="2" />
                             </options>
                             <validator message="No GX Divisions are available" type="no_options"/>
                         </param>
@@ -97,21 +106,17 @@ GX_NUM_CORES=\${GALAXY_SLOTS:-2}
                             </valid>
                         </sanitizer>
                     </param>
+                    <!-- value, tag, description -->
                     <param name="gx_extra_contam_divs" type="select" multiple="true" optional="true" label="Additional contaminants to identify" help="Multiple gx-divisions may be selected.">
                         <options from_data_table="ncbi_fcs_gx_divisions">
                             <filter type="param_value" ref="config_tag" column="1" />
-                            <filter type="sort_by" name="sorted_description" column="2" />
+                            <filter type="sort_by" column="2" />
                         </options>
                         <validator message="No GX Divisions are available" type="no_options"/>
                     </param>
                     <param argument="--split-fasta" type="boolean" checked="true" optional="true" label="Split fasta sequences on N-runs of length at least 10"/>
                     <param argument="--div" type="text" value="" optional="true" label="BLAST-div of the tax-id" help="from 'NCBI BLAST name' on taxon Info page"/>
-                    <param name="database" type="select" label="Database location">
-                        <options from_data_table="ncbi_fcs_gx_databases">
-                            <filter type="param_value" ref="config_tag" column="0"/>
-                        </options>
-                        <validator message="No database location is available" type="no_options"/>
-                    </param>
+                    <param argument="--ignore-same-kingdom" type="boolean" checked="false" optional="true" label="Ignore same-kingdom contamination"/>
                 </section>
             </when>
             <when value="clean">
@@ -139,19 +144,25 @@ GX_NUM_CORES=\${GALAXY_SLOTS:-2}
     </outputs>
     <tests>
         <test expect_num_outputs="2">
-            <param name="mode_selector" value="screen"/>
-            <param name="config_tag" value="test-only" />
-            <param name="id_selector" value="ncbi_tax"/>
-            <param name="fasta" value="fcsgx_test.fa.gz" ftype="fasta"/>
-            <param name="tax_id" value="6973"/>
+            <conditional name="mode">
+                <param name="mode_selector" value="screen"/>
+                <param name="config_tag" value="test" />
+                <param name="fasta" value="fcsgx_test.fa.gz" ftype="fasta"/>
+                <conditional name="id">
+                    <param name="id_selector" value="ncbi_tax"/>
+                    <param name="tax_id" value="6973"/>
+                </conditional>
+                <section name="screen_adv"/>
+            </conditional>
             <output name="taxonomy_report" file="output.taxonomy.rpt" compare="diff" lines_diff="2" />
             <output name="action_report" file="output.fcs_gx_report.txt" compare="diff" lines_diff="2" />
         </test>
         <test expect_num_outputs="2">
-            <param name="mode_selector" value="clean"/>
-            <param name="id_selector" value="ncbi_tax"/>
-            <param name="input" value="fcsgx_test.fa.gz" ftype="fasta"/>
-            <param name="action_report" value="output.fcs_gx_report.txt" ftype="tabular"/>
+            <conditional name="mode">
+                <param name="mode_selector" value="clean"/>
+                <param name="input" value="fcsgx_test.fa.gz" ftype="fasta"/>
+                <param name="action_report" value="output.fcs_gx_report.txt" ftype="tabular"/>
+            </conditional>
             <output name="contam_fasta" decompress="true" file="output.contam.fa.gz" ftype="fasta" />
             <output name="clean_fasta" decompress="true" file="output.clean.fa.gz" ftype="fasta" />
         </test>

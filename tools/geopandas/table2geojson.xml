@@ -1,0 +1,162 @@
+<tool id="geopandas_table2geojson" name="Table to GeoJSON" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description></description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.1.2</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">24.2</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">geopandas</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        python '$csv2geojson'
+    ]]></command>
+    <configfiles>
+        <configfile name="csv2geojson">
+import json
+import pandas as pd
+import geopandas as gpd
+
+df = pd.read_csv('$infile', encoding="utf-8", sep=None, engine='python', header=None if '$has_header' == "false" else 0)
+
+inc = [int(x)-1 for x in str('$include_columns').split(",") if x.strip().isdigit()] if '$include_columns' and str('$include_columns').lower() != "none" else []
+exc = [int(x)-1 for x in str('$exclude_columns').split(",") if x.strip().isdigit()] if '$exclude_columns' and str('$exclude_columns').lower() != "none" else []
+
+property_df = df
+
+if inc:
+    property_df = df.iloc[:, inc]
+if exc:
+    property_df = property_df.drop(columns=df.columns[exc])
+
+gdf = gpd.GeoDataFrame(
+    property_df,
+    geometry=gpd.points_from_xy(
+        df.iloc[:, int($lat_column)-1],   
+        df.iloc[:, int($long_column)-1]),
+    crs="$crs"
+)
+        
+# drop_id: bool, default: False
+data = json.loads(gdf.to_json())
+with open('outfile.geojson', "w", encoding="utf8") as f:
+    ## Minify output json
+    f.write(json.dumps(data, indent=4))
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="infile" type="data" format="csv,tabular,tsv" label="The file you want to convert"/>
+        <param name="has_header" type="boolean" truevalue="true" falsevalue="false" label="First row contains column names (header)?" help="Does your input file consists of a header"/>
+        <param name="lat_column" type="integer" value="1" label="Latitude column"/>
+        <param name="long_column" type="integer" value="2" label="Longitude column"/>
+        <param name="include_columns" type="data_column" data_ref="infile" use_header_names="true" multiple="true" optional="true"
+            label="Include the following columns" help="Either include or exclude columns, by default, all columns will be taken over into the properties field"/>
+        <param name="exclude_columns" type="data_column" data_ref="infile" use_header_names="true" multiple="true" optional="true"
+            label="Exclude the following columns" help="Either include or exclude columns, by default, all columns will be taken over into the properties field"/>
+        <param name="crs" type="select" label="Coordinate Reference System" help="Choose the Coordinate Reference Systems (CRS) your data is using">
+            <option value="EPSG:3857">Web Mercator projection</option>
+            <option value="EPSG:4326" selected="true">WGS84 projection (used by Google Earth)</option>
+        </param>
+
+    </inputs>
+    <outputs>
+        <data name="outfile" format="geojson" from_work_dir="outfile.geojson" label="${tool.name} on ${on_string}" />
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="infile" value="geolocation.csv"/>
+            <param name="has_header" value="true"/>
+            <param name="lat_column" value="1"/>
+            <param name="long_column" value="2"/>
+            <param name="crs" value="EPSG:3857"/>
+            <output name="outfile" file="geolocation_1.geojson">
+                <assert_contents>
+                    <has_json_property_with_text property="type" text="FeatureCollection"/>
+                    <!-- all 5 columns are includes as properties, nothing excluded, nothing explicitly included -->
+                    <has_text text='value": 10'/>
+                    <has_text text='temperature": 23'/>
+                    <has_text text='longitude'/>
+                    <has_text text='latitude'/>
+                    <has_text text='timestamp": "2023-01-01T12:05:00Z"'/>
+                    <has_n_lines n="371"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="infile" value="geolocation_without_header.csv"/>
+            <param name="has_header" value="false"/>
+            <param name="lat_column" value="1"/>
+            <param name="long_column" value="2"/>
+            <param name="crs" value="EPSG:3857"/>
+            <output name="outfile">
+                <assert_contents>
+                    <has_json_property_with_text property="type" text="FeatureCollection"/>
+                    <has_n_lines n="371"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="infile" value="geolocation.csv"/>
+            <param name="has_header" value="true"/>
+            <param name="lat_column" value="1"/>
+            <param name="long_column" value="2"/>
+            <param name="include_columns" value="3,4"/>
+            <param name="crs" value="EPSG:3857"/>
+            <output name="outfile" ftype="geojson" file="geolocation_2.geojson">
+                <assert_contents>
+                    <!-- 2 columns are explicitly included as properties -->
+                    <has_text text='timestamp": "2023-01-01T12:05:00Z"'/>
+                    <has_text text='value": 10'/>
+                    <has_text text="FeatureCollection"/>
+                    <has_n_lines n="311"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="infile" value="geolocation.csv"/>
+            <param name="has_header" value="true"/>
+            <param name="lat_column" value="1"/>
+            <param name="long_column" value="2"/>
+            <param name="exclude_columns" value="5"/>
+            <param name="crs" value="EPSG:3857"/>
+            <output name="outfile" ftype="geojson" file="geolocation_3.geojson">
+                <assert_contents>
+                    <has_json_property_with_text property="type" text="FeatureCollection"/>
+                    <!-- 4 columns are includes as properties ... one is excluded -->
+                    <has_text text='value": 10'/>
+                    <has_text text='longitude'/>
+                    <has_text text='latitude'/>
+                    <has_text text='timestamp": "2023-01-01T12:05:00Z"'/>
+                    <has_n_lines n="351"/>
+                </assert_contents>
+            </output>
+        </test>
+
+    </tests>
+    <help format="markdown"><![CDATA[
+
+# 💡 Convert CSV or Tabular Data to GeoJSON Format
+
+## Understanding Coordinate Reference Systems (CRS)
+
+A Coordinate Reference System (CRS) defines how the coordinate values in your data relate to real-world locations on Earth. Without a CRS,
+the coordinates in a GeoSeries or GeoDataFrame are simply numbers in an undefined space.
+To find reference codes for widely used CRS projections, visit [spatialreference.org](https://spatialreference.org).
+
+## What is GeoJSON?
+
+GeoJSON is a widely-used format for encoding geographic data structures using JSON (JavaScript Object Notation).
+A GeoJSON file contains an array of geographic features, where each feature includes:
+* A geometry field describing the spatial shape (e.g., point, line, polygon),
+* A properties field containing non-spatial attributes.
+
+GeoJSON uses the WGS84 coordinate system by default (EPSG:4326), with coordinates expressed in decimal degrees.
+To explore and edit GeoJSON interactively, visit [geojson.io](https://geojson.io), select a location or shape, and inspect the resulting GeoJSON output.
+
+📌 Pro Tip, Galaxy can visualise GeoJSON files.
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.5281/zenodo.3946761</citation>
+    </citations>
+</tool>

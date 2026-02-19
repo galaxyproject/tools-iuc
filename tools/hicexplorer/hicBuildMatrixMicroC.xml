@@ -1,0 +1,223 @@
+<tool id="hicexplorer_hicbuildmatrixmicroc" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>create a contact matrix</description>
+    <macros>
+        <token name="@BINARY@">hicBuildMatrixMicroC</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+
+        mkdir ./QCfolder &&
+        mkdir '$qc.files_path' &&
+        @BINARY@
+            --samFiles
+            #for $repeat in $samFiles:
+                '${repeat.samFile}'
+            #end for
+
+            #if $maxLibraryInsertSize:
+                --maxLibraryInsertSize $maxLibraryInsertSize
+            #end if
+
+            #if $binSizes:
+                --binSize
+                #for $repeat in $binSizes
+                    '${repeat.binSize}'
+                #end for
+            #end if
+
+            #if $chromosomeSizes:
+                --chromosomeSizes '$chromosomeSizes'
+            #end if
+            #if $dbKey:
+                --genomeAssembly '$dbKey'
+            #else
+                --genomeAssembly '$samFiles[0].samFile.metadata.dbkey'
+            #end if
+
+            #if $region:
+                --region '$region'
+            #end if
+
+            --outFileName 'matrix.$outputFormat'
+
+            #if $outBam:
+                $outBam ./unsorted.bam
+            #end if
+
+            $keepSelfCircles
+            $skipDuplicationCheck
+
+            #if $minMappingQuality and $minMappingQuality is not None:
+                --minMappingQuality $minMappingQuality
+            #end if
+
+            --threads @THREADS@
+
+            --QCfolder ./QCfolder
+        &&
+        mv ./QCfolder/* $qc.files_path/
+        &&
+        mv '$qc.files_path/hicQC.html' '$qc'
+        && mv "$qc.files_path"/*.log raw_qc
+        && mv matrix.$outputFormat matrix
+        #if $outBam:
+            && samtools sort -@ @THREADS@ -T "\${TMPDIR:-.}" ./unsorted.bam -o sorted.bam
+        #end if
+]]>
+    </command>
+    <inputs>
+        <!-- can we use multiple=True here with min="2" and max="2" ? -->
+        <repeat max="2" min="2" name="samFiles" title="Sam/Bam files to process (forward/reverse)" help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
+            <param name="samFile" type="data" format="sam,qname_input_sorted.bam">
+            </param>
+        </repeat>
+
+        <param argument="--maxLibraryInsertSize" type="integer" optional="true" value="" label="Maximum library insert size defines different cut offs based on the maximum expected library size" help="*This is not the average fragment size* but the higher end of the fragment size distribution (obtained using for example Fragment Analyzer)
+                        which usually is between 800 to 1500 bp. If this value if not known use the default of 1000. The insert value is used to decide if two mates
+                        belong to the same fragment (by checking if they are within this max insert size) and to decide if a mate
+                        is too far away from the nearest restriction site." />
+
+        <repeat name="binSizes" title="Bin size in bp" min="1" help="If used, the restriction cut places (if given) are used to only consider reads that are in the vicinity of the resctriction sites.
+                Otherwise all reads in the interval are considered. Use multiple ones to create a mcool file.">
+            <param argument="--binSize" type="integer" optional="true" value="" label="Bin size in bp" />
+        </repeat>
+
+        <expand macro="region" />
+        <param argument="--keepSelfCircles" type="boolean" truevalue="--keepSelfCircles" falsevalue="" label="Keep self circles" help="If set, outward facing reads without any restriction fragment (self circles) are kept. They will be counted and shown in the QC plots." />
+        <expand macro="minMappingQuality" />
+        <param argument="--skipDuplicationCheck" type="boolean" truevalue="--skipDuplicationCheck" falsevalue="" label="Skip duplication check" help="Identification of duplicated read pairs is memory consuming. Thus, in case of memory errors this check can be skipped." />
+        <param argument="--chromosomeSizes" type="data" format="tabular" optional="true" label="Chromosome sizes for your genome" help="File with the chromosome sizes for your genome. A tab-delimited two column layout 'chr_name size' is expected
+                    Usually the sizes can be determined from the SAM/BAM input files, however,
+                    for cHi-C or scHi-C it can be that at the start or end no data is present.
+                    Please consider that this option causes that only reads are considered which are on the listed chromosomes.
+                    Use this option to guarantee fixed sizes. An example file is available via UCSC:
+                    http://hgdownload.soe.ucsc.edu/goldenPath/dm3/bigZips/dm3.chrom.sizes" />
+        <param name="dbKey" type="text" optional="true" label="Use this dbkey for your history genome"
+        help="You can set the reference genome in your history as metadata. In case you have not you can specify it here." />
+
+        <param argument="--outBam" type="boolean" truevalue="--outBam" falsevalue="" checked="false" label="Save valid Hi-C reads in BAM file" help="A bam
+                    file containing all valid Hi-C reads can be created
+                    using this option. This bam file could be useful to
+                    inspect the distribution of valid Hi-C reads pairs or
+                    for other downstream analyses, but is not used by any
+                    HiCExplorer tool. Computation will be significantly
+                    longer if this option is set." />
+
+        <param name="outputFormat" type="select" label="Output file format">
+            <option value="h5">HiCExplorer format</option>
+            <option value="cool">cool</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="outfileBam" from_work_dir="sorted.bam" format="bam" label="${tool.name} BAM file on ${on_string}">
+            <filter>outBam</filter>
+        </data>
+        <data name="outFileName" from_work_dir="matrix" format="h5" label="${tool.name} MATRIX on ${on_string}">
+            <change_format>
+                <when input="outputFormat" value="cool" format="cool" />
+            </change_format>
+        </data>
+        <data name="qc" format="html" label="${tool.name} QC on ${on_string}" />
+        <data name="raw_qc" from_work_dir="raw_qc" format="txt" label="${tool.name} raw QC on ${on_string}" />
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <repeat name="samFiles">
+                <param name="samFile" value="small_test_R1_unsorted.sam" dbkey="hg38" />
+            </repeat>
+            <repeat name="samFiles">
+                <param name="samFile" value="small_test_R2_unsorted.sam" dbkey="hg38" />
+            </repeat>
+            <param name="outputFormat" value="h5" />
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <param name="outBam" value="True" />
+            <output name="outfileBam" file="small_test_matrix_result_sorted_microc.bam" compare="diff" lines_diff="2" ftype="bam" />
+            <output name="outFileName" ftype="h5">
+                <assert_contents>
+                    <has_h5_keys keys="intervals,matrix" />
+                </assert_contents>
+            </output>
+            <output name="raw_qc" file="raw_qc_report_micro-c" compare="diff" lines_diff="2" />
+        </test>
+        <test expect_num_outputs="4">
+            <repeat name="samFiles">
+                <param name="samFile" value="small_test_R1_unsorted.sam" dbkey="hg38" />
+            </repeat>
+            <repeat name="samFiles">
+                <param name="samFile" value="small_test_R2_unsorted.sam" dbkey="hg38" />
+            </repeat>
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <param name="outputFormat" value="cool" />
+            <param name="outBam" value="True" />
+            <output name="outfileBam" file="small_test_matrix_result_sorted_microc.bam" compare="diff" lines_diff="2" ftype="bam" />
+            <output name="outFileName" ftype="cool">
+                <assert_contents>
+                    <has_h5_keys keys="bins,chroms,indexes,pixels" />
+                </assert_contents>
+            </output>
+            <output name="raw_qc" file="raw_qc_report_micro-c" compare="diff" lines_diff="2" />
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Creation of the contact matrix
+===============================
+
+
+**hicBuildMatrixMicroC** generates a contact matrix from Micro-C read pairs, using paired-end Hi-C reads mapped to a reference genome. This process requires two SAM or BAM files: one for the first mate and one for the second mate of the paired-end reads. These files must be unaligned by position (i.e., not sorted). Unlike traditional Hi-C data, where restriction enzyme cut sites determine resolution, Micro-C does not rely on such sites. Instead, the contact matrix is created using a fixed bin size (e.g., 10,000 bp). 
+
+Additionally, **hicBuildMatrixMicroC** produces a quality control report to evaluate the quality of the Hi-C reads, aiding in determining the success of both the experimental protocol and sequencing process.
+
+
+_________________
+
+
+Usage
+-----
+
+
+This tool is designed to work with paired SAM/BAM files generated by alignment software supporting local alignment, such as Bowtie2, using the `--local` alignment option for paired-end reads. Both files should represent properly mapped reads.
+
+_________________
+
+
+Output
+------
+
+**hicBuildMatrixMicroC** generates the following outputs:
+
+- **Contact Matrix**: A matrix compatible with HiCExplorer for downstream analyses.
+- **Accepted Alignments BAM File**: This file includes valid Hi-C read pairs. While not directly used by HiCExplorer, it is valuable for inspecting the distribution of valid reads, such as around restriction enzyme sites, or for other analyses.
+- **Quality Control Report**: This report provides an evaluation of the Hi-C data, helping to determine whether the library preparation and experimental workflow were successful.
+
+
+Example plot
+++++++++++++
+
+.. image:: hicPlotMatrix.png
+   :width: 50%
+
+*Contact matrix of *Drosophila melanogaster* embryos built using **hicBuildMatrix**. The example shows Micro-C data, visualized with `hicPlotMatrix`. Bins were merged to a 25 kb resolution using `hicMergeMatrixBins` before plotting.*
+
+
+
+
+Quality report
+++++++++++++++
+
+A detailed quality control report accompanies the contact matrix. This report is similar to the one generated by **hicBuildMatrix**, but excludes information specific to restriction cut sites, such as dangling ends and self-circles, as these features are not applicable to Micro-C data.
+
+
+_________________
+
+| For more information about HiCExplorer please consider our documentation on readthedocs.io_.
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+]]>    </help>
+    <expand macro="citations" />
+</tool>

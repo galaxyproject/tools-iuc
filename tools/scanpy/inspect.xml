@@ -57,12 +57,36 @@
 @CMD_READ_INPUTS@
 
 #if str($method.method) == 'pp.calculate_qc_metrics':
+#if str($method.qc_vars) != '':
+    #set $qc_vars = [str(x.strip()) for x in str($method.qc_vars).split(',')]
+
+# function to convert 'True' and 'False' strings to boolean values
+
+def fix_var_keys(adata, var_keys):
+    for key in var_keys:
+        if key not in adata.var.columns:
+            raise ValueError(f"Column '{key}' not found in adata.var")
+        
+        if adata.var[key].dtype == bool:
+            continue  # Skip conversion if already boolean
+        
+        unique_values = set(adata.var[key].astype(str).str.upper())
+        if not unique_values.issubset({'TRUE', 'FALSE'}):
+            raise ValueError(f"Column '{key}' contains values other than 'True' or 'False'. qc_vars must contain only boolean (True/False) columns.")
+        
+        adata.var[key] = adata.var[key].astype(str).str.upper().map({'TRUE': True, 'FALSE': False}).astype(bool)
+        print(f"'{key}' has been converted to a boolean.")
+
+    return adata
+
+adata = fix_var_keys(adata, $qc_vars)
+#end if
+
 sc.pp.calculate_qc_metrics(
     adata=adata,
     expr_type='$method.expr_type',
     var_type='$method.var_type',
     #if str($method.qc_vars) != '':
-        #set $qc_vars = [str(x.strip()) for x in str($method.qc_vars).split(',')]
     qc_vars=$qc_vars,
     #end if
     #if str($method.percent_top) != '':
@@ -146,7 +170,7 @@ sc.tl.rank_genes_groups(
     use_raw=$method.use_raw,
     #if str($method.groups) != '':
     #set $group=[x.strip() for x in str($method.groups).split(',')]
-    groups='$group',
+    groups=$group,
     #end if
     #if str($method.layer) != '':
     layer='$method.layer',
@@ -221,6 +245,27 @@ sc.tl.rank_genes_groups(
     #end if
     copy=False)
 
+    #if str($method.get_df.get_df_select) == 'True':
+cluster_DEG = sc.get.rank_genes_groups_df(adata,
+                                            group=None, # return all groups
+                                            #if str($method.get_df.key) != '':
+                                            key='$method.get_df.key',
+                                            #end if
+                                            #if str($method.get_df.pval_cutoff) != '':
+                                            pval_cutoff=$method.get_df.pval_cutoff,
+                                            #end if
+                                            #if str($method.get_df.log2fc_min) != '':
+                                            log2fc_min=$method.get_df.log2fc_min,
+                                            #end if
+                                            #if str($method.get_df.log2fc_max) != '':
+                                            log2fc_max=$method.get_df.log2fc_max,
+                                            #end if
+                                            @CMD_PARAM_GENE_SYMBOLS@                                            
+                                            )
+
+cluster_DEG.to_csv('DEG.tsv', sep="\t", index=False)
+    #end if
+    
 #else if str($method.method) == "tl.marker_gene_overlap":
 reference_markers = {}
 #for $i, $s in enumerate($method.reference_markers)
@@ -292,9 +337,9 @@ print("stats before sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean=
 sc.pp.sqrt(
     adata,
     copy=False)
-#end if
 
-print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean=", adata.X.mean())
+print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean=", adata.X.mean())    
+#end if
 
 @CMD_ANNDATA_WRITE_OUTPUTS@
         ]]>
@@ -392,6 +437,20 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
                 <expand macro="params_score_genes"/>
             </when>
             <when value="tl.rank_genes_groups">
+                <conditional name="get_df">
+                    <param name="get_df_select" type="select" label="Get ranked genes as a Tabular file?">
+                        <option value="False" selected="true">False</option>
+                        <option value="True">True</option>
+                    </param>
+                    <when value="False"/>
+                    <when value="True">
+                        <param argument="key" type="text" value="" optional="true" label="Key differential expression groups were stored under"/>
+                        <param argument="pval_cutoff" type="float" min="0.0" value="" optional="true" label="Return only adjusted p-values below the cutoff."/>
+                        <param argument="log2fc_min" type="float" value="" optional="true" label="Minimum logfc to return."/>
+                        <param argument="log2fc_max" type="float" value="" optional="true" label="Maximum logfc to return."/>
+                        <expand macro="param_gene_symbols" label="Column name in [.var] DataFrame that stores gene symbols."/>
+                    </when>
+                </conditional>
                 <param argument="groupby" type="text" value="" label="The key of the observations grouping to consider">
                     <expand macro="sanitize_query"/>
                 </param>
@@ -446,7 +505,7 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
                                 <expand macro="fit_intercept"/>
                                 <expand macro="max_iter"/>
                                 <expand macro="multi_class"/>
-                            </when>                            
+                            </when>
                             <when value="newton-cg">
                                 <param name="penalty" type="boolean" truevalue="l2" falsevalue="None" checked="true" label="use l2 penalty?"/>
                                 <expand macro="fit_intercept"/>
@@ -558,10 +617,12 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
     </inputs>
     <outputs>
         <expand macro="anndata_outputs"/>
+        <data name="ranked_gene" format="tabular" from_work_dir="DEG.tsv" label="${tool.name} (${method.method}) on ${on_string}: Ranked genes">
+            <filter> method['method'] == 'tl.rank_genes_groups' and method['get_df']['get_df_select'] == 'True'</filter>
+        </data>
     </outputs>
     <tests>
-
-        <!-- test 1 -->
+<!-- test 1 -->
         <test expect_num_outputs="2">
             <param name="adata" value="sparce_csr_matrix.h5ad"/>
             <conditional name="method">
@@ -614,7 +675,7 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
                 </assert_contents>
             </output>
         </test>
-        
+
         <!-- test 3 -->
         <test expect_num_outputs="2">
             <param name="adata" value="pp.recipe_weinreb17.paul15_subsample.h5ad"/>
@@ -821,8 +882,8 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
                         <param name="solver" value="liblinear"/>
                         <conditional name="penalty">
                             <param name="penalty" value="l2"/>
-                            <param name="random_state" value="1"/>
                         </conditional>
+                        <param name="random_state" value="1"/>
                     </conditional>
                 </conditional>
             </conditional>
@@ -851,9 +912,60 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
                     <has_h5_keys keys="uns/rank_genes_groups"/>
                 </assert_contents>
             </output>
-        </test> 
+        </test>
 
         <!-- test 10 -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="krumsiek11.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <param name="groupby" value="cell_type"/>
+                <param name="groups" value="Ery"/>
+                <conditional name="ref">
+                    <param name="rest" value="group_id"/>
+                    <param name="reference" value="Mk"/>
+                </conditional>
+                <param name="n_genes" value="100"/>
+                <conditional name="tl_rank_genes_groups_method">
+                    <param name="method" value="logreg"/>
+                    <conditional name="solver">
+                        <param name="solver" value="liblinear"/>
+                        <conditional name="penalty">
+                            <param name="penalty" value="l2"/>
+                        </conditional>
+                        <param name="random_state" value="1"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.tl.rank_genes_groups"/>
+                    <has_text_matching expression="groupby='cell_type'"/>
+                    <has_text_matching expression="use_raw=False"/>
+                    <has_text_matching expression="n_genes=100"/>
+                    <has_text_matching expression="method='logreg'"/>
+                    <has_text_matching expression="solver='liblinear'"/>
+                    <has_text_matching expression="penalty='l2'"/>
+                    <has_text_matching expression="dual=False"/>
+                    <has_text_matching expression="fit_intercept=True"/>
+                    <has_text_matching expression="intercept_scaling=1.0"/>
+                    <has_text_matching expression="tol=0.0001"/>
+                    <has_text_matching expression="C=1.0"/>
+                    <has_text_matching expression="groups=\['Ery'\]"/>
+                    <has_text_matching expression="reference='Mk'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/rank_genes_groups"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test 11 -->
         <test expect_num_outputs="2">
             <param name="adata" value="tl.rank_genes_groups.newton-cg.pbmc68k_reduced.h5ad"/>
             <conditional name="method">
@@ -889,7 +1001,7 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
             </output>
         </test>
 
-        <!-- test 11 -->
+        <!-- test 12 -->
         <test expect_num_outputs="2">
             <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
@@ -910,7 +1022,7 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
             </output>
         </test>
 
-        <!-- test 12 -->
+        <!-- test 13 -->
         <test expect_num_outputs="2">
             <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
@@ -929,9 +1041,10 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
                 <assert_contents>
                     <has_h5_keys keys="var/mean,var/std"/>
                 </assert_contents>
-            </output>        </test>
+            </output>
+        </test>
 
-        <!-- test 13 -->
+        <!-- test 14 -->
         <test expect_num_outputs="2">
             <param name="adata" value="krumsiek11.h5ad"/>
             <conditional name="method">
@@ -955,7 +1068,7 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
             </output>
         </test>
 
-        <!-- test 14 -->
+        <!-- test 15 -->
         <test expect_num_outputs="2">
             <param name="adata" value="random-randint.h5ad"/>
             <conditional name="method">
@@ -974,6 +1087,184 @@ print("stats after sqrt:", "min=", adata.X.min(), "max=", adata.X.max(), "mean="
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
                     <has_h5_keys keys="obs/index"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test 16 -->
+        <test expect_num_outputs="3">
+            <param name="adata" value="krumsiek11.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <conditional name="get_df">
+                    <param name="get_df_select" value="True"/>
+                </conditional>
+                <param name="groupby" value="cell_type"/>
+                <param name="n_genes" value="100"/>
+                <conditional name="tl_rank_genes_groups_method">
+                    <param name="method" value="t-test_overestim_var"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.tl.rank_genes_groups"/>
+                    <has_text_matching expression="groupby='cell_type'"/>
+                    <has_text_matching expression="use_raw=False"/>
+                    <has_text_matching expression="reference='rest'"/>
+                    <has_text_matching expression="n_genes=100"/>
+                    <has_text_matching expression="method='t-test_overestim_var'"/>
+                    <has_text_matching expression="corr_method='benjamini-hochberg'"/>
+                    <has_text_matching expression="sc.get.rank_genes_groups_df"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/rank_genes_groups"/>
+                </assert_contents>
+            </output>
+            <output name="ranked_gene" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="group\tnames\tscores\tlogfoldchanges\tpvals\tpvals_adj"/>
+                    <has_line_matching expression="Ery\tEKLF\t39.086777\t4.8413053\t1.7995717323073084e-66\t1.979528905538039e-65"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test 17 -->
+        <test expect_num_outputs="3">
+            <param name="adata" value="krumsiek11.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <conditional name="get_df">
+                    <param name="get_df_select" value="True"/>
+                </conditional>
+                <param name="groupby" value="cell_type"/>
+                <param name="groups" value="Ery"/>
+                <conditional name="ref">
+                    <param name="rest" value="group_id"/>
+                    <param name="reference" value="Mk"/>
+                </conditional>
+                <param name="n_genes" value="100"/>
+                <conditional name="tl_rank_genes_groups_method">
+                    <param name="method" value="logreg"/>
+                    <conditional name="solver">
+                        <param name="solver" value="liblinear"/>
+                        <conditional name="penalty">
+                            <param name="penalty" value="l2"/>
+                        </conditional>
+                        <param name="random_state" value="1"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.tl.rank_genes_groups"/>
+                    <has_text_matching expression="groupby='cell_type'"/>
+                    <has_text_matching expression="use_raw=False"/>
+                    <has_text_matching expression="n_genes=100"/>
+                    <has_text_matching expression="method='logreg'"/>
+                    <has_text_matching expression="solver='liblinear'"/>
+                    <has_text_matching expression="penalty='l2'"/>
+                    <has_text_matching expression="dual=False"/>
+                    <has_text_matching expression="fit_intercept=True"/>
+                    <has_text_matching expression="intercept_scaling=1.0"/>
+                    <has_text_matching expression="tol=0.0001"/>
+                    <has_text_matching expression="C=1.0"/>
+                    <has_text_matching expression="groups=\['Ery'\]"/>
+                    <has_text_matching expression="reference='Mk'"/>
+                    <has_text_matching expression="sc.get.rank_genes_groups_df"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/rank_genes_groups"/>
+                </assert_contents>
+            </output>
+            <output name="ranked_gene" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="names\tscores"/>
+                    <has_text_matching expression="Fli1\t3.5328505"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test 18 -->
+        <test expect_num_outputs="3">
+            <param name="adata" value="krumsiek11.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <conditional name="get_df">
+                    <param name="get_df_select" value="True"/>
+                    <param name="pval_cutoff" value="0.05"/>
+                    <param name="log2fc_min" value="1"/>
+                    <param name="log2fc_max" value="3"/>
+                </conditional>
+                <param name="groupby" value="cell_type"/>
+                <param name="n_genes" value="100"/>
+                <conditional name="tl_rank_genes_groups_method">
+                    <param name="method" value="t-test_overestim_var"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.tl.rank_genes_groups"/>
+                    <has_text_matching expression="groupby='cell_type'"/>
+                    <has_text_matching expression="use_raw=False"/>
+                    <has_text_matching expression="reference='rest'"/>
+                    <has_text_matching expression="n_genes=100"/>
+                    <has_text_matching expression="method='t-test_overestim_var'"/>
+                    <has_text_matching expression="corr_method='benjamini-hochberg'"/>
+                    <has_text_matching expression="sc.get.rank_genes_groups_df"/>
+                    <has_text_matching expression="pval_cutoff=0.05"/>
+                    <has_text_matching expression="log2fc_min=1"/>
+                    <has_text_matching expression="log2fc_max=3"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/rank_genes_groups"/>
+                </assert_contents>
+            </output>
+            <output name="ranked_gene" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="group\tnames\tscores\tlogfoldchanges\tpvals\tpvals_adj"/>
+                    <has_line_matching expression="Ery\tFog1\t21.071571\t2.8023682\t5.701001345880348e-35\t3.135550740234191e-34"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 19: check str var conversion to boolean -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sparce_csr_matrix_var_str.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="pp.calculate_qc_metrics"/>
+                <param name="qc_vars" value="mito,negative"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="sc.pp.calculate_qc_metrics"/>
+                    <has_text_matching expression="expr_type='counts'"/>
+                    <has_text_matching expression="var_type='genes'"/>
+                    <has_text_matching expression="qc_vars=\['mito', 'negative'\]"/>
+                    <has_text_matching expression="\'mito\' has been converted to a boolean."/>
+                    <has_text_matching expression="\'negative\' has been converted to a boolean."/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/n_genes_by_counts,obs/log1p_n_genes_by_counts,obs/total_counts,obs/log1p_total_counts,obs/pct_counts_in_top_50_genes,obs/pct_counts_in_top_100_genes,obs/pct_counts_in_top_200_genes,obs/pct_counts_in_top_500_genes,obs/total_counts_mito,obs/log1p_total_counts_mito,obs/pct_counts_mito,obs/total_counts_negative,obs/log1p_total_counts_negative,obs/pct_counts_negative"/>
+                    <has_h5_keys keys="var/n_cells_by_counts,var/mean_counts,var/log1p_mean_counts,var/pct_dropout_by_counts,var/total_counts,var/log1p_total_counts"/>
                 </assert_contents>
             </output>
         </test>

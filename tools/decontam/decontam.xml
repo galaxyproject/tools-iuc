@@ -1,0 +1,186 @@
+<tool id="decontam" name="Decontam" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Identification and removal of contaminants</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript '$rscript'
+    ]]></command>
+    <configfiles>
+        <configfile name="rscript"><![CDATA[
+            library(tidyverse)
+            library(phyloseq)
+            library(ggplot2)
+            library(decontam)
+
+            #if $input_type.select_input == 'phyloseq':
+                ps <- readRDS("$input_type.phyloseq_object")
+                sample_data(ps)\$control <- as.logical(sample_data(ps)[["$input_type.control_metadata"]])
+            #else
+                ## get OTU table (first column is the OTU/ASV ID)
+                otu <- read_tsv("$input_type.otu")
+                otu2 <- otu %>% tibble::column_to_rownames(colnames(otu)[1]) #use first column as rownames
+                OTU <- otu_table(otu2,  taxa_are_rows = FALSE)
+
+                ## get metadata table must have matching OTU/ASV ID in first column
+                meta <- read_tsv("$input_type.metadata")
+                meta2 <- meta %>% tibble::column_to_rownames(colnames(meta)[1]) #use first column as rownames
+
+                control_column = as.integer("$input_type.control") - 1 ##remove one index since the dataframe uses the first column as index
+
+                ## convert 0/1 to bool for the control column and store in control column
+                meta2\$control <- as.logical(meta2[[control_column]])
+                sampledata <- sample_data(meta2)
+
+                ps <- phyloseq(OTU, FALSE, sampledata)
+
+            #end if
+
+            ## plot library_size_vs_control
+            df <- as.data.frame(sample_data(ps)) # Put sample_data into a ggplot-friendly data.frame
+            df\$LibrarySize <- sample_sums(ps)
+            df <- df[order(df\$LibrarySize),]
+            df\$Index <- seq(nrow(df))
+            ggplot(data=df, aes(x=Index, y=LibrarySize, color=control)) + geom_point()
+            ggsave("$library_size_vs_control", device = "png", width = 10, height = 8, units = "cm")
+
+            ## plot prevalence 
+            contamdf.prev <- isContaminant(ps, method="prevalence", neg="control", threshold=$threshold)
+            table(contamdf.prev\$contaminant)
+
+            ps.pa <- transform_sample_counts(ps, function(abund) 1*(abund>0))
+            ps.pa.neg <- prune_samples(sample_data(ps.pa)\$control == TRUE, ps.pa)
+            ps.pa.pos <- prune_samples(sample_data(ps.pa)\$control == FALSE, ps.pa)
+
+            ## Make data.frame of prevalence in positive and negative samples
+            df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg),
+                                contaminant=contamdf.prev\$contaminant)
+            ggplot(data=df.pa, aes(x=pa.neg, y=pa.pos, color=contaminant)) + geom_point() +
+            xlab("Prevalence (Negative Controls)") + ylab("Prevalence (True Samples)")
+            ggsave("$prevalence", device = "png", width = 10, height = 8, units = "cm")
+
+            ## remove contamination features from original data
+            #if $input_type.select_input == 'phyloseq':
+                id_name <- "SampleID"
+            #else
+                id_name <- colnames(otu)[1] ## we use the same name for the ID column as the OTU input
+            #end if
+
+            ps.noncontam <- prune_taxa(!contamdf.prev\$contaminant, ps)
+
+            otu_table(ps.noncontam) %>%
+            as.data.frame() %>%
+            rownames_to_column(id_name) -> otu
+
+            write.table(otu,
+                file="$decontam_otu", 
+                sep = "\t",
+                row.names=FALSE,
+                quote = FALSE)
+
+            saveRDS(ps.noncontam, "$decontam_phyloseq")
+
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="input_type">
+            <param name="select_input" type="select" label="Phyloseq or Feature table input" help="This tool can work with phyloseq objects or feature table inputs.">
+                <option value="phyloseq">Phyloseq</option>
+                <option value="feature_table">Feature table</option>
+            </param>
+            <when value="phyloseq">
+                <param name="phyloseq_object" type="data" format="phyloseq" label="Phyloseq object"/>
+                <param name="control_metadata" type="text" label="Control column" help="Column in the phyloseq metadata specifying weather a sample is a negative control (0 for normal samples / 1 for control)"/>
+            </when>
+            <when value="feature_table">
+                <param name="otu" type="data" format="tabular" label="Feature table" help="OTU/ASV or other feature table. The first column must have corresponding IDs to the metadata table."/>
+                <param name="metadata" type="data" format="tabular" label="Metadata" help="Metadata that contains a column specifying weather a samples is a negativ control (0 for normal samples / 1 for control). The first column must have corresponding IDs to the feature table."/>
+                <param name="control" type="data_column" data_ref="metadata" use_header_names="true" multiple="false" optional="false" label="Control column" help="Column specifying weather a sample is a negative control (0 for normal samples / 1 for control)."/>
+            </when>
+        </conditional>
+        <param name="threshold" type="float" label="Threshold to detect a contaminant" value="0.1" min="0" max="1" help="Probability of the feature to be a decontaminant in the statistical test being performed." />    
+    </inputs>
+    <outputs>
+        <data name="library_size_vs_control" format="png" label="${tool.name} on ${on_string}: Library Size vs Control Plot"/>
+        <data name="prevalence" format="png" label="${tool.name} on ${on_string}: Prevalence Plot"/>
+        <data name="decontam_otu" format="tabular" label="${tool.name} on ${on_string}: Removed Contaminants - Feature Table"/>
+        <data name="decontam_phyloseq" format="phyloseq" label="${tool.name} on ${on_string}: Removed Contaminants - Phyloseq Object"/>
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="input_type">
+                <param name="select_input" value="phyloseq"/>
+                <param name="phyloseq_object" value="phyloseq_input.rds"/>
+                <param name="control_metadata" value="control"/>
+            </conditional>
+            <param name="threshold" value="0.5"/>
+            <output name="decontam_phyloseq" file="phyloseq_output.rds" ftype="phyloseq"/>
+            <output name="decontam_otu" file="otu_output.tsv" ftype="tabular"/>
+            <output name="prevalence" file="Prevalence_Plot.png" ftype="png"/>
+            <output name="library_size_vs_control" file="Library_Size_vs_Control_Plot.png" ftype="png"/>
+        </test>
+        <test>
+            <conditional name="input_type">
+                    <param name="select_input" value="feature_table"/>
+                    <param name="otu" value="otu_input.tsv"/>
+                    <param name="metadata" value="metadata_input.tsv"/>
+                    <!-- using the index of the column -->
+                    <param name="control" value="8"/> 
+            </conditional>
+            <param name="threshold" value="0.5"/>
+            <output name="decontam_phyloseq" file="phyloseq_output2.rds" ftype="phyloseq"/> 
+            <output name="decontam_otu" file="otu_output.tsv" ftype="tabular"/>
+            <output name="prevalence" file="Prevalence_Plot.png" ftype="png"/>
+            <output name="library_size_vs_control" file="Library_Size_vs_Control_Plot.png" ftype="png"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+Simple Statistical Identification of Contaminating Sequence Features in Marker-Gene or Metagenomics Data
+========================================================================================================
+
+This tool identifies contaminating sequence features in marker-gene or
+metagenomics datasets. It can be applied to any type of feature derived from
+environmental sequencing data (e.g., ASVs, OTUs, taxonomic groups, MAGs,
+etc.). The method requires either DNA quantitation data or sequenced negative
+control samples.
+
+.. note::
+
+   Currently, only the negative control sample method is implemented in this
+   wrapper.
+
+**Method**
+
+To identify contaminants decontam requires a defined set of “negative control” samples in
+ which sequencing was performed on blanks without any biological sample added. 
+Extraction controls are preferred, and in amplicon sequencing the negative controls
+ should also be carried through the PCR step, as each step in the workflow 
+ has the potential to introduce new contaminants.
+
+Decontam then uses Fisher’s exact tests to detect weather a feature is a contaminant or not,
+by comparing true samples to ngeative controls. For more details on the detection method see 
+the publication of decontam.
+
+**Output**
+
+- If a phyloseq object is provided as input, the output will be a phyloseq
+  object pruned to include only non-contaminant features.
+- If only the feature table or metadata is provided, the output will be a
+  pruned phyloseq object containing only non-contaminant features, without
+  the TAX table. The output feature table will also be pruned to include only
+  non-contaminant features.
+
+**Threshold**
+
+The default threshold for identifying a contaminant is a probability of 0.1
+in the statistical test being performed.
+
+In the prevalence test, a special threshold value of 0.5 is notable: this
+will identify as contaminants any sequences that are more prevalent in
+negative controls than in positive samples.
+    ]]>
+    </help>
+    <expand macro="citations"/>
+</tool>

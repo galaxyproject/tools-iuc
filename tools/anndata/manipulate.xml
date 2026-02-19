@@ -11,6 +11,7 @@
             </param>
         </xml>
     </macros>
+    <expand macro="bio_tools"/>
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
@@ -36,6 +37,11 @@ adata = adata.concatenate(
     #else
     index_unique=None,
     #end if
+    #if str($manipulate.uns_merge) != 'None'
+    uns_merge='$manipulate.uns_merge',
+    #else
+    uns_merge=None,
+    #end if
     batch_key='$manipulate.batch_key')
 
 #else if $manipulate.function == 'var_names_make_unique'
@@ -46,9 +52,30 @@ adata.obs_names_make_unique(join='$manipulate.join')
 
 #else if $manipulate.function == 'rename_categories'
     #set $categories = [x.strip() for x in str($manipulate.categories).split(',')]
+    #if $manipulate.update_key.new_key == 'no':
 adata.rename_categories(
     key='$manipulate.key',
     categories=$categories)
+    #else
+if '$manipulate.key' in adata.obs:
+    print("changing key in obs")
+    adata.obs['$manipulate.key_name'] = adata.obs['$manipulate.key']
+    adata.rename_categories(
+        key='$manipulate.key_name',
+        categories=$categories)
+elif '$manipulate.key' in adata.var:
+    print("changing key in var")
+    adata.var['$manipulate.key_name'] = adata.var['$manipulate.key']
+    adata.rename_categories(
+        key='$manipulate.key_name',
+        categories=$categories)
+else:
+    print("chanigng key in uns")
+    adata.uns['$manipulate.key_name'] = adata.uns['$manipulate.key']
+    adata.rename_categories(
+        key='$manipulate.key_name',
+        categories=$categories)
+    #end if
 
 #else if $manipulate.function == 'remove_keys'
     #if $manipulate.obs_keys
@@ -58,18 +85,34 @@ adata.obs = adata.obs.drop(columns=$keys)
 
     #if $manipulate.var_keys
         #set $keys = [x.strip() for x in str($manipulate.var_keys).split(',')]
-adata.var = adata.vars.drop(columns=$keys)
+adata.var = adata.var.drop(columns=$keys)
     #end if
 
 #else if $manipulate.function == 'flag_genes'
 ## adapted from anndata operations
     #for $flag in $manipulate.gene_flags
+        #if str($flag.col_in) != '':
+k_cat = adata.var['${flag.col_in}'].str.startswith('${flag.startswith}')
+        #else:
 k_cat = adata.var_names.str.startswith('${flag.startswith}')
+        #end if
 if k_cat.sum() > 0:
-    adata.var['${flag.col_name}'] = k_cat
+    adata.var['${flag.col_out}'] = k_cat
 else:
     print(f'No genes starting with {'${flag.startswith}'} found.')
 #end for
+
+#else if $manipulate.function == 'rename_obs':
+adata.obs['${to_obs}'] = adata.obs['${from_obs}']
+#if not $keep_original:
+del adata.obs['${from_obs}']
+#end if
+
+#else if $manipulate.function == 'rename_var':
+adata.var['${to_var}'] = adata.var['${from_var}']
+#if not $keep_original:
+del adata.var['${from_var}']
+#end if
 
 #else if $manipulate.function == 'strings_to_categoricals'
 adata.strings_to_categoricals()
@@ -100,54 +143,64 @@ for s,field_value in enumerate(adata.obs["${manipulate.key}"].unique()):
     ad_s = adata[adata.obs.${manipulate.key} == field_value]
     ad_s.write(f"{res_dir}/${manipulate.key}_{s}.h5ad", compression='gzip')
 
-#else if $manipulate.function == 'filter'
-    #if $manipulate.filter.filter == 'key'
-        #if $manipulate.var_obs == 'var'
-filtered = adata.var['$manipulate.filter.key']
-        #else if $manipulate.var_obs == 'obs'
-filtered = adata.obs['$manipulate.filter.key']
-        #end if
-
-        #if $manipulate.filter.filter_key.type == 'number'
-            #if $manipulate.filter.filter_key.filter == 'equal'
-filtered = filtered == $manipulate.filter.filter_key.value
-            #else if $manipulate.filter.filter_key.filter == 'equal'
-filtered = filtered != $manipulate.filter.filter_key.value
-            #else if $manipulate.filter.filter_key.filter == 'less'
-filtered = filtered < $manipulate.filter.filter_key.value
-            #else if $manipulate.filter.filter_key.filter == 'less_or_equal'
-filtered = filtered <= $manipulate.filter.filter_key.value
-            #else if $manipulate.filter.filter_key.filter == 'greater'
-filtered = filtered > $manipulate.filter.filter_key.value
-            #else if $manipulate.filter.filter_key.filter == 'greater_or_equal'
-filtered = filtered >= $manipulate.filter.filter_key.value
-            #end if
-        #else if $manipulate.filter.filter_key.type == 'text'
-            #if $manipulate.filter.filter_key.filter == 'equal'
-filtered = filtered == '$manipulate.filter.filter_key.value'
-            #else
-filtered = filtered != '$manipulate.filter.filter_key.value'
-            #end if
-        #else if $manipulate.filter.filter_key.type == 'boolean'
-filtered = filtered == $manipulate.filter.filter_key.value
-        #end if
-
-    #else if $manipulate.filter.filter == 'index'
-        #if str($manipulate.filter.index.format) == 'file'
-with open('$manipulate.filter.index.file', 'r') as filter_f:
-    filters = [str(x.strip()) for x in filter_f.readlines()]
-filtered = filters
+#else if $manipulate.function == 'copy_obs'
+source_adata = ad.read_h5ad('$source_adata')
+    #for $key in $manipulate.keys
+if '$key.source_key' in source_adata.obs:
+        #if str($key.target_key) == '':
+    adata.obs['$key.source_key'] = source_adata.obs['$key.source_key']
         #else
-            #set $filters = [str(x.strip()) for x in $manipulate.filter.index.text.split(',')]
-filtered = $filters
+    adata.obs['$key.target_key'] = source_adata.obs['$key.source_key']
         #end if
-    #end if
-print(filtered)
+else:
+    print(f"Obs column {'{$key.source_key}'} not found in source AnnData.")
+    #end for
 
-    #if $manipulate.var_obs == 'var'
-adata = adata[:,filtered]
-    #else if $manipulate.var_obs == 'obs'
-adata = adata[filtered, :]
+#else if $manipulate.function == 'copy_uns'
+source_adata = ad.read_h5ad('$source_adata')
+    #for $key in $manipulate.keys
+if '$key.source_key' in source_adata.uns:
+        #if str($key.target_key) == '':
+    adata.uns['$key.source_key'] = source_adata.uns['$key.source_key']
+        #else
+    adata.uns['$key.target_key'] = source_adata.uns['$key.source_key']
+        #end if
+else:
+    print(f"Uns key {'{$key.source_key}'} not found in source AnnData.")
+    #end for
+
+#else if $manipulate.function == 'copy_embed'
+source_adata = ad.read_h5ad('$source_adata')
+    #for $key in $manipulate.keys
+if '$key.source_key' in source_adata.obsm:
+        #if $key.target_key is None
+    adata.obsm['$key.source_key'] = source_adata.obsm['$key.source_key']
+        #else
+    adata.obsm['$key.target_key'] = source_adata.obsm['$key.source_key']
+        #end if
+else:
+    print(f"Embedding key {'{$key.source_key}'} not found in source AnnData.")
+    #end for
+
+#else if $manipulate.function == 'copy_layers'
+source_adata = ad.read_h5ad('$source_adata')
+    #for $key in $manipulate.keys
+if '$key.source_key' in source_adata.layers:
+        #if $key.target_key is None
+    adata.layers['$key.source_key'] = source_adata.layers['$key.source_key']
+        #else
+    adata.layers['$key.target_key'] = source_adata.layers['$key.source_key']
+        #end if
+else:
+    print(f"Layer {'{$key.source_key}'} not found in source AnnData.")
+    #end for
+
+#else if $manipulate.function == 'copy_X'
+source_adata = ad.read_h5ad('$source_adata')
+    #if $target_key is None
+adata.X = source_adata.X
+    #else
+adata.layers['$target_key'] = source_adata.X
     #end if
 
 #else if $manipulate.function == 'save_raw'
@@ -172,11 +225,17 @@ print(adata)
                 <option value="rename_categories">Rename categories of annotation</option>
                 <option value="remove_keys">Remove keys from obs or var annotations</option>
                 <option value="flag_genes">Flag genes start with a pattern</option><!--adapted from EBI anndata operations tool -->
+                <option value="rename_obs">Rename fileds in AnnData observations</option><!--adapted from EBI anndata operations tool -->
+                <option value="rename_var">Rename fileds in AnnData variables</option><!--adapted from EBI anndata operations tool -->
                 <option value="strings_to_categoricals">Transform string annotations to categoricals</option>
                 <option value="transpose">Transpose the data matrix, leaving observations and variables interchanged</option>
                 <option value="add_annotation">Add new annotation(s) for observations or variables</option>
                 <option value="split_on_obs">Split the AnnData object into multiple AnnData objects based on the values of a given obs key</option><!--adapted from EBI anndata operations tool-->
-                <option value="filter">Filter observations or variables</option>
+                <option value="copy_obs">Copy observation keys from a different anndata object</option>
+                <option value="copy_uns">Copy uns keys from a different anndata object</option>
+                <option value="copy_embed">Copy embeddings from a different anndata object</option>
+                <option value="copy_layers">Copy layers from a different anndata object</option>
+                <option value="copy_X">Copy data matrix (.X) from a different anndata object</option>
                 <option value="save_raw">Freeze the current state into the 'raw' attribute</option>
             </param>
             <when value="concatenate">
@@ -186,6 +245,13 @@ print(adata)
                     <option value="outer">Union of variables</option>
                 </param>
                 <param name="batch_key" type="text" value="batch" label="Key to add the batch annotation to obs"/>
+                <param name="uns_merge" type="select" label="Strategy to use for merging entries of uns" help="These strategies are applied recusivley.">
+                    <option value="None" selected="true">The default. The concatenated object will just have an empty dict for uns</option>
+                    <option value="same">Only entries which have the same value in all AnnData objects are kept</option>
+                    <option value="unique">Only entries which have one unique value in all AnnData objects are kept</option>
+                    <option value="first">The first non-missing value is used</option>
+                    <option value="only">A value is included if only one of the AnnData objects has a value at this path</option>
+                </param>
                 <param name="index_unique" type="select" label="Separator to join the existing index names with the batch category" help="Leave it empty to keep existing indices">
                     <option value="-">-</option>
                     <option value="_">_</option>
@@ -202,6 +268,18 @@ print(adata)
             <when value="rename_categories">
                 <param name="key" type="text" value="" label="Key for observations or variables annotation" help="Annotation key in obs or var"/>
                 <param name="categories" type="text" value="" label="Comma-separated list of new categories" help="It should be the same number as the old categories"/>
+                <conditional name="update_key">
+                    <param name="new_key" type="select" label="Add categories to a new key?" help="If Yes, a new key will be created with the new categories, otherwise the old key will be updated">
+                        <option value="yes">Yes</option>
+                        <option value="no" selected="true">No</option>
+                    </param>
+                    <when value="yes">
+                        <param name="key_name" type="text" value="" optional="false" label="Key name">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                    </when>
+                    <when value="no"></when>
+                </conditional>
             </when>
             <when value="remove_keys">
                 <param name="obs_keys" type="text" value="" optional="true" label="Keys/fields to remove from observations (obs)">
@@ -220,8 +298,31 @@ print(adata)
                             </valid>
                         </sanitizer>
                     </param>
-                    <param name="col_name" type="text" label="Name of the column in var.names where this boolean flag is stored" help="For example, name this column as 'mito' for mitochondrial genes."/>
+                    <param name="col_in" value='' optional="true" type="text" label="Column in .var to use" help="By default it uses the var_names (normally gene symbols)">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="col_out" type="text" label="Name of the column in var.names where this boolean flag is stored" help="For example, name this column as 'mito' for mitochondrial genes.">
+                        <expand macro="sanitize_query"/>
+                    </param>
                 </repeat>
+            </when>
+            <when value="rename_obs">
+                <param name="from_obs" type="text" label="Name of the observations field that you want to change">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="to_obs" type="text" label="New name of the field in the observations">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="keep_original" type="boolean" checked="false" label="Keep original" help="If activated, it will also keep the original column"/>
+            </when>
+            <when value="rename_var">
+                <param name="from_var" type="text" label="Name of the variables field that you want to change">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="to_var" type="text" label="New name of the filed in the variables">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="keep_original" type="boolean" checked="false" label="Keep original" help="If activated, it will also keep the original column"/>
             </when>
             <when value="strings_to_categoricals" ></when>
             <when value="transpose" ></when>
@@ -231,7 +332,7 @@ print(adata)
                     <option value="obs">Observations (obs)</option>
                 </param>
                 <param name="new_annot" type="data" format="tabular" label="Table with new annotations"
-                    help="The new table should have the same number of rows and same order than obs or var. The key names should be in the header (1st line)"/>
+                    help="The new table should have the same number of rows and the same order as obs or var. The key names should be in the header (1st line)"/>
             </when>
             <when value="split_on_obs">
                 <param name="key" type="text" label="The obs key to split on" help="For example, if you want to split on cluster annotation, you can use the key 'louvain'. The output will be a collection of anndata objects">
@@ -242,63 +343,57 @@ print(adata)
                     </sanitizer>
                 </param>
             </when>
-            <when value="filter">
-                <param name="var_obs" type="select" label="What to filter?">
-                    <option value="var">Variables (var)</option>
-                    <option value="obs">Observations (obs)</option>
-                </param>
-                <conditional name="filter">
-                    <param name="filter" type="select" label="Type of filtering?">
-                        <option value="key">By key (column) values</option>
-                        <option value="index">By index (row)</option>
-                    </param>
-                    <when value="key">
-                        <param name="key" type="text" value="n_genes" label="Key to filter"/>
-                        <conditional name="filter_key">
-                            <param name="type" type="select" label="Type of value to filter">
-                                <option value="number">Number</option>
-                                <option value="text">Text</option>
-                                <option value="boolean">Boolean</option>
-                            </param>
-                            <when value="number">
-                                <param name="filter" type="select" label="Filter">
-                                    <option value="equal">equal to</option>
-                                    <option value="not_equal">not equal to</option>
-                                    <option value="less">less than</option>
-                                    <option value="less_or_equal">less than or equal to</option>
-                                    <option value="greater">greater than</option>
-                                    <option value="greater_or_equal">greater than or equal to</option>
-                                </param>
-                                <param name="value" type="float" value="2500" label="Value"/>
-                            </when>
-                            <when value="text">
-                                <param name="filter" type="select" label="Filter">
-                                    <option value="equal">equal to</option>
-                                    <option value="not_equal">not equal to</option></param>
-                                <param name="value" type="text" value="2500" label="Value"/>
-                            </when>
-                            <when value="boolean">
-                                <param name="value" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Value to keep"/>
-                            </when>
-                        </conditional>
-                    </when>
-                    <when value="index">
-                        <conditional name="index">
-                            <param name="format" type="select" label="Format for the filter by index">
-                                <option value="file">File</option>
-                                <option value="text" selected="true">Text</option>
-                            </param>
-                            <when value="text">
-                                <param name="text" type="text" value="" label="List of index to keep" help="Indexes separated by a comma"/>
-                            </when>
-                            <when value="file">
-                                <param name="file" type="data" format="txt" label="File with the list of index to keep" help="One index per line"/>
-                            </when>
-                        </conditional>
-                    </when>
-                </conditional>
-            </when>
             <when value="save_raw"></when>
+            <when value="copy_obs">
+                <param name="source_adata" type="data" format="h5ad" label="Source anndata object" help="Ideally the source AnnData object should contain the same set of genes and cells."/>
+                <repeat name="keys" title="Keys from obs to copy" min="1">
+                    <param name="source_key" type="text" optional="true" label="Column to be copied from the source anndata" help="louvain, batch, etc. Provide one key at a time.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target column name" help="Warning! Provide a new key name to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
+            <when value="copy_uns">
+                <param name="source_adata" type="data" format="h5ad" label="Source anndata object" help="Ideally the source AnnData object should contain the same set of genes and cells."/>
+                <repeat name="keys" title="Keys from uns to copy" min="1">
+                    <param name="source_key" type="text" optional="true" label="Uns key to be copied from the source anndata" help="hvg, neighbors, etc. Provide one key at a time.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target key name" help="Warning! Provide a new key name to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
+            <when value="copy_embed">
+                <param name="source_adata" type="data" format="h5ad" label="Source anndata object" help="Ideally the source AnnData object should contain the same set of genes and cells."/>
+                <repeat name="keys" title="Keys from embeddings to copy" min="1">
+                    <param name="source_key" type="text" label="Key to be copied from the source anndata" help="tSNE, UMAP, etc. Provide one key at a time.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target key name" help="Warning! Provide a new key name to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
+            <when value="copy_layers">
+                <param name="source_adata" type="data" format="h5ad" label="Source anndata object" help="Ideally the source AnnData object should contain the same set of genes and cells."/>
+                <repeat name="keys" title="Layers to copy" min="1">
+                    <param name="source_key" type="text" label="Layer to be copied from the source anndata">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="target_key" type="text" optional="true" label="Target layer name" help="Warning! give a new key name to avoid rewriting. Leave empty to copy to the same key.">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                </repeat>
+            </when>
+            <when value="copy_X">
+                <param name="source_adata" type="data" format="h5ad" label="Source anndata object" help="Ideally the source AnnData object should contain the same set of genes and cells."/>
+                <param name="target_key" type="text" optional="true" label="Give a target layer name or leave empty to overwrite .X" help="Warning! give a new key name to avoid rewriting. Leave empty to copy to the .X of the current anndata">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
         </conditional>
     </inputs>
     <outputs>
@@ -380,6 +475,9 @@ print(adata)
                 <param name="function" value="rename_categories"/>
                 <param name="key" value="cell_type"/>
                 <param name="categories" value="ery, mk, mo, progenitor"/>
+                <conditional name="update_key">
+                    <param name="new_key" value="no"/>
+                </conditional>
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="adata.rename_categories"/>
@@ -477,58 +575,6 @@ print(adata)
             <!-- test 9 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
-                <param name="function" value="filter"/>
-                <param name="var_obs" value="var"/>
-                <conditional name="filter">
-                    <param name="filter" value="index"/>
-                    <conditional name="index">
-                        <param name="format" value="text"/>
-                        <param name="text" value="Gata2,EKLF"/>
-                    </conditional>
-                </conditional>
-            </conditional>
-            <assert_stdout>
-                <has_text_matching expression="500 × 2"/>
-            </assert_stdout>
-            <output name="anndata" ftype="h5ad">
-                <assert_contents>
-                    <has_h5_keys keys="obs/cell_type"/>
-                    <has_h5_keys keys="uns/highlights"/>
-                    <has_h5_keys keys="uns/iroot"/>
-                </assert_contents>
-            </output>
-        </test>
-        <test expect_num_outputs="1">
-            <!-- test 10 -->
-            <param name="input" value="krumsiek11.h5ad"/>
-            <conditional name="manipulate">
-                <param name="function" value="filter"/>
-                <param name="var_obs" value="obs"/>
-                <conditional name="filter">
-                    <param name="filter" value="key"/>
-                    <param name="key" value="cell_type"/>
-                    <conditional name="filter_key">
-                        <param name="type" value="text"/>
-                        <param name="filter" value="equal"/>
-                        <param name="value" value="progenitor"/>
-                    </conditional>
-                </conditional>
-            </conditional>
-            <assert_stdout>
-                <has_text_matching expression="260 × 11"/>
-            </assert_stdout>
-            <output name="anndata" ftype="h5ad">
-                <assert_contents>
-                    <has_h5_keys keys="obs/cell_type"/>
-                    <has_h5_keys keys="uns/highlights"/>
-                    <has_h5_keys keys="uns/iroot"/>
-                </assert_contents>
-            </output>
-        </test>
-        <test expect_num_outputs="1">
-            <!-- test 11 -->
-            <param name="input" value="krumsiek11.h5ad"/>
-            <conditional name="manipulate">
                 <param name="function" value="save_raw"/>
             </conditional>
             <assert_stdout>
@@ -543,11 +589,12 @@ print(adata)
             </output>
         </test>
         <test expect_num_outputs="1">
-            <!-- test 12 remove_keys -->
-            <param name="input" value="krumsiek11.h5ad"/>
+            <!-- test 10 remove_keys -->
+            <param name="input" value="flagged.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="remove_keys"/>
                 <param name="obs_keys" value="cell_type"/>
+                <param name="var_keys" value="GF"/>
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="500 × 11"/>
@@ -556,21 +603,22 @@ print(adata)
                 <assert_contents>
                     <has_h5_keys keys="uns/highlights"/>
                     <has_h5_keys keys="uns/iroot"/>
+                    <has_h5_keys keys="var/Gata_TF"/>
                 </assert_contents>
             </output>
         </test>
         <test expect_num_outputs="1">
-            <!-- test 13 flag_genes -->
+            <!-- test 11 flag_genes -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="flag_genes"/>
                 <repeat name="gene_flags">
                     <param name="startswith" value="Gata"/>
-                    <param name="col_name" value="Gata_TF"/>
+                    <param name="col_out" value="Gata_TF"/>
                 </repeat>
                 <repeat name="gene_flags">
                     <param name="startswith" value="Gf"/>
-                    <param name="col_name" value="GF"/>
+                    <param name="col_out" value="GF"/>
                 </repeat>
             </conditional>
             <assert_stdout>
@@ -584,7 +632,7 @@ print(adata)
             </output>
         </test>
         <test expect_num_outputs="1">
-            <!-- test 14 split_on_obs -->
+            <!-- test 12 split_on_obs -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="split_on_obs"/>
@@ -621,11 +669,258 @@ print(adata)
                 </element>
             </output_collection>
         </test>
+        <test expect_num_outputs="1">
+            <!-- test 13 rename categories with new key -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="rename_categories"/>
+                <param name="key" value="cell_type"/>
+                <param name="categories" value="ery, mk, mo, progenitor"/>
+                <conditional name="update_key">
+                    <param name="new_key" value="yes"/>
+                    <param name="key_name" value="new_cell_type"/>
+                </conditional>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.rename_categories"/>
+                <has_text_matching expression="key='new_cell_type'"/>
+                <has_text_matching expression="categories=\['ery', 'mk', 'mo', 'progenitor'\]"/>
+                <has_text_matching expression="changing key in obs"/>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="obs/new_cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 14 flag_genes with a key -->
+            <param name="input" value="flag_new_key.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="flag_genes"/>
+                <repeat name="gene_flags">
+                    <param name="startswith" value="ENSG"/>
+                    <param name="col_in" value="gene_ids"/>
+                    <param name="col_out" value="ensembl"/>
+                </repeat>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="199 × 199"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/ensembl"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 15 copy_obs -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="copy_obs"/>
+                <param name="source_adata" value="krumsiek11.h5ad"/>
+                <repeat name="keys">
+                    <param name="source_key" value="cell_type"/>
+                    <param name="target_key" value="new_cell_type"/>
+                </repeat>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.obs\['new_cell_type'\] = source_adata.obs\['cell_type'\]"/>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="obs/new_cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 16 copy_uns -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="copy_uns"/>
+                <param name="source_adata" value="krumsiek11.h5ad"/>
+                <repeat name="keys">
+                    <param name="source_key" value="iroot"/>
+                    <param name="target_key" value="new_iroot"/>
+                </repeat>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.uns\['new_iroot'\] = source_adata.uns\['iroot'\]"/>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                    <has_h5_keys keys="uns/new_iroot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 17 copy_embed -->
+            <param name="input" value="tl.umap.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="copy_embed"/>
+                <param name="source_adata" value="tl.umap.h5ad"/>
+                <repeat name="keys">
+                    <param name="source_key" value="X_pca"/>
+                    <param name="target_key" value="new_X_pca"/>
+                </repeat>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.obsm\['new_X_pca'\] = source_adata.obsm\['X_pca'\]"/>
+                <has_text_matching expression="100 × 800"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/paul15_clusters"/>
+                    <has_h5_keys keys="uns/neighbors"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                    <has_h5_keys keys="obsm/X_pca"/>
+                    <has_h5_keys keys="obsm/new_X_pca"/>
+                    <has_h5_keys keys="obsm/X_umap"/>
+                    <has_h5_keys keys="layers/count"/>
+                    <has_h5_keys keys="obsp/connectivities"/>
+                    <has_h5_keys keys="obsp/distances"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 18 copy_layers -->
+            <param name="input" value="tl.umap.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="copy_layers"/>
+                <param name="source_adata" value="tl.umap.h5ad"/>
+                <repeat name="keys">
+                    <param name="source_key" value="count"/>
+                    <param name="target_key" value="new_count"/>
+                </repeat>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.layers\['new_count'\] = source_adata.layers\['count'\]"/>
+                <has_text_matching expression="100 × 800"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/paul15_clusters"/>
+                    <has_h5_keys keys="uns/neighbors"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                    <has_h5_keys keys="obsm/X_pca"/>
+                    <has_h5_keys keys="obsm/X_umap"/>
+                    <has_h5_keys keys="layers/count"/>
+                    <has_h5_keys keys="layers/new_count"/>                    
+                    <has_h5_keys keys="obsp/connectivities"/>
+                    <has_h5_keys keys="obsp/distances"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 19 copy_X -->
+            <param name="input" value="tl.umap.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="copy_X"/>
+                <param name="source_adata" value="tl.umap.h5ad"/>
+                <param name="target_key" value="new_X"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.layers\['new_X'\] = source_adata.X"/>
+                <has_text_matching expression="100 × 800"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/paul15_clusters"/>
+                    <has_h5_keys keys="uns/neighbors"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                    <has_h5_keys keys="obsm/X_pca"/>
+                    <has_h5_keys keys="obsm/X_umap"/>
+                    <has_h5_keys keys="layers/count"/>
+                    <has_h5_keys keys="layers/new_X"/>                    
+                    <has_h5_keys keys="obsp/connectivities"/>
+                    <has_h5_keys keys="obsp/distances"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 20 save_raw -->
+            <param name="input" value="tl.umap.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="save_raw"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.raw = adata"/>
+                <has_text_matching expression="100 × 800"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/paul15_clusters"/>
+                    <has_h5_keys keys="uns/neighbors"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                    <has_h5_keys keys="obsm/X_pca"/>
+                    <has_h5_keys keys="obsm/X_umap"/>
+                    <has_h5_keys keys="layers/count"/>                    
+                    <has_h5_keys keys="obsp/connectivities"/>
+                    <has_h5_keys keys="obsp/distances"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 21 rename_obs -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="rename_obs"/>
+                <param name="from_obs" value="cell_type"/>
+                <param name="to_obs" value="new_cell_type"/>
+                <param name="keep_original" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.obs\['new_cell_type'\] = adata.obs\['cell_type'\]"/>
+                <has_text_matching expression="del adata.obs\['cell_type'\]"/>
+                <has_text_matching expression="500 × 11"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/new_cell_type"/>
+                    <has_h5_keys keys="uns/highlights"/>
+                    <has_h5_keys keys="uns/iroot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 22 rename_var -->
+            <param name="input" value="flag_new_key.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="rename_var"/>
+                <param name="from_var" value="gene_ids"/>
+                <param name="to_var" value="new_id"/>
+                <param name="keep_original" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.var\['new_id'\] = adata.var\['gene_ids'\]"/>
+                <has_text_matching expression="del adata.var\['gene_ids'\]"/>
+                <has_text_matching expression="199 × 199"/>
+            </assert_stdout>
+            <output name="anndata" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="var/feature_types"/>
+                    <has_h5_keys keys="var/test"/>
+                    <has_h5_keys keys="var/new_id"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
 
-This tool takes a AnnData dataset, manipulates it and returns it.
+This tool takes an AnnData dataset, manipulates it and returns it.
 
 The possible manipulations are:
 
@@ -637,11 +932,11 @@ The possible manipulations are:
 
 - Makes the obs index unique by appending '1', '2', etc (`obs_names_make_unique method <https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.obs_names_make_unique.html>`__)
 
-    The first occurance of a non-unique value is ignored.
+    The first occurrence of a non-unique value is ignored.
 
 - Makes the var index unique by appending '1', '2', etc (`var_names_make_unique method <https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.var_names_make_unique.html>`__)
 
-    The first occurance of a non-unique value is ignored.
+    The first occurrence of a non-unique value is ignored.
 
 - Rename categories of annotation `key` in `obs`, `var` and `uns` (`rename_categories method <https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.rename_categories.html>`__)
 
@@ -653,7 +948,7 @@ The possible manipulations are:
 
 - Flag genes start with a pattern
 
-    Useful for flagging the mitochoncdrial or ribosomal protein genes
+    Useful for flagging the mitochondrial or ribosomal protein genes
 
 - Transform string annotations to categoricals (`strings_to_categoricals method <https://anndata.readthedocs.io/en/latest/generated/anndata.AnnData.strings_to_categoricals.html>`__)
 
@@ -667,7 +962,7 @@ The possible manipulations are:
 
 - Split the AnnData object into multiple AnnData objects based on the values of a given obs key
 
-    For example, helps in splitting an anndata objects based on cluster annotation. This function generates a collection with number of elements equal to the number of categories in the input obs key.
+    For example, helps in splitting an anndata objects based on cluster annotation. This function generates a collection with a number of elements equal to the number of categories in the input obs key.
 
 - Filter data variables or observations, by index or key
 

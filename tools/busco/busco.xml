@@ -1,5 +1,5 @@
-<tool id="busco" name="Busco" profile="20.01" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
-    <description>assess genome assembly and annotation completeness</description>
+<tool id="busco" name="Busco" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.01">
+    <description>Assess genome assembly and annotation completeness</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -8,11 +8,37 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">busco</requirement>
+        <!-- update augustus_species if update the augustus pin -->
+        <requirement type="package" version="3.5.0">augustus</requirement>
         <requirement type="package" version="1.34">tar</requirement>
         <requirement type="package" version="1">fonts-conda-ecosystem</requirement>
+        <!-- TODO might be removed in the future: for some reason conda installs an outdated sepp 4.4.0 but the latest dendropy 5.x which are incompatible -->
+        <requirement type="package" version="4.5.5">sepp</requirement>
     </requirements>
     <version_command>busco --version</version_command>
     <command><![CDATA[
+## tool tests can not run with --offline (otherwise we would need to store a lot of data at IUC)
+## so we create a mock dir in the working dir where the tool can write to
+## 
+## a more thorough test can be executed as follows
+## - set the `test` parameters to `""`
+## - download complete reference DB (~200G, final 105G) to tools/busco/test-data/test-db/busco_downloads
+##   ```
+##   busco --download_path tools/busco/test-data/test-db/busco_downloads/ --download all
+##   find tools/busco/test-data/busco_downloads/lineages/ -mindepth 1 -maxdepth 1 ! -name '*_odb10*' -exec rm -rf {} \;
+##   find tools/busco/test-data/busco_downloads/placement_files -mindepth 1 -maxdepth 1 ! -name '*_odb10*' -delete
+##   find tools/busco/test-data/busco_downloads/lineages/ -name "*.faa.gz" -exec gunzip {} \;;
+##   ```
+## - test containerized (note: test-data is mounted ro in containerized tests)
+## 
+## alternatively .. a bit weaker
+## - set the `test` parameters to `""` comment --offline
+## - run test NOT containerized (this will download the data needed for the tests)
+## - uncomment --offline and test containerized
+#if $test == 'true'
+    mkdir mock_db_path/ &&
+    cp -r '$cached_db.fields.path'/* mock_db_path/ &&
+#end if
 
 #if $busco_mode.mode == 'geno' and $busco_mode.use_augustus.use_augustus_selector == 'augustus':
 
@@ -25,21 +51,27 @@ export AUGUSTUS_CONFIG_PATH=`pwd`/augustus_dir/ &&
     mkdir -p 'augustus_dir/species/' &&
     tar -C 'augustus_dir/species/' -xzf '${busco_mode.use_augustus.aug_prediction.augustus_model}' &&
 #end if
+#end if
 
+#if $input.is_of_type("fasta.gz")
+    gunzip -c '$input' > input.fa &&
+#else
+    ln -s '$input' input.fa &&
 #end if
 
 busco
---in '${input}'
+--in 'input.fa'
 --mode '${busco_mode.mode}'
 --out busco_galaxy
 --cpu \${GALAXY_SLOTS:-4}
 --evalue ${adv.evalue}
 --limit ${adv.limit}
 --contig_break ${adv.contig_break}
-
-#if $lineage_conditional.selector == 'cached':
-    --offline
-    --download_path $lineage_conditional.cached_db.fields.path
+#if $test == 'true'
+--download_path mock_db_path
+#else
+--offline
+--download_path '$cached_db.fields.path'
 #end if
 
 #if $lineage.lineage_mode == "auto_detect":
@@ -54,7 +86,6 @@ busco
     #elif $busco_mode.use_augustus.use_augustus_selector == 'augustus':
         ${busco_mode.use_augustus.long}
         --augustus
-
         #if $busco_mode.use_augustus.aug_prediction.augustus_mode == 'builtin':
             --augustus_species '${busco_mode.use_augustus.aug_prediction.augustus_species}'
         #else if $busco_mode.use_augustus.aug_prediction.augustus_mode == 'history':
@@ -65,47 +96,81 @@ busco
     #end if
 #end if
     
-#if $outputs and 'image' in $outputs:
-    &&
-    mkdir BUSCO_summaries
-    &&
-    ls -l busco_galaxy/run_*/ &&
-    cp busco_galaxy/short_summary.*.txt BUSCO_summaries/
-    &&
-    generate_plot.py -wd BUSCO_summaries -rt specific
+#if $lineage.lineage_mode != "auto_detect":
+    && cp busco_galaxy/run_*/full_table.tsv busco_galaxy/full_table_specific_lineage.tsv
+    && cp busco_galaxy/run_*/missing_busco_list.tsv busco_galaxy/missing_busco_list_specific_lineage.tsv
+    #if $outputs and 'image' in $outputs:
+        && mkdir BUSCO_summaries
+        && cp busco_galaxy/short_summary.*.txt BUSCO_summaries/
+        && generate_plot.py -wd BUSCO_summaries -rt specific
+        && cp BUSCO_summaries/busco_figure.png busco_galaxy/busco_figure_specific_lineage.png
+    #end if
+
+    #if $outputs and 'gff' in $outputs:
+        && echo "\##gff-version 3" > busco_galaxy/busco_output.gff
+        ## gff files can be absent
+        && (cat busco_galaxy/run_*/busco_sequences/*busco_sequences/*.gff >> busco_galaxy/busco_output_specific.gff 2> /dev/null || true)
+    #end if
+    #if $outputs and 'faa' in $outputs:
+        && (cat busco_galaxy/run_*/busco_sequences/*busco_sequences/*.faa >> busco_galaxy/busco_output_specific.faa 2> /dev/null || true)
+    #end if
+    #if $outputs and 'fna' in $outputs:
+        && (cat busco_galaxy/run_*/busco_sequences/*busco_sequences/*.fna >> busco_galaxy/busco_output_specific.fna 2> /dev/null || true)
+    #end if
 #end if
 
-#if $outputs and 'gff' in $outputs:
-    &&
-    echo "\##gff-version 3" > busco_output.gff
-    &&
-    ## gff files can be absent
-    cat busco_galaxy/run_*/busco_sequences/*busco_sequences/*.gff >> busco_output.gff 2> /dev/null || true
+## if $lineage.lineage_mode == "auto_detect", BUSCO output several files with the same name, causing an issue, we need to rename the files
+#if $lineage.lineage_mode == "auto_detect":
+	&& specific_lineage=\$(find ./busco_galaxy -name "short_summary.specific.*.txt" | head -n 1 | cut -d'.' -f4)
+    && generic_lineage=\$(find ./busco_galaxy -name "short_summary.generic.*.txt" | head -n 1 | cut -d'.' -f4)
+
+	##Rename the output files to differenciate specific and generic lineages results
+    ## Full table
+    && cp busco_galaxy/run_\${specific_lineage}/full_table.tsv busco_galaxy/full_table_specific_lineage.tsv
+    && cp busco_galaxy/run_\${generic_lineage}/full_table.tsv busco_galaxy/full_table_generic_lineage.tsv
+    ##Missing busco list
+    && cp busco_galaxy/run_\${specific_lineage}/missing_busco_list.tsv busco_galaxy/missing_busco_list_specific_lineage.tsv
+    && cp busco_galaxy/run_\${generic_lineage}/missing_busco_list.tsv busco_galaxy/missing_busco_list_generic_lineage.tsv
+    #if $outputs and 'image' in $outputs:
+        && mkdir BUSCO_summaries_specific
+        && cp busco_galaxy/short_summary.specific.*.txt BUSCO_summaries_specific/
+        && generate_plot.py -wd BUSCO_summaries_specific -rt specific
+        && cp BUSCO_summaries_specific/busco_figure.png busco_galaxy/busco_figure_specific_lineage.png
+        && mkdir BUSCO_summaries_generic
+        && cp busco_galaxy/short_summary.generic.*.txt BUSCO_summaries_generic/
+        && generate_plot.py -wd BUSCO_summaries_generic -rt generic
+        && cp BUSCO_summaries_generic/busco_figure.png busco_galaxy/busco_figure_generic_lineage.png
+    #end if
+    #if $outputs and 'gff' in $outputs:
+        ## gff files can be absent
+        && echo "\##gff-version 3" > busco_galaxy/busco_output_specific.gff
+        && (cat busco_galaxy/run_\${specific_lineage}/busco_sequences/*busco_sequences/*.gff >> busco_galaxy/busco_output_specific.gff 2> /dev/null || true)
+        && echo "\##gff-version 3" > busco_galaxy/busco_output_generic.gff
+        && (cat busco_galaxy/run_\${generic_lineage}/busco_sequences/*busco_sequences/*.gff >> busco_galaxy/busco_output_generic.gff 2> /dev/null || true)
+    #end if
+    #if $outputs and 'faa' in $outputs:
+        && (cat busco_galaxy/run_\${specific_lineage}/busco_sequences/*busco_sequences/*.faa >> busco_galaxy/busco_output_specific.faa 2> /dev/null || true)
+        && (cat busco_galaxy/run_\${generic_lineage}/busco_sequences/*busco_sequences/*.faa >> busco_galaxy/busco_output_generic.faa 2> /dev/null || true)
+    #end if
+    #if $outputs and 'fna' in $outputs:
+        && (cat busco_galaxy/run_\${specific_lineage}/busco_sequences/*busco_sequences/*.fna >> busco_galaxy/busco_output_specific.fna 2> /dev/null || true)
+        && (cat busco_galaxy/run_\${generic_lineage}/busco_sequences/*busco_sequences/*.fna >> busco_galaxy/busco_output_generic.fna 2> /dev/null || true)
+    #end if
 #end if
-
-
-]]>    </command>
+]]></command>
     <inputs>
-        <param type="data" name="input" format="fasta" label="Sequences to analyse" help="Can be an assembled genome or transcriptome (DNA), or protein sequences from an annotated gene set." />
-        <conditional name="lineage_conditional">
-            <param name="selector" type="select" label="Lineage data source">
-                <option value="download">Download lineage data</option>
-                <option value="cached">Use cached lineage data</option>
-            </param>
-            <when value="cached">
-                <param name="cached_db" label="Cached database with lineage" type="select">
-                    <options from_data_table="busco_database">
-                        <validator message="No BUSCO database is available" type="no_options" />
-                    </options>
-                </param>
-            </when>
-            <when value="download"/>
-        </conditional>
+        <param name="test" type="hidden"/>
+        <param type="data" name="input" format="fasta,fasta.gz" label="Sequences to analyse" help="Can be an assembled genome or transcriptome (DNA), or protein sequences from an annotated gene set."/>
+        <param name="cached_db" label="Cached database with lineage" type="select">
+            <options from_data_table="busco_database">
+                <validator message="No BUSCO database is available - please contact your Galaxy admin." type="no_options"/>
+            </options>
+        </param>
         <conditional name="busco_mode">
             <param argument="--mode" type="select" label="Mode">
                 <option value="geno">Genome assemblies (DNA)</option>
                 <option value="tran">Transcriptome assemblies (DNA)</option>
-                <option value="prot">annotated gene sets (protein)</option>
+                <option value="prot">Annotated gene sets (protein)</option>
             </param>
             <when value="geno">
                 <conditional name="use_augustus">
@@ -113,7 +178,6 @@ busco
                         <option value="augustus">Augustus</option>
                         <option value="metaeuk">Metaeuk</option>
                         <option value="miniprot" selected="true">Miniprot</option>
-
                     </param>
                     <when value="metaeuk"/>
                     <when value="miniprot"/>
@@ -124,24 +188,23 @@ busco
                                 <option value="builtin">Use another predefined species model</option>
                                 <option value="history">Use a custom species model</option>
                             </param>
-                            <when value="no" />
+                            <when value="no"/>
                             <when value="history">
-                                <param name="augustus_model" type="data" format="augustus" label="Augustus model" />
+                                <param name="augustus_model" type="data" format="augustus" label="Augustus model"/>
                             </when>
                             <when value="builtin">
-                                <param name="augustus_species" type="select" label="Augustus species model">
-                                    <expand macro="augustus_species" />
+                                <param name="augustus_species" type="select" label="Augustus species model" help="If model name is different than species name it is shown in parentheses." >
+                                    <expand macro="augustus_species"/>
                                 </param>
                             </when>
                         </conditional>
-                        <param argument="--long" type="boolean" checked="false" truevalue="--long" falsevalue="" label="Optimization mode Augustus self-training" help="Adds considerably to run time, but can improve results for some non-model organisms" />
+                        <param argument="--long" type="boolean" checked="false" truevalue="--long" falsevalue="" label="Optimization mode Augustus self-training" help="Adds considerably to run time, but can improve results for some non-model organisms"/>
                     </when>
                 </conditional>
             </when>
-            <when value="tran" />
-            <when value="prot" />
+            <when value="tran"/>
+            <when value="prot"/>
         </conditional>
-
         <conditional name="lineage">
             <param name="lineage_mode" type="select" label="Auto-detect or select lineage?" help="Let BUSCO decide the best lineage automatically, or select from known lineage">
                 <option value="auto_detect">Auto-detect</option>
@@ -153,188 +216,253 @@ busco
                     <option value="--auto-lineage-prok">Prokaryotes (--auto-lineage-prok)</option>
                     <option value="--auto-lineage-euk">Eukaryotes (--auto-lineage-euk)</option>
                 </param>
+                <param name="generic_results" type="boolean" checked="false" label="Do you want to display the results from the generic lineage" help="BUSCO generates files for the parent lineage (generic) and the final selected lineage (specific). Generally, the lineage to select for your assessments should be the most specific lineage available. The generic lineage datasets for the domains archaea, bacteria and eukaryota."/>
             </when>
             <when value="select_lineage">
                 <param argument="--lineage_dataset" type="select" label="Lineage">
-                    <expand macro="lineages" />
+                    <options from_data_table="busco_database_options">
+                        <filter type="param_value" column="2" ref="cached_db"/>
+                    </options>
                 </param>
             </when>
         </conditional>
 
         <param name="outputs" type="select" optional="true" multiple="true" label="Which outputs should be generated">
-            <option value="short_summary" selected="true">short summary text</option>
-            <option value="missing">list with missing IDs</option>
-            <option value="image">summary image</option>
+            <option value="short_summary" selected="true">Short summary text</option>
+            <option value="missing">List with missing IDs</option>
+            <option value="image">Summary image</option>
             <option value="gff">gff</option>
+            <option value="faa">Protein sequences</option>
+            <option value="fna">Nucleotide sequences</option>
         </param>
 
         <section name="adv" title="Advanced Options" expanded="False">
-            <param argument="--evalue" type="float" value="0.001" min="0" max="1" label="E-value cutoff for BLAST searches." />
-            <param argument="--limit" type="integer" value="3" label="How many candidate regions to consider" />
+            <param argument="--evalue" type="float" value="0.001" min="0" max="1" label="E-value cutoff for BLAST searches."/>
+            <param argument="--limit" type="integer" value="3" label="How many candidate regions to consider"/>
             <param argument="--contig_break" type="integer" value="10" label="Number of contiguous Ns to signify a break between contigs"/>
         </section>
     </inputs>
 
     <outputs>
-        <data name='busco_sum' format='txt' label="${tool.name} on ${on_string}: short summary" from_work_dir="busco_galaxy/run_*/short_summary.txt">
+        <data name='busco_sum' format='txt' label="${tool.name} on ${on_string}: Short summary - Specific lineage" from_work_dir="busco_galaxy/short_summary.specific.*.txt">
             <filter>outputs and 'short_summary' in outputs</filter>
         </data>
-        <data name='busco_table' format='tabular' label="${tool.name} on ${on_string}: full table" from_work_dir="busco_galaxy/run_*/full_table.tsv" />
-        <data name='busco_missing' format='tabular' label="${tool.name} on ${on_string}: missing buscos" from_work_dir="busco_galaxy/run_*/missing_busco_list.tsv">
+        <data name='busco_sum_generic' format='txt' label="${tool.name} on ${on_string}: Short summary - Generic lineage" from_work_dir="busco_galaxy/short_summary.generic.*.txt">
+            <filter>(outputs and 'short_summary' in outputs) and lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>
+        <data name='busco_table' format='tabular' label="${tool.name} on ${on_string}: Full table - Specific lineage" from_work_dir="busco_galaxy/full_table_specific_lineage.tsv">
+        </data>
+        <data name='busco_table_generic' format='tabular' label="${tool.name} on ${on_string}: Full table - Generic lineage" from_work_dir="busco_galaxy/full_table_generic_lineage.tsv">
+            <filter>lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>
+        <data name='busco_missing' format='tabular' label="${tool.name} on ${on_string}: Missing buscos - Specific lineage" from_work_dir="busco_galaxy/missing_busco_list_specific_lineage.tsv">
             <filter>outputs and 'missing' in outputs</filter>
         </data>
-        <data name='summary_image' format='png' label="${tool.name} on ${on_string}: summary image" from_work_dir="BUSCO_summaries/busco_figure.png">
+        <data name='busco_missing_generic' format='tabular' label="${tool.name} on ${on_string}: Missing buscos - Generic lineage" from_work_dir="busco_galaxy/missing_busco_list_generic_lineage.tsv">
+            <filter>(outputs and 'missing' in outputs) and lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>
+        <data name='summary_image' format='png' label="${tool.name} on ${on_string}: Summary image - Specific lineage" from_work_dir="busco_galaxy/busco_figure_specific_lineage.png">
             <filter>outputs and 'image' in outputs</filter>
         </data>
-        <data name='busco_gff' format='gff3' label="${tool.name} on ${on_string}: GFF" from_work_dir="busco_output.gff">
+        <data name='summary_image_generic' format='png' label="${tool.name} on ${on_string}: Summary image - Generic lineage" from_work_dir="busco_galaxy/busco_figure_generic_lineage.png">
+            <filter>(outputs and 'image' in outputs) and lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>
+        <data name='busco_gff' format='gff3' label="${tool.name} on ${on_string}: GFF - Specific lineage" from_work_dir="busco_galaxy/busco_output_specific.gff">
             <filter>outputs and 'gff' in outputs</filter>
         </data>              
+        <data name='busco_gff_generic' format='gff3' label="${tool.name} on ${on_string}: GFF - Generic lineage" from_work_dir="busco_galaxy/busco_output_generic.gff">
+            <filter>(outputs and 'gff' in outputs) and lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>
+        <data name='busco_faa' format='fasta' label="${tool.name} on ${on_string}: Protein sequences - Specific lineage" from_work_dir="busco_galaxy/busco_output_specific.faa">
+            <filter>outputs and 'faa' in outputs</filter>
+        </data>              
+        <data name='busco_faa_generic' format='fasta' label="${tool.name} on ${on_string}: Protein sequences - Generic lineage" from_work_dir="busco_galaxy/busco_output_generic.faa">
+            <filter>(outputs and 'faa' in outputs) and lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>  
+        <data name='busco_fna' format='fasta' label="${tool.name} on ${on_string}: Nucleotide sequences - Specific lineage" from_work_dir="busco_galaxy/busco_output_specific.fna">
+            <filter>outputs and 'fna' in outputs</filter>
+        </data>
+        <data name='busco_fna_generic' format='fasta' label="${tool.name} on ${on_string}: Nucleotide sequences - Generic lineage" from_work_dir="busco_galaxy/busco_output_generic.fna">
+            <filter>(outputs and 'fna' in outputs) and lineage['lineage_mode'] == 'auto_detect' and lineage['generic_results']</filter>
+        </data>              
     </outputs>
+
     
     <tests>
-        <test expect_num_outputs="4">
-            <param name="input" value="genome.fa" />
+        <!-- <test expect_num_outputs="6">
+            <param name="test" value="true"/>
+	        <param name="input" value="genome.fa.gz" ftype="fasta.gz"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="geno" />
+                <param name="mode" value="geno"/>
                 <conditional name="use_augustus">
-                    <param name="use_augustus_selector" value="augustus" />
+                    <param name="use_augustus_selector" value="augustus"/>
                 </conditional>
             </conditional>
-            <param name="outputs" value="short_summary,missing,gff" />
+            <param name="outputs" value="short_summary,missing,gff,faa,fna"/>
             <output name="busco_sum">
                 <assert_contents>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
                     <has_text text="Gene predictor used: augustus"/>
                 </assert_contents>
             </output>
-            <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="10" />
+            <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="10"/>
             <output name="busco_gff">
                 <assert_contents>
                     <has_n_lines n="1"/>
-                    <has_text text="##gff-version 3" />
+                    <has_text text="##gff-version 3"/>
+                </assert_contents>
+            </output>
+            <output name="busco_fna">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <output name="busco_faa">
+                <assert_contents>
+                    <has_text text=">"/>
                 </assert_contents>
             </output>
             <output name="busco_missing" file="genome_results/missing_buscos_list" compare="diff" lines_diff="10"/>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="5">
-            <param name="input" value="proteome.fa" />
+            <param name="test" value="true"/>
+            <param name="input" value="proteome.fa"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="prot" />
+                <param name="mode" value="prot"/>
             </conditional>
-            <param name="outputs" value="short_summary,missing,image,gff" />
+            <param name="outputs" value="short_summary,missing,image,gff"/>
             <output name="busco_sum">
                 <assert_contents>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
-                    <has_text text="BUSCO was run in mode: proteins" />
+                    <has_text text="BUSCO was run in mode: proteins"/>
                 </assert_contents>
             </output>
-            <output name="busco_table" file="proteome_results/full_table" compare="diff" lines_diff="10" />
-            <output name="busco_missing" file="proteome_results/missing_buscos_list" compare="diff" lines_diff="10" />
-            <output name="summary_image" file="proteome_results/summary.png" compare="sim_size" />
+            <output name="busco_table" file="proteome_results/full_table" compare="diff" lines_diff="10"/>
+            <output name="busco_missing" file="proteome_results/missing_buscos_list" compare="diff" lines_diff="10"/>
+            <output name="summary_image" file="proteome_results/summary.png" compare="sim_size"/>
             <output name="busco_gff">
                 <assert_contents>
                     <has_n_lines n="1"/>
-                    <has_text text="##gff-version 3" />
+                    <has_text text="##gff-version 3"/>
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="5">
-            <param name="input" value="transcriptome.fa" />
+            <param name="test" value="true"/>
+            <param name="input" value="transcriptome.fa"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="tran" />
+                <param name="mode" value="tran"/>
             </conditional>
-            <param name="outputs" value="short_summary,missing,image,gff" />
+            <param name="outputs" value="short_summary,missing,image,gff"/>
             <output name="busco_sum">
                 <assert_contents>
-                    <has_text text="BUSCO was run in mode: euk_tran" />
+                    <has_text text="BUSCO was run in mode: euk_tran"/>
                 </assert_contents>
             </output>
-            <output name="busco_table" file="transcriptome_results/full_table" compare="diff" lines_diff="6" />
-            <output name="busco_missing" file="transcriptome_results/missing_buscos_list" compare="diff" lines_diff="6" />
-            <output name="summary_image" file="transcriptome_results/summary.png" compare="sim_size" />
-            <output name="busco_gff" file="transcriptome_results/out.gff" compare="diff" />
+            <output name="busco_table" file="transcriptome_results/full_table" compare="diff" lines_diff="6"/>
+            <output name="busco_missing" file="transcriptome_results/missing_buscos_list" compare="diff" lines_diff="6"/>
+            <output name="summary_image" file="transcriptome_results/summary.png" compare="sim_size"/>
+            <output name="busco_gff" file="transcriptome_results/out.gff" compare="diff"/>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="3">
-            <param name="input" value="genome.fa" />
+            <param name="test" value="true"/>
+            <param name="input" value="genome.fa"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="geno" />
+                <param name="mode" value="geno"/>
                 <conditional name="use_augustus">
-                    <param name="use_augustus_selector" value="augustus" />
+                    <param name="use_augustus_selector" value="augustus"/>
                     <conditional name="aug_prediction">
-                        <param name="augustus_mode" value="builtin" />
-                        <param name="augustus_species" value="human" />
+                        <param name="augustus_mode" value="builtin"/>
+                        <param name="augustus_species" value="human"/>
                     </conditional>
                 </conditional>
             </conditional>
-            <param name="outputs" value="short_summary,gff" />
+            <param name="outputs" value="short_summary,gff"/>
             <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="10">
                 <assert_contents>
                     <has_text text="# Gene predictor used: augustus"/>
                 </assert_contents>
             </output>
-            <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="10" />
+            <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="10"/>
             <output name="busco_gff">
                 <assert_contents>
                     <has_n_lines n="1"/>
-                    <has_text text="##gff-version 3" />
+                    <has_text text="##gff-version 3"/>
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="3">
-            <param name="input" value="genome.fa" />
+            <param name="test" value="true"/>
+            <param name="input" value="genome.fa"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="geno" />
+                <param name="mode" value="geno"/>
                 <conditional name="use_augustus">
-                    <param name="use_augustus_selector" value="augustus" />
+                    <param name="use_augustus_selector" value="augustus"/>
                     <conditional name="aug_prediction">
-                        <param name="augustus_mode" value="history" />
-                        <param name="augustus_model" value="local.tar.gz" ftype="augustus" />
+                        <param name="augustus_mode" value="history"/>
+                        <param name="augustus_model" value="local.tar.gz" ftype="augustus"/>
                     </conditional>
                 </conditional>
             </conditional>
-            <param name="outputs" value="short_summary,missing" />
+            <param name="outputs" value="short_summary,missing"/>
             <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="10">
                 <assert_contents>
                     <has_text text="# Gene predictor used: augustus"/>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
                 </assert_contents>
             </output>
-            <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="10" />
-            <output name="busco_missing" file="genome_results/missing_buscos_list" compare="diff" lines_diff="10" />
+            <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="10"/>
+            <output name="busco_missing" file="genome_results/missing_buscos_list" compare="diff" lines_diff="10"/>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
         </test>
         <test expect_num_outputs="5">
-            <param name="input" value="genome.fa" />
+            <param name="test" value="true"/>
+            <param name="input" value="genome.fa"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="geno" />
+                <param name="mode" value="geno"/>
                 <conditional name="use_augustus">
-                    <param name="use_augustus_selector" value="metaeuk" />
+                    <param name="use_augustus_selector" value="metaeuk"/>
                 </conditional>
             </conditional>
-            <param name="outputs" value="short_summary,missing,image,gff" />
+            <param name="outputs" value="short_summary,missing,image,gff"/>
             <output name="busco_sum">
                 <assert_contents>
                     <has_text text="# Gene predictor used: metaeuk"/>
@@ -353,66 +481,128 @@ busco
                 </assert_contents>
             </output>
             <output name="summary_image" file="genome_results_metaeuk/summary.png" compare="sim_size"/>
-            <output name="busco_gff" file="genome_results_metaeuk/out.gff3" compare="diff" lines_diff="6" />
-        </test>
-        <test expect_num_outputs="5">
-            <param name="input" value="genome.fa" />
+            <output name="busco_gff" file="genome_results_metaeuk/out.gff3" compare="diff" lines_diff="6"/>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
+        </test> -->
+		<test expect_num_outputs="2">
+            <param name="test" value="true"/>
+            <param name="input" value="bacilli_odb_test.fasta"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="auto_detect" />
-                <param name="auto_lineage" value="--auto-lineage" />
+                <param name="lineage_mode" value="auto_detect"/>
+                <param name="auto_lineage" value="--auto-lineage-prok"/>
             </conditional>
             <conditional name="busco_mode">
-                <param name="mode" value="geno" />
-                <conditional name="use_augustus">
-                    <param name="use_augustus_selector" value="metaeuk" />
-                </conditional>
+                <param name="mode" value="geno"/>
             </conditional>
-            <param name="outputs" value="short_summary,missing,image,gff" />
+            <param name="outputs" value="short_summary"/>
             <output name="busco_sum">
                 <assert_contents>
-                    <has_text text="Gene predictor used: metaeuk"/>
+                    <has_text text="Gene predictor used: prodigal"/>
                 </assert_contents>
             </output>
             <output name="busco_table">
                 <assert_contents>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
-                    <has_text text="The lineage dataset is: eukaryota_odb10"/>
+                    <has_text text="The lineage dataset is: bacilli_odb10"/>
                 </assert_contents>
             </output>
-            <output name="busco_missing">
+        </test>
+        <test expect_num_outputs="10">
+            <param name="test" value="true"/>
+            <param name="input" value="genome.fa"/>
+            <conditional name="lineage">
+                <param name="lineage_mode" value="auto_detect"/>
+                <param name="auto_lineage" value="--auto-lineage"/>
+                <param name="generic_results" value="true"/>
+            </conditional>
+            <conditional name="busco_mode">
+                <param name="mode" value="geno"/>
+                <conditional name="use_augustus">
+                    <param name="use_augustus_selector" value="metaeuk"/>
+                </conditional>
+            </conditional>
+            <param name="outputs" value="short_summary,missing,image,gff"/>
+            <output name="busco_sum">
+                <assert_contents>
+                    <has_text text="Gene predictor used: prodigal"/>
+                </assert_contents>
+            </output>
+			<output name="busco_sum_generic">
+                <assert_contents>
+                    <has_text text="Gene predictor used: prodigal"/>
+                </assert_contents>
+            </output>
+            <output name="busco_table">
                 <assert_contents>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
-                    <has_text text="The lineage dataset is: eukaryota_odb10"/>
+                    <has_text text="The lineage dataset is: "/>
                 </assert_contents>
             </output>
-            <output name="summary_image" file="genome_results_metaeuk_auto/summary.png" compare="sim_size" />
-            <output name="busco_gff" file="genome_results_metaeuk_auto/out.gff" compare="diff" />
+            <output name="busco_table_generic">
+                <assert_contents>
+                    <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
+                    <has_text text="The lineage dataset is: "/>
+                </assert_contents>
+            </output>
+			<output name="busco_missing">
+                <assert_contents>
+                    <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
+                    <has_text text="The lineage dataset is: "/>
+                </assert_contents>
+            </output>
+			<output name="busco_missing_generic">
+                <assert_contents>
+                    <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
+                    <has_text text="The lineage dataset is: "/>
+                </assert_contents>
+            </output>
+            <output name="summary_image" file="genome_results_metaeuk_auto/summary.png" compare="sim_size"/>
+            <output name="summary_image_generic" file="genome_results_metaeuk_auto/summary.png" compare="sim_size"/>
+            <output name="busco_gff">
+                <assert_contents>
+                    <has_text text="##gff-version 3"/>
+                </assert_contents>
+            </output>
+            <output name="busco_gff_generic">
+                <assert_contents>
+                    <has_text text="##gff-version 3"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
         </test>
-        <test expect_num_outputs="3">
-            <param name="input" value="genome.fa" />
+        <!-- <test expect_num_outputs="3">
+            <param name="test" value="true"/>
+            <param name="input" value="genome.fa"/>
             <conditional name="lineage">
-                <param name="lineage_mode" value="select_lineage" />
-                <param name="lineage_dataset" value="arthropoda_odb10" />
+                <param name="lineage_mode" value="select_lineage"/>
+                <param name="lineage_dataset" value="arthropoda_odb10"/>
             </conditional>
-            <param name="outputs" value="short_summary,gff" />
+            <param name="outputs" value="short_summary,gff"/>
             <output name="busco_sum">
                 <assert_contents>
                     <has_text text="# Gene predictor used: miniprot"/>
                 </assert_contents>
             </output>
-            <output name="busco_gff" file="genome_results_miniprot/out.gff" compare="diff" />
+            <output name="busco_gff" file="genome_results_miniprot/out.gff" compare="diff"/>
             <output name="busco_table" file="genome_results_miniprot/full_table">
                 <assert_contents>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@"/>
                     <has_text text="9647at6656"/>
                 </assert_contents>
             </output>
-        </test>
+            <assert_stdout>
+                <has_text text="BUSCO analysis done"/>
+            </assert_stdout>
+        </test> -->
     </tests>
     <help><![CDATA[
 
 
-BUSCO: assessing genome assembly and annotation completeness with Benchmarking Universal Single-Copy Orthologs
+BUSCO: Assessing genome assembly and annotation completeness with Benchmarking Universal Single-Copy Orthologs
 --------------------------------------------------------------------------------------------------------------
 
 Interpreting the results
@@ -432,11 +622,11 @@ Finally, focusing on specific tissues or specific life stages and conditions in 
 is unlikely to produce a BUSCO-complete transcriptome. In this case, consistency across your samples
 is what you will be aiming for.
 
-For more information please refer to the Busco_ `user guide <https: / /busco.ezlab.org /busco_userguide.html#interpreting-the-results>`_
+For more information please refer to the Busco_ `user guide <https://busco.ezlab.org /busco_userguide.html#interpreting-the-results>`_
 .
 
 .. _BUSCO: http://busco.ezlab.org/
 
-    ]]>    </help>
-    <expand macro="citations" />
+    ]]></help>
+    <expand macro="citations"/>
 </tool>

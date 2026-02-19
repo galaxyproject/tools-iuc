@@ -1,4 +1,4 @@
-<tool id="varvamp" name="varVAMP" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.0">
+<tool id="varvamp" name="varVAMP" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>design primers for highly diverse viruses</description>
     <macros>
         <import>macros.xml</import>
@@ -8,22 +8,21 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">varvamp</requirement>
-        <requirement type="package" version="2.0.1">primer3-py</requirement>
-        <requirement type="package" version="0.7.17">seqfold</requirement>
+        <requirement type="package" version="2.2">primer3-py</requirement>
+        <requirement type="package" version="0.9">seqfold</requirement>
+        <requirement type="package" version="3.13">python</requirement>
+        <requirement type="package" version="9.5">coreutils</requirement>
     </requirements>
     <version_command>varvamp --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
-VARVAMP_CONFIG=custom_config varvamp
-
-$mode.m_select
-#if $mode.main_params.specify_how in ("set_threshold", "set_both"):
-  --threshold $mode.main_params.threshold
+VARVAMP_CONFIG=custom_config varvamp $mode.m_select
+  --name '$mode.name'
+#if str($mode.threshold):
+  --threshold $mode.threshold
 #end if
-#if $mode.main_params.specify_how in ("set_n_ambig", "set_both"):
-  --n-ambig $mode.main_params.n_ambig
-  #if $mode.m_select == "qpcr":
-    --pn-ambig $mode.main_params.pn_ambig
-  #end if
+  --n-ambig $mode.n_ambig
+#if $mode.m_select == "qpcr":
+  --pn-ambig $mode.pn_ambig
 #end if
 #if str( $mode.m_select ) == "single":
   --opt-length $mode.opt_length
@@ -39,10 +38,13 @@ $mode.m_select
   --test-n $mode.test_n
   --deltaG $mode.deltaG
 #end if
+#if $mode.compatible_primers:
+  --compatible-primers '$mode.compatible_primers'
+#end if
 #if $mode.filter_blast_hits.choice == "yes":
   --database '${mode.filter_blast_hits.database.extra_files_path}/blastdb'
 #end if
---threads \${GALAXY_SLOTS:-1}
+--threads \${GALAXY_SLOTS:-2}
 
 '$alignment'
 results/
@@ -53,7 +55,7 @@ results/
 #end if
 #if $mode.m_select == 'tiled' and $mode.scheme_outputs and 'primer_dimers' in $mode.scheme_outputs:
   ## ensure the unsolvable_primer_dimers.tsv file, which varVAMP creates only conditionally, exists in all cases, in which we try to discover it as an output
-  && cp -n dimers_fallback.tsv results/unsolvable_primer_dimers.tsv
+  && cp --update=none dimers_fallback.txt results/unsolvable_primer_dimers.txt
 #end if
     ]]></command>
     <configfiles>
@@ -67,6 +69,8 @@ PRIMER_HAIRPIN = $mode.advanced_config.basic_primer_params.PRIMER_HAIRPIN
 PRIMER_GC_END = ($mode.advanced_config.basic_primer_params.PRIMER_GC_END_min, $mode.advanced_config.basic_primer_params.PRIMER_GC_END_max)
 PRIMER_MIN_3_WITHOUT_AMB = $mode.advanced_config.basic_primer_params.PRIMER_MIN_3_WITHOUT_AMB
 PRIMER_MAX_DIMER_TMP = $mode.advanced_config.basic_primer_params.PRIMER_MAX_DIMER_TMP
+PRIMER_MAX_DIMER_DELTAG = $mode.advanced_config.basic_primer_params.PRIMER_MAX_DIMER_DELTAG
+END_OVERLAP = $mode.advanced_config.basic_primer_params.END_OVERLAP
     #if str($mode.m_select) == "qpcr":
 QPROBE_TMP = ($mode.advanced_config.qpcr_params.QPROBE_TMP_min, $mode.advanced_config.qpcr_params.QPROBE_TMP_max, $mode.advanced_config.qpcr_params.QPROBE_TMP_opt)
 QPROBE_SIZES = ($mode.advanced_config.qpcr_params.QPROBE_SIZES_min, $mode.advanced_config.qpcr_params.QPROBE_SIZES_max, $mode.advanced_config.qpcr_params.QPROBE_SIZES_opt)
@@ -75,7 +79,6 @@ QPROBE_GC_END = ($mode.advanced_config.qpcr_params.QPROBE_GC_END_min, $mode.adva
 QPRIMER_DIFF = $mode.advanced_config.qpcr_params.QPRIMER_DIFF
 QPROBE_TEMP_DIFF = ($mode.advanced_config.qpcr_params.QPROBE_TEMP_DIFF_min, $mode.advanced_config.qpcr_params.QPROBE_TEMP_DIFF_max)
 QPROBE_DISTANCE = ($mode.advanced_config.qpcr_params.QPROBE_DISTANCE_min, $mode.advanced_config.qpcr_params.QPROBE_DISTANCE_max)
-END_OVERLAP = $mode.advanced_config.qpcr_params.END_OVERLAP
 QAMPLICON_LENGTH = ($mode.advanced_config.qpcr_params.QAMPLICON_LENGTH_min, $mode.advanced_config.qpcr_params.QAMPLICON_LENGTH_max)
 QAMPLICON_GC = ($mode.advanced_config.qpcr_params.QAMPLICON_GC_min, $mode.advanced_config.qpcr_params.QAMPLICON_GC_max)
 QAMPLICON_DEL_CUTOFF =  $mode.advanced_config.qpcr_params.QAMPLICON_DEL_CUTOFF
@@ -106,7 +109,7 @@ BLAST_SIZE_MULTI = $mode.filter_blast_hits.blast_advanced_cond.blast_hits_usage.
     #end if
   #end if
         ]]></configfile>
-        <configfile filename="dimers_fallback.tsv"><![CDATA[#set $line = '\t'.join(['pool', 'primer_name_1', 'primer_name_2', 'dimer melting temp'])
+        <configfile filename="dimers_fallback.txt"><![CDATA[#set $line = '\t'.join(['pool', 'primer 1', 'primer 2', 'dimer melting temp', 'deltaG'])
 $line]]></configfile>
     </configfiles>
     <inputs>
@@ -118,8 +121,10 @@ $line]]></configfile>
                 <option value="qpcr">qPCR primers (qpcr)</option>
             </param>
             <when value="single">
+                <param argument="--name" type="text" value="AMPLICON" label="Name your amplicon" help="This name will be used in various outputs of the tool." />
                 <expand macro="main_parameters" />
                 <expand macro="amplicon_length_restrictions" />
+                <expand macro="compatible_primers" />
                 <expand macro="blast_options" />
                 <conditional name="limit_report">
                     <param name="choice" type="select" label="Limit the number of amplicons to report?">
@@ -142,14 +147,16 @@ $line]]></configfile>
                 </expand>
             </when>
             <when value="tiled">
+                <param argument="--name" type="text" value="TILED_SCHEME" label="Name your primer scheme" help="This name will be used in various outputs of the tool." />
                 <expand macro="main_parameters" />
                 <expand macro="amplicon_length_restrictions" />
-                <param argument="--overlap" type="integer" min="1" value="100" label="Minimal required overlap between tiled amplicons" help="default: 100" />
+                <param argument="--overlap" type="integer" min="0" value="25" label="Minimal required overlap between tiled amplicon inserts." help="A value of zero means that for any two overlapping amplicons the right amplicon's 5'-primer and the left amplicon's 3'-primer could be directly adjacent with no amplified insert between them. (default: 25)" />
+                <expand macro="compatible_primers" />
                 <expand macro="blast_options" />
                 <expand macro="customize_advanced" />
                 <expand macro="primer_scheme_outputs">
                     <option value="amplicon_assignment" selected="true">Primer-to-amplicon assignment in tabular format; lists primers belonging to the same amplicon on one line; required input for automated primer trimming in some downstream analysis workflows</option>
-                    <option value="primer_dimers" selected="true">If any primers in the tiling scheme are predicted to form primer dimers, details about these will be found in this tabular output.</option>
+                    <option value="primer_dimers" selected="true">If any primers in the tiling scheme are predicted to form primer dimers, details about these will be found in this output.</option>
                 </expand>
                 <expand macro="consensus_outputs" />
                 <expand macro="graphical_outputs" />
@@ -158,11 +165,12 @@ $line]]></configfile>
                 </expand>
             </when>
             <when value="qpcr">
-                <expand macro="main_parameters">
-                    <param argument="--pn-ambig" type="integer" min="0" value="1" label="Maximum number of ambiguous nucleotides per qPCR probe to be tolerated" help="To enforce specificity of detection, varVAMP will refuse to work if you set this value higher than for the amplicon primers above, and you may actually want to set it slightly lower than that value." />
-                </expand>
+                <param argument="--name" type="text" value="QPCR_SCHEME" label="Name your qPCR scheme" help="This name will be used in various outputs of the tool." />
+                <expand macro="main_parameters" threshold_default="0.8" threshold_isoptional="false" />
+                <param argument="--pn-ambig" type="integer" min="0" value="1" label="Maximum number of ambiguous nucleotides per qPCR probe to be tolerated" help="To enforce specificity of detection, varVAMP will refuse to work if you set this value higher than for the amplicon primers above, and you may actually want to set it slightly lower than that value." />
                 <param argument="--test-n" type="integer" min="1" value="50" label="Top n qPCR amplicons to test" help="test the top n qPCR amplicons for secondary structures at the minimal primer temperature. (default: 50)" />
-                <param argument="--deltaG" type="integer" value="-3" label="Minimum free energy (kcal/mol/K) cutoff" help="Minimum free energy (kcal/mol/K) cutoff at the lowest primer melting temperature. (default: -3." />
+                <param argument="--deltaG" type="integer" value="-3" label="Minimum free energy (kcal/mol/K) cutoff" help="Minimum free energy (kcal/mol/K) cutoff at the lowest primer melting temperature. (default: -3)" />
+                <expand macro="compatible_primers" />
                 <expand macro="blast_options" />
                 <expand macro="customize_advanced">
                     <section name="qpcr_params" title="Constraints on qPCR probes and amplicons" expanded="false">
@@ -184,7 +192,6 @@ $line]]></configfile>
                         <param name="QPROBE_TEMP_DIFF_max" type="integer" min="0" value="10" label="Maximal melting temperature difference between qPCR probe and primers" />
                         <param name="QPROBE_DISTANCE_min" type="integer" min="0" value="4" label="Minimal distance of the qPCR probe from the primer on the same strand" />
                         <param name="QPROBE_DISTANCE_max" type="integer" min="0" value="15" label="Maximal distance of the qPCR probe from the primer on the same strand" />
-                        <param name="END_OVERLAP" type="integer" min="0" value="5" label="End Overlap" help="Maximal overlap in bases between the ends of the qPCR probe and the primer on the opposite strand" />
                         <param name="QAMPLICON_LENGTH_min" type="integer" min="0" value="70" label="Minimal length of qPCR amplicons" />
                         <param name="QAMPLICON_LENGTH_max" type="integer" min="0" value="200" label="Maximal length of qPCR amplicons" />
                         <param name="QAMPLICON_GC_min" type="integer" min="0" max="100" value="40" label="Minimal GC-content of qPCR amplicons" />
@@ -210,8 +217,8 @@ $line]]></configfile>
         </data>
         <collection name="primer_seqs_collection" type="list" label="${tool.name} on ${on_string}: per-pool primer sequences">
             <filter>mode['m_select'] == 'tiled' and mode['scheme_outputs'] and 'primer_seqs' in mode['scheme_outputs']</filter>
-            <data name="pool1_sequences" format="fasta" from_work_dir="results/primers_pool_0.fasta" label="${tool.name} on ${on_string}: Sequences of designed pool 1 primers" />
-            <data name="pool2_sequences" format="fasta" from_work_dir="results/primers_pool_1.fasta" label="${tool.name} on ${on_string}: Sequences of designed pool 2 primers" />
+            <data name="pool1_sequences" format="fasta" from_work_dir="results/primers_pool_1.fasta" label="${tool.name} on ${on_string}: Sequences of designed pool 1 primers" />
+            <data name="pool2_sequences" format="fasta" from_work_dir="results/primers_pool_2.fasta" label="${tool.name} on ${on_string}: Sequences of designed pool 2 primers" />
         </collection>
         <data name="primers_bed" format="bed" from_work_dir="results/primers.bed" label="${tool.name} on ${on_string}: Primer binding sites">
             <filter>mode['scheme_outputs'] and 'primer_binding_sites' in mode['scheme_outputs']</filter>
@@ -228,7 +235,7 @@ $line]]></configfile>
         <data name="primer_amplicon_assignments" format="tabular" from_work_dir="results/primer_to_amplicon_assignment.tabular" label="${tool.name} on ${on_string}: Primer to amplicon assignments">
             <filter>mode['scheme_outputs'] and 'amplicon_assignment' in mode['scheme_outputs']</filter>
         </data>
-        <data name="unresolved_primer_dimers" format="tabular" from_work_dir="results/unsolvable_primer_dimers.tsv" label="${tool.name} on ${on_string}: Unresolved primer dimers">
+        <data name="unresolved_primer_dimers" format="txt" from_work_dir="results/unsolvable_primer_dimers.txt" label="${tool.name} on ${on_string}: Unresolved primer dimers">
             <filter>mode['scheme_outputs'] and 'primer_dimers' in mode['scheme_outputs']</filter>
         </data>
         <data name="ambiguous_consensus" format="fasta" from_work_dir="results/ambiguous_consensus.fasta" label="${tool.name} on ${on_string}: Ambiguous consensus sequence">
@@ -261,11 +268,8 @@ $line]]></configfile>
             <param name="alignment" value="hepatitis_e_aln_shrunk.fasta"/>
             <conditional name="mode">
                 <param name='m_select' value="single"/>
-                <conditional name="main_params">
-                    <param name="specify_how" value="set_both"/>
-                    <param name="threshold" value="0.8"/>
-                    <param name="n_ambig" value="3"/>
-                </conditional>
+                <param name="threshold" value="0.8"/>
+                <param name="n_ambig" value="3"/>
                 <param name="opt_length" value="300"/>
                 <param name="max_length" value="400"/>
                 <conditional name="limit_report">
@@ -309,14 +313,11 @@ $line]]></configfile>
             <param name="alignment" value="hepatitis_e_aln_shrunk.fasta"/>
             <conditional name="mode">
                 <param name='m_select' value="tiled"/>
-                <conditional name="main_params">
-                    <param name="specify_how" value="set_both"/>
-                    <param name="threshold" value="0.6"/>
-                    <param name="n_ambig" value="2"/>
-                </conditional>
+                <param name="threshold" value="0.6"/>
+                <param name="n_ambig" value="2"/>
                 <param name="opt_length" value="150"/>
                 <param name="max_length" value="300"/>
-                <param name="overlap" value="100"/>
+                <param name="overlap" value="40"/>
             </conditional>
             <output name="varvamp_log" ftype="txt" compare="contains" file="test2.log" />
             <output name="primers_bed" ftype="bed">
@@ -335,7 +336,7 @@ $line]]></configfile>
                     <has_n_columns n="2"/>
                 </assert_contents>
             </output>
-            <output name="unresolved_primer_dimers" ftype="tabular">
+            <output name="unresolved_primer_dimers" ftype="txt">
                 <assert_contents>
                     <has_n_lines n="1"/>
                 </assert_contents>
@@ -344,13 +345,13 @@ $line]]></configfile>
                 <element name="pool1_sequences" ftype="fasta">
                     <assert_contents>
                         <has_n_lines n="4"/>
-                        <has_line line=">AMPLICON_0_LEFT"/>
+                        <has_line line=">TILED_SCHEME_0_LEFT"/>
                     </assert_contents>
                 </element>
                 <element name="pool2_sequences" ftype="fasta">
                     <assert_contents>
                         <has_n_lines n="4"/>
-                        <has_line line=">AMPLICON_1_LEFT"/>
+                        <has_line line=">TILED_SCHEME_1_LEFT"/>
                     </assert_contents>
                 </element>
             </output_collection>
@@ -359,13 +360,10 @@ $line]]></configfile>
             <param name="alignment" value="hepatitis_e_aln_shrunk.fasta"/>
             <conditional name="mode">
                 <param name='m_select' value="qpcr"/>
-                <conditional name="main_params">
-                    <param name="specify_how" value="set_both"/>
-                    <param name="threshold" value="0.7"/>
-                    <param name="n_ambig" value="1"/>
-                    <param name="pn_ambig" value="1"/>
-                </conditional>
-                <param name="test_n" value="180"/>
+                <param name="threshold" value="0.7"/>
+                <param name="n_ambig" value="1"/>
+                <param name="pn_ambig" value="1"/>
+                <param name="test_n" value="10"/>
                 <param name="deltaG" value="-15"/>
             </conditional>
             <output name="varvamp_log" ftype="txt" compare="contains" file="test3.log" />
@@ -400,11 +398,8 @@ $line]]></configfile>
             <param name="alignment" value="hepatitis_e_aln_shrunk.fasta"/>
             <conditional name="mode">
                 <param name='m_select' value="single"/>
-                <conditional name="main_params">
-                    <param name="specify_how" value="set_both"/>
-                    <param name="threshold" value="0.8"/>
-                    <param name="n_ambig" value="3"/>
-                </conditional>
+                <param name="threshold" value="0.8"/>
+                <param name="n_ambig" value="3"/>
                 <param name="opt_length" value="300"/>
                 <param name="max_length" value="400"/>
                 <conditional name="limit_report">
@@ -418,10 +413,10 @@ $line]]></configfile>
                         <param name="PRIMER_GC_RANGE_max" value="80"/>
                     </section>
                 </conditional>
-                <param name="scheme_outputs" value=""/>
-                <param name="aln_cons_outputs" value=""/>
-                <param name="plot_outputs" value=""/>
-                <param name="misc_outputs" value=""/>
+                <param name="scheme_outputs" value_json="null"/>
+                <param name="aln_cons_outputs" value_json="null"/>
+                <param name="plot_outputs" value_json="null"/>
+                <param name="misc_outputs" value_json="null"/>
             </conditional>
             <output name="varvamp_log" ftype="txt" compare="contains" file="test4.log" />
         </test>
@@ -459,6 +454,6 @@ Testing with a new alignment/analysis:
 As a first check whether a new alignment of viral sequences can be used with specific settings of the tool, it may help to disable all configurable outputs, which will leave you with only the Analysis Log. This will be enough to see if there are any errors with the combination of alignment and settings, and whether you are on a roughly correct track (varVAMP reports some primers, for example). This way, you're not flooding your analysis history with lots of likely useless datasets, and once you've fixed potential issues you can add back more outputs and rerun the analysis.
     ]]></help>
     <citations>
-        <citation type="doi">10.5281/zenodo.10908223</citation>
+        <citation type="doi">10.1038/s41467-025-60175-9</citation>
     </citations>
 </tool>
