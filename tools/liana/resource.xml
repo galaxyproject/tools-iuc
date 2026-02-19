@@ -16,7 +16,16 @@ python '$script_file' >> '$hidden_output' 2>&1
 @CMD_IMPORTS@
 
 #if str($method.method) == 'select_resource'
-resource = li.resource.select_resource(resource_name='$method.resource_name')
+#if str($method.resource_api_cached.resource_source_selector) == 'cached'
+# Cached: read from Data Manager path (path is directory, file is path/value.tsv)
+import os
+resource_path = '$method.resource_api_cached.resource_cached.fields.path'
+resource_value = '$method.resource_api_cached.resource_cached.fields.value'
+tsv_path = os.path.join(resource_path, resource_value + '.tsv')
+resource = pd.read_csv(tsv_path, sep='\t')
+#else
+resource = li.resource.select_resource(resource_name='$method.resource_api_cached.resource_name')
+#end if
 resource.to_csv('resource_output.tsv', sep='\t', index=False)
 
 #else if str($method.method) == 'show_resources'
@@ -50,7 +59,15 @@ orthologs.to_csv('orthologs.tsv', sep='\t', index=False)
 
 #else if str($method.method) == 'translate_resource'
 #if str($method.resource_input.resource_source) == 'builtin':
-resource = li.resource.select_resource(resource_name='$method.resource_input.resource_name')
+#if str($method.resource_input.resource_api_cached.resource_source_selector) == 'cached'
+import os
+resource_path = '$method.resource_input.resource_api_cached.resource_cached.fields.path'
+resource_value = '$method.resource_input.resource_api_cached.resource_cached.fields.value'
+tsv_path = os.path.join(resource_path, resource_value + '.tsv')
+resource = pd.read_csv(tsv_path, sep='\t')
+#else
+resource = li.resource.select_resource(resource_name='$method.resource_input.resource_api_cached.resource_name')
+#end if
 #else:
 resource = pd.read_csv('$method.resource_input.resource_file', sep='\t')
 #end if
@@ -74,7 +91,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 <option value="translate_resource">translate_resource - Translate resource to another species</option>
             </param>
             <when value="select_resource">
-                <expand macro="param_resource_name"/>
+                <expand macro="param_resource_select_cached"/>
             </when>
             <when value="show_resources">
                 <!-- No parameters needed -->
@@ -109,7 +126,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                         <option value="file">Custom resource file</option>
                     </param>
                     <when value="builtin">
-                        <expand macro="param_resource_name"/>
+                        <expand macro="param_resource_select_cached"/>
                     </when>
                     <when value="file">
                         <param name="resource_file" type="data" format="tabular" label="Resource file" help="Tabular file with ligand and receptor columns"/>
@@ -144,11 +161,40 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
         </data>
     </outputs>
     <tests>
-        <!-- Test 1: select_resource -->
+        <!-- Test 1: select_resource with cached DB (no download) -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="select_resource"/>
-                <param name="resource_name" value="consensus"/>
+                <conditional name="resource_api_cached">
+                    <param name="resource_source_selector" value="cached"/>
+                    <param name="resource_cached" value="consensus"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="resource_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                    <has_n_columns n="2"/>
+                    <has_text_matching expression="LGALS9\s+PTPRC" />
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="pd.read_csv"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: select_resource from LIANA API (downloads) -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="select_resource"/>
+                <conditional name="resource_api_cached">
+                    <param name="resource_source_selector" value="builtin"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
@@ -166,7 +212,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 2: show_resources -->
+        <!-- Test 3: show_resources -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="show_resources"/>
@@ -186,7 +232,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 3: get_hcop_orthologs -->
+        <!-- Test 4: get_hcop_orthologs -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="get_hcop_orthologs"/>
@@ -208,13 +254,45 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 4: translate_resource -->
+        <!-- Test 5: translate_resource with cached resource -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="translate_resource"/>
                 <conditional name="resource_input">
                     <param name="resource_source" value="builtin"/>
-                    <param name="resource_name" value="consensus"/>
+                    <conditional name="resource_api_cached">
+                        <param name="resource_source_selector" value="cached"/>
+                        <param name="resource_cached" value="consensus"/>
+                    </conditional>
+                </conditional>
+                <param name="map_df" value="ortholog_map.tsv" ftype="tabular"/>
+                <param name="columns" value="ligand,receptor"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="translate_resource"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: translate_resource with built-in (downloads) -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_resource"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="builtin"/>
+                    <conditional name="resource_api_cached">
+                        <param name="resource_source_selector" value="builtin"/>
+                        <param name="resource_name" value="consensus"/>
+                    </conditional>
                 </conditional>
                 <param name="map_df" location="https://zenodo.org/records/18388645/files/ortholog_map.tsv"/>
                 <param name="columns" value="ligand,receptor"/>
