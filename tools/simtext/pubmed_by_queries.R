@@ -60,7 +60,6 @@ if (is.na(api_key) || !nzchar(api_key)) {
 }
 
 
-
 max_web_tries <- 100
 
 data <- read.delim(args$input, stringsAsFactors = FALSE)
