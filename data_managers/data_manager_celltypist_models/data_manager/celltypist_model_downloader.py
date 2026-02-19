@@ -72,14 +72,14 @@ def main():
     for m in models:
         filename = m.get("filename", "")
         url = m.get("url")
-        details = m.get("details", "")
+        name = m.get("name", "")
         version = m.get("version", "")
         date = m.get("date", "")
 
-        if details and version:
-            details_with_version = f"{details} ({version})"
+        if name and version:
+            name_with_version = f"{name} ({version})"
         else:
-            details_with_version = details
+            name_with_version = name
 
         model = model_version(filename, version)
 
@@ -95,7 +95,7 @@ def main():
 
         out_json["data_tables"]["celltypist_models"].append({
             "value": model,
-            "details": details_with_version,
+            "name": name_with_version,
             "date": date,
             "path": path_value,
         })
