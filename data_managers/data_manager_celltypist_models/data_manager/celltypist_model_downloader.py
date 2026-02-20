@@ -33,7 +33,7 @@ def model_version(filename, version):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--out", required=True, help="Output JSON file")
-    p.add_argument("--model", default="all", help="Model name to download, or 'all' for all models")
+    p.add_argument("--model", default="", help="Model name to download, leave empty for all models")
     p.add_argument("--version", default="", help="Model version to download, or empty for latest")
     args = p.parse_args()
 
@@ -46,31 +46,26 @@ def main():
     models = fetch_json(MODEL_JSON_URL).get("models", [])
 
     # Filter by model name if specified
-    if args.model and args.model != "all":
+    if args.model and args.model != "":
         target = args.model
         models = [m for m in models if m.get("filename", "").replace(".pkl", "") == target]
 
     # Handle version filtering
     if args.version and models:
         requested_version = args.version if args.version.startswith("v") else f"v{args.version}"
-
         versioned_model = next((m for m in models if m.get("version", "") == requested_version), None)
         if versioned_model:
             models = [versioned_model]
         else:
-            latest_model = models[0]
-            latest_url = latest_model.get("url", "")
-            if latest_url:
-                new_url = re.sub(r"/v\d+/", f"/{requested_version}/", latest_url)
-                if new_url != latest_url:
-                    modified_model = latest_model.copy()
-                    modified_model["url"] = new_url
-                    modified_model["version"] = requested_version
-                    models = [modified_model]
-                    print(
-                        f"Warning: Version {requested_version} not in catalog. Attempting to use URL: {new_url}",
-                        file=sys.stderr,
-                    )
+            latest_url = models[0].get("url")
+            # The json only contains the latest version. So attempt to construct the requested version URL by replacing the version in the latest URL.
+            # Attempt to construct the requested version URL by replacing the version in the latest URL
+            requested_url = re.sub(r"/v\d+/", f"/{requested_version}/", latest_url)
+
+            if requested_url != latest_url:
+                models[0]["url"] = requested_url
+                models[0]["version"] = requested_version
+
     # If no version specified, use all models from JSON (which contains only latest versions)
 
     out_json = {"data_tables": {"celltypist_models": []}}
@@ -94,8 +89,12 @@ def main():
             dest_path = target_directory / f"{model}.pkl"
             if not dest_path.exists():
                 print(f"Downloading {filename}...", file=sys.stderr)
-                safe_download(url, str(dest_path))
-            path_value = str(dest_path)
+                try:
+                    safe_download(url, str(dest_path))
+                except requests.RequestException as exc:
+                    print(f"Error: Failed to download {filename}({version}): {exc}", file=sys.stderr)
+                    sys.exit(1)
+            path_value = str(dest_path.resolve())
         else:
             path_value = ""
 
