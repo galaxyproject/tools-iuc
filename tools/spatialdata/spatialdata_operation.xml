@@ -248,7 +248,16 @@ result = sd.concatenate(
 element = sdata['$operation_condi.element_name']
     #if $operation_condi.maintain_positioning_condi.maintain_positioning == 'yes':
 ## Apply transformation with maintain_positioning=True
-        #if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'translation':
+        #if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'identity':
+from spatialdata.transformations import Identity
+transformation = Identity()
+        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'map_axis':
+from spatialdata.transformations import MapAxis
+            #set input_axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.map_axis_input).split(',')]
+            #set output_axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.map_axis_output).split(',')]
+map_axis_dict = dict(zip($input_axes_list, $output_axes_list))
+transformation = MapAxis(map_axis_dict)
+        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'translation':
 from spatialdata.transformations import Translation
             #set translation_list = [float(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.translation).split(',')]
             #set axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.axes).split(',')]
@@ -258,19 +267,22 @@ from spatialdata.transformations import Scale
             #set scale_list = [float(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.scale).split(',')]
             #set axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.axes).split(',')]
 transformation = Scale($scale_list, axes=tuple($axes_list))
-        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'rotation':
-import math
+        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'affine':
 from spatialdata.transformations import Affine
-            #set theta = math.radians(float($operation_condi.maintain_positioning_condi.transformation_condi.angle))
+import ast
+            #set input_axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.input_axes).split(',')]
+            #set output_axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.output_axes).split(',')]
+matrix = ast.literal_eval('$operation_condi.maintain_positioning_condi.transformation_condi.matrix')
 transformation = Affine(
-    [
-        [math.cos($theta), -math.sin($theta), 0],
-        [math.sin($theta), math.cos($theta), 0],
-        [0, 0, 1],
-    ],
-    input_axes=('x', 'y'),
-    output_axes=('x', 'y'),
+    matrix,
+    input_axes=tuple($input_axes_list),
+    output_axes=tuple($output_axes_list),
 )
+        #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'sequence':
+from spatialdata.transformations import Sequence, Identity, MapAxis, Translation, Scale, Affine
+## Execute user-provided code to create transformation list
+transformations_list = eval('$operation_condi.maintain_positioning_condi.transformation_condi.transformations_code')
+transformation = Sequence(transformations_list)
         #end if
 result_element = sd.transform(
     element,
@@ -770,10 +782,24 @@ print("\nOperation completed successfully!")
                     <when value="yes">
                         <conditional name="transformation_condi">
                             <param name="transformation_type" type="select" label="Transformation type">
+                                <option value="identity">Identity - No transformation</option>
+                                <option value="map_axis">MapAxis - Map input axes to output axes</option>
                                 <option value="translation">Translation</option>
                                 <option value="scale">Scale</option>
-                                <option value="rotation">Rotation</option>
+                                <option value="affine">Affine - General affine transformation with matrix</option>
+                                <option value="sequence">Sequence - Compose multiple transformations (Advanced)</option>
                             </param>
+                            <when value="identity">
+                                <!-- Identity transformation has no parameters -->
+                            </when>
+                            <when value="map_axis">
+                                <param name="map_axis_input" type="text" label="Input axes" help="Comma-separated list of input axes (e.g., 'x,y,z')">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                                <param name="map_axis_output" type="text" label="Output axes" help="Comma-separated list of output axes corresponding to input axes (e.g., 'y,x,z' to swap x and y)">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                            </when>
                             <when value="translation">
                                 <param name="translation" type="text" label="Translation vector" help="Comma-separated translation values (e.g., '10,20' for 2D)">
                                     <expand macro="sanitize_digits"/>
@@ -790,8 +816,21 @@ print("\nOperation completed successfully!")
                                     <expand macro="sanitize_query"/>
                                 </param>
                             </when>
-                            <when value="rotation">
-                                <param name="angle" type="float" min="-360" max="360" label="Rotation angle" help="Rotation angle in degrees"/>
+                            <when value="affine">
+                                <param name="matrix" type="text" label="Affine matrix" help="Affine transformation matrix as nested lists, e.g., '[[1,0,0],[0,1,0],[0,0,1]]' for 2D identity. For 2D rotation by angle θ: [[cos(θ),-sin(θ),0],[sin(θ),cos(θ),0],[0,0,1]]">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                                <param name="input_axes" type="text" value="x,y" label="Input axes" help="Comma-separated list of input axes (e.g., 'x,y')">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                                <param name="output_axes" type="text" value="x,y" label="Output axes" help="Comma-separated list of output axes (e.g., 'x,y')">
+                                    <expand macro="sanitize_query"/>
+                                </param>
+                            </when>
+                            <when value="sequence">
+                                <param name="transformations_code" type="text" area="true" label="Transformations list (Python code)" help="Python code to create a list of transformations. Example: [Translation([10,20], axes=('x','y')), Scale([2,2], axes=('x','y'))]. Available: Identity(), MapAxis({...}), Translation([...], axes=(...)), Scale([...], axes=(...)), Affine(matrix, input_axes=(...), output_axes=(...)). Advanced usage only.">
+                                    <expand macro="sanitize_query"/>
+                                </param>
                             </when>
                         </conditional>
                     </when>
@@ -1600,7 +1639,7 @@ This tool performs various operations on SpatialData objects, including:
 - **Bounding Box Query**: Extract data within a specified bounding box
 - **Polygon Query**: Extract data within a polygon region
 - **Get Extent**: Calculate the spatial extent (bounding box) of elements
-- **Transform**: Apply geometric transformations (translation, scale, rotation)
+- **Transform**: Apply geometric transformations (Identity, MapAxis, Translation, Scale, Affine, Sequence)
 - **Aggregate**: Aggregate values from one element by regions defined in another
 - **Convert to Circles**: Approximate geometries as circles
 - **Convert to Polygons**: Convert geometries to polygons
