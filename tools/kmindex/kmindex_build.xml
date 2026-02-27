@@ -1,0 +1,134 @@
+<tool id="kmindex_build" name="kmindex build" version="@VERSION@" profile="@PROFILE@">
+    <description>build k-mer index from sequencing samples</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        ## Create file of filenames (FOF)
+        echo '${index_name}: ${input_data}' | sed 's/,/ ; /g' > input.fof &&
+        ## Run kmindex build
+        kmindex build
+            --fof input.fof
+            --run-dir @inplace
+            --index '${output_index.extra_files_path}'
+            --register-as '$register_as'
+            --kmer-size $kmer_size
+            --minim-size $minim_size
+            --hard-min $hard_min
+            --nb-partitions $nb_partitions
+            #if $index_type.type_selector == 'presence_absence':
+                --bloom-size $index_type.bloom_size
+            #elif $index_type.type_selector == 'abundance':
+                --nb-cell $index_type.nb_cell
+                --bitw $index_type.bitw
+            #end if
+            --threads \${GALAXY_SLOTS:-1}
+            --verbose $verbose
+    ]]></command>
+    <inputs>
+        <param name="input_data" type="data" format="fasta,fastq,fasta.gz,fastq.gz" multiple="true" label="Input sequences" help="FASTA or FASTQ files to index (can be gzipped)"/>
+        <param name="index_name" type="text" multiple="false" label="Unique index name" help="Unique name for the index">
+            <validator type="regex" message="Index name must contain only alphanumeric characters, underscores, and hyphens">^[a-zA-Z0-9_-]+$</validator>
+        </param>
+        <param argument="--register-as" type="text" value="sample" label="Index name" help="Name to register the index as">
+            <validator type="regex" message="Index name must contain only alphanumeric characters, underscores, and hyphens">^[a-zA-Z0-9_-]+$</validator>
+        </param>
+        <param argument="--kmer-size" type="integer" value="31" min="8" max="31" label="K-mer size" help="Size of k-mers to index"/>
+        <param argument="--minim-size" type="integer" value="10" min="4" max="15" label="Minimizer size" help="Size of minimizers used in indexing"/>
+        <param argument="--hard-min" type="integer" value="2" min="1" label="Hard minimum abundance" help="Minimum abundance threshold for k-mer retention"/>
+        <param argument="--nb-partitions" type="integer" value="0" min="0" label="Number of partitions" help="Number of partitions (0 = auto mode)"/>
+        <conditional name="index_type">
+            <param name="type_selector" type="select" label="Index type" help="Choose between presence/absence or abundance indexing">
+                <option value="presence_absence" selected="true">Presence/Absence</option>
+                <option value="abundance">Abundance</option>
+            </param>
+            <when value="presence_absence">
+                <param argument="--bloom-size" type="integer" value="1000000" min="1" label="Bloom filter size" help="Bloom filter size in bits"/>
+            </when>
+            <when value="abundance">
+                <param argument="--nb-cell" type="integer" value="1000000" min="1" label="Number of cells" help="Counting Bloom filter cell count"/>
+                <param argument="--bitw" type="integer" value="2" min="1" label="Bits per cell" help="Number of bits per cell in counting Bloom filter"/>
+            </when>
+        </conditional>
+        <expand macro="common_params"/>
+    </inputs>
+    <outputs>
+        <data name="output_index" format="kmindex" label="${tool.name} on ${on_string}: index"/>
+    </outputs>
+    <tests>
+        <!-- Test 1: Basic presence/absence indexing with single FASTA file -->
+        <test expect_num_outputs="1">
+            <param name="input_data" value="sample1.fasta"/>
+            <param name="index_name" value="SmallIndex"/>
+            <param name="register_as" value="test_index"/>
+            <param name="kmer_size" value="10"/>
+            <param name="minim_size" value="4"/>
+            <conditional name="index_type">
+                <param name="type_selector" value="presence_absence"/>
+                <param name="bloom_size" value="100000"/>
+            </conditional>
+            <output name="output_index" ftype="kmindex">
+                <extra_files name="index.json" > 
+                    <assert_contents>
+                        <has_json_property_with_value property="bloom_size" value="100096"/>
+                    </assert_contents>
+                </extra_files>
+            </output>
+        </test>
+        <!-- Test 2: Abundance indexing with multiple files -->
+        <test expect_num_outputs="1">
+            <param name="input_data" value="sample1.fasta,sample2.fasta"/>
+            <param name="index_name" value="MySuperIndex"/>
+            <param name="register_as" value="abundance_test"/>
+            <param name="kmer_size" value="10"/>
+            <param name="minim_size" value="4"/>
+            <conditional name="index_type">
+                <param name="type_selector" value="abundance"/>
+                <param name="nb_cell" value="100000"/>
+                <param name="bitw" value="4"/>
+            </conditional>
+            <output name="output_index" ftype="kmindex">
+                <extra_files name="index.json" >
+                    <assert_contents>
+                        <has_json_property_with_value property="bloom_size" value="100096"/>
+                    </assert_contents>
+                </extra_files>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+kmindex build creates a k-mer index from one or more sequencing sample files. The index can be used for fast querying of k-mer presence/abundance across samples.
+
+**Input**
+
+- One or more FASTA or FASTQ files (can be gzipped)
+- Various indexing parameters including k-mer size, minimizer size, and abundance thresholds
+
+**Output**
+
+- A folder containing the k-mer index
+
+**Index Types**
+
+- **Presence/Absence**: Uses Bloom filters to track k-mer presence (faster, less memory)
+- **Abundance**: Uses Counting Bloom filters to track k-mer counts (more detailed)
+
+**Parameters**
+
+- **K-mer size**: Length of k-mers to index (8-31 bp)
+- **Minimizer size**: Size of minimizers used for indexing (4-15 bp)
+- **Hard minimum**: Minimum abundance threshold for k-mer retention
+- **Number of partitions**: Set to 0 for automatic partitioning
+
+**More Information**
+
+For more details, see the kmindex documentation at https://tlemane.github.io/kmindex/
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,0 +1,260 @@
+<tool id="metamdbg_asm" name="metaMDBG assemble" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+  <description>Assemble long-read metagenomes (HiFi / ONT)</description>
+
+  <macros>
+    <import>macros.xml</import>
+  </macros>
+  <expand macro="edam"/>
+  <expand macro="biotools"/>
+  <expand macro="requirements"/>
+  <expand macro="version"/>
+
+  <command detect_errors="exit_code"><![CDATA[
+    mkdir -p assemblyDir &&
+
+    ## Collect reads from file(s) and/or list collection
+    #set reads_list = []
+    #if $inputs.reads
+        #for $r in $inputs.reads
+            #set $x = $reads_list.append($r.file_name)
+        #end for
+    #end if
+
+
+    metaMDBG asm 
+        --out-dir "assemblyDir"
+        --threads "\${GALAXY_SLOTS:-4}"
+        --in-$read_type
+        #for $p in $reads_list
+        '$p'
+        #end for
+        --kmer-size $assembly.kmer_size
+        --density-assembly $assembly.density_assembly 
+        --max-k $assembly.max_k 
+        --min-abundance $assembly.min_abundance 
+        $all_assembly_graph
+        --min-read-quality $correction.min_read_quality 
+        --density-correction $correction.density_correction 
+        --min-read-identity $correction.min_read_identity 
+        --min-read-overlap $correction.min_read_overlap 
+        --skip-correction
+        &&
+
+    ## Bundle for downstream graphing
+    tar -C assemblyDir -czf assemblyDir.tgz . ;
+  ]]></command>
+
+  <inputs>
+    <param name="read_type" type="select" label="Read type" help="maps to --in-*">
+      <option value="hifi">PacBio HiFi (uses --in-hifi)</option>
+      <option value="ont">Nanopore R10.4+ (uses --in-ont)</option>
+    </param>
+
+    <section name="inputs" title="Input reads" expanded="true">
+      <param name="reads" type="data" format="fastqsanger,fastqsanger.gz"
+             multiple="true" optional="false"
+             label="FASTQ file(s)"
+             help="Multi-select one or more FASTQ files for (co-)assembly."/>
+    </section>
+
+    <section name="assembly" title="Assembly options (advanced)" expanded="false">
+        <param argument="--kmer_size" type="integer" value="15"
+                label="k-mer size"/>
+        <param argument="--density_assembly" type="float" value="0.005"
+                label="Fraction of k-mers used for assembly"/>
+        <param argument="--max_k" type="integer" value="0"
+                label="Stop assembly after k iterations"/>
+        <param argument="--min_abundance" type="integer" value="0"
+                label="Minimum k-min-mer abundance"/>
+        <param argument="--all_assembly_graph" type="boolean" checked="false" truevalue="--all-assembly-graph" falsevalue=""
+                label="Emit assembly graph at each multi-k iteration"/>
+    </section>
+
+    <section name="correction" title="Correction options (advanced)" expanded="false">
+        <param argument="--min_read_quality" type="integer" value="0"
+                label="Minimum read average quality"/>
+        <param argument="--density_correction" type="float" value="0.025"
+                label="Fraction of k-mers used for correction"/>
+        <param argument="--min_read_identity" type="float" value="0.96"
+                label="Minimum read identity"/>
+        <param argument="--min_read_overlap" type="integer" value="1000"
+                label="Minimum read overlap length"/>
+        <param argument="--skip_correction" type="boolean" value="false"
+                label="Skip read correction"/>
+    </section>
+
+  </inputs>
+
+  <outputs>
+    <data name="contigs" format="fasta.gz"
+          from_work_dir="assemblyDir/contigs.fasta.gz"
+          label="${tool.name} on ${on_string}: contigs"/>
+    <data name="assembly_bundle" format="tar.gz"
+          from_work_dir="assemblyDir.tgz"
+          label="${tool.name} on ${on_string}: metaMDBG assembly bundle (tar)"/>
+  </outputs>
+
+  <tests>
+
+    <!-- 1) HiFi, single-file, defaults (no optional flags passed) -->
+    <test expect_num_outputs="2">
+      <param name="read_type" value="hifi"/>
+      <section name="inputs">
+        <param name="reads" value="hifi_reads_small.fastq.gz"/>
+      </section>
+
+      <!-- default flags appear -->
+      <assert_command>
+        <has_text text="--in-hifi"/>
+        <has_text text="--kmer-size 15"/>
+        <has_text text="--density-assembly 0.005"/>
+      </assert_command>
+
+      <!-- contigs is gzipped; just sanity check size -->
+      <output name="contigs">
+        <assert_contents>
+          <has_size min="1"/>
+        </assert_contents>
+      </output>
+
+      <!-- check tarball contains key members -->
+      <output name="assembly_bundle" ftype="tar.gz">
+        <assert_contents>
+          <has_archive_member path="^(\.\/)?contigs\.fasta\.gz$"/>
+          <has_archive_member path="^(\.\/)?tmp\/"/>
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- 2) ONT, single-file, exercise correction toggles -->
+    <test expect_num_outputs="2">
+      <param name="read_type" value="ont"/>
+      <section name="inputs">
+        <param name="reads" value="ont_reads_small.fastq.gz"/>
+      </section>
+      <section name="correction">
+        <param name="min_read_quality" value="0"/>
+        <param name="density_correction" value="0.02"/>
+        <param name="min_read_identity" value="0.95"/>
+        <param name="min_read_overlap" value="800"/>
+        <param name="skip_correction" value="true"/>
+      </section>
+
+      <assert_command>
+        <has_text text="--in-ont"/>
+        <has_text text="--min-read-quality 0"/>
+        <has_text text="--density-correction 0.02"/>
+        <has_text text="--min-read-identity 0.95"/>
+        <has_text text="--min-read-overlap 800"/>
+        <has_text text="--skip-correction"/>
+      </assert_command>
+
+      <output name="contigs">
+        <assert_contents>
+          <has_size min="1"/>
+        </assert_contents>
+      </output>
+      <output name="assembly_bundle" ftype="tar.gz">
+        <assert_contents>
+          <has_archive_member path="^(\.\/)?contigs\.fasta\.gz$"/>
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- 3) HiFi, set assembly knobs (incl. all-assembly-graph) -->
+    <test expect_num_outputs="2">
+      <param name="read_type" value="hifi"/>
+      <section name="inputs">
+        <param name="reads" value="hifi_reads_small.fastq.gz"/>
+      </section>
+      <section name="assembly">
+        <param name="kmer_size" value="13"/>
+        <param name="density_assembly" value="0.01"/>
+        <param name="max_k" value="8"/>
+        <param name="min_abundance" value="2"/>
+        <param name="all_assembly_graph" value="true"/>
+      </section>
+
+      <assert_command>
+        <has_text text="--kmer-size 13"/>
+        <has_text text="--density-assembly 0.01"/>
+        <has_text text="--max-k 8"/>
+        <has_text text="--min-abundance 2"/>
+        <has_text text="--all-assembly-graph"/>
+      </assert_command>
+
+      <output name="contigs">
+        <assert_contents>
+          <has_size min="1"/>
+        </assert_contents>
+      </output>
+      <output name="assembly_bundle" ftype="tar.gz">
+        <assert_contents>
+            <has_archive_member path="^(\.\/)?contigs\.fasta\.gz$"/>
+            <has_archive_member path="^(\.\/)?tmp\/"/>
+        </assert_contents>
+      </output>
+    </test>
+
+    <!-- 4) HiFi, multi-file, defaults-->
+    <test expect_num_outputs="2">
+      <param name="read_type" value="hifi"/>
+      <section name="inputs">
+        <param name="reads" value="hifi_reads_small.fastq.gz,hifi_reads_small_2.fastq.gz,hifi_reads_small_3.fastq.gz"/>
+      </section>
+
+      <!-- contigs is gzipped; just sanity check size -->
+      <output name="contigs">
+        <assert_contents>
+          <has_size min="1"/>
+        </assert_contents>
+      </output>
+
+      <!-- check tarball contains key members -->
+      <output name="assembly_bundle" ftype="tar.gz">
+        <assert_contents>
+          <has_archive_member path="^(\.\/)?contigs\.fasta\.gz$"/>
+          <has_archive_member path="^(\.\/)?tmp\/"/>
+        </assert_contents>
+      </output>
+    </test>
+
+  </tests>
+  <help><![CDATA[
+**What this tool does and why**
+
+This tool runs `metaMDBG asm` to assemble long-read metagenomes (PacBio HiFi or ONT R10.4+) using a minimizer-space de Bruijn graph with a multi-k strategy. It produces polished contigs and a tarred snapshot of the assembly directory for downstream graphing and reproducibility.
+
+**How to use this tool effectively**
+
+1. **Provide input reads.** Select one or more FASTQ files or supply a list collection.
+
+2. **Choose the read type.** Select PacBio HiFi (sets `--in-hifi`) or Nanopore R10.4+ (sets `--in-ont`).
+
+3. **(Optional) Tune assembly options.** Adjust k-mer size, assembly density, max k iterations, minimum abundance, or enable `--all-assembly-graph`.
+
+4. **(Optional) Tune correction options.** Set minimum read quality/identity/overlap or `--skip-correction`.
+
+5. **Review outputs.** You’ll get the contigs and a tarball of the entire `assemblyDir/` for later use with the GFA tool or auditing.
+
+**Outputs**
+
+- **`contigs.fasta.gz`** — compressed FASTA of assembled contigs.  
+- **`assemblyDir.tgz`** — compressed snapshot of the assembly directory (including logs and `tmp/`).
+
+**Options (Galaxy ↔ CLI mapping)**
+
+- **Read type:** `--in-hifi` or `--in-ont`.  
+- **Assembly options:** `--kmer-size`, `--density-assembly`, `--max-k`, `--min-abundance`, `--all-assembly-graph`.  
+- **Correction options:** `--min-read-quality`, `--density-correction`, `--min-read-identity`, `--min-read-overlap`, `--skip-correction`.
+
+**Why we generate a tar bundle**
+
+Packaging `assemblyDir/` as `assemblyDir.tgz` preserves all artifacts and makes it easy to pass the exact assembly into the **metaMDBG graph (GFA)** tool.
+
+  ]]></help>
+
+  <expand macro="citations"/>
+</tool>
+
+

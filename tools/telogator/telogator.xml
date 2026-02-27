@@ -1,0 +1,348 @@
+<tool id="telogator" name="Telogator" version="@VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>Measure allele-specific telomere length from long reads</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+
+        ## Create output directory
+        mkdir -p output_dir &&
+
+        ## Link input files with proper extensions since it's used to
+        ## define input types in telogator
+        #set $input_files = []
+        #for $idx, $input_file in enumerate($input_reads)
+            #set $identifier = str($input_file.element_identifier)
+            #set $safe_name = re.sub('[^\w\-\.]', '_', $identifier)
+            ## Add extension only if filename doesn't already have appropriate extension
+            #if $input_file.is_of_type('fasta.gz') and not ($safe_name.endswith('.fa.gz') or $safe_name.endswith('.fasta.gz'))
+                #set $safe_name = $safe_name + '.fa.gz'
+            #elif $input_file.is_of_type('fasta') and not ($safe_name.endswith('.fa') or $safe_name.endswith('.fasta'))
+                #set $safe_name = $safe_name + '.fa'
+            #elif $input_file.is_of_type('fastqsanger.gz', 'fastq.gz') and not ($safe_name.endswith('.fq.gz') or $safe_name.endswith('.fastq.gz'))
+                #set $safe_name = $safe_name + '.fq.gz'
+            #elif $input_file.is_of_type('fastqsanger', 'fastq') and not ($safe_name.endswith('.fq') or $safe_name.endswith('.fastq'))
+                #set $safe_name = $safe_name + '.fq'
+            #elif $input_file.is_of_type('bam') and not $safe_name.endswith('.bam')
+                #set $safe_name = $safe_name + '.bam'
+            #elif $input_file.is_of_type('cram') and not $safe_name.endswith('.cram')
+                #set $safe_name = $safe_name + '.cram'
+            #end if
+            ln -sf '${input_file}' '${safe_name}' &&
+            #silent $input_files.append($safe_name)
+        #end for
+
+        ## Run telogator
+        telogator2
+        -i #echo ' '.join($input_files)
+        -o output_dir
+        -r '${read_type}'
+        -p "\${GALAXY_SLOTS:-1}"
+
+        ## Basic parameters
+        -l '${basic_params.min_read_length}'
+        -c '${basic_params.min_canonical_hits}'
+        -n '${basic_params.min_reads_cluster}'
+        -m '${basic_params.atl_method}'
+        #if str($basic_params.downsample) != ''
+            -d '${basic_params.downsample}'
+        #end if
+        #if str($basic_params.random_seed) != ''
+            --rng '${basic_params.random_seed}'
+        #end if
+
+        ## Reference files
+        #if $reference_opts.custom_reference
+            -t '${reference_opts.custom_reference}'
+        #end if
+        #if $reference_opts.kmer_file
+            -k '${reference_opts.kmer_file}'
+        #end if
+
+        ## Aligner selection
+        #if $aligner.aligner_choice == 'minimap2'
+            --minimap2 minimap2
+        #elif $aligner.aligner_choice == 'winnowmap'
+            --winnowmap winnowmap
+            #if $aligner.winnowmap_k15
+                --winnowmap-k15 '${aligner.winnowmap_k15}'
+            #end if
+        #elif $aligner.aligner_choice == 'pbmm2'
+            --pbmm2 pbmm2
+        #end if
+
+        ## Advanced filtering
+        --filt-tel '${advanced.filtering.filt_tel}'
+        --filt-nontel '${advanced.filtering.filt_nontel}'
+        --filt-sub '${advanced.filtering.filt_sub}'
+        --collapse-hom '${advanced.filtering.collapse_hom}'
+        
+        ${advanced.filtering.fast_aln}
+
+        ## Hierarchical clustering parameters
+        -t0 '${advanced.clustering.t0}'
+        -t1 '${advanced.clustering.t1}'
+        -t2 '${advanced.clustering.t2}'
+        -tc '${advanced.clustering.tc}'
+        -ts '${advanced.clustering.ts}'
+        -th '${advanced.clustering.th}'
+
+        ## Plot customization
+        -afa-x '${advanced.plotting.afa_x}'
+        -afa-t '${advanced.plotting.afa_t}'
+        -afa-a '${advanced.plotting.afa_a}'
+        -va-y '${advanced.plotting.va_y}'
+        -va-t '${advanced.plotting.va_t}'
+        -va-p '${advanced.plotting.va_p}'
+
+        ## Move outputs to expected locations
+        && mv output_dir/tlens_by_allele.tsv '${output_tsv}'
+        && mv output_dir/all_final_alleles.png '${output_alleles_plot}'
+        && mv output_dir/violin_atl.png '${output_violin_plot}'
+    ]]></command>
+    <inputs>
+        <param name="input_reads" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,bam" multiple="true" label="Input reads" help="Long-read sequencing data in FASTA, FASTQ or BAM format. Multiple files can be selected."/>
+
+        <param name="read_type" type="select" label="Read type" help="Sequencing platform type">
+            <option value="ont">Oxford Nanopore (ONT)</option>
+            <option value="hifi" selected="true">PacBio HiFi</option>
+        </param>
+
+        <section name="basic_params" title="Basic Parameters" expanded="true">
+            <param name="min_read_length" argument="-l" type="integer" value="4000" min="0" label="Minimum read length" help="Minimum read length in base pairs"/>
+            <param name="min_canonical_hits" argument="-c" type="integer" value="8" min="0" label="Minimum canonical kmer hits" help="Minimum hits to tandem canonical kmer"/>
+            <param name="min_reads_cluster" argument="-n" type="integer" value="3" min="1" label="Minimum reads per cluster" help="Minimum number of reads required per cluster. Recommended: PacBio Revio HiFi (30x): 4, PacBio Sequel II (10x): 3, Nanopore R10 (30x): 4"/>
+            <param name="atl_method" argument="-m" type="select" label="ATL calculation method" help="Method for calculating allele-specific telomere length">
+                <option value="p75" selected="true">75th percentile (p75)</option>
+                <option value="mean">Mean</option>
+                <option value="median">Median</option>
+                <option value="max">Maximum</option>
+            </param>
+            <param name="downsample" argument="-d" type="integer" optional="true" value="" label="Downsample telomere reads" help="Downsample to N telomere reads (optional)"/>
+            <param name="random_seed" argument="--rng" type="integer" optional="true" value="" label="Random seed" help="Random seed value for reproducibility (optional)"/>
+        </section>
+
+        <section name="reference_opts" title="Reference Options" expanded="false">
+            <param name="custom_reference" argument="-t" type="data" format="fasta" optional="true" label="Custom reference FASTA" help="Optional custom telogator reference FASTA file. If not provided, built-in human T2T reference will be used."/>
+            <param name="kmer_file" argument="-k" type="data" format="tsv" optional="true" label="Telomere kmers file" help="Optional telomere k-mers file. If omitted, a built-in human telomere k-mers file is used."/>
+        </section>
+
+        <conditional name="aligner">
+            <param name="aligner_choice" type="select" label="Alignment tool" help="Select which aligner to use">
+                <option value="minimap2" selected="true">minimap2</option>
+                <option value="winnowmap">winnowmap</option>
+                <option value="pbmm2">pbmm2</option>
+            </param>
+            <when value="minimap2"/>
+            <when value="winnowmap">
+                <param argument="--winnowmap-k15" type="data" format="txt" optional="true" label="Winnowmap k15 file" help="High-frequency kmers file for winnowmap"/>
+            </when>
+            <when value="pbmm2"/>
+        </conditional>
+
+        <section name="advanced" title="Advanced Parameters" expanded="false">
+            <section name="filtering" title="Filtering Thresholds" expanded="true">
+                <param argument="--filt-tel" type="integer" value="400" min="0" label="Minimum terminating telomere" help="Minimum terminating telomere length in bp"/>
+                <param argument="--filt-nontel" type="integer" value="100" min="0" label="Maximum terminating non-telomere" help="Maximum terminating non-telomere length in bp"/>
+                <param argument="--filt-sub" type="integer" value="1000" min="0" label="Minimum terminating subtelomere" help="Minimum terminating subtelomere length in bp"/>
+                <param argument="--collapse-hom" type="integer" value="1000" min="0" label="Collapse homologous alleles" help="Merge alleles within this distance in bp"/>
+                <param argument="--fast-aln" type="boolean" truevalue="--fast-aln" falsevalue="" checked="false" label="Use fast alignment" help="Use faster but less accurate pairwise alignment"/>
+            </section>
+
+            <section name="clustering" title="Hierarchical Clustering (TREECUT) Parameters" expanded="false">
+                <param argument="-t0" type="float" value="0.200" min="0" max="1" label="TVR clustering iteration 0" help="Threshold for TVR clustering in iteration 0"/>
+                <param argument="-t1" type="float" value="0.150" min="0" max="1" label="TVR clustering iteration 1" help="Threshold for TVR clustering in iteration 1"/>
+                <param argument="-t2" type="float" value="0.100" min="0" max="1" label="TVR clustering iteration 2" help="Threshold for TVR clustering in iteration 2"/>
+                <param argument="-tc" type="float" value="0.050" min="0" max="1" label="TVR clustering collapse" help="Threshold for collapsing TVR clusters"/>
+                <param argument="-ts" type="float" value="0.200" min="0" max="1" label="Subtel cluster refinement" help="Threshold for subtelomere cluster refinement"/>
+                <param argument="-th" type="float" value="0.050" min="0" max="1" label="Collapsing aligned alleles" help="Threshold for collapsing aligned alleles"/>
+            </section>
+
+            <section name="plotting" title="Plot Customization" expanded="false">
+                <param argument="-afa-x" type="integer" value="15000" min="0" label="All alleles plot X-axis max" help="Maximum X-axis value for all final alleles plot"/>
+                <param argument="-afa-t" type="integer" value="1000" min="0" label="All alleles plot tick steps" help="Tick step size for all final alleles plot"/>
+                <param argument="-afa-a" type="integer" value="100" min="0" label="Minimum ATL for plot inclusion" help="Minimum allele-specific telomere length for inclusion in all final alleles plot"/>
+                <param argument="-va-y" type="integer" value="20000" min="0" label="Violin plot Y-axis max" help="Maximum Y-axis value for violin plot"/>
+                <param argument="-va-t" type="integer" value="5000" min="0" label="Violin plot tick steps" help="Tick step size for violin plot"/>
+                <param argument="-va-p" type="integer" value="2" min="1" label="Ploidy" help="Number of alleles per chromosome arm (ploidy)"/>
+            </section>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_tsv" format="tabular" label="${tool.name} on ${on_string}: Telomere lengths by allele"/>
+        <data name="output_alleles_plot" format="png" label="${tool.name} on ${on_string}: All final alleles plot"/>
+        <data name="output_violin_plot" format="png" label="${tool.name} on ${on_string}: Violin plot"/>
+    </outputs>
+    <tests>
+        <!-- Test 1: PacBio HiFi data -->
+        <test expect_num_outputs="3">
+            <param name="input_reads" value="hg002-telreads_pacbio.sub.fa.gz"/>
+            <param name="read_type" value="hifi"/>
+            <conditional name="aligner">
+                <param name="aligner_choice" value="minimap2"/>
+            </conditional>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="chr"/>
+                    <has_text text="position"/>
+                    <has_text text="allele_id"/>
+                    <has_text text="TL_p75"/>
+                    <has_n_columns n="11"/>
+                    <has_n_lines n="13" delta="2"/>
+                    <has_line_matching expression="chr\d+[pq]\t\d+.*"/>
+                </assert_contents>
+            </output>
+            <output name="output_alleles_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+            <output name="output_violin_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: Oxford Nanopore data, 2 inputs -->
+        <test expect_num_outputs="3">
+            <param name="input_reads" value="hg002-ont-1p.fa.gz,hg002-ont-1p.sub.fa.gz"/>
+            <param name="read_type" value="ont"/>
+            <conditional name="aligner">
+                <param name="aligner_choice" value="minimap2"/>
+            </conditional>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="chr"/>
+                    <has_text text="position"/>
+                    <has_text text="allele_id"/>
+                    <has_text text="TL_p75"/>
+                    <has_n_columns n="11"/>
+                    <has_n_lines n="2" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_alleles_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+            <output name="output_violin_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: PacBio HiFi data, pbmm2 -->
+        <test expect_num_outputs="3">
+            <param name="input_reads" value="hg002-telreads_pacbio.sub.fa.gz"/>
+            <param name="read_type" value="hifi"/>
+            <conditional name="aligner">
+                <param name="aligner_choice" value="pbmm2"/>
+            </conditional>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="chr"/>
+                    <has_text text="position"/>
+                    <has_text text="allele_id"/>
+                    <has_text text="TL_p75"/>
+                    <has_n_columns n="11"/>
+                    <has_n_lines n="13" delta="2"/>
+                </assert_contents>
+            </output>
+            <output name="output_alleles_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+            <output name="output_violin_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: PacBio HiFi data, winnowmap -->
+        <test expect_num_outputs="3">
+            <param name="input_reads" value="hg002-telreads_pacbio.sub.fa.gz"/>
+            <param name="read_type" value="hifi"/>
+            <conditional name="aligner">
+                <param name="aligner_choice" value="winnowmap"/>
+            </conditional>
+            <output name="output_tsv">
+                <assert_contents>
+                    <has_text text="chr"/>
+                    <has_text text="position"/>
+                    <has_text text="allele_id"/>
+                    <has_text text="TL_p75"/>
+                    <has_n_columns n="11"/>
+                    <has_n_lines n="13" delta="2"/>
+                </assert_contents>
+            </output>
+            <output name="output_alleles_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+            <output name="output_violin_plot">
+                <assert_contents>
+                    <has_size min="10000" max="500000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Telogator2 measures allele-specific telomere length (ATL) and characterizes telomere variant repeat (TVR) sequences from long-read sequencing data (PacBio HiFi or Oxford Nanopore).
+
+The tool performs the following analyses:
+
+1. Extracts reads containing telomeric sequences
+2. Aligns reads to reference genome to identify chromosome arms
+3. Clusters reads by TVR sequences to identify individual alleles
+4. Calculates allele-specific telomere lengths
+5. Generates visualizations of telomere length distributions
+
+**Inputs**
+
+- Long-read sequencing data (FASTA, FASTQ, BAM, or CRAM format)
+- Optional custom reference genome and kmer files
+- Platform-specific parameters (PacBio HiFi or Oxford Nanopore)
+
+**Outputs**
+
+1. **tlens_by_allele.tsv**: Primary results table containing:
+
+   - chr: Chromosome arm (or chrU for unmapped)
+   - position: Anchor coordinate
+   - ref_samp: Reference contig alignment
+   - allele_id: Allele identifier (suffix 'i' indicates interstitial telomeric regions)
+   - TL_p75: Allele-specific telomere length (75th percentile by default)
+   - read_TLs, read_lengths, read_mapq: Per-read metrics
+   - tvr_len, tvr_consensus: Telomere variant repeat characteristics
+   - supporting_reads: Read identifiers
+
+2. **all_final_alleles.png**: Visualization of all identified alleles
+
+3. **violin_atl.png**: Violin plot showing ATL distributions by chromosome arm
+
+**Platform-Specific Recommendations**
+
+- **PacBio Revio HiFi (30x coverage)**: Set minimum reads per cluster to 4
+- **PacBio Sequel II (10x coverage)**: Set minimum reads per cluster to 3
+- **Nanopore R10 (30x coverage)**: Set minimum reads per cluster to 4
+- **Large enrichment datasets**: Increase minimum reads per cluster to 10
+
+**Important Notes**
+
+- For PacBio Revio data, include both "hifi" and "fail" BAM files
+- Older Nanopore data (Guppy basecalled) may have high error rates in telomere regions
+- Runtime improves with additional CPU cores (increase processes parameter)
+- Alleles with suffix 'i' are interstitial telomeric regions and may need to be excluded from downstream analysis
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
