@@ -1,28 +1,779 @@
-<tool id="scanpy_inspect" name="Scanpy Inspect and manipulate" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+<tool id="squidpy_graph" name="Squidpy Graph" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>perform graph-based spatial analysis on SpatialData objects</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
+    <expand macro="creators"/>
     <command detect_errors="exit_code"><![CDATA[
-@CMD@
+        mkdir -p input output &&
+        #if $input_spatialdata.ext == 'spatialdata.zip':
+            unzip -q '$input_spatialdata' -d input &&
+
+            ## Rename directory to spatialdata if it has a different name
+            dir_name=\$(ls -d input/*/ | head -1 | xargs basename) &&
+            if [ "\$dir_name" != "spatialdata" ]; then
+                mv "input/\$dir_name" input/spatialdata;
+            fi &&
+        #else if $input_spatialdata.ext == 'h5ad':
+            cp '$input_spatialdata' input/spatialdata.h5ad &&
+        #end if
+        ## run the graph operation
+        cat 'squidpy_graph.py' &&
+        python3 'squidpy_graph.py'
+        #if $input_spatialdata.ext == 'spatialdata.zip':
+            && cd output && zip -r ../spatialdata.spatialdata.zip spatialdata/ && cd ..
+        #end if
     ]]></command>
     <configfiles>
         <configfile name="squidpy_config" filename="squidpy_graph.py"><![CDATA[
+import spatialdata as sd
+import anndata as ad
+import squidpy as sq
+import numpy as np
 
+#if $input_spatialdata.ext == 'spatialdata.zip':
+## Load the SpatialData object
+adata = sd.read_zarr("input/spatialdata")
+
+print("Input SpatialData object:")
+print(adata)
+
+#else if $input_spatialdata.ext == 'h5ad':
+## Load the AnnData object
+adata = ad.read_h5ad("input/spatialdata.h5ad")
+
+print("Input Anndata object:")
+print(adata)
+#end if
+
+#if $operation_condi.operation == 'spatial_neighbors':
+## Compute spatial neighbors
+print("\nComputing spatial neighbors...")
+    #if $operation_condi.elements_to_coordinate_systems:
+import json
+with open('$operation_condi.elements_to_coordinate_systems', 'r') as f:
+    elements_to_coordinate_systems = json.load(f)
+    #else:
+elements_to_coordinate_systems = None
+    #end if
+    #if $operation_condi.radius:
+        #if ',' in str($operation_condi.radius):
+            #set radius_list = [float(x.strip()) for x in str($operation_condi.radius).split(',')]
+radius = tuple($radius_list)
+        #else:
+radius = $operation_condi.radius
+        #end if
+    #else:
+radius = None
+    #end if
+
+sq.gr.spatial_neighbors(
+    adata,
+    spatial_key='$operation_condi.spatial_key',
+    elements_to_coordinate_systems=elements_to_coordinate_systems,
+    table_key=table_key,
+    #if $operation_condi.library_key:
+    library_key='$operation_condi.library_key',
+    #end if
+    coord_type='$operation_condi.coord_type',
+    n_neighs=$operation_condi.n_neighs,
+    radius=radius,
+    delaunay=$operation_condi.delaunay_bool,
+    n_rings=$operation_condi.n_rings,
+    #if $operation_condi.percentile:
+    percentile = $operation_condi.percentile,
+    #else:
+    percentile = None,
+    #end if
+    #if $operation_condi.transform:
+    transform = '$operation_condi.transform',
+    #else:
+    transform = None,
+    #end if
+    set_diag=$operation_condi.set_diag_bool,
+    key_added='$operation_condi.key_added',
+    copy=False
+)
+
+#else if $operation_condi.operation == 'mask_graph':
+## Mask graph by polygon
+print("\nMasking graph by polygon...")
+from shapely.geometry import Polygon
+coords_str = '$operation_condi.polygon_coords'
+coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in coords_str.split(';')]
+polygon_mask = Polygon(coords_list)
+
+sq.gr.mask_graph(
+    adata,
+    table_key=table_key,
+    polygon_mask=polygon_mask,
+    negative_mask=$operation_condi.negative_mask_bool,
+    spatial_key='$operation_condi.spatial_key',
+    key_added='$operation_condi.key_added',
+    copy=False
+)
+
+#else if $operation_condi.operation == 'nhood_enrichment':
+## Compute neighborhood enrichment
+import os
+print("\nComputing neighborhood enrichment...")
+sq.gr.nhood_enrichment(
+    adata,
+    cluster_key='$operation_condi.cluster_key',
+    #if $operation_condi.library_key:
+    library_key='$operation_condi.library_key',
+    #end if
+    #if $operation_condi.connectivity_key:
+    connectivity_key = '$operation_condi.connectivity_key',
+    #else:
+    connectivity_key = None,
+    #end if
+    n_perms=$operation_condi.n_perms,
+    numba_parallel=$operation_condi.numba_parallel_bool,
+    #if $operation_condi.seed:
+    seed = $operation_condi.seed,
+    #else:
+    seed = None,
+    #end if
+    copy=False,
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    backend='$operation_condi.backend',
+    show_progress_bar=False
+)
+
+#else if $operation_condi.operation == 'co_occurrence':
+## Compute co-occurrence
+print("\nComputing co-occurrence...")
+    #if $operation_condi.interval_type_condi.interval_type == 'int':
+interval = $operation_condi.interval_type_condi.interval_int
+    #else:
+        #set interval_list = [float(x.strip()) for x in str($operation_condi.interval_type_condi.interval_array).split(',')]
+interval = np.array($interval_list)
+    #end if
+
+sq.gr.co_occurrence(
+    adata,
+    cluster_key='$operation_condi.cluster_key',
+    spatial_key='$operation_condi.spatial_key',
+    interval=interval,
+    copy=False,
+    #if $operation_condi.n_splits:
+    n_splits = $operation_condi.n_splits,
+    #else:
+    n_splits = None,
+    #end if
+    backend='$operation_condi.backend',
+    show_progress_bar=$operation_condi.show_progress_bar_bool
+)
+
+#else if $operation_condi.operation == 'centrality_scores':
+## Compute centrality scores
+print("\nComputing centrality scores...")
+import os
+
+sq.gr.centrality_scores(
+    adata,
+    cluster_key='$operation_condi.cluster_key',
+    #if $operation_condi.score:
+        #set score_list = [str(x.strip()) for x in str($operation_condi.score).split(',')]
+    score = $score_list,
+    #else:
+    score = None,
+    #end if
+    #if $operation_condi.connectivity_key:
+    connectivity_key = '$operation_condi.connectivity_key',
+    #else:
+    connectivity_key = None,
+    #end if
+    copy=False,
+    #if $operation_condi.n_jobs:
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    #end if
+    backend='$operation_condi.backend',
+    show_progress_bar=False
+)
+
+#else if $operation_condi.operation == 'interaction_matrix':
+## Compute interaction matrix
+print("\nComputing interaction matrix...")
+
+sq.gr.interaction_matrix(
+    adata,
+    cluster_key='$operation_condi.cluster_key',
+    #if $operation_condi.connectivity_key:
+    connectivity_key = '$operation_condi.connectivity_key',
+    #else:
+    connectivity_key = None,
+    #end if
+    normalized=$operation_condi.normalized_bool,
+    copy=False,
+    weights=$operation_condi.weights_bool
+)
+
+#else if $operation_condi.operation == 'ripley':
+## Compute Ripley's statistic
+print("\nComputing Ripley's statistic...")
+    #if $operation_condi.seed:
+seed = $operation_condi.seed
+    #else:
+seed = None
+    #end if
+
+sq.gr.ripley(
+    adata,
+    cluster_key='$operation_condi.cluster_key',
+    mode='$operation_condi.mode',
+    spatial_key='$operation_condi.spatial_key',
+    metric='$operation_condi.metric',
+    n_neigh=$operation_condi.n_neigh,
+    n_simulations=$operation_condi.n_simulations,
+    n_observations=$operation_condi.n_observations,
+    #if $operation_condi.max_dist:
+    max_dist = $operation_condi.max_dist,
+    #else:
+    max_dist = None,
+    #end if
+    n_steps=$operation_condi.n_steps,
+    #if $operation_condi.seed:
+    seed=seed,
+    #else:
+    seed=None,
+    #end if
+    copy=False
+)
+
+#else if $operation_condi.operation == 'ligrec':
+## Compute ligand-receptor interactions
+print("\nComputing ligand-receptor interactions...")
+import pandas as pd
+
+    #if $operation_condi.interactions:
+interactions = pd.read_csv('$operation_condi.interactions', sep='\t')
+    #else:
+interactions = None
+    #end if
+
+sq.gr.ligrec(
+    adata,
+    cluster_key='$operation_condi.cluster_key',
+    interactions=interactions,
+    complex_policy='$operation_condi.complex_policy',
+    threshold=$operation_condi.threshold,
+    corr_method = '$operation_condi.corr_method',
+    corr_axis='$operation_condi.corr_axis',
+    use_raw=$operation_condi.use_raw_bool,
+    copy=False,
+    #if $operation_condi.key_added:
+    key_added = '$operation_condi.key_added',
+    #else:
+    key_added = None,
+    #end if
+    #if $operation_condi.gene_symbols:
+    gene_symbols = '$operation_condi.gene_symbols'
+    #else:
+    gene_symbols = None
+    #end if
+)
+
+#else if $operation_condi.operation == 'spatial_autocorr':
+## Compute spatial autocorrelation
+print("\nComputing spatial autocorrelation...")
+import os
+
+sq.gr.spatial_autocorr(
+    adata,
+    connectivity_key='$operation_condi.connectivity_key',
+    #if $operation_condi.genes:
+        #set genes_list = [str(x.strip()) for x in str($operation_condi.genes).split(',')]
+    genes = $genes_list,
+    #else:
+    genes = None,
+    #end if
+    mode='$operation_condi.mode',
+    transformation=$operation_condi.transformation_bool,
+    #if $operation_condi.n_perms:
+    n_perms = $operation_condi.n_perms,
+    #else:
+    n_perms = None,
+    #end if
+    two_tailed=$operation_condi.two_tailed_bool,
+    #if $operation_condi.corr_method:
+    corr_method = '$operation_condi.corr_method',
+    #else:
+    corr_method = None,
+    #end if
+    attr='$operation_condi.attr',
+    #if $operation_condi.layer:
+    layer = '$operation_condi.layer',
+    #else:
+    layer = None,
+    #end if
+    #if $operation_condi.seed:
+    seed = $operation_condi.seed,
+    #else:
+    seed = None,
+    #end if
+    use_raw=$operation_condi.use_raw_bool,
+    copy=False,
+    #if $operation_condi.n_jobs:
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    #end if
+    backend='$operation_condi.backend',
+    show_progress_bar=False
+)
+
+#else if $operation_condi.operation == 'sepal':
+## Compute Sepal scores
+print("\nComputing Sepal scores...")
+import os
+
+sq.gr.sepal(
+    adata,
+    max_neighs=$operation_condi.max_neighs,
+    #if $operation_condi.genes:
+        #set genes_list = [str(x.strip()) for x in str($operation_condi.genes).split(',')]
+    genes = $genes_list,
+    #else:
+    genes = None,
+    #end if
+    #if $operation_condi.n_iter:
+    n_iter = $operation_condi.n_iter,
+    #else:
+    n_iter = None,
+    #end if
+    dt=$operation_condi.dt,
+    thresh=$operation_condi.thresh,
+    connectivity_key='$operation_condi.connectivity_key',
+    spatial_key='$operation_condi.spatial_key',
+    #if $operation_condi.layer:
+    layer = '$operation_condi.layer',
+    #else:
+    layer = None,
+    #end if
+    use_raw=$operation_condi.use_raw_bool,
+    copy=False,
+    #if $operation_condi.n_jobs:
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    #end if
+    backend='$operation_condi.backend',
+    show_progress_bar=False
+)
+
+#end if
+
+print("\nOperation completed successfully!")
+print("\nUpdated table:")
+print(adata)
+
+## Save the result
+#if $input_spatialdata.ext == 'spatialdata.zip':
+adata.write("./output/spatialdata", overwrite=True)
+#else if $input_spatialdata.ext == 'h5ad':
+adata.write_h5ad("./output/spatialdata.h5ad", compression="gzip")
+#end if
         ]]></configfile>
     </configfiles>
     <inputs>
-
-
+        <expand macro="input_spatialdata"/>
+        <param name="table_key" type="text" value="table" label="Table key" help="Key in SpatialData.tables where the table is stored">
+            <expand macro="sanitize_query"/>
+        </param>
+        <conditional name="operation_condi">
+            <param name="operation" type="select" label="Operation">
+                <option value="spatial_neighbors">Create a graph from spatial coordinates (gr.spatial_neighbors)</option>
+                <option value="mask_graph">Mask the graph based on a polygon mask (gr.mask_graph)</option>
+                <option value="nhood_enrichment">Compute neighborhood enrichment by permutation test (gr.nhood_enrichment)</option>
+                <option value="co_occurrence">Compute co-occurrence probability of clusters (gr.co_occurrence)</option>
+                <option value="centrality_scores">Compute centrality scores per cluster or cell type (gr.centrality_scores)</option>
+                <option value="interaction_matrix">Compute interaction matrix for clusters (gr.interaction_matrix)</option>
+                <option value="ripley">Calculate various Ripley's statistics for point processes. (gr.ripley)</option>
+                <option value="ligrec">Perform the permutation test based on CellPhoneDB (gr.ligrec)</option>
+                <option value="spatial_autocorr">Calculate Global Autocorrelation Statistic (Moran’s I or Geary's C) (gr.spatial_autocorr)</option>
+                <option value="sepal">Identify spatially variable genes with Sepal (gr.sepal)</option>
+            </param>
+            <when value="spatial_neighbors">
+                <param name="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm where spatial coordinates are stored. If spatialdata, the coordinates of the centroids will be stored in the adata with this key.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="elements_to_coordinate_systems" type="data" format="json" optional="true" label="Elements to coordinate systems (JSON file)" help="JSON file containing dictionary mapping element names to coordinate systems, e.g., {'cell_labels': 'global'}. The elements can be either Shapes or Labels."/>
+                <param name="library_key" type="text" optional="true" label="Library key" help="Column in adata.obs which stores mapping between library_id and obs">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="coord_type" type="select" optional="true" label="Coordinate type" help="Auto uses ‘grid’ if spatial_key is in anndata.AnnData.uns with n_neighs = 6 (Visium), otherwise use ‘generic’">
+                    <option value="None">Auto (grid if Visium, else generic)</option>
+                    <option value="grid">Grid coordinates</option>
+                    <option value="generic">Generic coordinates</option>
+                </param>
+                <param name="n_neighs" type="integer" min="0" value="6" label="Number of neighbors" help="For grid: number of neighboring tiles. For generic: number of neighborhoods (when delaunay=False)"/>
+                <param name="radius" type="text" optional="true" label="Radius" help="For generic coord_type: compute graph based on radius. Single float or two comma-separated floats for min,max interval">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="delaunay_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Delaunay triangulation?" help="Compute graph from Delaunay triangulation (generic coord_type only)"/>
+                <param name="n_rings" type="integer" min="0" value="1" label="Number of rings" help="Number of rings of neighbors for grid data (generic coord_type only)"/>
+                <param name="percentile" type="float" optional="true" min="0" max="100" label="Percentile" help="Percentile of distances to use as threshold (generic coord_type only)"/>
+                <param name="transform" type="select" optional="true" label="Adjacency matrix transform">
+                    <option value="None">no transformation of the adjacency matrix</option>
+                    <option value="spectral">Spectral</option>
+                    <option value="cosine">Cosine</option>
+                </param>
+                <param name="set_diag_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Set diagonal to 1?" help="Whether to set diagonal of spatial connectivities to 1.0"/>
+                <param name="key_added" type="text" value="spatial" label="Key added" help="Key prefix for storing results in adata.obsp and adata.uns">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="mask_graph">
+                <param name="polygon_coords" type="text" label="Polygon coordinates" help="Semicolon-separated list of coordinate pairs (x,y). Example: '0,0;100,0;100,100;0,100' for a square">
+                    <expand macro="sanitize_digits">
+                        <add value=";"/>
+                    </expand>
+                </param>
+                <param name="negative_mask_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Keep edges outside polygon (True) or inside polygon (False)" help="Note that when negative_mask = True, only the edges fully contained in the polygon are removed. If edges are partially contained in the polygon, they are kept."/>
+                <param name="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm where spatial coordinates are stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="key_added" type="text" value="mask" label="Key added" help="Key prefix for storing masked results">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="nhood_enrichment">
+                <param name="cluster_key" type="text" optional="false" label="Cluster key" help="Key in adata.obs where clustering is stored">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field"/>
+                </param>
+                <param name="library_key" type="text" optional="true" label="Library key" help="Column in adata.obs which stores mapping between library_id and obs.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp where spatial connectivities are stored.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="n_perms" type="integer" value="1000" label="Number of permutations"/>
+                <param name="numba_parallel_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use numba parallel?" help="Whether to use numba.prange()"/>
+                <param name="seed" type="integer" optional="true" label="Random seed" help="For reproducibility"/>
+                <param name="backend" type="select" label="Parallelization backend">
+                    <option value="loky" selected="true">loky</option>
+                    <option value="threading">threading</option>
+                    <option value="multiprocessing">multiprocessing</option>
+                </param>
+            </when>
+            <when value="co_occurrence">
+                <param name="cluster_key" type="text" label="Cluster key" help="Key in adata.obs where clustering is stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm where spatial coordinates are stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <conditional name="interval_type_condi">
+                    <param name="interval_type" type="select" label="Interval type">
+                        <option value="int" selected="true">Integer (uniformly spaced interval size)</option>
+                        <option value="array">Array (comma-separated distance thresholds)</option>
+                    </param>
+                    <when value="int">
+                        <param name="interval_int" type="integer" value="50" label="Interval size"/>
+                    </when>
+                    <when value="array">
+                        <param name="interval_array" type="text" label="Distance thresholds" help="Comma-separated distances, e.g., '10,20,50,100'">
+                            <expand macro="sanitize_digits"/>
+                        </param>
+                    </when>
+                </conditional>
+                <param name="n_splits" type="integer" optional="true" label="Number of splits" help="Number of splits to divide spatial coordinates in spatial_key"/>
+                <param name="backend" type="select" label="Parallelization backend">
+                    <option value="loky" selected="true">loky</option>
+                    <option value="threading">threading</option>
+                    <option value="multiprocessing">multiprocessing</option>
+                </param>
+            </when>
+            <when value="centrality_scores">
+                <param name="cluster_key" type="text" label="Cluster key" help="Key in adata.obs where clustering is stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="score" type="select" multiple="true" optional="true" label="Centrality measures" help="If none selected, all measures are computed">
+                    <option value="closeness_centrality">Closeness centrality</option>
+                    <option value="average_clustering">Average clustering</option>
+                    <option value="degree_centrality">Degree centrality</option>
+                </param>
+                <param name="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp where spatial connectivities are stored. Default: 'spatial_connectivities'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="backend" type="select" label="Parallelization backend">
+                    <option value="loky" selected="true">loky</option>
+                    <option value="threading">threading</option>
+                    <option value="multiprocessing">multiprocessing</option>
+                </param>
+            </when>
+            <when value="interaction_matrix">
+                <param name="cluster_key" type="text" label="Cluster key" help="Key in adata.obs where clustering is stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="connectivity_key" type="text" optional="true" label="Connectivity key" help="Key in adata.obsp where spatial connectivities are stored. Default: 'spatial_connectivities'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="normalized_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Normalize rows?" help="Each row is normalized to sum to 1"/>
+                <param name="weights_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use edge weights?" help="Use edge weights or binarize"/>
+            </when>
+            <when value="ripley">
+                <param name="cluster_key" type="text" label="Cluster key" help="Key in adata.obs where clustering is stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="mode" type="select" label="Ripley statistic mode">
+                    <option value="F" selected="true">F statistic</option>
+                    <option value="G">G statistic</option>
+                    <option value="L">L statistic</option>
+                </param>
+                <param name="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm where spatial coordinates are stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="metric" type="select" label="Distance metric" help="Metric for computing distances">
+                    <option value="euclidean" selected="true">Euclidean</option>
+                    <option value="manhattan">Manhattan</option>
+                    <option value="chebyshev">Chebyshev</option>
+                    <option value="minkowski">Minkowski</option>
+                    <option value="seuclidean">SEuclidean</option>
+                    <option value="mahalanobis">Mahalanobis</option>
+                </param>
+                <param name="n_neigh" type="integer" value="2" label="Number of neighbors" help="Number of neighbors for KNN graph"/>
+                <param name="n_simulations" type="integer" value="100" label="Number of simulations" help="For computing p-values"/>
+                <param name="n_observations" type="integer" value="1000" label="Number of observations" help="For Spatial Poisson Point Process"/>
+                <param name="max_dist" type="float" optional="true" label="Maximum distance" help="If not provided, max_dist=sqrt(area)/2"/>
+                <param name="n_steps" type="integer" value="50" label="Number of steps" help="Number of steps for the support"/>
+                <param name="seed" type="integer" optional="true" label="Random seed" help="For reproducibility"/>
+            </when>
+            <when value="ligrec">
+                <param name="cluster_key" type="text" label="Cluster key" help="Key in adata.obs where clustering is stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="interactions" type="data" format="tabular" optional="true" label="Interactions table" help="Optional tabular file with at least 'source' and 'target' columns. If not provided, interactions are extracted from OmniPath. Protein complexes can be specified by delimiting components with '_', e.g., 'alpha_beta_gamma'"/>
+                <param name="complex_policy" type="select" label="Complex policy" help="Policy on how to handle complexes">
+                    <option value="min" selected="true">Min (select gene with the minimum average expression)</option>
+                    <option value="all">All (select all possible combinations between ‘source’ and ‘target’ complexes.)</option>
+                </param>
+                <param name="threshold" type="float" value="0.01" min="0" max="1" label="Expression threshold" help="Do not perform permutation test if any of the interacting components is being expressed in less than threshold percent of cells within a given cluster."/>
+                <param name="corr_method" type="select" optional="true" label="Multiple testing correction method">
+                    <option value="None" selected="true">None</option>
+                    <option value="bonferroni">Bonferroni</option>
+                    <option value="sidak">Sidak</option>
+                    <option value="holm-sidak">Holm-Sidak</option>
+                    <option value="holm">Holm</option>
+                    <option value="simes-hochberg">Simes-Hochberg</option>
+                    <option value="hommel">Hommel</option>
+                    <option value="fdr_bh" selected="true">FDR Benjamini-Hochberg</option>
+                    <option value="fdr_by">FDR Benjamini-Yekutieli</option>
+                    <option value="fdr_tsbh">FDR two-stage Benjamini-Hochberg</option>
+                    <option value="fdr_tsbky">FDR two-stage Benjamini-Krieger-Yekutieli</option>
+                </param>
+                <param name="corr_axis" type="select" label="Correction axis" help="Axis for FDR correction">
+                    <option value="clusters" selected="true">Clusters (correct interactions by performing FDR correction across the clusters)</option>
+                    <option value="interactions">Interactions (correct clusters by performing FDR correction across the interactions)</option>
+                </param>
+                <param name="use_raw_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Use raw data?" help="Whether to access adata.raw"/>
+                <param name="key_added" type="text" optional="true" label="Key added" help="Key in adata.uns for results. Default: '{cluster_key}_ligrec'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="gene_symbols" type="text" optional="true" label="Gene symbols key" help="Key in adata.var to use instead of var_names">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="spatial_autocorr">
+                <param name="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp where spatial connectivities are stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="genes" type="text" optional="true" label="Genes" help="Comma-separated gene names. If empty, uses highly_variable genes or all genes">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="mode" type="select" label="Autocorrelation mode">
+                    <option value="moran" selected="true">Moran's I</option>
+                    <option value="geary">Geary's C</option>
+                </param>
+                <param name="transformation_bool" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Row-normalize weights in connectivity_key?" help="Advised for analytic p-value calculation"/>
+                <param name="n_perms" type="integer" optional="true" label="Number of permutations" help="If not provided, only p-values under normality assumption are computed"/>
+                <param name="two_tailed_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Two-tailed test?" help="Set to false for one-tailed test"/>
+                <param name="corr_method" type="select" optional="true" label="Multiple testing correction">
+                    <option value="None">None</option>
+                    <option value="bonferroni">Bonferroni</option>
+                    <option value="sidak">Sidak</option>
+                    <option value="holm-sidak">Holm-Sidak</option>
+                    <option value="holm">Holm</option>
+                    <option value="simes-hochberg">Simes-Hochberg</option>
+                    <option value="hommel">Hommel</option>
+                    <option value="fdr_bh" selected="true">FDR Benjamini-Hochberg</option>
+                    <option value="fdr_by">FDR Benjamini-Yekutieli</option>
+                    <option value="fdr_tsbh">FDR two-stage Benjamini-Hochberg</option>
+                    <option value="fdr_tsbky">FDR two-stage Benjamini-Krieger-Yekutieli</option>
+                </param>
+                <param name="attr" type="select" label="Attribute to access">
+                    <option value="X" selected="true">X (expression matrix)</option>
+                    <option value="obs">obs (observations)</option>
+                    <option value="obsm">obsm (multidimensional observations)</option>
+                </param>
+                <param name="layer" type="text" optional="true" label="Layer" help="Layer to use. If empty, use adata.X">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="seed" type="integer" optional="true" label="Random seed" help="For reproducibility"/>
+                <param name="use_raw_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw data?" help="Only used when attr='X'"/>
+                <param name="backend" type="select" label="Parallelization backend">
+                    <option value="loky" selected="true">loky</option>
+                    <option value="threading">threading</option>
+                    <option value="multiprocessing">multiprocessing</option>
+                </param>
+            </when>
+            <when value="sepal">
+                <param name="max_neighs" type="select" label="Maximum neighbors" help="Maximum number of neighbors in the graph">
+                    <option value="4">4 (square-grid: ST, Dbit-seq)</option>
+                    <option value="6" selected="true">6 (hexagonal-grid: Visium)</option>
+                </param>
+                <param name="genes" type="text" optional="true" label="Genes" help="Comma-separated gene names. If empty, uses highly_variable genes or all genes">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="n_iter" type="integer" min="0" value="30000" label="Maximum iterations" help="Maximum iterations for diffusion simulation. If n_iter iterations are reached, the simulation will terminate even though convergence has not been achieved."/>
+                <param name="dt" type="float" min="0" value="0.001" label="Time step in diffusion simulation"/>
+                <param name="thresh" type="float" value="0.00000001" label="Entropy threshold for convergence of diffusion simulation"/>
+                <param name="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp where spatial connectivities are stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm where spatial coordinates are stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="layer" type="text" optional="true" label="Layer" help="Layer to use. If empty, use adata.X">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="use_raw_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw data?"/>
+                <param name="backend" type="select" label="Parallelization backend">
+                    <option value="loky" selected="true">loky</option>
+                    <option value="threading">threading</option>
+                    <option value="multiprocessing">multiprocessing</option>
+                </param>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
-
+        <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation}"/>
     </outputs>
     <tests>
-
+        <!-- Test 1: spatial_neighbors -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18746346/files/visium_spatialdata.spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="spatial_neighbors"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="coord_type" value="grid"/>
+                <param name="n_neighs" value="6"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing spatial neighbors"/>
+                <has_text text="sq.gr.spatial_neighbors"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="144000000" delta="5000000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: nhood_enrichment -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18746346/files/visium_spatialdata.spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="nhood_enrichment"/>
+                <param name="cluster_key" value="cluster"/>
+                <param name="n_perms" value="100"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing neighborhood enrichment"/>
+                <has_text text="sq.gr.nhood_enrichment"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="144000000" delta="5000000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: interaction_matrix -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18746346/files/visium_spatialdata.spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="interaction_matrix"/>
+                <param name="cluster_key" value="cluster"/>
+                <param name="normalized_bool" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing interaction matrix"/>
+                <has_text text="sq.gr.interaction_matrix"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="144000000" delta="5000000"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 
+**What it does**
+
+This tool performs graph-based spatial analysis on SpatialData objects using Squidpy.
+
+**Operations**
+
+**Graph Construction:**
+
+- **Spatial Neighbors**: Create a spatial graph from coordinates. Supports grid (Visium) and generic (other technologies) coordinate systems. Can use KNN, radius-based, or Delaunay triangulation approaches.
+
+- **Mask Graph**: Filter a spatial graph to keep only edges within (or outside) a polygon region.
+
+**Spatial Statistics:**
+
+- **Neighborhood Enrichment**: Test whether cell types/clusters co-locate or avoid each other using permutation tests. Results include z-scores and enrichment counts.
+
+- **Co-occurrence**: Compute co-occurrence probability of clusters at different distance intervals.
+
+- **Centrality Scores**: Calculate network centrality measures (closeness, clustering, degree) for each cluster.
+
+- **Interaction Matrix**: Compute a matrix showing interaction counts/probabilities between clusters.
+
+**Spatial Patterns:**
+
+- **Ripley Statistics**: Calculate Ripley's F, G, or L statistics to detect spatial clustering or dispersion patterns.
+
+- **Spatial Autocorrelation**: Calculate Moran's I or Geary's C to identify spatially variable genes or features.
+
+- **Sepal**: Identify spatially variable genes using a diffusion-based approach.
+
+**Cell-Cell Communication:**
+
+- **Ligand-Receptor**: Analyze ligand-receptor interactions between cell types using the CellPhoneDB database (via OmniPath).
+
+**Input**
+
+- A SpatialData object in .zip format
+- Table key: name of the table in the SpatialData object (default: 'table')
+- Operation-specific parameters
+
+**Output**
+
+- Modified SpatialData object with results stored in:
+  - `adata.obsp`: spatial connectivities and distances matrices
+  - `adata.uns`: computed statistics and enrichment scores
+
+**Notes**
+
+- Most operations require a pre-computed spatial graph (use Spatial Neighbors first)
+- For Visium data, use coord_type='grid' with n_neighs=6
+- Permutation tests (neighborhood enrichment, Ripley) can be computationally intensive
+- Ligand-receptor analysis requires internet connection to download interaction databases
+
+-----
+
+**More Information**
+
+- `Squidpy documentation <https://squidpy.readthedocs.io/>`__
+- `Squidpy graph API <https://squidpy.readthedocs.io/en/stable/api.html#module-squidpy.gr>`__
+- `Publication <https://doi.org/10.1038/s41592-021-01358-2>`__
 
     ]]></help>
     <expand macro="citations"/>
