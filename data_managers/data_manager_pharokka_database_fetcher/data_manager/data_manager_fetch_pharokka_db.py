@@ -46,7 +46,7 @@ def main():
             sys.exit(return_code)
 
         # copy the test DB
-        test_db_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "subset_pharokka_db")
+        test_db_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "pharokka_test_db_1.7.4")
         command_args = ["cp", "-r", test_db_path, db_path]
     else:
         command_args = ["install_databases.py", "-o", db_path]
