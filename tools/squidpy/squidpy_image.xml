@@ -1,0 +1,492 @@
+<tool id="squidpy_image" name="Squidpy Image" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>perform image processing and feature extraction on spatial imaging data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        NUMBA_NUM_THREADS=\$GALAXY_SLOTS &&
+        mkdir -p input output &&
+        unzip -q '$input_spatialdata' -d input &&
+
+        ## Rename directory to spatialdata if it has a different name
+        dir_name=\$(ls -d input/*/ | head -1 | xargs basename) &&
+        if [ "\$dir_name" != "spatialdata" ]; then
+            mv "input/\$dir_name" input/spatialdata;
+        fi &&
+
+        ## run the image operation
+        cat 'squidpy_image.py' &&
+        python3 'squidpy_image.py' &&
+        cd output && zip -r ../spatialdata.spatialdata.zip spatialdata/ && cd ..
+    ]]></command>
+    <configfiles>
+        <configfile name="squidpy_config" filename="squidpy_image.py"><![CDATA[
+import spatialdata as sd
+import squidpy as sq
+import numpy as np
+
+## Load the SpatialData object
+sdata = sd.read_zarr("input/spatialdata")
+
+print("Input SpatialData object:")
+print(sdata)
+
+#if $operation_condi.operation == 'process':
+## Process image
+print("\nProcessing image...")
+from squidpy.im import ImageContainer
+
+## Get the image from SpatialData
+#if $operation_condi.image_key:
+img_key = '$operation_condi.image_key'
+#else:
+## Auto-detect first image
+img_key = list(sdata.images.keys())[0]
+print(f"Auto-detected image key: {img_key}")
+#end if
+
+img = ImageContainer(sdata.images[img_key])
+
+img_processed = sq.im.process(
+    img,
+    #if $operation_condi.layer:
+    layer = '$operation_condi.layer',
+    #else:
+    layer = None,
+    #end if
+    #if $operation_condi.library_id:
+    library_id = '$operation_condi.library_id',
+    #else:
+    library_id = None,
+    #end if
+    method='$operation_condi.method_condi.method',
+    #if $operation_condi.chunks:
+        #if str($operation_condi.chunks) == '-1':
+    chunks = 'auto'
+        #else:
+    chunks = $operation_condi.chunks
+        #end if
+    #else:
+    chunks = None
+    #end if
+    lazy=$operation_condi.lazy_bool,
+    #if $operation_condi.layer_added:
+    layer_added = '$operation_condi.layer_added',
+    #else:
+    layer_added = None,
+    #end if
+    #if $operation_condi.channel_dim:
+    channel_dim = '$operation_condi.channel_dim',
+    #else:
+    channel_dim = None,
+    #end if
+    copy=True,
+    #if $operation_condi.method_condi.sigma:
+    sigma = $operation_condi.method_condi.sigma
+    #else:
+    sigma = 1
+    #end if
+)
+
+print("\nProcessed image:")
+print(img_processed)
+
+## Store back in SpatialData
+#if $operation_condi.output_image_key:
+output_key = '$operation_condi.output_image_key'
+#else:
+output_key = f"{img_key}_processed"
+#end if
+
+## Get the processed layer name
+#if $operation_condi.layer_added:
+processed_layer = '$operation_condi.layer_added'
+#else:
+processed_layer = list(img_processed.data.keys())[-1]
+#end if
+
+sdata.images[output_key] = img_processed[processed_layer]
+
+#else if $operation_condi.operation == 'segment':
+## Segment image
+print("\nSegmenting image...")
+from squidpy.im import ImageContainer
+
+## Get the image from SpatialData
+#if $operation_condi.image_key:
+img_key = '$operation_condi.image_key'
+#else:
+## Auto-detect first image
+img_key = list(sdata.images.keys())[0]
+print(f"Auto-detected image key: {img_key}")
+#end if
+
+img = ImageContainer(sdata.images[img_key])
+
+## Watershed segmentation
+img_segmented = sq.im.segment(
+    img,
+    #if $operation_condi.layer:
+    layer = '$operation_condi.layer',
+    #else:
+    layer = None,
+    #end if
+    #if $operation_condi.library_id:
+    library_id = '$operation_condi.library_id',
+    #else:
+    library_id = None,
+    #end if
+    method='watershed',
+    channel = $operation_condi.channel,
+    #if $operation_condi.chunks:
+        #if str($operation_condi.chunks) == '-1':
+    chunks = 'auto'
+        #else:
+    chunks = $operation_condi.chunks
+        #end if
+    #else:
+    chunks = None
+    #end if
+    lazy=$operation_condi.lazy_bool,
+    #if $operation_condi.layer_added:
+    layer_added = '$operation_condi.layer_added',
+    #else:
+    layer_added = None,
+    #end if
+    copy=True
+)
+
+#end if
+
+print("\nSegmented image:")
+print(img_segmented)
+
+## Store back in SpatialData
+#if $operation_condi.output_image_key:
+output_key = '$operation_condi.output_image_key'
+#else:
+output_key = f"{img_key}_segmented"
+#end if
+
+## Get the segmented layer name
+#if $operation_condi.layer_added:
+    segmented_layer = '$operation_condi.layer_added'
+#else:
+    segmented_layer = list(img_segmented.data.keys())[-1]
+#end if
+
+sdata.images[output_key] = img_segmented[segmented_layer]
+
+#else if $operation_condi.operation == 'calculate_image_features':
+## Calculate image features
+print("\nCalculating image features...")
+from squidpy.im import ImageContainer
+import os
+
+## Get the image from SpatialData
+#if $operation_condi.image_key:
+img_key = '$operation_condi.image_key'
+#else:
+## Auto-detect first image
+img_key = list(sdata.images.keys())[0]
+print(f"Auto-detected image key: {img_key}")
+#end if
+
+img = ImageContainer(sdata.images[img_key])
+
+## Get the AnnData table
+#if $operation_condi.table_key:
+table_key = '$operation_condi.table_key'
+#else:
+table_key = 'table'
+#end if
+
+adata = sdata.tables[table_key]
+
+print(f"Using table: {table_key}")
+print(f"AnnData shape: {adata.shape}")
+
+## Build features_kwargs
+features_kwargs = {}
+#if $operation_condi.texture_props and 'texture' in features:
+features_kwargs['texture'] = {}
+    #set props_list = [str(x.strip()).strip("'\") for x in str($operation_condi.texture_props).split(',')]
+features_kwargs['texture']['props'] = $props_list
+#end if
+
+#if $operation_condi.summary_quantiles and 'summary' in features:
+features_kwargs['summary'] = {}
+    #set quantiles_list = [float(x.strip()) for x in str($operation_condi.summary_quantiles).split(',')]
+features_kwargs['summary']['quantiles'] = $quantiles_list
+#end if
+
+#if $operation_condi.histogram_bins and 'histogram' in features:
+features_kwargs['histogram'] = {}
+features_kwargs['histogram']['bins'] = $operation_condi.histogram_bins
+#end if
+
+sq.im.calculate_image_features(
+    adata,
+    img,
+    #if $operation_condi.layer:
+    layer = '$operation_condi.layer',
+    #else:
+    layer = None,
+    #end if
+    #if $operation_condi.library_id:
+    library_id = '$operation_condi.library_id',
+    #else:
+    library_id = None,
+    #end if
+    #if $operation_condi.features:
+        #set features_list = [str(x.strip()).strip("'\") for x in str($operation_condi.features).split(',')]
+    features = $features_list,
+    #else:
+    features = 'summary',
+    #end if
+    features_kwargs=features_kwargs,
+    #if $operation_condi.key_added:
+    key_added = '$operation_condi.key_added',
+    #else:
+    key_added = 'img_features',
+    #end if
+    copy=False,
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    backend='loky',
+    show_progress_bar=False
+)
+
+print(f"\nImage features calculated and stored in adata.obsm['{key_added}']")
+
+## Update the table in SpatialData
+sdata.tables[table_key] = adata
+
+#end if
+
+print("\nOperation completed successfully!")
+print("\nUpdated SpatialData object:")
+print(sdata)
+
+## Save the result
+sdata.write("./output/spatialdata", overwrite=True)
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="input_spatialdata" type="data" format="spatialdata.zip" label="SpatialData object"/>
+        <conditional name="operation_condi">
+            <param name="operation" type="select" label="Operation">
+                <option value="process">Process image (im.process)</option>
+                <option value="segment">Segment image using watershed (im.segment)</option>
+                <option value="calculate_image_features">Calculate image features (im.calculate_image_features)</option>
+            </param>
+            <when value="process">
+                <expand macro="param_image_key"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_library_id"/>
+                <conditional name="method_condi">
+                    <param name="method" type="select" label="Processing method">
+                        <option value="smooth" selected="true">Smooth (Gaussian filter)</option>
+                        <option value="gray">Convert to grayscale</option>
+                    </param>
+                    <when value="smooth">
+                        <param name="sigma" type="float" value="1" min="0" label="Sigma" help="Standard deviation for Gaussian kernel"/>
+                    </when>
+                    <when value="gray"/>
+                </conditional>
+                <param name="chunks" type="integer" min="-1" optional="true" label="Chunks" help="Number of chunks for Dask. For automatic chunking, use -1"/>
+                <param name="lazy_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Lazy computation?" help="Whether to lazily compute the result. Only used when chunks is specified"/>
+                <param name="layer_added" type="text" optional="true" label="Output layer name" help="Name of the new image layer. If not provided, it uses '{layer}_{method}'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="channel_dim" type="text" optional="true" label="Channel dimension name" help="Name of the channel dimension. Default is same as original if processing doesn't change channel count">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_image_key" type="text" optional="true" label="Output image key" help="Key to store processed image in SpatialData. If not provided, uses '{image_key}_processed'">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="segment">
+                <expand macro="param_image_key"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_library_id"/>
+                <param name="channel" type="integer" value="0" min="0" label="Channel" help="Channel index to use for segmentation."/>
+                <param name="chunks" type="integer" min="-1" optional="true" label="Chunks" help="Number of chunks for Dask. For automatic chunking, use -1"/>
+                <param name="lazy_bool" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Lazy computation?" help="Whether to lazily compute the result. Only used when chunks is specified"/>
+                <param name="layer_added" type="text" optional="true" label="Output layer name" help="Name of the new segmented layer. If not provided, uses 'segmented_{method}'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_image_key" type="text" optional="true" label="Output image key" help="Key to store segmented image in SpatialData. If not provided, uses '{image_key}_segmented'">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="calculate_image_features">
+                <expand macro="param_image_key"/>
+                <param name="table_key" type="text" value="table" label="Table key" help="Key in SpatialData.tables where the AnnData table is stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_layer"/>
+                <expand macro="param_library_id"/>
+                <param name="features" type="select" multiple="true" label="Features to calculate" help="Select one or more feature types">
+                    <option value="summary" selected="true">Summary statistics</option>
+                    <option value="texture">Texture features</option>
+                    <option value="histogram">Histogram features</option>
+                    <option value="segmentation">Segmentation features</option>
+                </param>
+                <param name="texture_props" type="select" multiple="true" optional="true" label="Texture properties" help="Haralick texture properties to compute (only used if 'texture' is selected)">
+                    <option value="contrast">Contrast</option>
+                    <option value="dissimilarity">Dissimilarity</option>
+                    <option value="homogeneity">Homogeneity</option>
+                    <option value="ASM">Angular second moment (ASM)</option>
+                    <option value="energy">Energy</option>
+                    <option value="correlation">Correlation</option>
+                </param>
+                <param name="summary_quantiles" type="text" optional="true" label="Summary quantiles" help="Comma-separated quantiles to compute, e.g., '0.25,0.5,0.75' (only used if 'summary' is selected)">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="histogram_bins" type="integer" value="10" min="1" optional="true" label="Histogram bins" help="Number of bins for histogram (only used if 'histogram' is selected)"/>
+                <param name="key_added" type="text" value="img_features" label="Key for results" help="Key in adata.obsm where calculated features will be stored">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation}"/>
+    </outputs>
+    <tests>
+        <!-- Test 1: process - smooth -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18746346/files/visium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="process"/>
+                <conditional name="method_condi">
+                    <param name="method" value="smooth"/>
+                    <param name="sigma" value="2.0"/>
+                </conditional>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Processing image"/>
+                <has_text text="sq.im.process"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="144000000" delta="10000000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: segment - watershed -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18746346/files/visium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="segment"/>
+                <param name="channel" value="0"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Segmenting image"/>
+                <has_text text="sq.im.segment"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="144000000" delta="10000000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: calculate_image_features - summary -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/18746346/files/visium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="calculate_image_features"/>
+                <param name="table_key" value="table"/>
+                <param name="features" value="summary"/>
+                <param name="key_added" value="img_features"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Calculating image features"/>
+                <has_text text="sq.im.calculate_image_features"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size value="144000000" delta="10000000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**What it does**
+
+This tool performs image processing and feature extraction on spatial imaging data using Squidpy.
+
+**Operations**
+
+**Image Processing:**
+
+- **Process Image**: Apply transformations to high-resolution images:
+
+  - **Smooth**: Apply Gaussian filtering to reduce noise (uses skimage.filters.gaussian)
+  - **Grayscale**: Convert RGB images to grayscale (uses skimage.color.rgb2gray)
+
+**Image Segmentation:**
+
+- **Segment Image**: Segment images to identify cellular or tissue structures:
+
+  - **Watershed**: Watershed segmentation algorithm (uses skimage.segmentation.watershed)
+    - Can specify threshold for masking (auto-determined by Otsu's method if not provided)
+    - Control whether high or low values indicate areas to segment
+
+**Feature Extraction:**
+
+- **Calculate Image Features**: Extract quantitative features from images for each observation in the dataset:
+
+  - **Summary**: Basic statistics (mean, std, min, max, quantiles) for each channel
+  - **Texture**: Haralick texture features based on repeating patterns (contrast, dissimilarity, homogeneity, etc.)
+  - **Histogram**: Distribution of pixel intensities in bins
+  - **Segmentation**: Statistics computed from segmentation masks
+  - **Custom**: Extract features using custom functions
+
+**Input**
+
+- A SpatialData object (.zip format) containing spatial imaging data
+- Operation-specific parameters:
+  - Image key: which image in the SpatialData object to process
+  - Layer: specific layer within the image (optional)
+  - Library ID: Z-dimension(s) to process (optional)
+  - Method-specific parameters
+
+**Output**
+
+- Modified SpatialData (.zip) object with:
+  - **Process/Segment**: New processed/segmented image layers added to the images
+  - **Calculate Features**: Features stored in the AnnData table at `adata.obsm['{key_added}']`
+
+**Notes**
+
+- Image processing operations create new image layers without modifying originals
+- Segmentation requires appropriate preprocessing (e.g., smoothing) for best results
+- Feature calculation links image data to observations in the AnnData table
+- Dask chunking (`chunks` parameter) enables processing of large images that don't fit in memory
+- Lazy computation (`lazy=True`) defers computation until results are needed
+- For multi-Z-stack images, `library_id` controls which Z-dimensions are processed
+
+**Performance Tips**
+
+- Use `chunks='auto'` for automatic memory management with large images
+- Set `lazy=True` when chaining multiple operations
+- Adjust `sigma` in smoothing based on image resolution and noise level
+- Feature calculation parallelizes across observations using available CPU cores
+
+-----
+
+**More Information**
+
+- `Squidpy documentation <https://squidpy.readthedocs.io/>`__
+- `Squidpy image API <https://squidpy.readthedocs.io/en/stable/api.html#module-squidpy.im>`__
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
