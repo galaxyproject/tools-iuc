@@ -1,0 +1,149 @@
+<tool id="angsd" name="ANGSD" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Analysis of Next Generation Sequencing Data</description>
+    
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+
+    <expand macro="requirements">
+        <requirement type="package" version="1.23">samtools</requirement>
+    </expand>
+    
+    <command detect_errors="exit_code"><![CDATA[
+        ## 1. Link BAM files with proper .bam extensions
+        touch bam.filelist &&
+        #set $i = 0
+        #for $bam in $input_bams:
+            ln -s '$bam' 'sample_${i}.bam' &&
+            #if $bam.metadata.bam_index:
+                ln -s '$bam.metadata.bam_index' 'sample_${i}.bam.bai' &&
+            #else:
+                samtools index 'sample_${i}.bam' &&
+            #end if
+            echo 'sample_${i}.bam' >> bam.filelist &&
+            #set $i = $i + 1
+        #end for
+
+        ## 2. Build ANGSD arguments safely using Cheetah variables
+        #set $args = ""
+        #if $ref_genome:
+            #set $args = $args + " -ref '%s'" % $ref_genome
+        #end if
+        #if $gl_model:
+            #set $args = $args + " -GL %s" % $gl_model
+        #end if
+        #if $do_glf:
+            #set $args = $args + " -doGlF %s" % $do_glf
+        #end if
+        #if $do_majorminor:
+            #set $args = $args + " -doMajorMinor %s" % $do_majorminor
+        #end if
+        #if str($do_fasta) != "0":
+            #set $args = $args + " -doFasta %s" % $do_fasta
+        #end if
+        #if str($do_fasta) != "0" or $filters.do_counts:
+            #set $args = $args + " -doCounts 1"
+        #end if
+        #if $filters.i_counts:
+            #set $args = $args + " -iCounts 1"
+        #end if
+        #if str($filters.min_mapq) != "":
+            #set $args = $args + " -minMapQ %s" % $filters.min_mapq
+        #end if
+        #if str($filters.min_q) != "":
+            #set $args = $args + " -minQ %s" % $filters.min_q
+        #end if
+        #if $filters.region:
+            #set $args = $args + " -r '%s'" % $filters.region
+        #end if
+
+        ## 3. Run ANGSD
+        angsd -bam bam.filelist -out output -nThreads \${GALAXY_SLOTS:-1} $args
+    ]]></command>
+
+    <inputs>
+        <param name="input_bams" type="data" format="bam" multiple="true" label="Input BAM file(s)" help="Select one or more BAM files to analyze." />
+        <param name="ref_genome" type="data" format="fasta" optional="true" label="Reference Genome (FASTA)" />
+
+        <param name="gl_model" type="select" label="Genotype Likelihood Model (-GL)" optional="true">
+            <option value="1">SAMtools (1)</option>
+            <option value="2">GATK (2)</option>
+            <option value="3">SOAPsnp (3)</option>
+            <option value="4">SYK (4)</option>
+        </param>
+
+        <param name="do_glf" type="select" label="Output Format (-doGlF)" optional="true">
+            <option value="1">Binary (1)</option>
+            <option value="2">Beagle (2)</option>
+            <option value="3">Binary 3 (3)</option>
+            <option value="4">Text (4)</option>
+        </param>
+
+        <param name="do_majorminor" type="select" label="Estimate Major/Minor Alleles (-doMajorMinor)" optional="true">
+            <option value="1">Infer major and minor from GL (1)</option>
+            <option value="2">Infer major and minor from allele counts (2)</option>
+        </param>
+
+        <param name="do_fasta" type="select" label="Create Fasta (-doFasta)" optional="true">
+            <option value="0" selected="true">No FASTA output</option>
+            <option value="1">Use random base (1)</option>
+            <option value="2">Use most common base (2)</option>
+        </param>
+
+        <section name="filters" title="Filtering and Counts (Contamination Analysis)" expanded="false">
+            <param name="do_counts" type="boolean" checked="false" label="Calculate Counts (-doCounts)" help="Calculate counts per base." />
+            <param name="i_counts" type="boolean" checked="false" label="Internal Counts (-iCounts)" help="Output internal counts format (binary)." />
+            <param name="min_mapq" type="integer" value="20" min="0" label="Minimum Mapping Quality (-minMapQ)" />
+            <param name="min_q" type="integer" value="20" min="0" label="Minimum Base Quality (-minQ)" />
+            <param name="region" type="text" optional="true" label="Region (-r)" help="Specify a specific region or chromosome (e.g., 'X:5000000-154900000').">
+                <validator type="regex" message="Region format must be like 'chr' or 'chr:start-end'">^[\w\d\._:-]+$</validator>
+            </param>
+        </section>
+    </inputs>
+
+    <outputs>
+        <data name="output_arg" format="txt" from_work_dir="output.arg" label="${tool.name} on ${on_string}: Arguments" />
+        <data name="output_beagle" format="txt" from_work_dir="output.beagle.gz" label="${tool.name} on ${on_string}: Beagle">
+            <filter>do_glf == "2"</filter>
+        </data>
+        <data name="output_glf" format="binary" from_work_dir="output.glf.gz" label="${tool.name} on ${on_string}: GLF">
+            <filter>do_glf == "1" or do_glf == "3"</filter>
+        </data>
+        <data name="output_mafs" format="tabular" from_work_dir="output.mafs.gz" label="${tool.name} on ${on_string}: MAFs">
+            <filter>do_majorminor is not None</filter>
+        </data>
+        <data name="output_fasta" format="fasta.gz" from_work_dir="output.fa.gz" label="${tool.name} on ${on_string}: Fasta">
+            <filter>do_fasta == "1" or do_fasta == "2"</filter>
+        </data>
+        <data name="output_icnts" format="binary" from_work_dir="output.icnts.gz" label="${tool.name} on ${on_string}: Internal Counts">
+            <filter>filters['i_counts'] is True or filters['i_counts'] == 'true'</filter>
+        </data>
+    </outputs>
+
+	<tests>
+        <test expect_num_outputs="2">
+            <param name="input_bams" value="test.bam" ftype="bam" />
+            <section name="filters">
+                <param name="do_counts" value="true" />
+                <param name="i_counts" value="true" />
+                <param name="region" value="X:5000000-5100000" />
+            </section>
+            <output name="output_arg">
+                <assert_contents>
+                    <has_text text="-r X:5000000-5100000" />
+                    <has_text text="-iCounts 1" />
+                    <has_text text="-doCounts 1" />
+                </assert_contents>
+            </output>
+            <output name="output_icnts" file="output.icnts.gz" />
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**What it does**
+
+ANGSD is a software for analyzing next generation sequencing data. This wrapper allows you to perform Genotype Likelihood estimation and other utility functions commonly used in ancient DNA pipelines.
+    ]]></help>
+    
+    <expand macro="citations"/>
+</tool>
