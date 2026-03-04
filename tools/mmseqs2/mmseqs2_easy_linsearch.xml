@@ -1,0 +1,273 @@
+<tool id="mmseqs2_easy_linsearch" name="MMseqs2 easy-linsearch" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        for fast homology search scaling linearly
+    </description>
+    <macros>
+        <import>macro.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+#set $query_ext = str($query_fasta.ext).replace('sanger', '').replace('illumina', '')
+ln -s '$query_fasta' 'query.${query_ext}' &&
+#if str($target_source.target_source_select) == "history"
+    #set $target_ext = str($target_source.target_fasta.ext).replace('sanger', '').replace('illumina', '')
+    ln -s '$target_source.target_fasta' 'target.${target_ext}' &&
+#end if
+
+##Used only for test
+#if str($create_linindex) == 'true':
+cp -r '$target_source.mmseqs2_db_select.fields.path'/database* . &&
+
+mmseqs createlinindex
+    database
+    'tmp' &&
+#end if
+##
+
+mmseqs easy-linsearch
+    'query.${query_ext}'
+    #if str($target_source.target_source_select) == "history"
+        'target.${target_ext}'
+    ##Used only for test
+    #elif str($create_linindex) == 'true':
+        'database'
+    ##
+    #else
+        '$target_source.mmseqs2_db_select.fields.path'/database
+    #end if
+    'search_results'
+    'tmp'
+
+#if str($alph_type.dbtype) == "1"
+    --comp-bias-corr-scale $alph_type.comp_bias_corr_scale
+    --kmer-per-seq-scale $alph_type.kmer_per_seq_scale
+#elif str($alph_type.dbtype) == "2"
+    --zdrop $alph_type.zdrop
+    --kmer-per-seq-scale $alph_type.kmer_per_seq_scale
+    --adjust-kmer-len $alph_type.adjust_kmer_len
+#end if
+
+    ## Pre-filter options (linsearch accepts fewer prefilter params than search)
+    --add-self-matches $prefilter.add_self_matches
+    --mask $prefilter.mask
+    --mask-prob $prefilter.mask_prob
+    --mask-lower-case $prefilter.mask_lower_case
+    --mask-n-repeat $prefilter.mask_n_repeat
+
+    ## Align options
+    @CMD_ALIGN@
+    @CMD_SEARCH_ALIGN@
+
+    ## K-mer matcher options (linsearch subset)
+    --kmer-per-seq $kmermatcher.kmer_per_seq
+
+    ## Misc options
+    --id-offset $misc.id_offset
+
+    ## Output format
+    @CMD_FORMAT_OUTPUT@
+
+    ## Search type
+    --search-type $search_type
+
+    ## Common options
+    @CMD_THREADS@
+    --max-seq-len $common.max_seq_len
+    ]]></command>
+    <inputs>
+        <!-- used only for tests, this makes it possible to create the linear index for the cached db -->
+        <param name="create_linindex" type="hidden" value=""/>
+        <!-- -->
+        <param name="query_fasta" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Query FASTA/Q file" help="Protein or nucleotide sequences to search. The search type is auto-detected from the input."/>
+        <expand macro="target_source_conditional"/>
+        <expand macro="dbtype_conditional">
+            <param argument="--kmer-per-seq-scale" type="float" min="0" value="0.000" label="Scale k-mer per sequence based on sequence length" help="Scales the number of k-mers selected per sequence based on its length. Higher values increase sensitivity."/>
+        </expand>
+        <param argument="--search-type" type="select" label="Search type" help="Controls the alignment algorithm. Auto detects from input sequences. See the help section below for details on each mode and cross-type searches.">
+            <option value="0" selected="true">Auto</option>
+            <option value="1">Amino acid</option>
+            <option value="2">Translated</option>
+            <option value="3">Nucleotide</option>
+            <option value="4">Translated nucleotide alignment</option>
+        </param>
+        <section name="prefilter" title="Pre-filter">
+            <param argument="--add-self-matches" type="boolean" checked="false" truevalue="1" falsevalue="0" label="Artificially add entries of queries with themselves (for clustering)" help="Useful when clustering to ensure each sequence matches itself."/>
+            <param argument="--mask" type="select" label="Mask sequences in k-mer stage" help="Low complexity regions can cause spurious hits. Masking filters them during k-mer matching.">
+                <option value="0">Without low complexity masking</option>
+                <option value="1" selected="true">With low complexity masking</option>
+            </param>
+            <param argument="--mask-prob" type="float" min="0" value="0.9" label="Mask sequences if probability is above threshold" help="Regions with compositional bias probability above this threshold are masked."/>
+            <param argument="--mask-lower-case" type="select" label="Mask lower case letters" help="Controls whether lower case letters in input sequences are treated as masked regions.">
+                <option value="0" selected="true">Include region</option>
+                <option value="1">Exclude region</option>
+            </param>
+            <param argument="--mask-n-repeat" type="integer" min="0" value="0" label="Repeat letters that occur > threshold in a row" help="Mask stretches of N characters longer than this threshold. Set 0 to disable."/>
+        </section>
+        <section name="align" title="Align">
+            <expand macro="align_common_parameters"/>
+            <expand macro="search_align_parameters" evalue_default="1.000E-03" min_seq_id_default="0" cov_default="0" max_rejected_default="2147483647" max_accept_default="2147483647"/>
+        </section>
+        <section name="kmermatcher" title="K-mer matcher">
+            <param argument="--kmer-per-seq" type="integer" min="0" value="21" label="k-mers per sequence" help="More k-mers per sequence increases sensitivity but uses more memory."/>
+        </section>
+        <section name="misc" title="Misc">
+            <param argument="--id-offset" type="integer" min="0" value="0" label="Numeric IDs in index file are offset by this value" help="Add this offset to all numeric sequence IDs in the output."/>
+        </section>
+        <expand macro="output_format_section"/>
+        <expand macro="common_section"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" from_work_dir="search_results" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output_format.format_mode" value="1" format="sam"/>
+                <when input="output_format.format_mode" value="3" format="html"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test: Default protein self-search (linsearch may produce fewer hits than easy-search) -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_size min="0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: Search against cached database (linindex created on the fly for test) -->
+        <test expect_num_outputs="1">
+            <param name="create_linindex" value="true"/>
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="cached"/>
+                <param name="mmseqs2_db_select" value="small_proteins_db-15.6f452-10022025"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_size min="0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: Custom output columns with coverage filter -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <section name="align">
+                <param name="cov" value="0.5"/>
+                <param name="cov_mode" value="1"/>
+            </section>
+            <section name="output_format">
+                <param name="format_fields" value="query,target,pident,evalue,qcov,tcov"/>
+            </section>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_size min="0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: Nucleotide linsearch -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="light_mystery_reads.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="light_mystery_reads.fasta" ftype="fasta"/>
+            </conditional>
+            <param name="search_type" value="3"/>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_size min="0"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+@MMSEQS2_LOGO@
+
+**About this tool**
+
+``easy-linsearch`` performs **linear-time homology searches** using exact k-mer matching.
+It is the faster alternative to **easy-search**: use it when searching very large databases
+and high-identity hits are expected. For finding remote homologs or when maximum sensitivity
+is needed, use **easy-search** with ``-s 7.0`` instead.
+
+**How it works**
+
+Unlike easy-search (which uses scored k-mer prefiltering with tunable sensitivity),
+easy-linsearch uses the same exact k-mer matching approach as Linclust:
+
+1. Selects representative k-mers from both query and target sequences
+2. Matches k-mers exactly (no scoring threshold)
+3. Aligns candidate pairs via Smith-Waterman
+
+This makes prefiltering O(n) in database size, but limits sensitivity for detecting
+divergent homologs. The target database should be indexed with ``createlinindex`` for
+optimal performance when searching repeatedly.
+
+**Example usage**
+
+*Basic fast search*
+    Upload your query and target FASTA files and run with defaults. easy-linsearch is ideal
+    when your database is very large and you expect high-identity hits (e.g., > 70% identity).
+
+*High-identity filtering*
+    Set **Minimum sequence identity** to ``0.9`` and **Minimum coverage** to ``0.8`` to find
+    only near-identical matches quickly.
+
+*Nucleotide search*
+    Set **Search type** to **Nucleotide** for nucleotide-vs-nucleotide search without translation.
+
+**easy-linsearch vs easy-search**
+
+- **easy-linsearch**: Linear-time prefiltering, faster for large databases, best for
+  high-identity searches.
+- **easy-search**: Scored k-mer prefiltering with tunable sensitivity (``-s`` parameter),
+  better for detecting remote homologs, approaches BLAST sensitivity at ``-s 7.0``.
+
+**Search types**
+
+The search type is auto-detected from input sequences but can be overridden:
+
+- **Auto** (default): MMseqs2 detects the appropriate mode from input sequences
+- **Amino acid**: protein vs protein search (BLASTP equivalent)
+- **Translated**: nucleotide query vs protein target with 6-frame translation (BLASTX equivalent),
+  or protein query vs nucleotide target (TBLASTN equivalent)
+- **Nucleotide**: nucleotide vs nucleotide search without translation (BLASTN equivalent)
+- **Translated nucleotide alignment**: both query and target are translated (TBLASTX equivalent)
+
+For **cross-type searches** (e.g., nucleotide query against a protein database), leave
+*Input data type* on **Automatic** and set *Search type* to **Translated**. The *Input data type*
+(``--dbtype``) parameter applies to both query and target in easy-* commands, so setting it to
+Nucleotides or Amino acid forces both sides to that type.
+
+**Key parameters**
+
+- **E-value (-e)**: Maximum E-value threshold for reporting hits (default 0.001).
+- **Coverage (-c, --cov-mode)**: Minimum alignment coverage and coverage calculation mode.
+- **K-mers per sequence (--kmer-per-seq-scale)**: Scales the number of k-mers selected
+  per sequence based on sequence length.
+- **Output columns (--format-output)**: Select specific columns for BLAST-tab output.
+
+**Outputs**
+
+- **BLAST-TAB** (default): Tab-separated table with 12 columns matching BLAST ``-outfmt 6``
+- **BLAST-TAB with lengths**: Adds query and target sequence length columns
+- **BLAST-TAB with headers**: Includes a column header line
+- **SAM**: Standard alignment format compatible with samtools
+- **Pretty HTML**: Visual alignment display for interactive browsing
+
+-----
+
+@HELP_OVERVIEW@
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
