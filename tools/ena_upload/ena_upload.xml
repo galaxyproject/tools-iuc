@@ -1,19 +1,23 @@
-<tool id="ena_upload" name="ENA Upload tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.05" license="MIT">
+<tool id="ena_upload" name="ENA Upload tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.1" license="MIT">
     <description>Submission of (meta)data to the European Nucleotide Archive (ENA)</description>
     <macros>
         <token name="@TOOL_VERSION@">0.9.0</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@VERSION_SUFFIX@">1</token>
         <import>samples_macros.xml</import>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">ena-upload-cli</requirement>
+        <credentials name="ena_credentials" version="1.0" label="ENA (European Nucleotide Archive) credentials">
+            <secret name="ena_usename" inject_as_env="ENA_USERNAME" optional="false" label="ENA Webin username"/>
+            <secret name="ena_password" inject_as_env="ENA_PASSWORD" optional="false" label="ENA Webin password"/>
+        </credentials>
     </requirements>
     <stdio>
         <regex match="Oops" source="stderr" level="fatal"/>
         <regex match="different file names between command line and RUN table" source="stderr" level="fatal"/>
     </stdio>
     <command detect_errors="exit_code"><![CDATA[
-mkdir ./submission_files; 
+mkdir ./submission_files;
 #set $studies_table_path = './submission_files/studies.tsv'
 #set $samples_table_path =   './submission_files/samples.tsv'
 #set $experiments_table_path = './submission_files/experiments.tsv'
@@ -29,11 +33,6 @@ mkdir ./submission_files;
   python '$__tool_directory__/extract_tables.py' --action $action_options.action --out_dir ./submission_files --studies $studies_json;
 #end if
         
-credentials_path='test_fake_path';
-echo "username: test_user" > \$credentials_path;
-echo "password: test_password" >> \$credentials_path;
-
-
 #if $action_options.input_format_conditional.input_format == "build_tables":
     cp $studies_table_path $studies_table_out &&
     cp $samples_table_path $samples_table_out &&
@@ -53,25 +52,9 @@ echo "password: test_password" >> \$credentials_path;
     ln -s '$action_options.input_format_conditional.isa_json_file' ./isa_json_input.json &&
 #end if
 #if $action_options.test_submit_parameters.dry_run == "False":
-    webin_id=`grep 'username' $credentials`;
-    if [ "\$webin_id" = "" ]; then
-      ## No credentials in user defined preferences    
-      ## Fallback to global defined credentials (if exist)   
-      #import os
-      #if os.path.isfile(os.environ.get('GALAXY_ENA_SECRETS', '')):
-          credentials_path=\${GALAXY_ENA_SECRETS};     
-          webin_id=`grep 'username' \$GALAXY_ENA_SECRETS`;
-          if [ "\$webin_id" = "" ]; then
-                echo "No global credentials defined. Check your GALAXY_ENA_SECRETS file or set your credentials via: User -> Preferences -> Manage Information";
-              exit 1;
-          fi;
-      #else:
-          echo "No ENA credentials defined. Set your credentials via: User -> Preferences -> Manage Information";
-          exit 1;
-      #end if
-    else
-      credentials_path='$credentials';
-    fi;
+    python '$credentials' &&
+#else
+    python '$credentials' --dry_run &&
 #end if
 
 
@@ -179,7 +162,7 @@ ena-upload-cli
     --tool 'ena-upload-cli v@TOOL_VERSION@ @ Galaxy'
     --action '$action_options.action'
     --center '$action_options.test_submit_parameters.center'
-    --secret \${credentials_path}
+    --secret credentials.yml
     --data
 #for $dataset in $files_to_upload:
     '$dataset'
@@ -217,7 +200,7 @@ ena-upload-cli
     echo -e 'center_name\t$action_options.test_submit_parameters.center' >> '$output';
     echo -e 'action_option\t$action_options.action' >> '$output';
 #end if
-        
+
 ## copy updated files
 #if $action_options.input_format_conditional.input_format == "excel_tables" or $action_options.input_format_conditional.input_format == "isa_json":
     ## for the excel/ISA json input case, copy the upload-cli generated tables to the output files
@@ -237,13 +220,33 @@ python '$__tool_directory__/dump_yaml.py' $studies_table_out $samples_table_out 
 ]]></command>
     <configfiles>
         <configfile name="credentials"><![CDATA[
-#set $webin_id = $__user__.extra_preferences.get('ena_webin_account|webin_id', "").strip()
-#set $password = $__user__.extra_preferences.get('ena_webin_account|password', "").strip()
-#if $webin_id != "":
-    username: "$webin_id"
-    password: "$password"
-#end if
-        ]]></configfile>
+import os
+import argparse
+import yaml
+
+parser = argparse.ArgumentParser(description="Create credentials.yml for ENA access")
+parser.add_argument(
+    "--dry_run",
+    action="store_true",
+)
+args = parser.parse_args()
+
+if args.dry_run:
+    credentials = {
+        "username": "test_user",
+        "password": "test_password"
+    }
+else:
+    username = os.environ.get("ENA_USERNAME", "")
+    password = os.environ.get("ENA_PASSWORD", "")
+    credentials = {
+        "username": username,
+        "password": password
+    }
+
+with open("credentials.yml", "w") as f:
+    yaml.dump(credentials, f, default_flow_style=False)
+            ]]></configfile>
         <configfile name="studies_json">
 #import json
 #import re
@@ -473,77 +476,7 @@ $samples.append({'title':str($sample.sample_title),'description':str($sample.sam
                 </assert_contents>
             </output>
         </test>
-        <!--Test 4: failure on excel input of NON-VIRAL samples with runs PAIRED collection -->
-        <test expect_failure="True">
-            <conditional name="action_options">
-                <param name="action" value="add"/>
-                <section name="test_submit_parameters">
-                    <param name="center" value="Some research center"/>
-                    <param name="submit_dev" value="False" />
-                    <param name="dry_run" value="False" />
-                </section>
-                <conditional name="input_format_conditional">
-                    <param name="add_extension" value="True"/>
-                    <param name="input_format" value="excel_tables"/>
-                    <param name="checklist_id" value="ERC000011"/>
-                    <param name="xlsx_file" value="metadata_test_nonviral.xlsx"/>
-                    <conditional name="run_input_format_conditional">
-                        <param name="run_input_format" value="paired_list"/>
-                        <param name="paired_end_collection">
-                            <collection type="list:paired">
-                                <element name="paired_run_name">
-                                    <collection type="paired">
-                                        <element name="forward" value="1.fastqsanger.gz" ftype="fastqsanger.gz" />
-                                        <element name="reverse" value="2.fastqsanger.gz" ftype="fastqsanger.gz" />
-                                    </collection>
-                                </element>
-                            </collection>
-                        </param>
-                    </conditional>
-                </conditional>
-            </conditional>
-            <assert_command>
-                <has_text_matching expression="ena-upload-cli"/>
-                <has_text_matching expression="--data 'paired_run_name_1.fastq.gz' 'paired_run_name_2.fastq.gz'"/>
-                <has_text_matching expression="--action 'add' --center 'Some research center'"/>
-            </assert_command>
-        </test>
-        <!--Test 4b: failure on excel input of NON-VIRAL samples with runs PAIRED collection -->
-        <test expect_failure="True">
-            <conditional name="action_options">
-                <param name="action" value="add"/>
-                <section name="test_submit_parameters">
-                    <param name="center" value="Some research center"/>
-                    <param name="submit_dev" value="False" />
-                    <param name="dry_run" value="False" />
-                </section>
-                <conditional name="input_format_conditional">
-                    <param name="add_extension" value="True"/>
-                    <param name="input_format" value="excel_tables"/>
-                    <param name="checklist_id" value="ERC000011"/>
-                    <param name="xlsx_file" value="metadata_test_nonviral.xlsx"/>
-                    <conditional name="run_input_format_conditional">
-                        <param name="run_input_format" value="paired_list"/>
-                        <param name="paired_end_collection">
-                            <collection type="list:paired">
-                                <element name="paired_run_name">
-                                    <collection type="paired">
-                                        <element name="forward" value="1.fastqsanger.gz" ftype="fastqsanger.gz" />
-                                        <element name="reverse" value="2.fastqsanger.gz" ftype="fastqsanger.gz" />
-                                    </collection>
-                                </element>
-                            </collection>
-                        </param>
-                    </conditional>
-                </conditional>
-            </conditional>
-            <assert_command>
-                <has_text_matching expression="ena-upload-cli"/>
-                <has_text_matching expression="--data 'paired_run_name_1.fastq.gz' 'paired_run_name_2.fastq.gz'"/>
-                <has_text_matching expression="--action 'add' --center 'Some research center'"/>
-            </assert_command>
-        </test>
-        <!--Test 5: build tables from user input fields NON-VIRAL samples-->
+        <!--Test 4: build tables from user input fields NON-VIRAL samples-->
         <test expect_num_outputs="5">
             <conditional name="action_options">
                 <param name="action" value="add"/>
@@ -616,7 +549,7 @@ $samples.append({'title':str($sample.sample_title),'description':str($sample.sam
                 </assert_contents>
             </output>
         </test>
-        <!--Test 6: with submit_test to skip credentials checksRUN failing build tables from user input fields NON-VIRAL samples
+        <!--Test 5: with submit_test to skip credentials checksRUN failing build tables from user input fields NON-VIRAL samples
             also tests compression of uncompressed inputs and adding the .gz suffix -->
         <test expect_failure="False" expect_num_outputs="5">
             <conditional name="action_options">
@@ -672,7 +605,7 @@ $samples.append({'title':str($sample.sample_title),'description':str($sample.sam
                 <not_has_text text="modify" />
             </assert_command>
         </test>
-        <!--Test 7: viral submission - User input metadata - Add extension = False-->
+        <!--Test 6: viral submission - User input metadata - Add extension = False-->
         <test expect_failure="False" expect_num_outputs="5">
             <conditional name="action_options">
                 <param name="action" value="add"/>
@@ -735,7 +668,7 @@ $samples.append({'title':str($sample.sample_title),'description':str($sample.sam
                 <has_text_matching expression="--checklist ERC000033"/>
             </assert_command>
         </test>
-        <!--Test 8: modify option and auto compression - viral submission - User input metadata-->
+        <!--Test 7: modify option and auto compression - viral submission - User input metadata-->
         <test expect_failure="False" expect_num_outputs="5">
             <conditional name="action_options">
                 <param name="action" value="modify"/>
@@ -799,7 +732,7 @@ $samples.append({'title':str($sample.sample_title),'description':str($sample.sam
                 <not_has_text text="--action 'add'" />
             </assert_command>
         </test>
-        <!--Test 9: isa JSON input of NON-VIRAL samples-->
+        <!--Test 8: isa JSON input of NON-VIRAL samples-->
         <test expect_num_outputs="5">
             <conditional name="action_options">
                 <param name="action" value="add"/>
