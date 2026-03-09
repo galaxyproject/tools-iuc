@@ -8,7 +8,7 @@ This file documents deployment requirements for Galaxy administrators.
 - `s3`: reads from the public S3-compatible GWTC bucket used by this tool; no credentials required; outbound HTTPS access required.
 - `zenodo`: downloads from public Zenodo records; no credentials required; outbound HTTPS access required.
 
-For `catalog_statistics` and `event_selection`, metadata lookup via the GWOSC API may be performed when that path is used, which also requires outbound HTTPS access.
+For `catalog_statistics` and `event_selection`, metadata lookup via the public GWOSC API may be performed; no credentials are required, but outbound HTTPS access is still required.
 
 ## Dependency
 
