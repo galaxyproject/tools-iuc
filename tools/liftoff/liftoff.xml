@@ -1,0 +1,146 @@
+<tool id="liftoff" name="Liftoff" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Lift gene annotations between genome assemblies</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.6.3</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">24.2</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">liftoff</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">liftoff</requirement>
+    </requirements>
+    <version_command>liftoff --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+set -euo pipefail &&
+ln -s '$target_fasta' target.fa &&
+ln -s '$reference_fasta' reference.fa &&
+ln -s '$annotation' annotation.gff &&
+
+liftoff 
+    -g annotation.gff 
+    -o mapped.gff3 
+    -u unmapped_features.txt 
+    -dir liftoff_intermediate 
+    -p \${GALAXY_SLOTS:-1} 
+    -a $min_feature_coverage 
+    -s $min_identity 
+    -d $distance_factor 
+    -flank $flank_fraction 
+#if $feature_types and str($feature_types).strip()
+    -f "${feature_types}" 
+#end if
+#if str($exclude_partial).strip()
+    $exclude_partial 
+#end if
+#if str($infer_genes).strip()
+    $infer_genes 
+#end if
+#if str($infer_transcripts).strip()
+    $infer_transcripts 
+#end if
+#if $chrom_map and str($chrom_map).strip().lower() != 'none'
+    -chroms "$chrom_map" 
+#end if
+#if $unplaced_sequences and str($unplaced_sequences).strip().lower() != 'none'
+    -unplaced "$unplaced_sequences" 
+#end if
+#if str($copy_detection.find_copies) == "true"
+    -copies 
+    -sc $copy_detection.copy_min_identity 
+    -overlap $copy_detection.copy_max_overlap 
+    -mismatch $copy_detection.copy_mismatch_penalty 
+    -gap_open $copy_detection.copy_gap_open_penalty 
+    -gap_extend $copy_detection.copy_gap_extend_penalty
+#end if
+    target.fa reference.fa
+]]></command>
+    <inputs>
+        <param name="target_fasta" type="data" format="fasta" label="Target genome FASTA" help="Genome assembly to lift annotations onto."/>
+        <param name="reference_fasta" type="data" format="fasta" label="Reference genome FASTA" help="Genome assembly that already has annotations."/>
+        <param name="annotation" type="data" format="gff3,gtf" label="Annotation file (GFF3/GTF)" help="Reference annotation to lift over."/>
+
+        <section name="alignment" title="Alignment and mapping parameters" expanded="false">
+            <param argument="-a" name="min_feature_coverage" type="float" value="0.5" min="0" max="1" label="Minimum feature coverage"/>
+            <param argument="-s" name="min_identity" type="float" value="0.5" min="0" max="1" label="Minimum exon/CDS identity"/>
+            <param argument="-d" name="distance_factor" type="float" value="2.0" min="0" label="Distance scaling factor (-d)"/>
+            <param argument="-flank" name="flank_fraction" type="float" value="0.0" min="0" max="1" label="Flanking sequence fraction"/>
+            <param argument="-f" name="feature_types" type="text" optional="true" label="Feature types to lift" help="Comma-separated list (default: infer from annotation)."/>
+            <param argument="-exclude_partial" type="boolean" truevalue="-exclude_partial" falsevalue="" label="Send partial mappings to unmapped output" checked="false"/>
+        </section>
+
+        <section name="annotation_structure" title="Annotation structure helpers" expanded="false">
+            <param argument="-infer_genes" type="boolean" truevalue="-infer_genes" falsevalue="" label="Infer genes if annotation lacks gene records" checked="false"/>
+            <param argument="-infer_transcripts" type="boolean" truevalue="-infer_transcripts" falsevalue="" label="Infer transcripts if annotation lacks them" checked="false"/>
+        </section>
+
+        <section name="chromosome_mapping" title="Chromosome and copy handling" expanded="false">
+            <param argument="-chroms" name="chrom_map" type="data" format="txt" optional="true" label="Chromosome mapping file" help="Text file listing corresponding chromosome names between reference and target."/>
+            <param argument="-unplaced" name="unplaced_sequences" type="data" format="txt" optional="true" label="Unplaced sequence list" help="List of sequence names to map after chromosome mapping completes."/>
+            <conditional name="copy_detection">
+                <param argument="-copies" name="find_copies" type="select" label="Search for extra copies in target">
+                    <option value="false" selected="true">No</option>
+                    <option value="true">Yes</option>
+                </param>
+                <when value="false"/>
+                <when value="true">
+                    <param argument="-sc" name="copy_min_identity" type="float" value="1.0" min="0" max="1" label="Minimum exon identity for copies"/>
+                    <param argument="-overlap" name="copy_max_overlap" type="float" value="0.1" min="0" max="1" label="Maximum overlap fraction"/>
+                    <param argument="-mismatch" name="copy_mismatch_penalty" type="integer" value="2" min="0" label="Mismatch penalty"/>
+                    <param argument="-gap_open" name="copy_gap_open_penalty" type="integer" value="2" min="0" label="Gap open penalty"/>
+                    <param argument="-gap_extend" name="copy_gap_extend_penalty" type="integer" value="1" min="0" label="Gap extend penalty"/>
+                </when>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="liftoff_gff" format="gff3" from_work_dir="mapped.gff3" label="Liftoff lifted annotations on ${on_string}"/>
+        <data name="unmapped" format="txt" from_work_dir="unmapped_features.txt" label="Liftoff unmapped features on ${on_string}"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="target_fasta" value="target.fa" ftype="fasta"/>
+            <param name="reference_fasta" value="reference.fa" ftype="fasta"/>
+            <param name="annotation" value="annotation.gff3" ftype="gff3"/>
+            <output name="liftoff_gff">
+                <assert_contents>
+                    <has_text text="tgt1"/>
+                    <has_text text="ID=gene1"/>
+                    <has_n_lines n="7"/>
+                </assert_contents>
+            </output>
+            <output name="unmapped">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Liftoff** maps gene annotations (GFF or GTF) from a reference genome to a target genome by aligning the gene sequences with **minimap2** and reconstructing transcripts/exons that maximize identity while preserving structure.
+
+-----
+
+### Inputs
+
+1. **Target genome FASTA** – assembly that should receive annotations.
+2. **Reference genome FASTA** – assembly that already has annotations.
+3. **Annotation file** – GFF3 or GTF containing the gene models to lift over.
+
+Optional sections expose core Liftoff parameters (coverage, identity, minimap2 flags) as well as helpers for inferring missing gene/transcript features, providing chromosome mapping files, and searching for additional gene copies.
+
+### Outputs
+
+- **Lifted annotations** (`gff3`) – annotation projected onto the target genome.
+- **Unmapped features** (`txt`) – records that Liftoff could not confidently place (and, optionally, partial mappings if requested).
+
+### References
+
+- Shumate & Salzberg (2021) *Bioinformatics* 37(12):1639–1643. DOI: 10.1093/bioinformatics/btaa1016
+- Liftoff source: https://github.com/agshumate/Liftoff
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btaa1016</citation>
+    </citations>
+</tool>
