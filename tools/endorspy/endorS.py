@@ -170,7 +170,7 @@ if args.raw is not None:
                     "percent_duplicates": {"max": 100, "min": 0, "title": "Percent Duplicates (%)", "format": '{:,.2f}'}
                 },
                 "data": {
-                    name : {
+                    name: {
                         "percent_on_target": endogenousRaw,
                         "percent_on_target_quality_filtered": endogenousQF,
                         "percent_on_target_postdedup": endogenousDeDup,
@@ -194,7 +194,7 @@ if args.raw is not None:
                     "percent_on_target_quality_filtered": {"max": 100, "min": 0, "title": "Percent on target quality filtered (%)", "format": '{:,.2f}'}
                 },
                 "data": {
-                    name : {"percent_on_target": endogenousRaw, "percent_on_target_quality_filtered": endogenousQF}
+                    name: {"percent_on_target": endogenousRaw, "percent_on_target_quality_filtered": endogenousQF}
                 },
             }
             print("Percent on target raw (%):", endogenousRaw)
@@ -211,7 +211,7 @@ if args.raw is not None:
                 "percent_duplicates": {"max": 100, "min": 0, "title": "Percent duplicates (%)", "format": '{:,.2f}'}
             },
             "data": {
-                name : {
+                name: {
                     "percent_on_target": endogenousRaw,
                     "percent_on_target_postdedup": endogenousDeDup,
                     "clonality": clonality,
@@ -234,7 +234,7 @@ if args.raw is not None:
                 "percent_on_target": {"max": 100, "min": 0, "title": "Percent on target (%)", "format": '{:,.2f}'},
             },
             "data": {
-                name : {"percent_on_target": endogenousRaw}
+                name: {"percent_on_target": endogenousRaw}
             },
         }
         print("Percent on target raw (%):", endogenousRaw)
@@ -248,7 +248,7 @@ else:
             "percent_duplicates": {"max": 100, "min": 0, "title": "Percent Duplicates (%)", "format": '{:,.2f}'}
         },
         "data": {
-            name : {"clonality": clonality, "percent_duplicates": percentDuplicates}
+            name: {"clonality": clonality, "percent_duplicates": percentDuplicates}
         },
     }
     print("Clonality:", clonality)
