@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import gzip
 import json
 import optparse
 import os
@@ -61,6 +62,20 @@ def getSnpeffVersion():
     return snpeff_version
 
 
+def getSnpeffDbVersion(db_predictor_bin_file):
+    snpeff_db_version = None
+    try:
+        with gzip.open(db_predictor_bin_file, "rt") as fh:
+            buf = fh.read(100)
+            lines = buf.splitlines()
+            m = re.match(r"^(SnpEff)\s+(\d+\.\d+).*$", lines[0].strip())
+            if m:
+                snpeff_db_version = m.groups()[0] + m.groups()[1]
+    except Exception:
+        pass
+    return snpeff_db_version
+
+
 # Download human database 'hg19'
 # java -jar snpEff.jar download -v hg19
 #
@@ -87,12 +102,18 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
     snpeff_version = getSnpeffVersion()
     key = snpeff_version + '_' + genome_version
     if os.path.isdir(genome_path):
-        for _, _, files in os.walk(genome_path):
+        for dirpath, _, files in os.walk(genome_path):
             for fname in files:
                 if fname.startswith('snpEffectPredictor'):
                     # if snpEffectPredictor.bin download succeeded
                     name = genome_version + (' : ' + organism if organism else '')
-                    data_table_entry = dict(key=key, version=snpeff_version, value=genome_version, name=name, path=data_dir)
+                    data_table_entry = dict(
+                        key=key,
+                        version=getSnpeffDbVersion(os.path.join(dirpath, fname)) or snpeff_version,
+                        value=genome_version,
+                        name=name,
+                        path=data_dir
+                    )
                     _add_data_table_entry(data_manager_dict, 'snpeffv_genomedb', data_table_entry)
                 else:
                     m = re.match(regulation_pattern, fname)
