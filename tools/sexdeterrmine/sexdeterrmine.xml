@@ -14,27 +14,35 @@
     <command detect_errors="exit_code"><![CDATA[
         ## 1. Environment Setup
         ln -s '$input_bam' input.bam &&
-        samtools index input.bam &&
+        ln -sf '$input_bam.metadata.bam_index' input.bam.bai &&
 
-        ## 2. Extract Sample Name dynamically from BAM header
-        SAMPLE_NAME=\$(samtools view -H input.bam | grep '^@RG' | sed 's/.*SM:\([^[:space:]]*\).*/\1/' | head -n 1) &&
-        if [ -z "\$SAMPLE_NAME" ]; then SAMPLE_NAME="Sample_1"; fi &&
-		
-		## 3. BED Logic
-		#if $input_bed
-			cp '$input_bed' target.bed &&
+        ## 2. BED Logic Selection
+        #if $input_bed
+			BED_FILE='$input_bed' &&
 		#else
-			printf "21\t1\t48129895\n22\t1\t51304566\nX\t1\t155270560\nY\t1\t59373566\n" > target.bed &&
-		#end if
+            BED_FILE='$fallback_bed' &&
+        #end if
 		
-        ## 4. Generate depth and prep the file with the correct '#' header
-        printf "#Chrom\tPos\t\$SAMPLE_NAME\n" > depth_final.txt &&
-		samtools depth -aa -q $base_quality -Q $map_quality -b target.bed input.bam >> depth_final.txt &&
+        ## 3. Generate depth
+		samtools depth -H -aa -q $base_quality -Q $map_quality -b "\$BED_FILE" input.bam > depth_final.txt &&
         
-		## 5. Execute Sex.DetERRmine using the final formatted file
+		## 4. Execute Sex.DetERRmine using the final formatted file
         sexdeterrmine -I depth_final.txt > '$output_report'
     ]]></command>
-    
+	
+	<configfiles>
+        <configfile name="fallback_bed"><![CDATA[#set $valid = ['21', '22', 'X', 'Y', 'chr21', 'chr22', 'chrX', 'chrY']
+#if $input_bam.metadata.reference_names and $input_bam.metadata.reference_lengths
+#set $names = str($input_bam.metadata.reference_names).replace('__ob__','').replace('__cb__','').replace('__sq__','').replace(' ','').split(',')
+#set $lengths = str($input_bam.metadata.reference_lengths).replace('__ob__','').replace('__cb__','').replace(' ','').split(',')
+#for $n, $l in zip($names, $lengths)
+#if $n in $valid
+${n}	1	${l}
+#end if
+#end for
+#end if]]></configfile>
+    </configfiles>
+	
     <inputs>
         <param name="input_bam" type="data" format="bam" label="Input BAM file" help="BAM file must be sorted."/>
         <param name="input_bed" type="data" format="bed" optional="true" label="Target Regions (BED) [Optional]" help="BED file defining the genomic regions to calculate coverage. Leave empty to use full-length chromosomes"/>
@@ -74,10 +82,10 @@ This tool calculates the relative coverage of sex chromosomes (X and Y) compared
     - **Rx (X-rate):** The ratio of X-chromosome coverage to autosomal coverage.
     - **Ry (Y-rate):** The ratio of Y-chromosome coverage to autosomal coverage.
 
-**Default Behavior (Human-centric):**
+**Default Behavior (Automatic Reference Detection):**
 
 .. note::
-    **If no Target Regions (BED) file is provided**, the tool will automatically use the full-length coordinates for human chromosomes **21, 22, X, and Y** (based on the hs37d5/hg19 reference). This matches the standard behavior of many bioinformatics pipelines (like nf-core/eager).
+    **If no Target Regions (BED) file is provided**, the tool automatically inspects the BAM header metadata. It will identify and use the full-length coordinates for chromosomes **21, 22, X, and Y**.
 
 **Inputs:**
 
