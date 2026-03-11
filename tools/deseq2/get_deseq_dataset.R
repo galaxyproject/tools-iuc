@@ -1,8 +1,10 @@
-get_deseq_dataset <- function(sample_table, header, design_formula, tximport, txtype, tx2gene) {
+get_deseq_dataset <- function(sample_table, header, design_formula, tximport, txtype, tx2gene, count_matrix = NULL) {
     dir <- ""
 
     has_header <- !is.null(header)
     use_txi <- !is.null(tximport)
+    use_count_matrix <- !is.null(count_matrix)
+
     if (use_txi) {
         if (is.null(tx2gene)) stop("A transcript-to-gene map or a GTF/GFF3 file is required for tximport")
         if (tolower(file_ext(tx2gene)) == "gff") {
@@ -13,7 +15,30 @@ get_deseq_dataset <- function(sample_table, header, design_formula, tximport, tx
         }
     }
 
-    if (!use_txi && has_header) {
+    if (use_count_matrix) {
+        # Read the single count matrix file directly
+        tbl <- read.delim(count_matrix, row.names = 1, check.names = FALSE)
+
+        # Subset and reorder to match sample_table
+        tbl <- tbl[, rownames(sample_table), drop = FALSE]
+
+        # check for htseq report lines
+        old_special_names <- c(
+            "no_feature",
+            "ambiguous",
+            "too_low_aQual",
+            "not_aligned",
+            "alignment_not_unique"
+        )
+        special_rows <- (substr(rownames(tbl), 1, 1) == "_") | rownames(tbl) %in% old_special_names
+        tbl <- tbl[!special_rows, , drop = FALSE]
+
+        dds <- DESeqDataSetFromMatrix(
+            countData = round(as.matrix(tbl)),
+            colData = subset(sample_table, select = -c(sample, filename)),
+            design = design_formula
+        )
+    } else if (!use_txi && has_header) {
         countfiles <- lapply(as.character(sample_table$filename), read.delim, row.names = 1)
         tbl <- do.call("cbind", countfiles)
         colnames(tbl) <- rownames(sample_table) # take sample ids from header

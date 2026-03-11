@@ -78,7 +78,9 @@ spec <- matrix(c(
     "collection_files", "C", 1, "character",
     "custom_design_formula", "D", 0, "logical",
     "design_formula", "G", 1, "character",
-    "contrast_definition", "K", 1, "character"
+    "contrast_definition", "K", 1, "character",
+    "count_matrix_mode", "M", 0, "logical",
+    "count_matrix", "X", 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -94,8 +96,8 @@ if (is.null(opt$outfile)) {
     cat("'outfile' is required\n")
     q(status = 1)
 }
-if (is.null(opt$factors) && is.null(opt$sample_sheet_mode)) {
-    cat("'factors' is required when not using sample_sheet_mode\n")
+if (is.null(opt$factors) && is.null(opt$sample_sheet_mode) && is.null(opt$count_matrix_mode)) {
+    cat("'factors' is required when not using sample_sheet_mode or count_matrix_mode\n")
     q(status = 1)
 }
 
@@ -137,7 +139,153 @@ decode_base64_json <- function(encoded_str) {
 # switch on if 'factors' was provided:
 library("rjson")
 
-if (!is.null(opt$sample_sheet_mode)) {
+if (!is.null(opt$count_matrix_mode)) {
+    # Count matrix mode: single file with all samples
+    # Read sample sheet
+    sample_sheet <- read.table(opt$sample_sheet, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+    sample_id_col <- colnames(sample_sheet)[1]
+
+    if (!is.null(opt$custom_design_formula)) {
+        formula_str <- gsub("^~\\s*", "", opt$design_formula)
+        formula_vars <- unique(trimws(unlist(strsplit(formula_str, "[+*:]"))))
+        missing_vars <- setdiff(formula_vars, colnames(sample_sheet))
+        if (length(missing_vars) > 0) {
+            cat(paste0("Error: Variables not found in sample sheet: ", paste(missing_vars, collapse = ", "), "\n"))
+            cat(paste0("Available columns: ", paste(colnames(sample_sheet), collapse = ", "), "\n"))
+            q(status = 1)
+        }
+        factor_col_names <- formula_vars
+    } else {
+        factor_col_nums <- as.integer(strsplit(opt$factor_columns, ",")[[1]])
+        factor_col_names <- colnames(sample_sheet)[factor_col_nums]
+    }
+
+    # Read the count matrix to get sample names from column headers
+    count_header <- read.delim(opt$count_matrix, row.names = 1, nrows = 1, check.names = FALSE)
+    matrix_sample_names <- colnames(count_header)
+    sample_sheet_ids <- sample_sheet[[sample_id_col]]
+
+    # Validate sample sheet matches count matrix columns
+    matrix_not_in_sheet <- setdiff(matrix_sample_names, sample_sheet_ids)
+    sheet_not_in_matrix <- setdiff(sample_sheet_ids, matrix_sample_names)
+
+    if (length(matrix_not_in_sheet) > 0 || length(sheet_not_in_matrix) > 0) {
+        cat("Error: Sample sheet does not match the count matrix columns\n\n")
+        if (length(matrix_not_in_sheet) > 0) {
+            cat("The following samples are in the count matrix but NOT in the sample sheet:\n")
+            for (id in matrix_not_in_sheet) {
+                cat(paste0("  - ", id, "\n"))
+            }
+            cat("\n")
+        }
+        if (length(sheet_not_in_matrix) > 0) {
+            cat("The following samples are in the sample sheet but NOT in the count matrix:\n")
+            for (id in sheet_not_in_matrix) {
+                cat(paste0("  - ", id, "\n"))
+            }
+            cat("\n")
+        }
+        cat("Please ensure that:\n")
+        cat(paste0("1. The first column ('", sample_id_col, "') of the sample sheet contains sample names\n"))
+        cat("2. These names exactly match the column headers in your count matrix\n")
+        q(status = 1)
+    }
+
+    # Determine primary factor index
+    if (!is.null(opt$custom_design_formula)) {
+        primary_factor_index <- length(factor_col_names)
+    } else {
+        primary_factor_index <- 1
+    }
+
+    # Build factor_list from sample sheet (needed for sample_table construction below)
+    factor_list <- list()
+    for (i in seq_along(factor_col_names)) {
+        factor_name <- factor_col_names[i]
+        level_to_samples <- list()
+        level_order <- character(0)
+
+        for (sid in matrix_sample_names) {
+            matching_row <- which(sample_sheet[[sample_id_col]] == sid)
+            if (length(matching_row) > 0) {
+                level <- as.character(sample_sheet[[factor_name]][matching_row[1]])
+                if (!(level %in% names(level_to_samples))) {
+                    level_to_samples[[level]] <- character(0)
+                    level_order <- c(level_order, level)
+                }
+                level_to_samples[[level]] <- c(level_to_samples[[level]], sid)
+            }
+        }
+
+        all_levels <- level_order
+
+        if (i == primary_factor_index) {
+            if (!is.null(opt$reference_level) && nchar(opt$reference_level) > 0) {
+                ref_level <- trim(opt$reference_level)
+                if (!(ref_level %in% all_levels)) {
+                    cat(paste0("Error: Reference level '", ref_level, "' not found in factor '", factor_name, "'. Available levels: ", paste(all_levels, collapse = ", "), "\n"))
+                    q(status = 1)
+                }
+            } else {
+                ref_level <- all_levels[1]
+            }
+
+            if (!is.null(opt$target_level) && nchar(opt$target_level) > 0) {
+                target_level <- trim(opt$target_level)
+                if (!(target_level %in% all_levels)) {
+                    cat(paste0("Error: Target level '", target_level, "' not found in factor '", factor_name, "'. Available levels: ", paste(all_levels, collapse = ", "), "\n"))
+                    q(status = 1)
+                }
+                levels_to_use <- c(ref_level, target_level)
+            } else {
+                other_levels <- all_levels[all_levels != ref_level]
+                levels_to_use <- c(ref_level, other_levels)
+                target_level <- other_levels[1]
+            }
+
+            primary_ref_level <- ref_level
+            primary_target_level <- target_level
+        } else {
+            levels_to_use <- all_levels
+        }
+
+        factor_levels <- list()
+        for (level in levels_to_use) {
+            if (level %in% names(level_to_samples)) {
+                level_entry <- list()
+                level_entry[[level]] <- level_to_samples[[level]]
+                factor_levels[[length(factor_levels) + 1]] <- level_entry
+            }
+        }
+
+        factor_list[[length(factor_list) + 1]] <- list(factor_name, factor_levels)
+    }
+
+    if (!is.null(opt$custom_design_formula)) {
+        primary_factor <- factor_col_names[length(factor_col_names)]
+    } else {
+        primary_factor <- factor_col_names[1]
+    }
+
+    # Parse contrast_definition if in custom mode
+    if (!is.null(opt$custom_design_formula) && !is.null(opt$contrast_definition) && nchar(opt$contrast_definition) > 0) {
+        contrast_parts <- strsplit(opt$contrast_definition, ",")[[1]]
+        if (length(contrast_parts) != 3) {
+            cat("Error: contrast_definition must be in format 'factor,target,reference'\n")
+            q(status = 1)
+        }
+        custom_contrast <- list(
+            factor = trim(contrast_parts[1]),
+            target = trim(contrast_parts[2]),
+            reference = trim(contrast_parts[3])
+        )
+        if (!(custom_contrast$factor %in% factor_col_names)) {
+            cat(paste0("Error: Contrast factor '", custom_contrast$factor, "' not found in design formula.\n"))
+            cat(paste0("Available factors: ", paste(factor_col_names, collapse = ", "), "\n"))
+            q(status = 1)
+        }
+    }
+} else if (!is.null(opt$sample_sheet_mode)) {
     # Sample sheet mode: build factor_list from sample sheet
     filenames_to_labels <- fromJSON(decode_base64_json(opt$files_to_labels))
 
@@ -363,45 +511,68 @@ if (!is.null(opt$sample_sheet_mode)) {
 }
 
 factors <- sapply(factor_list, function(x) x[[1]])
-# For original mode (not sample_sheet_mode), set primary_factor to first factor
-# In sample_sheet_mode, it's already set correctly above
-if (is.null(opt$sample_sheet_mode)) {
+# For original mode (not sample_sheet_mode or count_matrix_mode), set primary_factor to first factor
+# In sample_sheet_mode and count_matrix_mode, it's already set correctly above
+if (is.null(opt$sample_sheet_mode) && is.null(opt$count_matrix_mode)) {
     primary_factor <- factors[1]
 }
-filenames_in <- unname(unlist(factor_list[[1]][[2]]))
-labs <- unname(unlist(filenames_to_labels[basename(filenames_in)]))
-sample_table <- data.frame(
-    sample = basename(filenames_in),
-    filename = filenames_in,
-    row.names = filenames_in,
-    stringsAsFactors = FALSE
-)
-for (factor in factor_list) {
-    factor_name <- trim(factor[[1]])
-    sample_table[[factor_name]] <- character(nrow(sample_table))
-    lvls <- sapply(factor[[2]], function(x) names(x))
-    for (i in seq_along(factor[[2]])) {
-        files <- factor[[2]][[i]][[1]]
-        sample_table[files, factor_name] <- trim(lvls[i])
+
+if (!is.null(opt$count_matrix_mode)) {
+    # Count matrix mode: sample names come from the matrix column headers
+    sample_names <- unname(unlist(factor_list[[1]][[2]]))
+    sample_table <- data.frame(
+        sample = sample_names,
+        filename = opt$count_matrix,
+        row.names = sample_names,
+        stringsAsFactors = FALSE
+    )
+    for (factor in factor_list) {
+        factor_name <- trim(factor[[1]])
+        sample_table[[factor_name]] <- character(nrow(sample_table))
+        lvls <- sapply(factor[[2]], function(x) names(x))
+        for (i in seq_along(factor[[2]])) {
+            samples <- factor[[2]][[i]][[1]]
+            sample_table[samples, factor_name] <- trim(lvls[i])
+        }
+        sample_table[[factor_name]] <- factor(sample_table[[factor_name]], levels = lvls)
+        if (factor_name == primary_factor && exists("primary_ref_level")) {
+            sample_table[[factor_name]] <- relevel(sample_table[[factor_name]], ref = primary_ref_level)
+        }
     }
-    sample_table[[factor_name]] <- factor(sample_table[[factor_name]], levels = lvls)
-    # Explicitly set the reference level using relevel() for the primary factor in sample_sheet_mode
-    # This ensures DESeq2 knows the reference regardless of factor level order
-    # In original mode, we don't relevel because the order from factor_list is already correct
-    # Note: primary_factor is already set correctly in sample_sheet_mode before we get here
-    if (exists("primary_factor") && factor_name == primary_factor && exists("primary_ref_level") && !is.null(opt$sample_sheet_mode)) {
-        sample_table[[factor_name]] <- relevel(sample_table[[factor_name]], ref = primary_ref_level)
+} else {
+    filenames_in <- unname(unlist(factor_list[[1]][[2]]))
+    labs <- unname(unlist(filenames_to_labels[basename(filenames_in)]))
+    sample_table <- data.frame(
+        sample = basename(filenames_in),
+        filename = filenames_in,
+        row.names = filenames_in,
+        stringsAsFactors = FALSE
+    )
+    for (factor in factor_list) {
+        factor_name <- trim(factor[[1]])
+        sample_table[[factor_name]] <- character(nrow(sample_table))
+        lvls <- sapply(factor[[2]], function(x) names(x))
+        for (i in seq_along(factor[[2]])) {
+            files <- factor[[2]][[i]][[1]]
+            sample_table[files, factor_name] <- trim(lvls[i])
+        }
+        sample_table[[factor_name]] <- factor(sample_table[[factor_name]], levels = lvls)
+        # Explicitly set the reference level using relevel() for the primary factor in sample_sheet_mode
+        # This ensures DESeq2 knows the reference regardless of factor level order
+        # In original mode, we don't relevel because the order from factor_list is already correct
+        if (exists("primary_factor") && factor_name == primary_factor && exists("primary_ref_level") && !is.null(opt$sample_sheet_mode)) {
+            sample_table[[factor_name]] <- relevel(sample_table[[factor_name]], ref = primary_ref_level)
+        }
     }
+    rownames(sample_table) <- labs
 }
-rownames(sample_table) <- labs
 
 # Build design formula
 if (!is.null(opt$custom_design_formula)) {
     # Custom mode: use user-provided formula
     design_formula <- as.formula(opt$design_formula)
-    # In original mode (not sample_sheet), set primary factor to last variable in formula
-    # In sample_sheet_mode, it's already set correctly above
-    if (is.null(opt$sample_sheet_mode)) {
+    # In original mode (not sample_sheet or count_matrix), set primary factor to last variable in formula
+    if (is.null(opt$sample_sheet_mode) && is.null(opt$count_matrix_mode)) {
         primary_factor <- factors[length(factors)]
     }
 } else {
@@ -474,7 +645,7 @@ if (verbose) {
     cat("\n---------------------\n")
 }
 
-dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = design_formula, tximport = opt$tximport, txtype = opt$txtype, tx2gene = opt$tx2gene)
+dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = design_formula, tximport = opt$tximport, txtype = opt$txtype, tx2gene = opt$tx2gene, count_matrix = opt$count_matrix)
 
 # use/estimate size factors with the chosen method
 if (!is.null(opt$esf)) {
@@ -669,9 +840,9 @@ if (is.null(opt$many_contrasts)) {
         # Use stored reference and target levels
         # contrast = c(factor, level1, level2) computes log2(level1 / level2)
         # In original mode: variable names were swapped for backward compatibility
-        # In sample_sheet_mode: use them directly (ref=denominator, target=numerator)
-        if (!is.null(opt$sample_sheet_mode)) {
-            # Sample sheet mode: use natural order
+        # In sample_sheet_mode and count_matrix_mode: use them directly (ref=denominator, target=numerator)
+        if (!is.null(opt$sample_sheet_mode) || !is.null(opt$count_matrix_mode)) {
+            # Sample sheet / count matrix mode: use natural order
             ref <- primary_ref_level # Reference is denominator
             lvl <- primary_target_level # Target is numerator
         } else {
