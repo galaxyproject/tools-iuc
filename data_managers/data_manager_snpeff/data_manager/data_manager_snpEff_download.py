@@ -101,26 +101,41 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
     genome_path = os.path.join(data_dir, genome_version)
     snpeff_version = getSnpeffVersion()
     key = snpeff_version + '_' + genome_version
+    db_version = None
+    genomedb_name = regulationdb_name = ""
+
     if os.path.isdir(genome_path):
         for dirpath, _, files in os.walk(genome_path):
             for fname in files:
                 if fname.startswith('snpEffectPredictor'):
                     # if snpEffectPredictor.bin download succeeded
-                    name = genome_version + (' : ' + organism if organism else '')
-                    data_table_entry = dict(
-                        key=key,
-                        version=getSnpeffDbVersion(os.path.join(dirpath, fname)) or snpeff_version,
-                        value=genome_version,
-                        name=name,
-                        path=data_dir
-                    )
-                    _add_data_table_entry(data_manager_dict, 'snpeffv_genomedb', data_table_entry)
+                    genomedb_name = genome_version + (' : ' + organism if organism else '')
+                    db_version = getSnpeffDbVersion(os.path.join(dirpath, fname)) or snpeff_version
                 else:
                     m = re.match(regulation_pattern, fname)
                     if m:
-                        name = m.groups()[0]
-                        data_table_entry = dict(key=key, version=snpeff_version, genome=genome_version, value=name, name=name)
-                        _add_data_table_entry(data_manager_dict, 'snpeffv_regulationdb', data_table_entry)
+                        regulationdb_name = m.groups()[0]
+
+        if db_version:
+            data_table_entry = dict(
+                key=key,
+                version=db_version,
+                value=genome_version,
+                name=genomedb_name,
+                path=f"snpEff/{db_version}/data"
+            )
+            _add_data_table_entry(data_manager_dict, 'snpeffv_genomedb', data_table_entry)
+
+        if regulationdb_name:
+            data_table_entry = dict(
+                key=key,
+                version=db_version or snpeff_version,
+                genome=genome_version,
+                value=regulationdb_name,
+                name=regulationdb_name
+            )
+            _add_data_table_entry(data_manager_dict, 'snpeffv_regulationdb', data_table_entry)
+
     return data_manager_dict
 
 
