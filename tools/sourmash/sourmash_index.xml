@@ -1,0 +1,271 @@
+<tool id="sourmash_index" name="sourmash index" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>signatures for rapid search</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[        
+        @Picklist_copy_file@
+
+        #if $mode_cond.mode_param == "append":
+            ln -sf '$mode_cond.old_db' indexed.sbt.zip &&
+        #end if
+
+        sourmash index 
+
+        #if $mode_cond.mode_param == "build":
+            #if $mode_cond.index_type == "rocksdb":
+                indexed.rocksdb -F rocksdb
+            #else if $mode_cond.index_type == "SBT":
+                indexed -F SBT
+            #else if $mode_cond.index_type == 'zip':
+                indexed.zip -F zip
+            #end if
+        #else:
+            --append indexed.sbt.zip
+        #end if
+
+        #for $i in $signatures:
+            ${i}
+        #end for
+
+        @common_params_commandline@
+
+        ## Advanced Options
+        --n_children $advanced_options.n_children
+        #if $advanced_options.bf:
+            --bf-size $advanced_options.bf
+        #end if
+        #if $advanced_options.sparseness:
+            --sparseness $advanced_options.sparseness
+        #end if
+
+        @Picklist_commandline@
+
+        ### Zip Output
+        #if $mode_cond.mode_param == "build":
+            #if $mode_cond.index_type == 'rocksdb':
+                && zip -qr indexed.rocksdb.zip indexed.rocksdb
+            #end if
+        #end if
+        ]]></command>
+    <inputs>
+        <conditional name="mode_cond">
+            <param name="mode_param" type="select" label="Mode" help="Chose weather to 'Build' new indexed databse from signatures or 'Append' signatures to existing databse.">
+                <option value="build" selected="true">Build</option>
+                <option value="append" >Append</option>
+            </param>
+            <when value="build">
+                <param name="index_type" argument="-F" type="select" label="Index Type" help="choose the database index type">
+                    <option value="SBT" selected="true">SBT - Sequence Bloom Trees</option>
+                    <option value="rocksdb" >RocksDB</option>
+                    <option value="zip" >zip</option>
+                </param>
+            </when>
+            <when value="append">
+                <param name="old_db" type="data" format="zip" label="Indexed Database (SBT)" help="Add signatures to an existing SBT instead of creating new index"/>
+            </when>
+        </conditional>
+        <expand macro="signatures_macro"/>
+        <section name="sig_select" title="Signature selectors" expanded="false">
+            <expand macro="ksize_macro"/>
+            <expand macro="mol_type_macro"/>
+            <expand macro="scaled_macro"/>
+        </section>
+        <!-- Advanced options-->
+        <section name="advanced_options" title="Advanced Options" expanded="false">
+            <param argument="--n_children" type="integer" value="2" min="1" label="Number of children for internal nodes" help="Number of children per internal SBT node. Default: 2. Higher values = flatter tree structure"/>
+            <param name="bf" argument="--bf-size" type="integer" optional="true" min="1" label="Bloom filter size" help="Bloom filter size for internal SBT nodes. Larger values reduce false positives but increase memory usage"/>
+            <param argument="--sparseness" type="float" optional="true" value="" min="0.0" max="1.0" label="Sparseness of internal nodes" help="Percentage of internal nodes to skip saving (0.0 = save all, 1.0 = save none). Reduces database size at cost of query speed"/>
+        </section>
+        <expand macro="picklist_macro"/>
+    </inputs>
+    <!-- Outputs -->
+    <outputs>
+        <data name="indexed_db" format="zip" from_work_dir="*.zip" label="${tool.name} on ${on_string}"/>
+    </outputs>
+    <tests>
+        <!-- 1) testing SBT -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <!-- archive is not empty -->
+                    <has_archive_member path=".*" min="1"/>
+                    <!-- find the JSON file and assert its contents-->
+                    <has_archive_member path=".*\.json$" min="1">
+                        <has_text_matching expression="SBT"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloading 3 files into SBT index"/>
+            </assert_stderr>
+        </test>
+        <!-- 2) testing rocksdb -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <conditional name="mode_cond">
+                <param name="index_type" value="rocksdb"/>            
+            </conditional>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*" min="1"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloading 3 files into rocksdb index"/>
+            </assert_stderr>
+        </test>
+        <!-- 3) testing molekule type -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig,sketch_dayhoff.sig"/>
+            <section name="sig_select">
+                <param name="mol_type" value="--dayhoff"/>
+            </section>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <!-- archive is not empty -->
+                    <has_archive_member path=".*" min="1"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloading 4 files into SBT index"/>
+                <has_text text="Kloaded 1 sigs; saving SBT under"/>
+            </assert_stderr>
+        </test>
+        <!-- 4) ksize -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="sketch_ksize_7.sig,GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <section name="sig_select">
+                <param name="ksize" value="7"/>
+            </section>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*" min="1"/>
+                    <has_archive_member path=".*\.json" min="1">
+                        <has_text_matching expression="11"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloaded 1 sigs;"/>
+            </assert_stderr>
+        </test>
+        <!-- 5) Number of children -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <section name="advanced_options">
+                <param name="n_children" value="4"/>
+            </section>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*\.json" min="1">
+                        <has_text_matching expression="4476"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloading 3 files into SBT index"/>
+            </assert_stderr>
+        </test>
+        <!-- 6) bf size -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <section name="advanced_options">
+                <param name="bf" value="5"/>
+            </section>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*\.json" min="1">
+                        <has_text_matching expression="5.0"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloading 3 files into SBT index"/>
+            </assert_stderr>
+        </test>
+        <!-- 8) Append -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig"/>
+            <conditional name="mode_cond">
+                <param name="mode_param" value="append"/>   
+                <param name="old_db" value="old.sbt.zip"/>   
+            </conditional>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*\.json" min="1">
+                        <has_text_matching expression="4476"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="KFinished saving nodes, now saving SBT index file."/>
+            </assert_stderr>
+        </test>
+        <!-- 9) picklist -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <section name="picklist">
+                <param name="picklist_file" value="labels.csv"/>
+                <param name="pickstyle" value="include"/>
+            </section>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*\.json" min="1">
+                        <has_text_matching expression="5177"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="[Kfor given picklist, found 2 matches to 2 distinct values"/>
+            </assert_stderr>
+        </test>
+        <!-- 10) testing zip -->
+        <test expect_num_outputs="1">
+            <param name="signatures" value="GCF_000005845.2_ASM584v2_genomic.fna.gz.sig,GCF_000017325.1_ASM1732v1_genomic.fna.gz.sig,GCF_000021665.1_ASM2166v1_genomic.fna.gz.sig"/>
+            <conditional name="mode_cond">
+                <param name="index_type" value="zip"/>            
+            </conditional>
+            <output name="indexed_db" ftype="zip">
+                <assert_contents>
+                    <has_archive_member path=".*" min="1"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kloading 3 files into zip index"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+    **What the tool does?**
+
+        Sourmash index creates an indexed database of signatures that can be searched quickly and in low memory. This is essential for building searchable signature databases that can be queried with ``sourmash search``.
+
+    **Input files**
+    
+        - Signature files (.sig, json): MinHash signatures generated by ``sourmash sketch`` or similar tools.
+        
+    **Database Types**
+        - **RocksDB** (recommended): High-performance key-value store, smallest footprint
+        - **SBT** (Sequence Bloom Tree): Original sourmash index format, good for phylogenetic relationships
+        - **zip** : Zipped file containing multiple signatures
+    
+    
+    **Advanced Options**
+        - **n_children**: Tree branching factor. Higher values create flatter, shallower trees
+        - **Bloom filter size**: Trade-off between false positives and memory usage
+        - **Sparseness**: Skip saving some internal nodes to reduce database size (SBT only)
+        - **Picklist**: Filter which signatures to include based on a CSV file
+    
+    For more information, see the `sourmash documentation <https://sourmash.readthedocs.io/en/latest/command-line.html#sourmash-index-build-an-index-of-signatures>`_.
+
+    @Picklist_help@
+
+    **Limitation**
+
+    One limitation of indexed databases is that they are all restricted in to certain kinds of signatures. RocksDB, SBT, and LCA databases can only contain one “type” of signature (one ksize/one moltype at one scaled value). SQLite databases can contain multiple ksizes and moltypes, but only at one scaled value. If the database signature type is incompatible with the other signatures, sourmash will complain appropriately.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
