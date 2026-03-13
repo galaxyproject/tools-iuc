@@ -6,6 +6,7 @@
     <expand macro="bio_tools"/>
     <expand macro="requirements"/>
     <expand macro="version_command"/>
+    <expand macro="creators"/>
     <command detect_errors="exit_code"><![CDATA[
 #if str($method.method) == 'CreateSeuratObject':
     #if str($method.input_type.input_type) == 'mtx':
@@ -17,6 +18,12 @@
         #if str($method.input_type.citeseq.citeseq) == 'true':
         ln -s '$method.input_type.citeseq.citeseq_table' citeseq.tab &&
         #end if
+    #else if str($method.input_type.input_type) == 'xenium':
+    mkdir -p xenium_data &&
+    cd xenium_data &&
+    gunzip -c '$method.input_type.xenium_archive' | tar -x &&
+    tar -xzf cell_feature_matrix.tar.gz &&
+    cd .. &&
     #end if
     cat '$script_file' > $hidden_output &&
     Rscript '$script_file' >> $hidden_output
@@ -29,7 +36,35 @@
 @CMD_imports@
 
 #if $method.method == 'CreateSeuratObject'
-    #if $method.input_type.input_type == 'mtx'
+    #if $method.input_type.input_type == 'xenium'
+        seurat_obj<-LoadXenium(
+            data.dir = 'xenium_data',
+            fov = '$method.input_type.fov',
+            assay = '$method.input_type.assay',
+            mols.qv.threshold = $method.input_type.mols_qv_threshold,
+            cell.centroids = $method.input_type.cell_centroids,
+            molecule.coordinates = $method.input_type.molecule_coordinates,
+            #if $method.input_type.segmentations != ''
+            segmentations = '$method.input_type.segmentations',
+            #end if
+            flip.xy = $method.input_type.flip_xy
+        )
+
+        #if $method.meta_data
+        meta_data<-read.table(
+            "$method.meta_data",
+            header = TRUE,
+            row.names = 1,
+            sep = "\t"
+        )
+        for (name in colnames(meta_data)) {
+        meta_data[[name]]<-gsub("^$", "N/A", trimws(meta_data[[name]]))
+        meta_data[[name]][is.na(meta_data[[name]])]<-"N/A"
+        }
+        seurat_obj <- AddMetaData(seurat_obj, metadata = meta_data)
+        #end if
+
+    #else if $method.input_type.input_type == 'mtx'
         counts<-Read10X(
             data.dir = '.',
             gene.column = $method.input_type.gene_column,
@@ -53,7 +88,7 @@
 
         seurat_obj<-CreateSeuratObject(
             counts,
-            assay = '$method.assay',
+            assay = '$method.input_type.assay',
             #if $method.names_field != ''
             names.field = $method.names_field,
             #end if
@@ -105,7 +140,7 @@
 
         seurat_obj<-CreateSeuratObject(
             counts,
-            assay = '$method.assay',
+            assay = '$method.input_type.assay',
             #if $method.names_field != ''
             names.field = $method.names_field,
             #end if
@@ -232,6 +267,7 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     <param name="input_type" type="select" label="Select format of input">
                         <option value="mtx" selected="true">matrix market (for e.g. 10x data)</option>
                         <option value="tab">tab-delimited text</option>
+                        <option value="xenium">Xenium spatial data (gzipped tar archive)</option>
                     </param>
                     <when value="mtx">
                         <param name="matrix" type="data" format="mtx" label="Counts matrix with features as rows, cells as columns (.mtx)"/>
@@ -242,6 +278,9 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                         <param name="cell_column" type="integer" value="1" label="Column of cell table to use as cell names" help="(cell.column)"/>
                         <param name="unique_features" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Make feature names unique" help="(unique.features)"/>
                         <param name="strip_suffix" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Remove trailing -1 if present in all cell barcodes" help="(strip.suffix)"/>
+                        <param argument="assay" type="text" value="RNA" label="Name of assay to create" help="(assay)">
+                            <expand macro="valid_name"/>
+                        </param>
                     </when>
                     <when value="tab">
                         <param name="input_tab" type="data" format="tsv,tabular" label="Expression table with features as rows, cells as columns" help="(file)"/>
@@ -255,12 +294,24 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                                 <param name="citeseq_table" type="data" format ="tsv,tabular" label="CITE-Seq data to add"/>
                             </when>
                         </conditional>
+                        <param argument="assay" type="text" value="RNA" label="Name of assay to create" help="(assay)">
+                            <expand macro="valid_name"/>
+                        </param>
+                    </when>
+                    <when value="xenium">
+                        <param name="xenium_archive" type="data" format="tar.gz" label="Xenium output archive" help="Gzipped tar archive containing the complete Xenium output directory"/>
+                        <param argument="fov" type="text" value="fov" label="Field of view name" help="Name of the FOV to load (default: 'fov')"/>
+                        <param argument="assay" type="text" value="Xenium" label="Assay name" help="Name of the assay to create (default: 'Xenium')">
+                            <expand macro="valid_name"/>
+                        </param>
+                        <param argument="mols_qv_threshold" type="integer" value="20" min="0" max="100" label="Molecule QV threshold" help="Minimum molecule QV value to include (default: 20)"/>
+                        <param argument="cell_centroids" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Load cell centroids" help="Load cell centroid coordinates (default: TRUE)"/>
+                        <param argument="molecule_coordinates" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Load molecule coordinates" help="Load individual molecule coordinates (default: TRUE)"/>
+                        <param argument="segmentations" type="text" value="" optional="true" label="Segmentation boundaries" help="Path to segmentation data (optional)"/>
+                        <param argument="flip_xy" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Flip X and Y coordinates" help="Flip X and Y spatial coordinates (default: FALSE)"/>
                     </when>
                 </conditional>
                 <param name="meta_data" type="data" format="tsv,tabular" optional="true" label="Additional cell metadata to add" help="table with cell names in first column (meta.data)"/>
-                <param argument="assay" type="text" value="RNA" label="Name of assay to create">
-                    <expand macro="valid_name"/>
-                </param>
                 <param name="min_cells" type="integer" optional="true" value="0" label="Include features detected in at least this many cells" help="(min.cells)"/>
                 <param name="min_features" type="integer" optional="true" value="0" label="Include cells where at least this many features are detected" help="(min.features)"/>
                 <param name="names_field" type="integer" optional="true" value="" label="Field of cell names to use as cell identity class" help="(names.field)"/>
@@ -350,10 +401,38 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     <has_text_matching expression="CreateSeuratObject"/>
                 </assert_contents>
             </output>
-            <output name="rds_out" location="https://zenodo.org/records/13732784/files/rawdata.rds" ftype="rds"/>
+            <output name="rds_out" ftype="rds">
+                <assert_contents>
+                    <has_size size="361000" delta="100000"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
-            <!-- test2: CreateSeuratObject from tabular -->
+            <!-- test2: CreateSeuratObject from Xenium spatial data -->
+            <conditional name="method">
+                <param name="method" value="CreateSeuratObject"/>
+                <conditional name="input_type">
+                    <param name="input_type" value="xenium"/>
+                    <param name="xenium_archive" location="https://zenodo.org/records/13732784/files/xenium_test.tar.gz"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="LoadXenium"/>
+                    <has_text_matching expression="xenium_data"/>
+                </assert_contents>
+            </output>
+            <output name="rds_out" ftype="rds">
+                <assert_contents>
+                    <has_size size="110000000" delta="5000000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test3: CreateSeuratObject from tabular -->
             <conditional name="method">
                 <param name="method" value="CreateSeuratObject"/>
                 <conditional name="input_type">
@@ -370,10 +449,14 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     <has_text_matching expression="CreateSeuratObject"/>
                 </assert_contents>
             </output>
-            <output name="rds_out" location="https://zenodo.org/records/13732784/files/rawdata2.rds" ftype="rds"/>
+            <output name="rds_out" ftype="rds">
+                <assert_contents>
+                    <has_size size="358600" delta="100000"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
-            <!-- test3: CreateSeuratObject with CITE-Seq -->
+            <!-- test4: CreateSeuratObject with CITE-Seq -->
             <conditional name="method">
                 <param name="method" value="CreateSeuratObject"/>
                 <conditional name="input_type">
@@ -385,7 +468,6 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     </conditional>
                 </conditional>
             </conditional>
-            <param name="min_features" value=""/>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
@@ -395,13 +477,17 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     <has_text_matching expression="CreateSeuratObject"/>
                 </assert_contents>
             </output>
-            <output name="rds_out" location="https://zenodo.org/records/13732784/files/citeseq.rds" ftype="rds"/>
+            <output name="rds_out" ftype="rds">
+                <assert_contents>
+                    <has_size size="766700" delta="100000"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
-            <!-- test4: Add_QC_Metrics -->
-            <param name="seurat_rds" location="https://zenodo.org/records/13732784/files/rawdata.rds"/>
+            <!-- test5: Add_QC_Metrics -->
             <conditional name="method">
                 <param name="method" value="Add_QC_Metrics"/>
+                <param name="seurat_rds" location="https://zenodo.org/records/13732784/files/rawdata.rds"/>
                 <conditional name="match">
                     <param name="match" value="pattern"/>
                     <param name="pattern" value="^Rp"/>
@@ -417,13 +503,17 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     <has_text_matching expression="percent.ribo"/>
                 </assert_contents>
             </output>
-            <output name="rds_out" location="https://zenodo.org/records/13732784/files/ribodata.rds" ftype="rds"/>
+            <output name="rds_out" ftype="rds">
+                <assert_contents>
+                    <has_size size="363300" delta="100000"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
-            <!-- test5: FilterCells -->
-            <param name="seurat_rds" location="https://zenodo.org/records/13732784/files/ribodata.rds"/>
+            <!-- test6: FilterCells -->
             <conditional name="method">
                 <param name="method" value="FilterCells"/>
+                <param name="seurat_rds" location="https://zenodo.org/records/13732784/files/ribodata.rds"/>
                 <param name="minimum_nCount_RNA" value="1"/>
                 <param name="maximum_nCount_RNA" value="20000000"/>
                 <conditional name="other">
@@ -440,7 +530,11 @@ seurat_obj[['$method.col_name']]<-PercentageFeatureSet(
                     <has_text_matching expression="subset"/>
                 </assert_contents>
             </output>
-            <output name="rds_out" location="https://zenodo.org/records/13732784/files/filtered.rds" ftype="rds"/>
+            <output name="rds_out" ftype="rds" >
+                <assert_contents>
+                    <has_size size="335700" delta="100000"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
