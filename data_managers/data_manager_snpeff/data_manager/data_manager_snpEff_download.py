@@ -47,18 +47,14 @@ def getOrganismNames(genomes, organisms):
 
 def getSnpeffVersion():
     snpeff_version = 'SnpEff ?.?'
-    stderr_path = 'snpeff.err'
-    args = ['snpEff', '-h']
-    with open(stderr_path, 'w') as stderr_fh:
-        return_code = subprocess.call(args=args, shell=False, stderr=stderr_fh.fileno())
-    if return_code != 255:
-        sys.exit(return_code)
-    with open(stderr_path) as fh:
-        for line in fh:
-            m = re.match(r'^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
-            if m:
-                snpeff_version = m.groups()[0] + m.groups()[1]
-                break
+    args = ['snpEff', '-version']
+    try:
+        version_output = subprocess.check_output(args, shell=False).decode()
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+    m = re.match(r'^(SnpEff)\s*(\d+\.\d+).*$', version_output)
+    if m:
+        snpeff_version = m.groups()[0] + m.groups()[1]
     return snpeff_version
 
 
