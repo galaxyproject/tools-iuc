@@ -47,18 +47,14 @@ def getOrganismNames(genomes, organisms):
 
 def getSnpeffVersion():
     snpeff_version = 'SnpEff ?.?'
-    stderr_path = 'snpeff.err'
-    args = ['snpEff', '-h']
-    with open(stderr_path, 'w') as stderr_fh:
-        return_code = subprocess.call(args=args, shell=False, stderr=stderr_fh.fileno())
-    if return_code != 255:
-        sys.exit(return_code)
-    with open(stderr_path) as fh:
-        for line in fh:
-            m = re.match(r'^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
-            if m:
-                snpeff_version = m.groups()[0] + m.groups()[1]
-                break
+    args = ['snpEff', '-version']
+    try:
+        version_output = subprocess.check_output(args, shell=False).decode()
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+    m = re.match(r'^(SnpEff)\s*(\d+\.\d+).*$', version_output)
+    if m:
+        snpeff_version = m.groups()[0] + m.groups()[1]
     return snpeff_version
 
 
@@ -124,7 +120,7 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
                 name=genomedb_name,
                 path=f"snpEff/{db_version}/data"
             )
-            _add_data_table_entry(data_manager_dict, 'snpeffv_genomedb', data_table_entry)
+            data_manager_dict['data_tables']['snpeffv_genomedb'].append(data_table_entry)
 
         if regulationdb_name:
             data_table_entry = dict(
@@ -134,16 +130,7 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
                 value=regulationdb_name,
                 name=regulationdb_name
             )
-            _add_data_table_entry(data_manager_dict, 'snpeffv_regulationdb', data_table_entry)
-
-    return data_manager_dict
-
-
-def _add_data_table_entry(data_manager_dict, data_table, data_table_entry):
-    data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
-    data_manager_dict['data_tables'][data_table] = data_manager_dict['data_tables'].get(data_table, [])
-    data_manager_dict['data_tables'][data_table].append(data_table_entry)
-    return data_manager_dict
+            data_manager_dict['data_tables']['snpeffv_regulationdb'].append(data_table_entry)
 
 
 def main():
@@ -158,7 +145,12 @@ def main():
         params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
-    data_manager_dict = {}
+    data_manager_dict = {
+        'data_tables': {
+            'snpeffv_genomedb': [],
+            'snpeffv_regulationdb': []
+        }
+    }
 
     # Create SnpEff Reference Data
     for genome_version, organism in zip(options.genome_version.split(','), getOrganismNames(options.genome_version, options.organism).split(',')):
