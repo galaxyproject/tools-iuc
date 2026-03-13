@@ -1,0 +1,330 @@
+<tool id="mmseqs2_easy_search" name="MMseqs2 easy-search" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        sensitive homology search
+    </description>
+    <macros>
+        <import>macro.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+#set $query_ext = str($query_fasta.ext).replace('sanger', '').replace('illumina', '')
+ln -s '$query_fasta' 'query.${query_ext}' &&
+#if str($target_source.target_source_select) == "history"
+    #set $target_ext = str($target_source.target_fasta.ext).replace('sanger', '').replace('illumina', '')
+    ln -s '$target_source.target_fasta' 'target.${target_ext}' &&
+#end if
+
+mmseqs easy-search
+    'query.${query_ext}'
+    #if str($target_source.target_source_select) == "history"
+        'target.${target_ext}'
+    #else
+        '$target_source.mmseqs2_db_select.fields.path'/database
+    #end if
+    'search_results'
+    'tmp'
+
+    @CMD_DBTYPE@
+
+    ## Pre-filter options
+    @CMD_PREFILTER@
+    --spaced-kmer-mode $prefilter.spaced_kmer_mode
+    @CMD_SEARCH_COMMON@
+
+    ## Align options
+    @CMD_ALIGN@
+    @CMD_SEARCH_ALIGN@
+    --exhaustive-search-filter $align.exhaustive_search_filter
+
+    ## Profile (iterative search)
+    --num-iterations $profile.num_iterations
+
+    ## Output format
+    @CMD_FORMAT_OUTPUT@
+
+    ## Search type
+    --search-type $search_type
+
+    ## Common options
+    @CMD_THREADS@
+    --max-seq-len $common.max_seq_len
+
+    ## Expert options
+    @CMD_EXPERT@
+    --chain-alignments $expert.chain_alignments
+    --merge-query $expert.merge_query
+    --strand $expert.strand
+    ]]></command>
+    <inputs>
+        <param name="query_fasta" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="Query FASTA/Q file" help="Protein or nucleotide sequences to search. The search type is auto-detected from the input."/>
+        <expand macro="target_source_conditional"/>
+        <expand macro="dbtype_conditional"/>
+        <param argument="--search-type" type="select" label="Search type" help="Controls the alignment algorithm. Auto detects from input sequences. See the help section below for details on each mode and cross-type searches.">
+            <option value="0" selected="true">Auto</option>
+            <option value="1">Amino acid</option>
+            <option value="2">Translated</option>
+            <option value="3">Nucleotide</option>
+            <option value="4">Translated nucleotide alignment</option>
+        </param>
+        <section name="prefilter" title="Pre-filter">
+            <expand macro="prefilter_common_parameters"/>
+            <param argument="--spaced-kmer-mode" type="select" label="Spaced k-mer mode" help="Spaced k-mers improve sensitivity for remote homologs. Consecutive mode is faster.">
+                <option value="0">Use consecutive positions in k-mers</option>
+                <option value="1" selected="true">Use spaced k-mers</option>
+            </param>
+            <expand macro="search_prefilter_parameters"/>
+        </section>
+        <section name="align" title="Align">
+            <expand macro="align_common_parameters"/>
+            <expand macro="search_align_parameters" evalue_default="1.000E-03" min_seq_id_default="0" cov_default="0" max_rejected_default="2147483647" max_accept_default="2147483647"/>
+            <param argument="--exhaustive-search-filter" type="boolean" checked="false" truevalue="1" falsevalue="0" label="Filter result during search" help="Apply result filters during the search instead of as a post-processing step."/>
+        </section>
+        <section name="profile" title="Profile (iterative search)">
+            <param argument="--num-iterations" type="integer" min="1" value="1" label="Number of iterative profile search iterations" help="Increase for more sensitive search at the cost of speed"/>
+        </section>
+        <expand macro="output_format_section"/>
+        <expand macro="common_section"/>
+        <section name="expert" title="Expert">
+            <expand macro="expert_common_parameters"/>
+            <param argument="--chain-alignments" type="integer" min="0" value="0" label="Chain alignments" help="Chain consecutive alignments into a single longer alignment. Set 0 to disable."/>
+            <param argument="--merge-query" type="integer" min="0" value="1" label="Combine ORFs/split sequences to a single entry" help="Merge results from split query sequences or translated ORFs back into one entry per query."/>
+            <param argument="--strand" type="select" label="Strand selection" help="Only works for DNA/DNA search">
+                <option value="0">Reverse</option>
+                <option value="1" selected="true">Forward</option>
+                <option value="2">Both</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" from_work_dir="search_results" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output_format.format_mode" value="1" format="sam"/>
+                <when input="output_format.format_mode" value="3" format="html"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: Default protein self-search -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="12"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: Custom output columns -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <section name="output_format">
+                <param name="format_fields" value="query,target,evalue,pident,alnlen"/>
+            </section>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="5"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: Search against cached database -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="cached"/>
+                <param name="mmseqs2_db_select" value="small_proteins_db-15.6f452-10022025"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="12"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: SAM output format -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <section name="output_format">
+                <param name="format_mode" value="1"/>
+            </section>
+            <output name="output" ftype="sam">
+                <assert_contents>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: Sensitive search with coverage and identity filters -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <section name="prefilter">
+                <param name="sensitivity" value="7.5"/>
+            </section>
+            <section name="align">
+                <param name="min_seq_id" value="0.5"/>
+                <param name="cov" value="0.5"/>
+                <param name="cov_mode" value="2"/>
+            </section>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="12"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: Amino acid dbtype with comp-bias-corr-scale -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <conditional name="alph_type">
+                <param name="dbtype" value="1"/>
+                <param name="comp_bias_corr_scale" value="0.5"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="12"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: Iterative profile search (num-iterations=2) -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <section name="profile">
+                <param name="num_iterations" value="2"/>
+            </section>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="12"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: Expert options + alignment details -->
+        <test expect_num_outputs="1">
+            <param name="query_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            <conditional name="target_source">
+                <param name="target_source_select" value="history"/>
+                <param name="target_fasta" value="small_proteins.fasta" ftype="fasta"/>
+            </conditional>
+            <section name="align">
+                <param name="convertalis" value="true"/>
+                <param name="exhaustive_search_filter" value="true"/>
+            </section>
+            <section name="expert">
+                <param name="sort_results" value="1"/>
+            </section>
+            <section name="output_format">
+                <param name="format_fields" value="query,target,pident,qaln,taln,cigar"/>
+            </section>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="6"/>
+                    <has_text text="sp_prot1"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+@MMSEQS2_LOGO@
+
+**About this tool**
+
+``easy-search`` is the primary homology search tool in MMseqs2 and the direct replacement for BLAST.
+It is the most general-purpose tool in the suite: use it whenever you need to find similar sequences
+in a target database. For very large databases where only high-identity hits are expected,
+consider **easy-linsearch** instead (faster but less sensitive for remote homologs).
+
+**How it works**
+
+easy-search combines three internal MMseqs2 modules into a single step:
+
+1. **Prefiltering** -- rapid k-mer-based candidate detection (controls speed/sensitivity via ``-s``)
+2. **Alignment** -- vectorized Smith-Waterman local alignment of candidates
+3. **Output conversion** -- produces human-readable results (BLAST-tab, SAM, etc.)
+
+**Example usage**
+
+*Basic protein search (BLASTP replacement)*
+    Upload your query protein FASTA and a target protein FASTA (or select a cached database).
+    Run with default parameters to get BLAST-tab output. Default sensitivity (5.7) is a good
+    balance of speed and sensitivity.
+
+*Sensitive search (BLAST-like sensitivity)*
+    Set **Sensitivity** to ``7.5`` under *Prefilter parameters* to match BLAST sensitivity.
+    This is slower but finds more remote homologs.
+
+*Custom output columns*
+    Under *Output format*, select specific columns such as ``query``, ``target``, ``pident``,
+    ``evalue``, ``qcov``, ``tcov`` to tailor the output to your needs.
+
+*Translated search (BLASTX equivalent)*
+    To search nucleotide queries against a protein database, set **Search type** to **Translated**
+    and leave **Input data type** on **Automatic**.
+
+*Iterative profile search (PSI-BLAST equivalent)*
+    Set **Number of iterations** to 2 or 3 under *Search parameters* to build a profile from
+    first-round hits and re-search, detecting more remote homologs.
+
+**Search types**
+
+The search type is auto-detected from input sequences but can be overridden:
+
+- **Auto** (default): MMseqs2 detects the appropriate mode from input sequences
+- **Amino acid**: protein vs protein search (BLASTP equivalent)
+- **Translated**: nucleotide query vs protein target with 6-frame translation (BLASTX equivalent),
+  or protein query vs nucleotide target (TBLASTN equivalent)
+- **Nucleotide**: nucleotide vs nucleotide search without translation (BLASTN equivalent)
+- **Translated nucleotide alignment**: both query and target are translated (TBLASTX equivalent)
+
+For **cross-type searches** (e.g., nucleotide query against a protein database), leave
+*Input data type* on **Automatic** and set *Search type* to **Translated**. The *Input data type*
+(``--dbtype``) parameter applies to both query and target in easy-* commands, so setting it to
+Nucleotides or Amino acid forces both sides to that type.
+
+**Key parameters**
+
+- **Sensitivity (-s)**: Range 1.0-7.5. At ``-s 7.0``, sensitivity approaches BLAST. Lower values are faster. Default is 5.7.
+- **E-value (-e)**: Maximum E-value threshold for reporting hits (default 0.001).
+- **Coverage (-c, --cov-mode)**: Minimum alignment coverage. Mode controls whether query, target, or both lengths are considered.
+- **Output columns (--format-output)**: Select specific columns for BLAST-tab output (query, target, pident, evalue, qcov, tcov, etc.).
+
+**Outputs**
+
+- **BLAST-TAB** (default): Tab-separated table with 12 columns matching BLAST ``-outfmt 6``
+- **BLAST-TAB with lengths**: Adds query and target sequence length columns
+- **BLAST-TAB with headers**: Includes a column header line
+- **SAM**: Standard alignment format compatible with samtools
+- **Pretty HTML**: Visual alignment display for interactive browsing
+
+-----
+
+@HELP_OVERVIEW@
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
