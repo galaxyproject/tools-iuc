@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<tool id="delly_lr" name="Delly long-read (lr)" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="18.01">
+<tool id="delly_lr" name="Delly long-read (lr)" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>optimized calling and genotyping of structural variants</description>
     <macros>
         <import>macros.xml</import>
@@ -7,10 +7,36 @@
     <expand macro="bio_tools"/>
     <expand macro="requirements"/>
     <expand macro="version_command"/>
-    <command detect_errors="exit_code"><![CDATA[
+    <command detect_errors="aggressive"><![CDATA[
 ## initialize
 @BAM@
 @FASTA@
+#if len($discovery.alt_alignments) > 0
+    : > 'alt_alignments.tsv' &&
+    #for $i, $alt in enumerate($discovery.alt_alignments)
+        #if $alt.alignment.is_of_type('bam')
+            #set $alignment_name = 'alt_alignment_%s.bam' % $i
+            ln -s '$alt.alignment' '$alignment_name' &&
+            ln -s '$alt.alignment.metadata.bam_index' '${alignment_name}.bai' &&
+        #elif $alt.alignment.is_of_type('cram')
+            #set $alignment_name = 'alt_alignment_%s.cram' % $i
+            ln -s '$alt.alignment' '$alignment_name' &&
+            ln -s '$alt.alignment.metadata.cram_index' '${alignment_name}.crai' &&
+        #else
+            #set $alignment_name = 'alt_alignment_%s.dat' % $i
+            ln -s '$alt.alignment' '$alignment_name' &&
+        #end if
+        #if $alt.reference.is_of_type('fasta')
+            #set $reference_name = 'alt_reference_%s.fa' % $i
+        #elif $alt.reference.is_of_type('gfa1') or $alt.reference.is_of_type('gfa2')
+            #set $reference_name = 'alt_reference_%s.gfa' % $i
+        #else
+            #set $reference_name = 'alt_reference_%s.dat' % $i
+        #end if
+        ln -s '$alt.reference' '$reference_name' &&
+        printf '%s\t%s\n' '$alignment_name' '$reference_name' >> 'alt_alignments.tsv' &&
+    #end for
+#end if
 ## run
 delly lr
 ## generic options
@@ -22,17 +48,26 @@ delly lr
 #end if
 --outfile 'result.bcf'
 ## discovery options
---mapqual $discovery.mapqual
+#if len($discovery.alt_alignments) > 0
+    --alt-align 'alt_alignments.tsv'
+#end if
+--map-qual $discovery.map_qual
 --minclip $discovery.minclip
---min-clique-size $discovery.mincliquesize
+--min-clique-size $discovery.min_clique_size
 --minrefsep $discovery.minrefsep
 --maxreadsep $discovery.maxreadsep
 ## consensus options
---max-reads $consensus.maxreads
---flank-size $consensus.flanksize
---flank-quality $consensus.flankquality
+--max-reads $consensus.max_reads
+--cons-window $consensus.cons_window
+--flank-size $consensus.flank_size
+--flank-quality $consensus.flank_quality
+--indel-size $consensus.indel_size
 ## genotyping options
---geno-qual $genotyping.genoqual
+#if $genotyping.vcffile
+    --vcffile '$genotyping.vcffile'
+#end if
+--geno-qual $genotyping.geno_qual
+--max-geno-count $genotyping.max_geno_count
 #if 'dump' in $oo.out
     --dump 'dump.tsv.gz'
 #end if
@@ -58,19 +93,27 @@ delly lr
             <expand macro="exclude"/>
         </section>
         <section name="discovery" title="Discovery options" expanded="true">
-            <param argument="--mapqual" type="integer" value="10" label="Set minimum mapping quality"/>
+            <repeat name="alt_alignments" title="Alternate alignment">
+                <param name="alignment" type="data" format="bam,cram,data" label="Select alternate alignment file" help="BAM, CRAM, or graph-alignment input for alternate breakpoint discovery."/>
+                <param name="reference" type="data" format="fasta,gfa1,gfa2,data" label="Select alternate reference file" help="FASTA or GFA reference matching the alternate alignment input."/>
+            </repeat>
+            <param argument="--map-qual" type="integer" value="1" label="Set minimum mapping quality"/>
             <expand macro="minclip"/>
-            <expand macro="mincliquesize"/>
+            <expand macro="mincliquesize" default="3"/>
             <expand macro="minrefsep" default="30"/>
-            <expand macro="maxreadsep" default="75"/>
+            <expand macro="maxreadsep" default="100"/>
         </section>
         <section name="consensus" title="Consensus options" expanded="true">
-            <param name="maxreads" type="integer" value="5" label="Set maximum reads for consensus computation" help="(--max-reads)"/>
-            <param name="flanksize" type="integer" value="400" label="Set minimum flank size" help="(--flank-size)"/>
-            <param name="flankquality" type="float" min="0.0" max="1.0" value="0.9" label="Set minimum flank quality" help="(--flank-quality)"/>
+            <expand macro="maxreads" default="15" label="Set maximum reads for consensus computation"/>
+            <param argument="--cons-window" type="integer" value="1000" label="Set consensus window"/>
+            <param argument="--flank-size" type="integer" value="100" label="Set minimum flank size"/>
+            <param argument="--flank-quality" type="float" min="0.0" max="1.0" value="0.9" label="Set minimum flank quality"/>
+            <param argument="--indel-size" type="integer" value="10000" label="Use exact alleles for insertions and deletions below this size"/>
         </section>
         <section name="genotyping" title="Genotyping options" expanded="true">
+            <expand macro="vcffile"/>
             <expand macro="genoqual"/>
+            <expand macro="maxgenocount" default="250"/>
         </section>
         <section name="oo" title="Output options" expanded="true">
             <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">
@@ -88,6 +131,8 @@ delly lr
         <expand macro="vcf"/>
     </outputs>
     <tests>
+        <!-- no test implemented for parameters alt_alignments and vcffile -->
+
         <!-- #1 default, single -->
         <test expect_num_outputs="2">
             <param name="input" value="normal.bam"/>
@@ -99,12 +144,12 @@ delly lr
             </section>
             <output name="out_bcf">
                 <assert_contents>
-                    <has_size value="1127" delta="10"/>
+                    <has_size value="1152" delta="10"/>
                 </assert_contents>
             </output>
             <output name="out_vcf">
                 <assert_contents>
-                    <has_n_lines n="46"/>
+                    <has_n_lines n="47"/>
                     <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;normal"/>
                 </assert_contents>
             </output>
@@ -120,7 +165,7 @@ delly lr
             </section>
             <output name="out_bcf">
                 <assert_contents>
-                    <has_size value="1131" delta="10"/>
+                    <has_size value="1157" delta="10"/>
                 </assert_contents>
             </output>
             <output name="out_log">
@@ -130,7 +175,7 @@ delly lr
             </output>
             <output name="out_vcf">
                 <assert_contents>
-                    <has_n_lines n="46"/>
+                    <has_n_lines n="47"/>
                 </assert_contents>
             </output>
         </test>
@@ -146,7 +191,7 @@ delly lr
             </section>
             <output name="out_bcf">
                 <assert_contents>
-                    <has_size value="1127" delta="10"/>
+                    <has_size value="1152" delta="10"/>
                 </assert_contents>
             </output>
             <output name="out_dump">
@@ -161,12 +206,12 @@ delly lr
             </output>
             <output name="out_vcf">
                 <assert_contents>
-                    <has_n_lines n="46"/>
+                    <has_n_lines n="47"/>
                 </assert_contents>
             </output>
         </test>
         <!-- #4 -->
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="3">
             <param name="input" value="normal.bam"/>
             <section name="generic">
                 <param name="genome" value="genome.fasta"/>
@@ -174,33 +219,26 @@ delly lr
                 <param name="technology" value="pb"/>
             </section>
             <section name="discovery">
-                <param name="mapqual" value="2"/>
-                <param name="qualtra" value="19"/>
-                <param name="madcutoff" value="8"/>
+                <param name="map_qual" value="2"/>
                 <param name="minclip" value="24"/>
-                <param name="mincliquesize" value="1"/>
+                <param name="min_clique_size" value="1"/>
                 <param name="minrefsep" value="24"/>
                 <param name="maxreadsep" value="39"/>
             </section>
             <section name="consensus">
-                <param name="maxreads" value="6"/>
-                <param name="flanksize" value="399"/>
-                <param name="flankquality" value="0.91"/>
+                <param name="max_reads" value="6"/>
+                <param name="flank_size" value="399"/>
+                <param name="flank_quality" value="0.91"/>
             </section>
             <section name="genotyping">
-                <param name="genoqual" value="4"/>
+                <param name="geno_qual" value="4"/>
             </section>
             <section name="oo">
-                <param name="out" value="vcf,bcf,dump,log"/>
+                <param name="out" value="vcf,bcf,log"/>
             </section>
             <output name="out_bcf">
                 <assert_contents>
-                    <has_size value="1127" delta="10"/>
-                </assert_contents>
-            </output>
-            <output name="out_dump">
-                <assert_contents>
-                    <has_size value="0"/>
+                    <has_size value="1152" delta="10"/>
                 </assert_contents>
             </output>
             <output name="out_log">
@@ -210,7 +248,7 @@ delly lr
             </output>
             <output name="out_vcf">
                 <assert_contents>
-                    <has_n_lines n="46"/>
+                    <has_n_lines n="47"/>
                     <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;normal"/>
                 </assert_contents>
             </output>
@@ -227,7 +265,7 @@ delly lr
             </section>
             <output name="out_vcf">
                 <assert_contents>
-                    <has_n_lines n="46"/>
+                    <has_n_lines n="47"/>
                     <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;normal"/>
                 </assert_contents>
             </output>
@@ -244,7 +282,7 @@ delly lr
             </section>
             <output name="out_bcf">
                 <assert_contents>
-                    <has_size value="1127" delta="10"/>
+                    <has_size value="1152" delta="10"/>
                 </assert_contents>
             </output>
         </test>
@@ -256,11 +294,11 @@ delly lr
                 <param name="svtype" value="INV"/>
             </section>
             <section name="oo">
-                <param name="out" value="dump"/>
+                <param name="out" value="log"/>
             </section>
-            <output name="out_dump">
+            <output name="out_log">
                 <assert_contents>
-                    <has_size value="0"/>
+                    <has_text_matching expression=".+"/>
                 </assert_contents>
             </output>
         </test>
