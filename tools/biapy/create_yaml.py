@@ -1,21 +1,11 @@
 import argparse
+import sys
 
 import requests
 import yaml
 
 
 def download_yaml_template(workflow, dims, biapy_version=""):
-    """
-    Download a YAML template for a specific workflow and dimensions.
-
-    Parameters:
-        workflow (str): The workflow type.
-        dims (str): The dimensions (e.g., 2d, 3d).
-        biapy_version (str): The BiaPy version to use.
-
-    Returns:
-        dict: The YAML template as a dictionary.
-    """
     template_dir_map = {
         "SEMANTIC_SEG": "semantic_segmentation",
         "INSTANCE_SEG": "instance_segmentation",
@@ -26,23 +16,23 @@ def download_yaml_template(workflow, dims, biapy_version=""):
         "SELF_SUPERVISED": "self-supervised",
         "IMAGE_TO_IMAGE": "image-to-image",
     }
-    template_name = (
-        template_dir_map[workflow]
-        + "/"
-        + dims.lower() + "_" + template_dir_map[workflow] + ".yaml"
-    )
 
-    url = (
-        f"https://raw.githubusercontent.com/BiaPyX/BiaPy/"
-        f"refs/tags/v{biapy_version}/templates/{template_name}"
-    )
+    # Use .get() to avoid KeyError if workflow is unexpected
+    dir_name = template_dir_map.get(workflow)
+    if not dir_name:
+        raise ValueError(f"Unknown workflow: {workflow}")
+
+    template_name = f"{dir_name}/{dims.lower()}_{dir_name}.yaml"
+    url = f"https://raw.githubusercontent.com/BiaPyX/BiaPy/refs/tags/v{biapy_version}/templates/{template_name}"
+
     print(f"Downloading YAML template from {url}")
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Failed to download YAML template: {response.status_code}"
-        )
-    return yaml.safe_load(response.text)
+    try:
+        response = requests.get(url, timeout=10)  # Added timeout
+        response.raise_for_status()  # Automatically raises HTTPError for 4xx/5xx
+        return yaml.safe_load(response.text) or {}
+    except requests.exceptions.RequestException as e:
+        print(f"Error: Could not download template. {e}")
+        sys.exit(1)  # Exit gracefully rather than crashing with a stack trace
 
 
 def tuple_to_list(obj):
@@ -127,7 +117,10 @@ def main():
         '--biapy_version', default='', type=str,
         help="BiaPy version to use."
     )
-
+    parser.add_argument(
+        '--num_cpus', default="1", type=str,
+        help="Number of CPUs to allocate."
+    )
     args = parser.parse_args()
 
     if args.new_config:
@@ -143,119 +136,105 @@ def main():
         }
         workflow_type = workflow_map[args.workflow]
 
-        if args.dims == "2d_stack":
-            ndim = "2D"
-            as_stack = True
-        elif args.dims == "2d":
-            ndim = "2D"
-            as_stack = True
-        elif args.dims == "3d":
-            ndim = "3D"
-            as_stack = False
+        ndim = "3D" if args.dims == "3d" else "2D"
+        as_stack = args.dims in ["2d_stack", "2d"]
 
-        config = download_yaml_template(
-            workflow_type, ndim, biapy_version=args.biapy_version
-        )
+        config = download_yaml_template(workflow_type, ndim, biapy_version=args.biapy_version)
 
-        config["PROBLEM"]["TYPE"] = workflow_type
-        config["PROBLEM"]["NDIM"] = ndim
-        config["TEST"]["ANALIZE_2D_IMGS_AS_3D_STACK"] = as_stack
+        # Initialization using setdefault to prevent KeyErrors
+        config.setdefault("PROBLEM", {})
+        config["PROBLEM"].update({"TYPE": workflow_type, "NDIM": ndim})
 
+        config.setdefault("TEST", {})["ANALIZE_2D_IMGS_AS_3D_STACK"] = as_stack
+
+        # Handle MODEL and PATHS
+        model_cfg = config.setdefault("MODEL", {})
         if args.model_source == "biapy":
-            config["MODEL"]["SOURCE"] = "biapy"
-            if args.model:
-                config["MODEL"]["LOAD_CHECKPOINT"] = True
-                config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = True
-                config.setdefault("PATHS", {})
-                config["PATHS"]["CHECKPOINT_FILE"] = args.model
-            else:
-                config["MODEL"]["LOAD_CHECKPOINT"] = False
-                config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
+            model_cfg["SOURCE"] = "biapy"
+            is_loading = bool(args.model)
+            model_cfg["LOAD_CHECKPOINT"] = is_loading
+            model_cfg["LOAD_MODEL_FROM_CHECKPOINT"] = is_loading
+            if is_loading:
+                config.setdefault("PATHS", {})["CHECKPOINT_FILE"] = args.model
         elif args.model_source == "bmz":
-            config["MODEL"]["SOURCE"] = "bmz"
-            config["MODEL"]["LOAD_CHECKPOINT"] = False
-            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
-            config.setdefault("MODEL", {}).setdefault("BMZ", {})
-            config["MODEL"]["BMZ"]["SOURCE_MODEL_ID"] = args.model
+            model_cfg["SOURCE"] = "bmz"
+            model_cfg.setdefault("BMZ", {})["SOURCE_MODEL_ID"] = args.model
         elif args.model_source == "torchvision":
-            config["MODEL"]["SOURCE"] = "torchvision"
-            config["MODEL"]["LOAD_CHECKPOINT"] = False
-            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
-            config["MODEL"]["TORCHVISION_MODEL_NAME"] = args.model
+            model_cfg["SOURCE"] = "torchvision"
+            model_cfg["TORCHVISION_MODEL_NAME"] = args.model
 
+        # PATCH_SIZE Logic
         obj_size_map = {
-            "0-25": (256, 256),
-            "25-100": (256, 256),
-            "100-200": (512, 512),
-            "200-500": (512, 512),
-            "500+": (1024, 1024),
+            "0-25": (256, 256), "25-100": (256, 256),
+            "100-200": (512, 512), "200-500": (512, 512), "500+": (1024, 1024),
         }
         obj_size = obj_size_map[args.obj_size]
 
-        obj_slices_map = {
-            "": -1,
-            "1-5": 5,
-            "5-10": 10,
-            "10-20": 20,
-            "20-60": 40,
-            "60+": 80,
-        }
-        obj_slices = obj_slices_map[args.obj_slices]
-        if config["PROBLEM"]["NDIM"] == "2D":
-            config["DATA"]["PATCH_SIZE"] = obj_size + (args.img_channel,)
-        else:
-            assert obj_slices != -1, (
-                "For 3D problems, obj_slices must be specified."
-            )
-            config["DATA"]["PATCH_SIZE"] = (
-                (obj_slices,) + obj_size + (args.img_channel,)
-            )
-        config["DATA"]["PATCH_SIZE"] = str(config["DATA"]["PATCH_SIZE"])
-    else:
-        assert args.input_config_path, (
-            "Input configuration path must be specified when not "
-            "creating a new config."
-        )
-        with open(args.input_config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+        obj_slices_map = {"": -1, "1-5": 5, "5-10": 10, "10-20": 20, "20-60": 40, "60+": 80}
+        obj_slices = obj_slices_map.get(args.obj_slices, -1)
 
-        if args.model:
-            config["MODEL"]["SOURCE"] = "biapy"
-            config["MODEL"]["LOAD_CHECKPOINT"] = True
-            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = True
-            config.setdefault("PATHS", {})
-            config["PATHS"]["CHECKPOINT_FILE"] = args.model
+        if ndim == "2D":
+            patch_size = obj_size + (args.img_channel,)
         else:
-            config["MODEL"]["LOAD_CHECKPOINT"] = False
-            config["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
+            if obj_slices == -1:
+                print("Error: For 3D problems, obj_slices must be specified.")
+                sys.exit(1)
+            patch_size = (obj_slices,) + obj_size + (args.img_channel,)
+
+        config.setdefault("DATA", {})["PATCH_SIZE"] = str(patch_size)
+        config["DATA"]["REFLECT_TO_COMPLETE_SHAPE"] = True
+
+    else:
+        if not args.input_config_path:
+            print("Error: Input configuration path must be specified.")
+            sys.exit(1)
+        try:
+            with open(args.input_config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            print(f"Error: File {args.input_config_path} not found.")
+            sys.exit(1)
+
+    # Always set NUM_CPUS
+    config.setdefault("SYSTEM", {})
+    try:
+        num_cpus = max(int(args.num_cpus), 1)
+    except BaseException:
+        num_cpus = 1
+    config["SYSTEM"].update({"NUM_CPUS": num_cpus})
+
+    # Global overrides (Train/Test)
+    config.setdefault("TRAIN", {})
+    config.setdefault("DATA", {})
 
     if args.raw_train:
         config["TRAIN"]["ENABLE"] = True
-        config["DATA"]["TRAIN"]["PATH"] = args.raw_train
-        config["DATA"]["TRAIN"]["GT_PATH"] = args.gt_train
+        config["DATA"].setdefault("TRAIN", {}).update({
+            "PATH": args.raw_train,
+            "GT_PATH": args.gt_train
+        })
     else:
         config["TRAIN"]["ENABLE"] = False
 
+    test_cfg = config.setdefault("TEST", {})
     if args.test_raw_path:
-        config["TEST"]["ENABLE"] = True
-        config["DATA"]["TEST"]["PATH"] = args.test_raw_path
+        test_cfg["ENABLE"] = True
+        data_test = config["DATA"].setdefault("TEST", {})
+        data_test["PATH"] = args.test_raw_path
+        data_test["LOAD_GT"] = bool(args.test_gt_path)
         if args.test_gt_path:
-            config["DATA"]["TEST"]["LOAD_GT"] = True
-            config["DATA"]["TEST"]["GT_PATH"] = args.test_gt_path
-        else:
-            config["DATA"]["TEST"]["LOAD_GT"] = False
+            data_test["GT_PATH"] = args.test_gt_path
     else:
-        config["TEST"]["ENABLE"] = False
+        test_cfg["ENABLE"] = False
 
-    # Always use safetensors in Galaxy
-    config["MODEL"]["OUT_CHECKPOINT_FORMAT"] = "safetensors"
+    config.setdefault("MODEL", {})["OUT_CHECKPOINT_FORMAT"] = "safetensors"
 
+    # Final cleanup and save
     config = tuple_to_list(config)
-
     with open(args.out_config_path, 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False)
 
-    print(f"YAML configuration written to {args.out_config_path}")
+    print(f"Success: YAML configuration written to {args.out_config_path}")
 
 
 if __name__ == "__main__":

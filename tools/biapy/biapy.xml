@@ -25,30 +25,67 @@
     <expand macro="creators" />
     <command detect_errors="exit_code">
         <![CDATA[
-        set -xeuo pipefail &&
+        set -xeu &&
         export OPENCV_IO_ENABLE_OPENEXR=0 &&
+
+        WORKTMP="\$(mktemp -d galaxy-torchinductor.XXXXXX)" &&
+        export TORCHINDUCTOR_CACHE_DIR="\$WORKTMP/torchinductor" &&
+        mkdir -p "\$TORCHINDUCTOR_CACHE_DIR" &&
 
         ## Define some useful variables
         #set $train_raw_dir = './dataset/train/raw'
         #set $train_gt_dir = './dataset/train/gt'
         #set $test_raw_dir = './dataset/test/raw'
         #set $test_gt_dir = './dataset/test/gt'
-        #set $generated_cfg = 'generated_config.yaml'
         #set $checkpoint_dir = './output/my_experiment/checkpoints'
         #set $checkpoint_file = $checkpoint_dir + '/checkpoint.safetensors'
-        #set $common_yaml_args = " --out_config_path '%s' --biapy_version '@TOOL_VERSION@'" % $generated_cfg
+        #set $common_yaml_args = " --out_config_path '%s' --biapy_version '@TOOL_VERSION@'" % $config_file
 
         ## Decide phase and GT availability without touching missing names
         #set $selected_phase = 'train_test'
         #set $test_gt_avail = 'test_gt_no'
 
         #if $mode_selection['selected_mode'] == 'create_new_cfg'
-            #set $selected_phase = $mode_selection['phase_decision']['phases']
+            #set $phase_decision = $mode_selection['workflow_selection']['phase_decision']
+            #set $selected_phase = $phase_decision['phases']
+
+            ## Safely define raw and gt variables
+            #set $train_sec = $phase_decision.get('train_sec')
+            #set $test_sec  = $phase_decision.get('test_sec')
+
+            #set $raw_train = $train_sec and $train_sec.get('raw_train') or []
+            #set $gt_train  = $train_sec and $train_sec.get('gt_train') or []
+            #set $raw_test  = $test_sec and $test_sec.get('raw_test') or []
+            #set $gt_test   = $test_sec and $test_sec.get('gt_test') or []
+
             #if $selected_phase in ['train_test', 'test']
-                #set $test_gt_avail = (
-                    $mode_selection['phase_decision'].get('test_sec') and
-                    $mode_selection['phase_decision']['test_sec'].get('gt_test')
-                ) and 'test_gt_yes' or 'test_gt_no'
+                #set $test_gt_selection = $test_sec.get('test_gt_selection')
+                #if $test_gt_selection and $test_gt_selection.get('has_gt') == 'yes'
+                    #set $test_gt_avail = 'test_gt_yes'
+                #else
+                    #set $test_gt_avail = 'test_gt_no'
+                #end if
+            #end if
+        #else
+            #set $train_sec = $mode_selection.get('train_sec')
+            #set $test_sec  = $mode_selection.get('test_sec')
+
+            #set $raw_train = $train_sec and $train_sec.get('raw_train') or []
+            #set $gt_train  = $train_sec and $train_sec.get('gt_train') or []
+            #set $raw_test  = $test_sec and $test_sec.get('raw_test') or []
+            #set $gt_test   = $test_sec and $test_sec.get('gt_test') or []
+
+            ## Infer which phases are actually present
+            #if $raw_train and $raw_test
+                #set $selected_phase = 'train_test'
+            #elif $raw_train
+                #set $selected_phase = 'train'
+            #elif $raw_test
+                #set $selected_phase = 'test'
+            #end if
+
+            #if $gt_test and len($gt_test) > 0
+                #set $test_gt_avail = 'test_gt_yes'
             #end if
         #end if
 
@@ -67,8 +104,9 @@
             #if $mpath and str($mpath) not in ['None', '']
                 ln -fs '$mpath' ${checkpoint_file} &&
             #end if
-            python '$__tool_directory__/create_yaml.py'
+            python3 '$__tool_directory__/create_yaml.py'
                 --input_config_path '$mode_selection.config_path'
+                --num_cpus "\${GALAXY_SLOTS:-1}"
                 ${common_yaml_args}
                 ## Optionally override data paths with the staged dirs if user provided inputs
                 #if $selected_phase in ['train_test', 'train'] and $mode_selection.get('train_sec') and $mode_selection['train_sec'].get('raw_train')
@@ -90,10 +128,11 @@
         #else
             ########## Create new yaml file ##########
             #set $pm = $mode_selection["pretrained_model"]
-            python '$__tool_directory__/create_yaml.py'
+            python3 '$__tool_directory__/create_yaml.py'
                 --new_config
+                --num_cpus "\${GALAXY_SLOTS:-1}"
                 ${common_yaml_args}
-                --workflow '$mode_selection["workflow"]'
+                --workflow '$mode_selection["workflow_selection"]["workflow"]'
                 --dims '$mode_selection["dimensionality"]["is_3d"]'
                 --obj_slices '$mode_selection["dimensionality"].get("obj_slices")'
                 --obj_size '$mode_selection["obj_size"]'
@@ -103,26 +142,24 @@
                 #elif $pm["model_source"] == 'biapy_pretrained'
                     --model '$checkpoint_file'
                     --model_source 'biapy'
-                #elif $pm.get("model_source") == 'bmz_torchvision' and $pm.get("bmz_torchvision_model")
-                    #set $bt = $pm["bmz_torchvision_model"].get("bmz_or_torchvision", "")
-                    #if $bt == 'bmz'
-                        --model_source 'bmz'
-                        --model '$pm["bmz_torchvision_model"].get("bmz_model_name", "")'
-                    #else
-                        --model_source 'torchvision'
-                        --model '$pm["bmz_torchvision_model"].get("torchvision_model_name", "")'
-                    #end if
+                #elif $pm.get("model_source") == 'bmz_pretrained'
+                    --model_source 'bmz'
+                    --model '$pm.get("bmz_model_name", "")'
                 #end if
                 #if $selected_phase == 'train_test'
                     --raw_train '$train_raw_dir'
-                    --gt_train '$train_gt_dir'
+                    #if $gt_train
+                        --gt_train '$train_gt_dir'
+                    #end if
                     --test_raw_path '$test_raw_dir'
                     #if $test_gt_avail == 'test_gt_yes'
                         --test_gt_path '$test_gt_dir'
                     #end if
                 #elif $selected_phase == 'train'
                     --raw_train '$train_raw_dir'
-                    --gt_train '$train_gt_dir'
+                    #if $gt_train
+                        --gt_train '$train_gt_dir'
+                    #end if
                 #elif $selected_phase == 'test'
                     --test_raw_path '$test_raw_dir'
                     #if $test_gt_avail == 'test_gt_yes'
@@ -142,13 +179,15 @@
             mkdir -p '$train_raw_dir' &&
             #for $i, $image in enumerate($raw_train)
                 #set $ext = $image.ext
-                ln -s '$image' ${train_raw_dir}/training-${i}.${ext} &&
+                ln -fs '$image' ${train_raw_dir}/training-${i}.${ext} &&
             #end for
-            mkdir -p '$train_gt_dir' &&
-            #for $i, $image in enumerate($gt_train)
-                #set $ext = $image.ext
-                ln -s '$image' ${train_gt_dir}/training-gt-${i}.${ext} &&
-            #end for
+            #if $gt_train and len($gt_train) > 0
+                mkdir -p '$train_gt_dir' &&
+                #for $i, $image in enumerate($gt_train)
+                    #set $ext = $image.ext
+                    ln -fs '$image' ${train_gt_dir}/training-gt-${i}.${ext} &&
+                #end for
+            #end if
         #end if
 
         ## Copy the test data
@@ -156,20 +195,20 @@
             mkdir -p '$test_raw_dir' &&
             #for $i, $image in enumerate($raw_test)
                 #set $ext = $image.ext
-                ln -s '$image' ${test_raw_dir}/test-${i}.${ext} &&
+                ln -fs '$image' ${test_raw_dir}/test-${i}.${ext} &&
             #end for
             #if $test_gt_avail == 'test_gt_yes':
                 mkdir -p '$test_gt_dir' &&
                 #for $i, $image in enumerate($gt_test)
                     #set $ext = $image.ext
-                    ln -s '$image' ${test_gt_dir}/test-gt-${i}.${ext} &&
+                    ln -fs '$image' ${test_gt_dir}/test-gt-${i}.${ext} &&
                 #end for
             #end if
         #end if
 
         ########## Run BiaPy ##########
         biapy 
-            --config '$generated_cfg'
+            --config '$config_file'
             --result_dir './output'
             --name 'my_experiment'
             --run_id 1
@@ -273,28 +312,22 @@
                 <param name="config_path" type="data" format="yaml" optional="false" label="Select a configuration file" help="Input configuration file"/>
                 <param name="biapy_model_path" type="data" format="safetensors" optional="true" label="Select the model checkpoint (if needed)" help="Path to a pre-trained model checkpoint (.safetensors) generated by BiaPy. Use this only if 'MODEL.LOAD_CHECKPOINT' is set to 'True' in your configuration."/>
                 <section name="train_sec" title="If train is enabled select the training images"> 
-                    <!-- Q9 -->
-                    <expand macro="train_raw_param_opt"/>
-                    <!-- Q10 -->
-                    <expand macro="train_gt_param_opt"/>
+                    <expand macro="train_raw_param" optional="true"/>
+                    <expand macro="train_gt_param" optional="true"/>
                 </section> 
                 <section name="test_sec" title="If test is enabled select the test images"> 
-                    <!-- Q11 -->
-                    <expand macro="test_raw_param_opt"/>
-                    <!-- Q13 -->
-                    <expand macro="test_gt_param_optional"/>
+                    <expand macro="test_raw_param" optional="true"/>
+                    <expand macro="test_gt_param" optional="true"/>
                 </section> 
             </when>
             <when value="create_new_cfg">
                 <conditional name="dimensionality">
-                    <!-- Q1 -->
                     <param name="is_3d" type="select" label="Are your images in 3D?" help="Select the type of images you will use: 'No' = 2D images (e.g. (512, 1024, 2)); 'Yes' = 3D images (e.g. (400, 400, 50, 1)); 'No, but output as 3D stack' = process 2D images and combine them into a 3D stack after inference, useful if 2D slices form a larger 3D volume.">
                         <option value="2d" selected="true">No</option>
                         <option value="3d">Yes</option>
                         <option value="2d_stack">No, but I would like to have a 3D stack output</option>
                     </param>
                     <when value="3d">
-                        <!-- Q7 -->
                         <param name="obj_slices" type="select" label="How many slices can an object be represented in?" help="This parameter defines the approximate size of the objects of interest along the Z axis. For example, in nucleus segmentation it refers to how many slices a nucleus spans in the stack; knowing this helps set an appropriate value.">
                             <option value="1-5" selected="true">1-5 slices</option>
                             <option value="5-10">5-10 slices</option>
@@ -306,7 +339,6 @@
                     <when value="2d"/>
                     <when value="2d_stack"/>
                 </conditional>
-                <!-- Q6 -->
                 <param name="obj_size" type="select" label="What is the average object width/height in pixels?" help="This parameter defines the approximate size of the objects of interest in your images; for example, in nucleus segmentation it refers to the typical size of nuclei, and only a rough estimation is needed.">
                     <option value="0-25" selected="true">0-25 px</option>
                     <option value="25-100">25-100 px</option>
@@ -316,91 +348,59 @@
                 </param>
                 <param name="img_channel" type="integer" value="1" min="1" max="10" label="Input the number of channels of the images" help="This parameter specifies the number of channels in your images; for example, use 3 for RGB images or 1 for grayscale, so the model can correctly interpret the input data."/>
 
-                <!-- Q2 -->
-                <param name="workflow" type="select" label="Do you want to:" help="Select a workflow to run; see https://biapy.readthedocs.io/en/latest/get_started/select_workflow.html for further explanation.">
-                    <option value="semantic" selected="true">Generate masks of different (or just one) objects/regions within the image</option>
-                    <option value="instance">Generate masks for each object in the image</option>
-                    <option value="detection">Identify and count roughly circular objects in the images, without needing an exact outline around each one</option>
-                    <option value="denoising">Clean noisy images</option>
-                    <option value="sr">Upsample images into higher resolution</option>
-                    <option value="cls">Assign a label to each image</option>
-                    <option value="sr2">Restore a degraded image</option>
-                    <option value="i2i">Generate new images based on an input one</option>
-                </param>
-
+                <conditional name="workflow_selection">
+                    <param name="workflow" type="select" label="Do you want to:" help="Select a workflow to run; see https://biapy.readthedocs.io/en/latest/get_started/select_workflow.html for further explanation.">
+                        <option value="semantic" selected="true">Generate masks of different (or just one) objects/regions within the image</option>
+                        <option value="instance">Generate masks for each object in the image</option>
+                        <option value="detection">Identify and count roughly circular objects in the images, without needing an exact outline around each one</option>
+                        <option value="denoising">Clean noisy images</option>
+                        <option value="sr">Upsample images into higher resolution</option>
+                        <option value="cls">Assign a label to each image</option>
+                        <option value="sr2">Restore a degraded image</option>
+                        <option value="i2i">Generate new images based on an input one</option>
+                    </param>
+                    <when value="semantic">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="instance">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="detection">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="sr">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="cls">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="sr2">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="i2i">
+                        <expand macro="supervised_phase_block"/>
+                    </when>
+                    <when value="denoising">
+                        <expand macro="unsupervised_phase_block"/>
+                    </when>
+                </conditional>
                 <conditional name="pretrained_model">
-                    <!-- Q3 -->
-                    <param name="model_source" type="select" label="Do you want to use a pre-trained model?" help="This parameter defines how the deep learning model will be built: (1) build from scratch based on the workflow and image size, (2) load a model previously trained in BiaPy (checkpoint .safetensors in the results/checkpoints folder), or (3) load a pre-trained model from external sources such as the BioImage Model Zoo or Torchvision; training requires labeled data, but pre-trained models can save time and improve results if they match your task.">
+                    <param name="model_source" type="select" label="Do you want to use a pre-trained model?" help="This parameter defines how the deep learning model will be built: (1) build from scratch based on the workflow and image size, (2) load a model previously trained in BiaPy (checkpoint .safetensors in the results/checkpoints folder), or (3) load a pre-trained model from external sources such as the BioImage Model Zoo; training requires labeled data, but pre-trained models can save time and improve results if they match your task.">
                         <option value="biapy" selected="true">No, I want to build a model from scratch</option>
                         <option value="biapy_pretrained">Yes, I have a model previously trained in BiaPy</option>
-                        <option value="bmz_torchvision">Yes, I want to check if there is a pre-trained model I can use</option>
+                        <option value="bmz_pretrained">Yes, I want to use a pre-trained from the BioImage Model Zoo</option>
                     </param>
                     <when value="biapy_pretrained">
-                        <!-- Q4 -->
                         <param name="biapy_model_path" type="data" format="data" optional="false" label="Select the model trained with BiaPy before" help="Select a pre-trained BiaPy model checkpoint (.safetensors) to use for inference or to resume training. Checkpoints are typically generated by previous BiaPy training runs and appear in your Galaxy history as output datasets."/>
                     </when>
-                    <when value="bmz_torchvision">
-                        <!-- Q5 -->
-                        <conditional name="bmz_torchvision_model">
-                            <param name="bmz_or_torchvision" type="select" label="Which is the source of the model?" help="Enter the source of the model, whether if it is available through the BioImage Model Zoo or TorchVision">
-                                <option value="bmz" selected="true">BioImage Model Zoo</option>
-                                <option value="torchvision">TorchVision</option>
-                            </param>
-                            <when value="bmz">
-                                <param name="bmz_model_name" type="text" optional="false" value="sensible-cat" label="BioImage Model Zoo model name" help="Enter the name of a pre-trained model from the BioImage Model Zoo (https://bioimage.io/#/models); filter by the BiaPy icon and ensure the model matches your dimensionality (2D/3D) and task (e.g. semantic segmentation).">
-                                    <validator type="regex" message="Use an adjective-noun pattern like 'sensible-cat' (letters and dashes only).">^[A-Za-z]+(?:-[A-Za-z]+)+$</validator>
-                                </param>
-                            </when>
-                            <when value="torchvision">
-                                <param name="torchvision_model_name" type="text" optional="false" label="TorchVision model name" help="Enter the name of a pre-trained model from TorchVision (see https://docs.pytorch.org/vision/0.21/models.html#general-information-on-pre-trained-weights), e.g. 'alexnet' for classification.">
-                                    <validator type="regex" message="Only letters, digits, underscores and dots; must start with a letter.">^[a-zA-Z][a-zA-Z0-9_\.]*$</validator>
-                                </param>
-                            </when>
-                        </conditional>
+                    <when value="bmz_pretrained">
+                        <param name="bmz_model_name" type="text" optional="false" value="sensible-cat" label="BioImage Model Zoo model name" help="Enter the name of a pre-trained model from the BioImage Model Zoo (https://bioimage.io/#/models); filter by the BiaPy icon and ensure the model matches your dimensionality (2D/3D) and task (e.g. semantic segmentation).">
+                            <validator type="regex" message="Use an adjective-noun pattern like 'sensible-cat' (letters and dashes only).">^[A-Za-z]+(?:-[A-Za-z]+)+$</validator>
+                        </param>
                     </when>  
                     <when value="biapy"/>
                 </conditional>
                     
-                <conditional name="phase_decision">
-                    <!-- Q8 -->
-                    <param name="phases" type="select" label="What do you want to do?" help="Select which workflow phases to run: training (fit the model to labeled data) and/or testing (inference/prediction on new images using the trained model).">
-                        <option value="train_test" selected="true">Train and test a model</option>
-                        <option value="train">Train a model</option>
-                        <option value="test">Test a model</option>
-                    </param>
-                    <when value="train_test">
-                        <section name="train_sec" title="Train data" expanded="True"> 
-                            <!-- Q9 -->
-                            <expand macro="train_raw_param"/>
-                            <!-- Q10 -->
-                            <expand macro="train_gt_param"/>
-                        </section> 
-                        <section name="test_sec" title="Test data" expanded="True"> 
-                            <!-- Q11 -->
-                            <expand macro="test_raw_param"/>
-                            <!-- Optional test GT -->
-                            <expand macro="test_gt_param_optional"/>
-                        </section> 
-                    </when>
-
-                    <when value="train">
-                        <section name="train_sec" title="Train data" expanded="True"> 
-                            <!-- Q9 --> 
-                            <expand macro="train_raw_param"/>
-                            <!-- Q10 -->
-                            <expand macro="train_gt_param"/>
-                        </section> 
-                    </when>
-
-                    <when value="test">
-                        <section name="test_sec" title="Test data" expanded="True"> 
-                            <!-- Q11 -->
-                            <expand macro="test_raw_param"/>
-                            <!-- Optional test GT -->
-                            <expand macro="test_gt_param_optional"/>
-                        </section> 
-                    </when>
-                </conditional>
             </when>
         </conditional>
         <param name="selected_outputs" type="select" display="checkboxes" multiple="true" label="Select the outputs" help="Select which outputs to generate from running BiaPy (e.g. predictions, metrics, logs, or intermediate results).">
@@ -423,7 +423,7 @@
             <filter><![CDATA[
                 'raw' in selected_outputs and (
                     (mode_selection['selected_mode'] == 'create_new_cfg' and
-                    mode_selection['phase_decision']['phases'] in ['test','train_test'])
+                    mode_selection['workflow_selection']['phase_decision']['phases'] in ['test','train_test'])
                     or
                     (mode_selection['selected_mode'] == 'custom_cfg')
                 )
@@ -438,7 +438,7 @@
             <filter><![CDATA[
                 'post_proc' in selected_outputs and (
                     (mode_selection['selected_mode'] == 'create_new_cfg' and
-                    mode_selection['phase_decision']['phases'] in ['test','train_test'])
+                    mode_selection['workflow_selection']['phase_decision']['phases'] in ['test','train_test'])
                     or
                     (mode_selection['selected_mode'] == 'custom_cfg')
                 )
@@ -451,14 +451,14 @@
             <filter><![CDATA[
                 'metrics' in selected_outputs and (
                     (mode_selection['selected_mode'] == 'create_new_cfg' and
-                    mode_selection['phase_decision']['phases'] in ['test','train_test'] and
-                    mode_selection['phase_decision'].get('test_sec') and
-                    mode_selection['phase_decision']['test_sec'].get('gt_test'))
+                    mode_selection['workflow_selection']['phase_decision']['phases'] in ['test','train_test'] and
+                    mode_selection['workflow_selection']['phase_decision'].get('test_sec') and
+                    mode_selection['workflow_selection']['phase_decision']['test_sec'].get('test_gt_selection') and
+                    mode_selection['workflow_selection']['phase_decision']['test_sec']['test_gt_selection']['has_gt'] == 'yes')
                     or
-                    (mode_selection['selected_mode'] == 'custom_cfg')
+                    (mode_selection['selected_mode'] == 'custom_cfg' and mode_selection['test_sec'].get('gt_test'))
                 )
-            ]]>
-            </filter>
+            ]]></filter>
         </collection>
         
         <collection name="train_charts" type="list" label="${tool.name} on ${on_string}: Training charts">
@@ -466,7 +466,7 @@
             <filter><![CDATA[
                 'tcharts' in selected_outputs and (
                     (mode_selection['selected_mode'] == 'create_new_cfg' and
-                    mode_selection['phase_decision']['phases'] in ['train','train_test'])
+                    mode_selection['workflow_selection']['phase_decision']['phases'] in ['train','train_test'])
                     or
                     (mode_selection['selected_mode'] == 'custom_cfg')
                 )
@@ -479,7 +479,7 @@
             <filter><![CDATA[
                 'tlogs' in selected_outputs and (
                     (mode_selection['selected_mode'] == 'create_new_cfg' and
-                    mode_selection['phase_decision']['phases'] in ['train','train_test'])
+                    mode_selection['workflow_selection']['phase_decision']['phases'] in ['train','train_test'])
                     or
                     (mode_selection['selected_mode'] == 'custom_cfg')
                 )
@@ -494,10 +494,12 @@
             ]]>
             </filter>
         </collection>
+
+        <data name="config_file" format="yaml" label="Generated BiaPy configuration" />
     </outputs>
     <tests>
         <!-- test1: test with custom cfg -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <!-- Choose the conditional branch -->
             <param name="mode_selection|selected_mode" value="custom_cfg"/>
 
@@ -507,8 +509,15 @@
             <param name="selected_outputs" value="raw,metrics"/>
             <output_collection name="predictions_raw" type="list" count="1" />
             <output_collection name="test_metrics"     type="list" count="1"/>
+            <output name="config_file">
+                <assert_contents>
+                    <has_size min="1"/>
+                    <has_text text="SEMANTIC_SEG" />
+                    <has_text text="sensible-cat" />
+                </assert_contents>
+            </output>
             <assert_command>
-                <has_text text="--config 'generated_config.yaml'"/>
+                <has_text text="--config "/>
                 <has_text text="--result_dir './output'"/>
                 <has_text text="--name 'my_experiment'"/>
                 <has_text text="--run_id 1"/>
@@ -516,8 +525,7 @@
         </test>
 
         <!-- test2: create_new_cfg using a model from the zoo -->
-        <test expect_num_outputs="2">
-            <!-- Top-level branch -->
+        <test expect_num_outputs="3">
             <param name="mode_selection|selected_mode" value="create_new_cfg" />
 
             <!-- Dimensionality (Q1) -->
@@ -528,61 +536,33 @@
             <param name="mode_selection|img_channel" value="1" />
 
             <!-- Workflow (Q2) -->
-            <param name="mode_selection|workflow" value="semantic" />
+            <param name="mode_selection|workflow_selection|workflow" value="semantic" />
 
             <!-- Pretrained model (Q3, Q5) -->
-            <param name="mode_selection|pretrained_model|model_source" value="bmz_torchvision" />
-            <param name="mode_selection|pretrained_model|bmz_torchvision_model|bmz_or_torchvision" value="bmz" />
-            <param name="mode_selection|pretrained_model|bmz_torchvision_model|bmz_model_name" value="sensible-cat" />
+            <param name="mode_selection|pretrained_model|model_source" value="bmz_pretrained" />
+            <param name="mode_selection|pretrained_model|bmz_model_name" value="sensible-cat" />
 
             <!-- Phase decision (Q8) -->
-            <param name="mode_selection|phase_decision|phases" value="test" />
+            <param name="mode_selection|workflow_selection|phase_decision|phases" value="test" />
 
             <!-- Test data (Q11/Q12/Q13) -->
-            <param name="mode_selection|phase_decision|test_sec|raw_test" value="im_0000.png" />
-            <param name="mode_selection|phase_decision|test_sec|gt_test" value="mask_0000.png" />
+            <param name="mode_selection|workflow_selection|phase_decision|test_sec|raw_test" value="im_0000.png" />
+            <param name="mode_selection|workflow_selection|phase_decision|test_sec|test_gt_selection|has_gt" value="yes" />
+            <param name="mode_selection|workflow_selection|phase_decision|test_sec|test_gt_selection|gt_test" value="mask_0000.png" />
 
-            <!-- Outputs to check -->
             <param name="selected_outputs" value="raw,metrics" />
             <output_collection name="predictions_raw" type="list" count="1" />
             <output_collection name="test_metrics"     type="list" count="1"/>
+            <output name="config_file">
+                <assert_contents>
+                    <has_size min="1"/>
+                    <has_text text="SEMANTIC_SEG" />
+                    <has_text text="sensible-cat" />
+                </assert_contents>
+            </output>
+
             <assert_command>
-                <has_text text="--config 'generated_config.yaml'"/>
-                <has_text text="--result_dir './output'"/>
-                <has_text text="--name 'my_experiment'"/>
-                <has_text text="--run_id 1"/>
-            </assert_command>
-        </test>
-
-        <!-- test3: create_new_cfg to use a denoising workflow -->
-        <test expect_num_outputs="1">
-            <!-- Top-level branch -->
-            <param name="mode_selection|selected_mode" value="create_new_cfg" />
-
-            <!-- Dimensionality (Q1) -->
-            <param name="mode_selection|dimensionality|is_3d" value="2d" />
-
-            <!-- Object size (Q6) & channels -->
-            <param name="mode_selection|obj_size" value="25-100" />
-            <param name="mode_selection|img_channel" value="1" />
-
-            <!-- Workflow (Q2) -->
-            <param name="mode_selection|workflow" value="denoising" />
-
-            <!-- Model from scratch (Q3) -->
-            <param name="mode_selection|pretrained_model|model_source" value="biapy" />
-
-            <!-- Phase decision (Q8) -->
-            <param name="mode_selection|phase_decision|phases" value="test" />
-
-            <!-- Test data (Q11) -->
-            <param name="mode_selection|phase_decision|test_sec|raw_test" value="im_0000.png" />
-
-            <!-- Outputs to check -->
-            <param name="selected_outputs" value="raw" />
-            <output_collection name="predictions_raw" type="list" count="1" />
-            <assert_command>
-                <has_text text="--config 'generated_config.yaml'"/>
+                <has_text text="--config "/>
                 <has_text text="--result_dir './output'"/>
                 <has_text text="--name 'my_experiment'"/>
                 <has_text text="--run_id 1"/>
