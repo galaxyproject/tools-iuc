@@ -1,0 +1,179 @@
+<tool id="ampligone" name="AmpliGone" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.2">
+    <description>Find and remove primers from NGS amplicon reads</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0.1</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">AmpliGone</requirement>
+    </requirements>
+    <version_command>ampligone --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+ #import re
+
+ #set $inputs_map = {
+  'input': 'reads',
+  'reference': 'reference',
+  'primers': 'primers'
+ }
+
+ #for $key, $short in $inputs_map.items()
+  #set $ds = $inputs[$key]
+  #set $ext = re.sub("sanger", "", $ds.ext)
+  #set $is_gz = str($ds.ext).endswith('.gz') and $ext != 'bam'
+  #set $filename = $short + '.' + $ext
+
+  ln -sf '$ds' '$filename' &&
+  #silent $inputs_map[$key] = $filename
+
+  #if $key == 'input'
+    #set $output_name = 'output.fastq' + ('.gz' if $is_gz else '')
+    touch '$cleaned' &&
+    ln -sf '$cleaned' $output_name &&
+  #end if
+ #end for
+
+ #if $inputs.primers.ext == 'fasta' and  $inputs.export_primers == 'yes'
+  #set $primer_filename = 'primers.bed'
+  touch '$exp_prim' &&
+  ln -sf '$exp_prim' $primer_filename &&
+ #end if
+
+ ## --- Run the tool using clean and predictable filenames ---
+ ampligone 
+ ##add input files
+  --input '$inputs_map['input']' 
+  --reference '$inputs_map['reference']' 
+  --primers '$inputs_map['primers']'
+
+ ## Compute options
+  --threads "\${GALAXY_SLOTS:-2}"
+
+ ##optional arguments
+
+  #if $opt_args.ampli_type.amplicon_type
+    --amplicon-type $opt_args.ampli_type.amplicon_type
+  #end if
+  #if $opt_args.ampli_type.amplicon_type == 'fragmented'
+    --fragment-lookaround-size $opt_args.ampli_type.fragment_lookaround_size 
+  #end if
+  #if $opt_args.error_rate
+    --error-rate $opt_args.error_rate
+  #end if
+
+ ##output options
+  #if $inputs.primers.ext == 'fasta' and $inputs.export_primers == 'yes'
+    --export-primers '$primer_filename'
+  #end if
+
+  --output '$output_name'
+
+    ]]></command>
+    <inputs>
+        <section name="inputs" title="Inputs" expanded="true">
+            <param argument="--input" type="data" format="fastqsanger,fastqsanger.gz,bam" label="Input file" help="Input file with reads in FASTQ format."/>
+            <param argument="--reference" type="data" format="fasta" label="Reference genome" help="Input Reference genome in FASTA format." />
+            <param argument="--primers" type="data" format="fasta,bed" label="Used primer sequences" help="Used primer sequences in FASTA or BED format." />
+            <param argument="--export-primers" type="boolean" checked="false" truevalue="yes" falsevalue="no" optional="true" label="Output cut primers coordinates" help="Output BED file with found primer coordinates if they are actually cut from the reads."/>
+        </section>
+
+        <section name="opt_args" title="Optional Arguments" expanded="false">
+            <conditional name="ampli_type">
+                <param argument="--amplicon-type" type="select" label="Define the amplicon-type" help="Define the amplicon-type, either being 'end-to-end', 'end-to-mid', or 'fragmented'. See the docs for more info.">
+                    <option value="end-to-end" selected="true">end-to-end</option>
+                    <option value="end-to-mid">end-to-mid</option>
+                    <option value="fragmented">fragmented</option>
+                </param>
+                <when value="fragmented">
+                    <param argument="--fragment-lookaround-size" type="integer" value="10" optional="true" label="Fragment lookaround size" help="The number of bases to look around a primer-site to consider it part of a fragment." />
+                </when>
+                <when value="end-to-end"/>
+                <when value="end-to-mid"/>
+            </conditional>
+            <param argument="--error-rate" type="float" min="0" max="1" value="0.1" label="Error rate" help="The maximum allowed error rate for the primer search. Use 0 for exact primer matches." />
+        </section>
+    </inputs>
+
+    <outputs>
+        <data name="cleaned" format="fastqsanger" label="${tool.name} on ${inputs.input.name} ($on_string): Cleaned reads"/>
+        <data name="exp_prim" format="bed" label="${tool.name} on ${on_string}: Detected primer coordinates">
+            <filter>inputs['primers'].ext == 'fasta' and inputs['export_primers'] is True</filter>
+        </data> 
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <section name="inputs">
+                <param name="input" value="sars-cov-2.fastq"/>
+                <param name="reference" value="SARS-CoV-2-reference.fasta"/>
+                <param name="primers" value="SARS-CoV-2-ARTIC-V5.3.2.scheme.bed" />
+            </section>
+            <output name="cleaned">
+                <assert_contents>
+                    <has_text text="@SRR30635841.1"/>
+                    <has_text text="@SRR30635841.2"/>
+                    <has_text text="@SRR30635841.3"/>
+                    <has_text text="@SRR30635841.4"/>
+                    <has_text text="@SRR30635841.5"/>
+                </assert_contents>  
+            </output> 
+        </test>
+        <test expect_num_outputs="2">
+            <section name="inputs">
+                <param name="input" value="sars-cov-2.fastq"/>
+                <param name="reference" value="SARS-CoV-2-reference.fasta"/>
+                <param name="primers" value="ARTIC-V5.3.2.fasta" />
+                <param name="export_primers" value="yes"/>
+            </section>
+            <output name="cleaned">
+                <assert_contents>
+                    <has_text text="@SRR30635841.1"/>
+                    <has_text text="@SRR30635841.2"/>
+                    <has_text text="@SRR30635841.3"/>
+                    <has_text text="@SRR30635841.4"/>
+                    <has_text text="@SRR30635841.5"/>
+                </assert_contents>  
+            </output> 
+            <output name="exp_prim">
+                <assert_contents>
+                    <has_text text="MN908947.3:6204-6237_LEFT"/>
+                    <has_text text="MN908947.3:25744-25777_RIGHT"/>
+                </assert_contents>  
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <section name="inputs">
+                <param name="input" value="synthetic.bam"/>
+                <param name="reference" value="synthetic.fasta"/>
+                <param name="primers" value="synthetic.bed" />
+            </section>
+            <output name="cleaned">
+                <assert_contents>
+                    <has_text text="read_number_2_last_120_of_ref"/>
+                    <has_text text="read_number_1_first_120_of_ref"/>
+                </assert_contents>  
+            </output> 
+        </test>
+    </tests>
+    <help><![CDATA[
+**AmpliGone**
+
+In contrast to a lot of other primer-removal tools, AmpliGone does not actively look for primer sequences within the NGS reads. When providing BED input, reads are trimmed based on primer sequence coordinates in relation to a given reference sequence. Additionally, AmpliGone is able to compensate for, and therefore properly clean, reads that start or end outside of a primer-region as this is a common occurrence in amplicon-based sequencing data.
+AmpliGone works with both reads in FASTQ format, as well as aligned data in BAM-format. However, when data is presented in the BAM-format then only read-data (sequence and quality scores) will be used. Other data present in the BAM-format will not be used in this version of AmpliGone.
+
+Currently, AmpliGone supports Nanopore data and Illumina data. The Illumina platform (NextSeq/MiSeq/HiSeq/other) does not matter.
+
+It is however important that you know the read-length in relation to the amplicon length. AmpliGone expects this information in the form of an 'amplicon-type'.
+
+AmpliGone is build and tested with Nanopore and Illumina data (fastq) in mind and supports 'end-to-end', 'end-to-mid' and 'fragmented' amplicons to be cleaned.
+
+
+**More Information**  
+
+- **Official Repository**: https://github.com/RIVM-bioinformatics/AmpliGone
+- **Extended User Guide**: https://rivm-bioinformatics.github.io/AmpliGone/@TOOL_VERSION@/
+  
+    ]]></help>
+    <citations>
+        <citation type="doi">10.5281/zenodo.7684307</citation>
+    </citations>
+</tool>
