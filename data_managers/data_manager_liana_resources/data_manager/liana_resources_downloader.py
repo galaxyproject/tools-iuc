@@ -187,7 +187,7 @@ class LianaResourcesDownloader:
 
     # Resource groupings for selective download
     RESOURCE_GROUPS = {
-        'ligand_receptor_all': None,  # All L-R databases
+        'ligand_receptor_all': None,  # all L-R databases discovered by show_resources()
         'ligand_receptor_consensus': ['consensus'],
         'ligand_receptor_main': ['consensus', 'cellphonedb', 'cellchatdb'],
         'ligand_receptor_single_cell': [
@@ -195,8 +195,8 @@ class LianaResourcesDownloader:
         ],
         'orthologs_all': list(ORTHOLOG_RESOURCES_METADATA.keys()),
         'orthologs_common': ['hcop_human_mouse', 'hcop_human_rat'],
-        'metalinks_all': list(METALINKS_RESOURCES_METADATA.keys()),
-        'all': None,  # All resources of all types
+        'metalinks_bundle_all': list(METALINKS_RESOURCES_METADATA.keys()),
+        'all': None,  # all resources of all types
     }
 
     def __init__(self, output_json):
@@ -262,12 +262,9 @@ class LianaResourcesDownloader:
             log.info(f"Downloading metalinks: {resource_id}...")
             df = li.resource.get_metalinks(
                 biospecimen_location=biospecimen_location,
-                source=source,
-                hmdb=True,
-                uniprot=True
+                source=source
             )
 
-            # Save as TSV
             output_path = Path(resource_id) / f"{resource_id}.tsv"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(output_path, sep='\t', index=False)
@@ -290,11 +287,13 @@ class LianaResourcesDownloader:
             }
         )
 
+        output_path = Path(output_path)
+
         return {
             'value': resource_id,
             'name': metadata['name'],
             'description': metadata['description'],
-            'path': output_path,
+            'path': str(output_path.parent),
             'type': metadata.get('type', 'unknown')
         }
 
@@ -303,22 +302,21 @@ class LianaResourcesDownloader:
         if resource_select in self.RESOURCE_GROUPS:
             group = self.RESOURCE_GROUPS[resource_select]
             if group is None:
-                # Special cases: all database types
                 if resource_select == 'all':
                     all_lr = self.get_available_lr_resources()
-                    all_resources = all_lr + list(self.ORTHOLOG_RESOURCES_METADATA.keys()) + list(self.METALINKS_RESOURCES_METADATA.keys())
-                    return all_resources
-                else:
-                    return []
-            else:
-                return group
-        else:
-            # Single resource
-            if resource_select in self.ALL_RESOURCES_METADATA:
-                return [resource_select]
-            else:
-                raise ValueError(f"Resource '{resource_select}' not found. "
-                                 f"Available groups: {', '.join(self.RESOURCE_GROUPS.keys())}")
+                    return all_lr + list(self.ORTHOLOG_RESOURCES_METADATA.keys()) + list(self.METALINKS_RESOURCES_METADATA.keys())
+                if resource_select == 'ligand_receptor_all':
+                    return self.get_available_lr_resources()
+                return []
+            return group
+
+        if resource_select in self.ALL_RESOURCES_METADATA:
+            return [resource_select]
+
+        raise ValueError(
+            f"Resource '{resource_select}' not found. "
+            f"Available groups: {', '.join(self.RESOURCE_GROUPS.keys())}"
+        )
 
     def download_resource(self, resource_id):
         """Download a single resource (detects type and calls appropriate method)."""
