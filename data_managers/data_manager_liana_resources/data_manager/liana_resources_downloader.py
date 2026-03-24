@@ -276,7 +276,7 @@ class LianaResourcesDownloader:
             log.error(f"Error downloading metalinks {resource_id}: {e}")
             raise
 
-    def create_data_table_entry(self, resource_id, df, output_path):
+    def create_data_table_entry(self, resource_id, output_path):
         """Create a Galaxy data table entry for a resource."""
         metadata = self.ALL_RESOURCES_METADATA.get(
             resource_id,
@@ -349,7 +349,7 @@ class LianaResourcesDownloader:
         for resource_id in resources_to_download:
             try:
                 df, output_path = self.download_resource(resource_id)
-                entry = self.create_data_table_entry(resource_id, df, output_path)
+                entry = self.create_data_table_entry(resource_id, output_path)
                 self.entries.append(entry)
 
             except Exception as e:
@@ -390,35 +390,31 @@ def parse_arguments():
         description='Download LIANA resources (L-R databases, orthologs, metalinks) for Galaxy',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
-LIGAND-RECEPTOR RESOURCES:
-  all                   - All 17 L-R databases (~100 MB)
-  consensus             - Consensus only (~2 MB) - FASTEST
-  main                  - Consensus + CellPhoneDB + CellChat
-  single_cell           - 4 databases optimized for single-cell data
+        Available --resource values:
 
-ORTHOLOG RESOURCES (HCOP):
-  orthologs_all         - All species mappings (human-mouse, human-rat, etc.)
-  orthologs_common      - Human-Mouse and Human-Rat only (RECOMMENDED)
+        LIGAND-RECEPTOR RESOURCE GROUPS:
+        ligand_receptor_consensus     - Consensus only
+        ligand_receptor_main          - Consensus + CellPhoneDB + CellChat
+        ligand_receptor_single_cell   - Consensus + CellPhoneDB + CellChat + ConnectomeDB2020
+        ligand_receptor_all           - All available LIANA ligand-receptor resources
 
-METALINKS RESOURCES:
-  metalinks_all         - All metabolite-protein interactions
-  metalinks_blood       - Blood biospecimens only
-  metalinks_plasma      - Plasma biospecimens only
-  metalinks_urine       - Urine biospecimens only
+        ORTHOLOG RESOURCE GROUPS:
+        orthologs_common              - Human-Mouse + Human-Rat
+        orthologs_all                 - Human-Mouse + Human-Rat + Human-Chicken + Human-Zebrafish
 
-ALL:
-  all                   - All resources of all types (LARGEST, ~200 MB)
+        METALINKS RESOURCE GROUPS:
+        metalinks_blood               - Blood biospecimens only
+        metalinks_plasma              - Plasma biospecimens only
+        metalinks_all                 - All biospecimens only
+        metalinks_bundle_all          - All predefined Metalinks presets
 
-Examples:
-  # Download all L-R databases
-  python liana_resources_downloader.py --resource all --output output.json
+        ALL RESOURCES:
+        all                           - All ligand-receptor, ortholog, and Metalinks resources
 
-  # Download consensus L-R + common orthologs
-  python liana_resources_downloader.py --resource consensus --output output.json
-  python liana_resources_downloader.py --resource orthologs_common --output orthologs.json
-
-  # Download metalinks
-  python liana_resources_downloader.py --resource metalinks_all --output metalinks.json
+        Examples:
+        python liana_resources_downloader.py --resource ligand_receptor_consensus --output output.json
+        python liana_resources_downloader.py --resource orthologs_common --output orthologs.json
+        python liana_resources_downloader.py --resource metalinks_all --output metalinks.json
         '''
     )
 
