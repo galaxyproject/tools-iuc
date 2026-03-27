@@ -1,8 +1,54 @@
 <tool id="falco" name="Falco" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
     <description>An alternative, more performant implementation of FastQC for high throughput sequence quality control</description>
     <macros>
-        <token name="@TOOL_VERSION@">1.2.4</token>
+        <token name="@TOOL_VERSION@">1.2.5</token>
         <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@RUN_FALCO@">
+        <![CDATA[
+            #if 'bam' in $input_file.ext:
+                #set format = 'bam'
+            #elif 'sam' in $input_file.ext:
+                #set format = 'sam'
+            #elif 'gz' in $input_file.ext:
+                #set format = 'fastq.gz'
+            #else
+                #set format = 'fastq'
+            #end if
+
+            ln -s '${input_file}' '${input_name_sl}' &&
+            falco
+                #if $contaminants:
+                    --contaminants '${contaminants}'
+                #end if
+
+                #if $adapters.dataset and str($adapters) > ''
+                    --adapters '${adapters}'
+                #end if
+
+                #if $limits.dataset and str($limits) > ''
+                    --limits '${limits}'
+                #end if
+                --threads \${GALAXY_SLOTS:-2}
+                --quiet
+                ## #if $min_length:
+                ##     --min_length $min_length
+                ## #end if
+                $nogroup
+                ## --kmers $kmers
+                -f '${format}'
+                '${input_name_sl}'
+                #if $subsample > 1:
+                -subsample $subsample
+                #end if
+                $bisulfite
+                $reverse_complement
+                $generate_summary &&
+                mv fastqc_report.html 'fastqc_report${suffix}.html' &&
+                mv fastqc_data.txt 'fastqc_data${suffix}.txt'
+            #if str($generate_summary) == "":
+                && mv summary.txt 'summary${suffix}.txt'
+            #end if
+    ]]></token>
     </macros>
     <xrefs>
         <xref type="bio.tools">falco</xref>
@@ -12,49 +58,37 @@
     </requirements>
     <command detect_errors="aggressive"><![CDATA[
         #import re
-        #set input_name_sl = re.sub('[^\w\-\s]', '_', str($input_file.element_identifier))
-
-        #if 'bam' in $input_file.ext:
-            #set format = 'bam'
-        #elif 'sam' in $input_file.ext:
-            #set format = 'sam'
-        #elif 'gz' in $input_file.ext:
-            #set format = 'fastq.gz'
+        #if str($input_type_select.input_type) == 'individually'
+            #set input_file = $input_type_select.input_file
+            #set $suffix = ''
+            #set input_name_sl = re.sub('[^\w\-\s]', '_', str($input_file.element_identifier))
+            @RUN_FALCO@
         #else
-            #set format = 'fastq'
+            #set input_file = $input_type_select.input_col['forward']
+            #set $suffix = '_forward'
+            #set input_name_sl = re.sub('[^\w\-\s]', '_', str($input_type_select.input_col.element_identifier)) + '_forward'
+            @RUN_FALCO@ &&
+            #set input_file = $input_type_select.input_col['reverse']
+            #set $suffix = '_reverse'
+            #set input_name_sl = re.sub('[^\w\-\s]', '_', str($input_type_select.input_col.element_identifier)) + '_reverse'
+            @RUN_FALCO@
         #end if
-
-        ln -s '${input_file}' '${input_name_sl}' &&
-        falco
-            #if $contaminants:
-                --contaminants '${contaminants}'
-            #end if
-
-            #if $adapters.dataset and str($adapters) > ''
-                --adapters '${adapters}'
-            #end if
-
-            #if $limits.dataset and str($limits) > ''
-                --limits '${limits}'
-            #end if
-            --threads \${GALAXY_SLOTS:-2}
-            --quiet
-            ## #if $min_length:
-            ##     --min_length $min_length
-            ## #end if
-            $nogroup
-            ## --kmers $kmers
-            -f '${format}'
-            '${input_name_sl}'
-            #if $subsample > 1:
-              -subsample $subsample
-            #end if
-            $bisulfite
-            $reverse_complement
-            $generate_summary
     ]]></command>
     <inputs>
-        <param format="fastq,fastq.gz,bam,sam" name="input_file" type="data" label="Raw read data from your current history"/>
+        <conditional name="input_type_select">
+            <param name="input_type" type="select" label="How your input should be treated?">
+                <option value="individually">Individually, one job per input</option>
+                <option value="paired">As pairs, slower but better for multiQC</option>
+            </param>
+            <when value="individually">
+                <param format="fastq,fastq.gz,bam,sam" name="input_file" type="data"
+                    label="Raw read data from your current history" />
+            </when>
+            <when value="paired">
+                <param format="fastq,fastq.gz,bam,sam" name="input_col" type="data_collection"
+                    collection_type="paired" label="Raw read data from your current history in paired collections"/>
+            </when>
+        </conditional>
         <param name="contaminants" type="data" format="tabular" optional="true" label="Contaminant list" help="tab delimited file with 2 columns: name and sequence.  For example: Illumina Small RNA RT Primer&#x9;CAAGCAGAAGACGGCATACGA"/>
         <param argument="--adapters" type="data" format="tabular" optional="true" label="Adapter list" help="List of adapters adapter sequences which will be explicity searched against the library. It should be a tab-delimited file with 2 columns: name and sequence."/>
         <param name="limits" type="data" format="txt" optional="true" label="Submodule and Limit specifing file" help="a file that specifies which submodules are to be executed (default=all) and also specifies the thresholds for the each submodules warning parameter."/>
@@ -67,16 +101,37 @@
         <param name="generate_summary" type="boolean" truevalue="" falsevalue="-skip-summary" checked="False" label="Generate summary output of QC test results"/>
     </inputs>
     <outputs>
-        <data format="html" name="html_file" from_work_dir="fastqc_report.html" label="${tool.name} on ${on_string}: Webpage"/>
-        <data format="txt" name="text_file" from_work_dir="fastqc_data.txt" label="${tool.name} on ${on_string}: RawData"/>
-        <data format="txt" name="summary_file" from_work_dir="summary.txt" label="${tool.name} on ${on_string}: SummaryData">
-            <filter>generate_summary</filter>
+        <data format="html" name="html_file" from_work_dir="fastqc_report.html" label="${tool.name} on ${on_string}: Webpage" >
+            <filter>input_type_select['input_type'] == 'individually'</filter>
         </data>
+        <data format="txt" name="text_file" from_work_dir="fastqc_data.txt" label="${tool.name} on ${on_string}: RawData" >
+            <filter>input_type_select['input_type'] == 'individually'</filter>
+        </data>
+        <data format="txt" name="summary_file" from_work_dir="summary.txt" label="${tool.name} on ${on_string}: SummaryData">
+            <filter>input_type_select['input_type'] == 'individually' and generate_summary</filter>
+        </data>
+        <collection name="html_files" format="html" type="paired" label="${tool.name} on ${on_string}: Webpage">
+            <data name="forward" from_work_dir="fastqc_report_forward.html" />
+            <data name="reverse" from_work_dir="fastqc_report_reverse.html" />
+            <filter>input_type_select['input_type'] == 'paired'</filter>
+        </collection>
+        <collection name="text_files" format="txt" type="paired" label="${tool.name} on ${on_string}: RawData">
+            <data name="forward" from_work_dir="fastqc_data_forward.txt" />
+            <data name="reverse" from_work_dir="fastqc_data_reverse.txt" />
+            <filter>input_type_select['input_type'] == 'paired'</filter>
+        </collection>
+        <collection name="summary_files" format="txt" type="paired" label="${tool.name} on ${on_string}: SummaryData">
+            <data name="forward" from_work_dir="summary_forward.txt" />
+            <data name="reverse" from_work_dir="summary_reverse.txt" />
+            <filter>input_type_select['input_type'] == 'paired' and generate_summary</filter>
+        </collection>
     </outputs>
     <tests>
         <!-- Test with fastq input -->
         <test expect_num_outputs="2">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <output name="html_file" ftype="html">
                 <assert_contents>
                   <has_line_matching expression="&lt;html&gt;&lt;head&gt;.+&lt;title&gt;     1000trimmed_fastq - report.+"/>
@@ -87,7 +142,9 @@
         </test>
         <!-- Test with fastq.gz input -->
         <test expect_num_outputs="2">
-            <param name="input_file" value="1000trimmed.fastq.gz"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq.gz"/>
+            </conditional>
             <output name="html_file" ftype="html">
                 <assert_contents>
                   <has_line_matching expression="&lt;html&gt;&lt;head&gt;.+&lt;title&gt;     1000trimmed_fastq_gz - report.+"/>
@@ -98,7 +155,9 @@
         </test>
         <!-- Test with BAM input -->
         <test expect_num_outputs="2">
-            <param name="input_file" value="hisat_output_1.bam"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="hisat_output_1.bam"/>
+            </conditional>
             <output name="html_file" ftype="html">
                 <assert_contents>
                   <has_line_matching expression="&lt;html&gt;&lt;head&gt;.+&lt;title&gt;     hisat_output_1_bam - report.+"/>
@@ -109,7 +168,9 @@
         </test>
         <!-- Test summary file option -->
         <test expect_num_outputs="3">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="generate_summary" value="true"/>
             <output name="html_file" ftype="html">
                 <assert_contents>
@@ -120,7 +181,9 @@
             <output name="summary_file" file="fastqc_data_summary.txt" ftype="txt"/>
         </test>
         <test expect_num_outputs="2">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="contaminants" value="contaminant_list.txt" ftype="tabular"/>
             <output name="html_file" ftype="html">
                 <assert_contents>
@@ -130,7 +193,9 @@
             <output name="text_file" file="fastqc_data_contaminants.txt" ftype="txt" lines_diff="2"/>
         </test>
         <test expect_num_outputs="2">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="adapters" value="adapter_list.txt" ftype="tabular"/>
             <output name="html_file" ftype="html">
                 <assert_contents>
@@ -140,7 +205,9 @@
             <output name="text_file" file="fastqc_data_adapters.txt" ftype="txt" lines_diff="2"/>
         </test>
         <test expect_num_outputs="3">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="limits" value="limits.txt" ftype="txt"/>
             <param name="generate_summary" value="true"/>
             <output name="html_file" ftype="html">
@@ -170,7 +237,9 @@
             <output name="text_file" file="fastqc_data_min_length.txt" ftype="txt"/>
         </test> -->
         <test expect_num_outputs="2">
-            <param name="input_file" value="1000trimmed.fastq" ftype="fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" ftype="fastq"/>
+            </conditional>
             <param name="nogroup" value="--nogroup"/>
             <output name="html_file" ftype="html">
                 <assert_contents>
@@ -180,7 +249,9 @@
             <output name="text_file" file="fastqc_data_nogroup.txt" ftype="txt" lines_diff="2"/>
         </test>
         <test expect_num_outputs="3">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="subsample" value="10"/>
             <param name="generate_summary" value="true"/>
             <output name="html_file" ftype="html">
@@ -192,7 +263,9 @@
             <output name="summary_file" file="fastqc_report_subsample_summary.txt" ftype="txt"/>
         </test>
         <test expect_num_outputs="3">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="bisulfite" value="-bisulfite"/>
             <param name="generate_summary" value="true"/>
             <output name="html_file" ftype="html">
@@ -204,7 +277,9 @@
             <output name="summary_file" file="fastqc_report_bisulfite_summary.txt" ftype="txt"/>
         </test>
         <test expect_num_outputs="2">
-            <param name="input_file" value="1000trimmed.fastq"/>
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq"/>
+            </conditional>
             <param name="reverse_complement" value="-reverse-complement"/>
             <output name="html_file" ftype="html">
                 <assert_contents>
@@ -212,6 +287,57 @@
                 </assert_contents>
             </output>
             <output name="text_file" file="fastqc_report_reverse_complement.txt" ftype="txt" lines_diff="2"/>
+        </test>
+        <!-- Test summary file option paired input -->
+        <test expect_num_outputs="9">
+            <conditional name="input_type_select">
+                <param name="input_type" value="paired"/>
+                <param name="input_col">
+                    <collection type="paired" name="1000trimmed">
+                        <element name="forward" value="1000trimmed.fastq" />
+                        <element name="reverse" value="1000trimmed.fastq" />
+                    </collection>
+                </param>
+            </conditional>
+            <param name="generate_summary" value="true"/>
+            <output_collection name="html_files">
+                <element name="forward">
+                    <assert_contents>
+                        <has_line_matching expression="&lt;html&gt;&lt;head&gt;.+&lt;title&gt;     1000trimmed_forward - report.+"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                        <has_line_matching expression="&lt;html&gt;&lt;head&gt;.+&lt;title&gt;     1000trimmed_reverse - report.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="text_files">
+                <element name="forward">
+                    <assert_contents>
+                    <has_text text="1000trimmed_forward" />
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                    <has_text text="1000trimmed_reverse" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="summary_files">
+                <element name="forward">
+                    <assert_contents>
+                    <has_text text="1000trimmed_forward" />
+                    <has_n_lines n="11" />
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                    <has_text text="1000trimmed_reverse" />
+                    <has_n_lines n="11" />
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
