@@ -5,161 +5,139 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-
-    #for $name_file, $file in zip($input_names, $input_files):
-        ln -s '$file' '${file.element_identifier}.${file.ext}' &&
-        ln -s '$name_file' '${file.element_identifier}.names.txt' &&
-    #end for
-
+    ln -s '$input_snvs' '${input_snvs.element_identifier}.${input_snvs.ext}' &&
+    ln -s '$input_names' '${input_snvs.element_identifier}.names.txt' &&
+    #if $sample_filtering.samples_select:
+        ln -s '$sample_filtering.samples_select' '${input_snvs.element_identifier}.select.txt' &&
+    #end if
 
     samestr filter
     --marker-dir '$database.fields.path'
-    --output-dir out_filter/
-    #for $name_file, $file in zip($input_names, $input_files):
-        --input-files '${file.element_identifier}.${file.ext}'
-        --input-names '${file.element_identifier}.names.txt'
-    #end for
-    $keep_poly
-    $keep_mono
-    $delete_pos
-    #if $clade:
-    --clade '$clade'
+    --input-files '${input_snvs.element_identifier}.${input_snvs.ext}'
+    --input-names '${input_snvs.element_identifier}.names.txt'
+    $output_settings.keep_poly
+    $output_settings.keep_mono
+    $output_settings.delete_pos
+    --clade-min-samples $clade_settings.clade_min_samples
+    #if str($clade_settings.marker_selection.retain_or_drop) == 'retain':
+        --marker-keep '$clade_settings.marker_selection.marker_keep'
+    #elif str($clade_settings.marker_selection.retain_or_drop) == 'drop':
+        --marker-remove '$clade_settings.marker_selection.marker_remove'
     #end if
-    --clade-min-samples $clade_min_samples
-    #if $marker_remove:
-        --marker-remove '$marker_remove'
+    --marker-trunc-len $clade_settings.marker_trunc_len
+    --sample-var-min-n-vcov $sample_variant_filtering.sample_var_min_n_vcov
+    --sample-var-min-f-vcov $sample_variant_filtering.sample_var_min_f_vcov
+    --sample-pos-min-n-vcov $sample_position_filtering.sample_pos_min_n_vcov
+    --sample-pos-min-sd-vcov $sample_position_filtering.sample_pos_min_sd_vcov
+    #if $sample_filtering.samples_select:
+        --samples-select '${input_snvs.element_identifier}.select.txt'
     #end if
-    #if $marker_keep:
-        --marker-keep '$marker_keep'
-    #end if
-    --marker-trunc-len $marker_trunc_len
-    --sample-var-min-n-vcov $sample_var_min_n_vcov
-    --sample-var-min-f-vcov $sample_var_min_f_vcov
-    --sample-pos-min-n-vcov $sample_pos_min_n_vcov
-    --sample-pos-min-sd-vcov $sample_pos_min_sd_vcov
-    #if $samples_select:
-        --samples-select
-        #for $select_file in $samples_select:
-            '$select_file'
-        #end for
-    #end if
-    --samples-min-n-hcov $samples_min_n_hcov
+    --samples-min-n-hcov $sample_filtering.samples_min_n_hcov
     #if $samples_min_f_hcov:
-        --samples-min-f-hcov $samples_min_f_hcov
+        --samples-min-f-hcov $sample_filtering.samples_min_f_hcov
     #end if
     #if $samples_min_m_vcov:
-        --samples-min-m-vcov $samples_min_m_vcov
+        --samples-min-m-vcov $sample_filtering.samples_min_m_vcov
     #end if
-    --global-pos-min-n-vcov $global_pos_min_n_vcov
-    #if $global_pos_min_f_vcov:
-        --global-pos-min-f-vcov $global_pos_min_f_vcov
+    --global-pos-min-n-vcov $global_position_filtering.global_pos_min_n_vcov
+    #if $global_position_filtering.global_pos_min_f_vcov:
+        --global-pos-min-f-vcov $global_position_filtering.global_pos_min_f_vcov
     #end if
     ]]></command>
     <inputs>
-        <param name="input_files" type="data" format="npz,npy" multiple="true" label="Input SNV profiles" help="NPZ/NPY file from samestr merge."/>
-        <param name="input_names" type="data" format="txt" multiple="true" label="Sample identifiers" help="Text file listing the sample/gene identifiers."/>
-
+        <param name="input_snvs" type="data" format="npz,npy" label="SNV profile to filter" help="A (multisample) SNV profile typically generated with SameStr merge"/>
+        <param name="input_names" type="data" format="tabular" label="Sample identifiers" help="Dataset listing the sample/reference genome identifiers one per line"/>
         <param name="database" type="select" label="SameStr database" help="SameStr database built from MetaPhlAn or mOTUS markers">
             <options from_data_table="samestr_db">
                 <filter type="sort_by" column="2" />
                 <filter type="static_value" column="4" value="1" />
             </options>
         </param>
-
-        <section name="output_settings" title="Output file settings">
+        <section name="output_settings" title="Output settings">
             <param argument="--keep-poly" type="boolean" truevalue="--keep-poly" falsevalue="" label="Keep polymorphic positions only" help="Keep only positions that are polymorphic in at least one sample (default: False)." />
             <param argument="--keep-mono" type="boolean" truevalue="--keep-mono" falsevalue="" label="Keep monomorphic positions only" help="Keep only positions that are monomorphic in all samples (default: False)." />
             <param argument="--delete-pos" type="boolean" truevalue="--delete-pos" falsevalue="" label="Delete global positions" help="Delete masked marker and global positions from array instead of np.nan (default: False)." />
         </section>
-
-        <section name="clade_settings" title="Clade settings">
-            <param argument="--clade" type="text" label="Clades to process." optional="true" help="Processing all if not specified. Names must correspond to the taxonomy of the respective database [e.g. t__SGB10068 for MetaPhlAn]"/>
+        <section name="clade_settings" title="Clade and marker settings">
+            <!-- The actual clade parameter of the command line tool is not exposed here on purpose.
+            Every Galaxy job treats only one specific clade. So all but one of the jobs triggered by a run on a
+            collection of per-clade SNV profiles as generated by SameStr merge would not produce any output.
+            Galaxy's "Filter collection" tool is a better fit for the purpose here. -->
             <param argument="--clade-min-samples" type="integer" value="2" min="0" label="Minimum samples per clade" help="Skip clades with fewer than this number of samples (default: 2)" />
-            <param argument="--marker-remove" type="text" label="Markers to exclude." optional="true" help="List of Markers to remove for selected clade. Requires clade to be specified."/>
-            <param argument="--marker-keep" type="text" label="Markers to include." optional="true" help="List of Markers to keep for selected clade. Requires clade to be specified. Overrides Markers to remove from clade."/>
+            <conditional name="marker_selection">
+                <param name="retain_or_drop" type="select" label="Filter markers?">
+                    <option value="">Do not filter markers</option>
+                    <option value="retain">Retain only specific markers</option>
+                    <option value="drop">Drop specific markers</option>
+                </param>
+                <when value="" />
+                <when value="retain">
+                    <param argument="--marker-keep" type="data" format="tabular" label="Markers to retain" help="Explicit list of markers (one per line) to keep. Markers not specified in the list will be dropped."/>
+                </when>
+                <when value="drop">
+                    <param argument="--marker-remove" type="data" format="tabular" label="Markers to drop" help="List of markers (one per line) to remove."/>
+                </when>
+            </conditional>
             <param argument="--marker-trunc-len" type="integer" value="50" min="0" label="Marker truncation length" help="Number of nucleotides to trim from each end of a marker sequence. (default: 50)" />
         </section>
-
         <section name="sample_variant_filtering" title="Sample Variant Filtering">
             <param argument="--sample-var-min-n-vcov" type="integer" value="2" min="0" label="Minimum variant coverage (nucleotides)" help="Remove variants with nucleotide coverage below this threshold (default: 2)." />
             <param argument="--sample-var-min-f-vcov" type="float" value="0.05" min="0" max="1" label="Minimum variant coverage (fraction)" help="Remove variants with coverage below this fraction (default: 0.05)." />
         </section>
-
         <section name="sample_position_filtering" title="Sample Position Filtering">
             <param argument="--sample-pos-min-n-vcov" type="integer" value="1" min="0" label="Minimum position coverage (nucleotides)" help="Remove positions with nucleotide coverage below this threshold (default: 1)." />
             <param argument="--sample-pos-min-sd-vcov" type="float" value="3.0" min="0" label="Position coverage standard deviation cutoff" help="Remove positions with coverage outside mean ± this standard deviation (default: 3.0)." />
         </section>
-
         <section name="sample_filtering" title="Sample Filtering">
-            <param argument="--samples-select" type="data" format="txt" multiple="true" optional="true" label="Subset of samples" help="Files containing names of samples to include." />
-            <param argument="--samples-min-n-hcov" type="integer" value="5000" min="0"  label="Minimum horizontal coverage (nucleotides)" help="Remove samples with horizontal coverage below this nucleotide count (default: 5000)." />
+            <param argument="--samples-select" type="data" format="tabular" optional="true" label="Subset of samples to retain" help="Names of samples to retain must be listed in this input (one sample per line)." />
+            <param argument="--samples-min-n-hcov" type="integer" value="5000" min="0" label="Minimum horizontal coverage (nucleotides)" help="Remove samples with horizontal coverage below this nucleotide count (default: 5000)." />
             <param argument="--samples-min-f-hcov" type="float" value="0" min="0" max="1" optional="true" label="Minimum horizontal coverage (fraction)" help="Remove samples with horizontal coverage below this fraction (default: None). " />
             <param argument="--samples-min-m-vcov" type="float" value="0" min="0" optional="true" label="Minimum mean vertical coverage" help="Remove samples with mean vertical coverage below this value (default: None) ." />
         </section>
-
         <section name="global_position_filtering" title="Global Position Filtering">
             <param argument="--global-pos-min-n-vcov" type="integer" value="2" min="0" label="Minimum sample coverage per position (count)" help="Remove positions covered by fewer than this number of samples (default: 2). Overrides fraction-based filtering." />
             <param argument="--global-pos-min-f-vcov" type="float" value="0" min="0" max="1" optional="true" label="Minimum sample coverage per position (fraction)" help="Remove positions covered by fewer than this fraction of samples (default: None). "/>
         </section>
-
     </inputs>
     <outputs>
-        <collection name="npz_files" type="list" label="${tool.name} on ${on_string}: Filtered NPZ files">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+\.npz)$" directory="out_filter" format="npz"/>
-        </collection>
-
-        <collection name="sample_name" type="list" label="${tool.name} on ${on_string}: Sample identifiers">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+\.names\.txt)$" directory="out_filter" format="txt"/>
-        </collection>
+        <data name="filtered_profile" format="npz" from_work_dir="out_filter/*.npz" label="${tool.name} on ${on_string}: filtered SNV profiles"/>
+        <data name="sample_names" format="tabular" from_work_dir="out_filter/*.names.txt" label="${tool.name} on ${on_string}: per-clade retained sample names"/>
     </outputs>
     <tests>
        <test expect_num_outputs="2">
-            <param name="input_files" value="t__Propionibacterium_phage_PAS50.npz" ftype="npz" />
-            <param name="input_names" value="t__Propionibacterium_phage_PAS50.names.txt" ftype="txt" />
+            <param name="input_snvs" value="t__Propionibacterium_phage_PAS50.npz" ftype="npz" />
+            <param name="input_names" value="t__Propionibacterium_phage_PAS50.names.txt" ftype="tabular" />
             <param name="database" value="mpa_test-db-without-one-marker"/>
-
             <section name="clade_settings">
-                <param name="clade" value="t__Propionibacterium_phage_PAS50"/>
                 <param name="clade_min_samples" value="1" />
                 <param name="marker_trunc_len" value="0" />
             </section>
-
             <section name="sample_variant_filtering">
                 <param name="sample_var_min_n_vcov" value="1" />
                 <param name="sample_var_min_f_vcov" value="0.01" />
             </section>
-
             <section name="sample_position_filtering">
                 <param name="sample_pos_min_n_vcov" value="1" />
                 <param name="sample_pos_min_sd_vcov" value="0" />
             </section>
-
             <section name="sample_filtering">
                 <param name="samples_min_n_hcov" value="40" />
             </section>
-
             <section name="global_position_filtering">
                 <param name="global_pos_min_n_vcov" value="1" />
             </section>
-
-            <output_collection name="npz_files" type="list" count="1">
-                <element name="t__Propionibacterium_phage_PAS50.npz" ftype="npz">
-                    <assert_contents>
-                        <has_size value="556" delta="300"/>
-                    </assert_contents>
-                </element>
-            </output_collection>
-
-            <output_collection name="sample_name" type="list" count="1">
-                <element name="t__Propionibacterium_phage_PAS50.names.txt" ftype="txt">
-                    <assert_contents>
-                        <has_text text="phage_padded" />
-                        <has_n_lines n="1" />
-                        <has_size value="6" delta="10"/>
-                    </assert_contents>
-                </element>
-            </output_collection>
-
+            <output name="filtered_profile" ftype="npz">
+                <assert_contents>
+                    <has_size value="556" delta="300"/>
+                </assert_contents>
+            </output>
+            <output name="sample_names" ftype="tabular">
+                <assert_contents>
+                    <has_text text="phage_padded" />
+                    <has_n_lines n="1" />
+                    <has_size value="6" delta="10"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -175,9 +153,9 @@ removes low-quality variants, positions, and samples to prepare clean data for d
 
 For each analysis, the following inputs must be provided:
 
-- A SNV profile file in NPZ/NPY format (.npz, .npy, or .npy.gz) generated by samestr merge.
-- Sample identifier file in text format (.names.txt) generated by samestr merge.
-- The MetaPhlAn or mOTUS clade marker database that matches the database used throughout the workflow.
+- A (multisample) clade-specific SNV profile as generated by SameStr merge
+- A list of the samples present in the SNV profile in simple one-sample-per-line text format as generated by SameStr merge
+- The MetaPhlAn or mOTUS clade marker database that matches the database used to generate the input profiles
 
 **Filtering Parameters: Output file settings**
 
@@ -187,7 +165,6 @@ For each analysis, the following inputs must be provided:
 
 **Filtering Parameters: Clade settings**
 
-- Clades to process: Filter specific clades only. If unspecified, all clades are processed.
 - Minimum samples per clade: Skip clades with fewer than the specified number of samples.
 - Markers to exclude/include: Selectively remove or keep specific markers for targeted analysis.
 - Marker truncation length: Trim nucleotides from marker ends to avoid alignment edge effects.
@@ -213,10 +190,10 @@ For each analysis, the following inputs must be provided:
 
 **Results and Outputs**
 
-The tool generates three main outputs:
+The tool generates two main outputs:
 
-- Filtered NPZ file. Cleaned nucleotide variant profile ready for strain comparison analysis.
-- Sample identifier. Updated text file listing samples that passed all filtering criteria.
+- A new, cleaned SNV profile in compressed NumPy format (npz) with filters applied, which can be used with SameStr compare.
+- Identifiers of retained samples in text format with one retained sample per line.
     ]]></help>
     <expand macro="citations" />
 </tool>
