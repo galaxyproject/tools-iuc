@@ -7,39 +7,37 @@
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         ln -s '$input_file' sm19_input.nhx &&
-        @HYPHY_INVOCATION@ \$HYPHY_LIB/TemplateBatchFiles/SM-2019.bf ./sm19_input.nhx
+        @HYPHYMP@ sm --tree ./sm19_input.nhx
+        --groups '$len($partitions)'
         #for $n, $partition in enumerate($partitions):
-            '${partition.label}'
-            '${partition.regex}'
+            --description-${n+1} '${partition.label}'
+            --regexp-${n+1} '${partition.regex}'
         #end for
-        $replicates
-        --output '$sm19_output' 
+        --replicates '$replicates'
+        --weight '$weight'
+        --use-bootstrap '$use_bootstrap'
+        --output '$sm19_output' > sm19_stdout.md
         @ERRORS@
         ]]></command>
     <inputs>
-        <param name="input_file" type="data" format="nhx,newick,nexus" label="Input tree"/>
+        <param name="input_file" type="data" format="nhx,newick,nexus" label="Input tree" help="The Newick tree string defining the topology to use for testing."/>
         <repeat name="partitions" min="2" max="50" title="Partitions">
-            <param name="label" type="text" label="Partition label"/>
-            <param name="regex" type="text" label="Regular expression">
-                <sanitizer>
-                    <valid initial="string.printable">
-                        <remove value="'"/>
-                    </valid>
-                    <mapping initial="none">
-                        <add source="'" target="__sq__"/>
-                    </mapping>
-                </sanitizer>
+            <param name="label" type="text" label="Partition label" help="Description for sequences in this compartment."/>
+            <param name="regex" type="text" label="Regular expression" help="Regular expression to select the branches in this compartment.">
+                <expand macro="regex_sanitizer"/>
             </param>
         </repeat>
-        <param name="replicates" type="integer" min="1" max="1000000" value="100"/>
+        <param name="replicates" type="integer" min="1" max="1000000" value="100" label="Number of bootstrap replicates" help="The number of bootstrap replicates."/>
+        <param argument="--weight" type="float" value="0.2" min="0" max="1" label="Probability of branch selection for structured permutation" help="0 = classical Slatkin-Maddison, 1 = fully structured."/>
+        <param argument="--use-bootstrap" type="boolean" truevalue="Yes" falsevalue="No" checked="true" label="Use bootstrap weights to respect well supported clades" help="Use bootstrap weights to respect well supported clades."/>
     </inputs>
     <outputs>
-        <data name="sm19_output" format="hyphy_results.json" />
+        <data name="sm19_output" format="hyphy_results.json" label="SM2019 results on ${on_string}" />
+        <data name="sm19_md_report" format="markdown" from_work_dir="sm19_stdout.md" label="SM2019 Report (Markdown) for ${tool.name} on ${on_string}" />
     </outputs>
     <tests>
-        <test>
-            <param name="input_file" ftype="fasta" value="sm19-in1.nhx"/>
-            <param name="replicates" value="1000"/>
+        <test expect_num_outputs="2">
+            <param name="input_file" value="sm19-in1.nhx"/>
             <repeat name="partitions">
                 <param name="label" value="Blood"/>
                 <param name="regex" value="B[0-9]+"/>
@@ -48,11 +46,23 @@
                 <param name="label" value="Semen"/>
                 <param name="regex" value="S[0-9]+"/>
             </repeat>
-            <output name="sm19_output" file="sm19-out1.json" compare="sim_size"/>
+            <param name="replicates" value="1000"/>
+            <param name="weight" value="0.2"/>
+            <param name="use_bootstrap" value="Yes"/>
+            <output name="sm19_output">
+                <assert_contents>
+                    <has_text text='"compartments":2'/>
+                    <has_text text='"leaf-count":50'/>
+                </assert_contents>
+            </output>
+            <output name="sm19_md_report">
+                <assert_contents>
+                    <has_text text="Inferred **16** migration events"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
-            <param name="input_file" ftype="fasta" value="sm19-in2.nhx"/>
-            <param name="replicates" value="1000"/>
+        <test expect_num_outputs="2">
+            <param name="input_file" value="sm19-in2.nhx"/>
             <repeat name="partitions">
                 <param name="label" value="Blood"/>
                 <param name="regex" value="B[0-9]+"/>
@@ -61,85 +71,82 @@
                 <param name="label" value="Semen"/>
                 <param name="regex" value="S[0-9]+"/>
             </repeat>
-            <output name="sm19_output" file="sm19-out2.json" compare="sim_size"/>
+            <param name="replicates" value="1000"/>
+            <param name="weight" value="0.2"/>
+            <param name="use_bootstrap" value="Yes"/>
+            <output name="sm19_output">
+                <assert_contents>
+                    <has_text text='"compartments":2'/>
+                    <has_text text='"leaf-count":64'/>
+                </assert_contents>
+            </output>
+            <output name="sm19_md_report">
+                <assert_contents>
+                    <has_text text="Inferred **18** migration events"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
-
 SM2019 : Structured Slatkin-Maddison
 ====================================
 
-What does this do?
-------------------
+**What does this do?**
 
 Test for evidence of genetically segregated populations, using a "detuned" version of
 the Slatkin-Maddison test.
 
-Brief description
------------------
-
-This analysis implements canonical and modified versions of the
-Slatkin-Maddison phylogeny based test for population segregation. The
-test estimates the minimum number of migration events using maximum
-parsimony, and then evaluating whether or not this number is lower than
-expected in a panmictic or unstructured population using permutation
-tests
-
-Input
------
-
-1. A phylogenetic tree in the *Newick* format
-
-Note: assumes that leaf names that can be partitioned into sets using regular expressions
-
-For example
-
-::
-
-    ((((((((x_US_x_A_01C:0.0125396,(((((x_US_x_A_01P:0.00887628,((
-    x_US_x_A_08P:-0.000190918,x_US_x_A_11P:0.00313157):0.0106883,
-    x_US_x_A_14C:0.0103815):0.00311658):0.00120812,x_US_x_A_09P:0.00320468):
-    0.0108828,x_US_x_A_12P:0.00732672):0.00596663,x_US_x_A_07C:0.00449846):0
-    .00639319,((((x_US_x_A_02P:-2.62303e-05,x_US_x_A_05P:0.00591507):0.
-    000156788,x_US_x_A_04P:0.00576826):0.00907366,((x_US_x_A_03P:0.00941548,
-    x_US_x_A_14P:0.00866127):0.00229499,x_US_x_A_13P:0.0209192):0.00469629):
-    0.0146758,(x_US_x_A_10P:0.000156443,x_US_x_A_15P:0.00578946):0.00472532)
-    :0.0103079):0.00733948):0.00228489,x_US_x_A_06P:0.00557974):0.00472981,
-    x_US_x_A_04C:0.00478858):0.00105548,x_US_x_A_05C:0.0120259):0.0060905,
-    x_US_x_A_12C:0.002911):2.90824e-05,x_US_x_A_11C:-5.79432e-06):4.34574e-
-    06,x_US_x_A_13C:-4.34574e-06):4.34574e-06,((x_US_x_A_08C:0.0029538,
-    x_US_x_A_09C:-1.31511e-05):0.00296627,x_US_x_A_10C:-8.69148e-06):4.
-    34574e-06,x_US_x_A_15C:-4.34574e-06);
-
-Which can be partitioned into two groups of leaves, those that end in "P", and those that
-end in "C"
-
-1. Reg-exp 1: `P^`
-2. Reg-exp 2: `C^`
-
-
-Output
+Method
 ------
 
-A JSON file with analysis results (http://hyphy.org/resources/json-fields.pdf).
+The SM2019 tool implements canonical and modified versions of the Slatkin-Maddison phylogeny-based test for population segregation. This method is used to detect evidence of genetically segregated populations within a phylogenetic tree.
 
-A custom visualization module for viewing these results is available (see http://vision.hyphy.org/Slatkin for an example)
+**The Slatkin-Maddison Test: Intuition**
 
-Further reading
----------------
+The core idea of the Slatkin-Maddison test is to quantify the amount of "mixing" or "segregation" of different populations (or compartments) within a phylogenetic tree. It does this by mapping discrete character states (e.g., population labels like "Blood" or "Semen") onto the tips of the tree. Then, using a parsimony approach, it infers the minimum number of "migration events" (changes in character state) that must have occurred along the branches of the tree to explain the observed distribution of states at the tips.
 
-https://github.com/veg/hyphy-analyses/tree/master/SlatkinMaddison
+-   **Minimum Migration Events:** A lower number of inferred migration events suggests stronger population segregation, as fewer changes are needed to explain the observed pattern. A higher number suggests more mixing.
 
+**Hypothesis Testing**
 
+The tool then performs permutation tests to evaluate the significance of the observed number of migration events:
+
+1.  **Panmictic Permutation (Unstructured Population):** Leaf labels are randomly permuted across the tips of the tree. The minimum number of migration events is calculated for each permuted tree. This generates a null distribution representing what would be expected if there were no population structure (i.e., a panmictic population where individuals mix freely). If the observed number of migration events is significantly lower than this null distribution, it suggests evidence for population segregation.
+
+2.  **Structured Permutation (Detuned Test):** This is a modified version of the test. Instead of completely random permutations, leaf labels are permuted partially, respecting the underlying subtree structure (block permutations). This "detuned" approach can be more powerful in detecting subtle population structure by accounting for phylogenetic relationships. The `weight` parameter controls the degree of structure in these permutations.
+
+**Interpretation of Results**
+
+-   A significant p-value (typically < 0.05) from the panmictic permutation test indicates that the observed population structure (segregation) is unlikely to have arisen by chance in an unstructured population.
+-   The structured permutation test provides a more nuanced view, accounting for some phylogenetic signal.
+
+**Output:** The tool outputs the inferred number of migration events and p-values for both panmictic and structured permutations, allowing for a comprehensive assessment of population segregation.
+
+**Input**
+
+- **Input tree:** A phylogenetic tree in Newick format. Leaf names should be partitionable into sets using regular expressions.
+
+**Tool Options**
+
+- **Input tree:** The Newick tree string defining the topology to use for testing.
+- **Partitions:** Define the compartments (groups of leaves) for the analysis.
+    - **Partition label:** A descriptive label for the compartment.
+    - **Regular expression:** A regular expression to select the branches belonging to this compartment.
+- **Number of bootstrap replicates:** The number of bootstrap replicates to perform for the permutation tests.
+- **Probability of branch selection for structured permutation:** This parameter controls the type of permutation. A value of 0 corresponds to the classical Slatkin-Maddison test (full panmixia), while a value of 1 corresponds to a fully structured permutation.
+- **Use bootstrap weights to respect well supported clades:** If set to Yes, bootstrap weights are used to respect well-supported clades during permutations.
+
+**Output**
+
+- A JSON file with detailed analysis results, including migration events, p-values for panmictic and structured permutations, and partition counts.
+- A Markdown report summarizing the analysis and results.
+
+**Further reading**
+
+- https://doi.org/10.1093/genetics/123.3.603
+- https://github.com/veg/hyphy-analyses/tree/master/SlatkinMaddison
     ]]></help>
     <expand macro="citations">
-        <citation type="bibtex">
-            @PUBLISHED{slatkin,
-                author = "Slatkin M, Maddison WP",
-                title = "A cladistic measure of gene flow inferred from the phylogenies of alleles",
-                year = "1989",
-                note = "Genetics 123(3):603-613",
-                url = "https://www.ncbi.nlm.nih.gov/pubmed/2599370"}
-        </citation>
+        <citation type="doi">10.1093/genetics/123.3.603</citation>
     </expand>
 </tool>
