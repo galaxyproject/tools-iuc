@@ -12,7 +12,7 @@ if __name__ == "__main__":
     bws = [pyBigWig.open(x) for x in files]
 
     # obtain some chroms. Hope all sets are identical!
-    k = bws[0].chroms().keys()
+    k = list(bws[0].chroms().keys())
 
     # do magic?
     # nah.

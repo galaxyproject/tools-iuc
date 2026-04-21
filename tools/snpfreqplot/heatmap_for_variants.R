@@ -11,9 +11,9 @@ fapply <- function(vect_ids, func) {
     return(res)
 }
 
-                                        # M A I N
+# M A I N
 stopifnot(exists("samples"))
-variant_files <- fapply(samples$ids, read_and_process)  # nolint
+variant_files <- fapply(samples$ids, read_and_process) # nolint
 
 extractall_data <- function(id) {
     variants <- variant_files[[id]]
@@ -27,8 +27,10 @@ extractall_data <- function(id) {
 extractall_annots <- function(id) {
     variants <- variant_files[[id]]
     tmp <- variants %>%
-        mutate(unique_selectors = group_select,
-               effect = EFF....EFFECT, gene = EFF....GENE) %>%
+        mutate(
+            unique_selectors = group_select,
+            effect = EFF....EFFECT, gene = EFF....GENE
+        ) %>%
         select(unique_selectors, effect, gene)
     # allow "." as an alternative missing value in EFF.EFFECT and EFF.GENE
     tmp$effect <- sub("^\\.$", "", tmp$effect)
@@ -36,34 +38,38 @@ extractall_annots <- function(id) {
     return(tmp)
 }
 
-                                        # process allele frequencies
+# process allele frequencies
 processed_files <- fapply(samples$ids, extractall_data)
 final <- as_tibble(
     processed_files %>%
-    reduce(full_join, by = "Mutation", copy = T))
+        reduce(full_join, by = "Mutation", copy = T)
+)
 
 final <- final[str_order(final$Mutation, numeric = T), ] %>%
-    column_to_rownames("Mutation")              ## sort and set rownames
-final[final < variant_frequency] <- NA          ## adjust the variant frequency:
+    column_to_rownames("Mutation") ## sort and set rownames
+final[final < variant_frequency] <- NA ## adjust the variant frequency:
 final <- final[rowSums(is.na(final)) != ncol(final), ]
 final <- t(final)
 final[is.na(final)] <- 0
 class(final) <- "numeric"
 
-                                        # add annotations
+# add annotations
 ## readout annotations
 processed_annots <- fapply(samples$ids, extractall_annots)
 ann_final <- processed_annots %>%
     reduce(function(x, y) {
-        unique(rbind(x, y))}) %>%
+        unique(rbind(x, y))
+    }) %>%
     ## apply frequency filter
     filter(unique_selectors %in% colnames(final))
 ann_final <- as_tibble(ann_final[str_order(
-    ann_final$unique_selectors, numeric = T), ]) %>%
-    column_to_rownames("unique_selectors")  ## sort
+    ann_final$unique_selectors,
+    numeric = T
+), ]) %>%
+    column_to_rownames("unique_selectors") ## sort
 
-                                        # rename annotations
-trans <- function(x, mapping, replace_missing=NULL) {
+# rename annotations
+trans <- function(x, mapping, replace_missing = NULL) {
     # helper function for translating effects
     mapped <- mapping[[x]]
     if (is.null(mapped)) {
@@ -110,27 +116,32 @@ ann_final$effect <- simple_effects
 ann_final$gene <- sub("^$", "NCR", ann_final$gene)
 
 ## automatically determine gaps for the heatmap
-gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene) - 1] ==  # nolint
-                      ann_final$gene[2:length(ann_final$gene)]))
+gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene) - 1] == # nolint
+    ann_final$gene[2:length(ann_final$gene)]))
 
-                                        # colormanagement
-my_colors <- colorRampPalette(c("grey93", "brown", "black")) #heatmap
-count <- length(unique(ann_final$gene))                     #annotations (genes)
+# colormanagement
+my_colors <- colorRampPalette(c("grey93", "brown", "black")) # heatmap
+count <- length(unique(ann_final$gene)) # annotations (genes)
 gene_color <- rep(c(brewer.pal(brewer_color_gene_annotation, n = count)), length.out = count)
 names(gene_color) <- unique(ann_final$gene)
 
-                                        # colormanagement annotations (effect)
+# colormanagement annotations (effect)
 ## Define the full set of colors for each effect that we can encounter
 ## This is not bulletproof. The effect names given here were swapped into the
 ## data (see above substitutions in ann_final$effect) and so are hard-coded,
 ## as well as their preferred colors.
 
 all_colors <- data.frame(
-    color = c("white", "green", "orange", "red",
-              "black", "grey", "yellow", "blue", "purple", "brown"),
-    name = c("non-coding", "syn", "non-syn", "deletion",
-             "frame shift", "stop gained", "stop lost", "insertion",
-             "complex", "?"))
+    color = c(
+        "white", "green", "orange", "red",
+        "black", "grey", "yellow", "blue", "purple", "brown"
+    ),
+    name = c(
+        "non-coding", "syn", "non-syn", "deletion",
+        "frame shift", "stop gained", "stop lost", "insertion",
+        "complex", "?"
+    )
+)
 ## Reduce the full set to just those that we want
 detected_effects <- unique(ann_final$effect)
 subset_colors <- subset(all_colors, name %in% detected_effects)
@@ -139,19 +150,23 @@ names(effect_color) <- subset_colors$name
 color_list <- list(gene_color = gene_color, effect_color = effect_color)
 names(color_list) <- c("gene", "effect")
 
-                                        # visualize heatmap
+# visualize heatmap
 if (pheat_number_of_clusters > length(samples$ids)) {
-    print(paste0("[INFO] Number of clusters: User-specified clusters (",
-                 pheat_number_of_clusters,
-                 ") is greater than the number of samples (",
-                 length(samples$ids), ")"))
+    print(paste0(
+        "[INFO] Number of clusters: User-specified clusters (",
+        pheat_number_of_clusters,
+        ") is greater than the number of samples (",
+        length(samples$ids), ")"
+    ))
     pheat_number_of_clusters <- length(samples$ids)
-    print(paste0("[INFO] Number of clusters: now set to ",
-                 pheat_number_of_clusters))
+    print(paste0(
+        "[INFO] Number of clusters: now set to ",
+        pheat_number_of_clusters
+    ))
 }
 
 
-                                        # Fix Labels
+# Fix Labels
 ## Prettify names, check for label parity between final and ann_final
 fix_label <- function(name, min_bases) {
     cols <- unlist(str_split(name, " "))
@@ -169,9 +184,11 @@ fix_label <- function(name, min_bases) {
         pos_ref_alt[3] <- paste0(substring(pos_ref_alt[3], 1, min_bases), "…+", str_length(pos_ref_alt[3]) - min_bases)
     }
     ## Join required
-    new_name <- paste0(pos_ref_alt[1], " ",
-                       pos_ref_alt[2], " > ",
-                       pos_ref_alt[3])
+    new_name <- paste0(
+        pos_ref_alt[1], " ",
+        pos_ref_alt[2], " > ",
+        pos_ref_alt[3]
+    )
     ## Join rest
     new_name <- paste0(new_name, " ", rest)
 }
@@ -206,22 +223,27 @@ rownames(ann_final) <- fix_labels(rownames(ann_final))
 stopifnot(all(colnames(final) %in% rownames(ann_final)))
 
 
-                                        # Perform Plotting
+# Perform Plotting
 get_plot_dims <- function(heat_map) {
     ## get the dimensions of a pheatmap object
     ## useful for plot formats that can't be written to a file directly, but
     ## for which we need to set up a plotting device
     ## source: https://stackoverflow.com/a/61876386
-    plot_height <- sum(sapply(heat_map$gtable$heights,
-                              grid::convertHeight, "in"))
-    plot_width  <- sum(sapply(heat_map$gtable$widths,
-                              grid::convertWidth, "in"))
-  return(list(height = plot_height, width = plot_width))
+    plot_height <- sum(sapply(
+        heat_map$gtable$heights,
+        grid::convertHeight, "in"
+    ))
+    plot_width <- sum(sapply(
+        heat_map$gtable$widths,
+        grid::convertWidth, "in"
+    ))
+    return(list(height = plot_height, width = plot_width))
 }
 
 height <- round(max(c(max(c(
     16 * (length(unique(ann_final$effect)) +
-        length(unique(ann_final$gene))), 160)) /
+        length(unique(ann_final$gene))), 160
+)) /
     nrow(final), 15)))
 width <- round(ratio * height)
 
@@ -266,8 +288,9 @@ hm <- pheatmap(
 if (out_ext %in% c("pdf", "svg")) {
     plot_dims <- get_plot_dims(hm)
     plot_device(out_file,
-                width = plot_dims$width,
-                height = plot_dims$height)
+        width = plot_dims$width,
+        height = plot_dims$height
+    )
     print(hm)
     dev.off()
 }

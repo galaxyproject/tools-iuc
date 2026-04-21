@@ -1,0 +1,377 @@
+<tool id="spacexr_rctd" name="RCTD" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Cell type identification with RCTD</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir -p 'results' 'figures' 'inputs' &&
+        ln -s '$sc_count' 'inputs/sc_count.tabular' &&
+        ln -s '$metadata' 'inputs/metadata.tabular' &&
+        ln -s '$st_count' 'inputs/st_count.tabular' &&
+        ln -s '$coord' 'inputs/coords.tabular' &&
+        touch 'results/rctd_script.R' &&
+        cat '$rctd_script' > 'results/rctd_script.R' &&
+        Rscript '$rctd_script'
+    ]]></command>
+    <configfiles>
+        <configfile name="rctd_script"><![CDATA[
+# rctd script
+# This file is used to specify the parameters for the rctd from spacexr package
+
+# Load the spacexr library
+library('spacexr')
+library('Matrix')
+
+### Load the scRNA-seq data
+counts <- read.table(file = 'inputs/sc_count.tabular', row.names = 1, sep = '\t', header = T)
+metadata <- read.table(file = 'inputs/metadata.tabular', sep = '\t', header = T)
+
+# create cell_types named list
+cell_types <- metadata[,"annotation"]; names(cell_types) <- metadata[,"barcode"]
+
+# convert to factor data type
+cell_types <- as.factor(cell_types)
+
+#if str($sc_umi_input) == 'True':
+# create nUMI named list
+nUMI <- metadata[, "nUMI"]; names(nUMI) <- metadata[,"barcode"]
+#end if
+
+# Create reference object
+reference <- Reference(
+                    counts = counts,
+                    cell_types = cell_types,
+                    #if str($sc_umi_input) == 'True':
+                        nUMI = nUMI,
+                    #end if
+                    n_max_cells = $n_max_cells,
+                    min_UMI = $min_UMI
+                    )
+
+### Load spatial data
+counts <- read.table(file = 'inputs/st_count.tabular', row.names = 1, sep = '\t', header = T)
+coords <- read.table(file = 'inputs/coords.tabular', row.names = 1, sep = '\t', header = T)
+
+nUMI <- colSums(counts) # In tutorials it is always the sum of counts
+
+# Create SpatialRNA object
+puck <- SpatialRNA(
+                coords = coords,
+                counts = counts,
+                nUMI= nUMI,
+                )
+
+# provide a basic plot of the nUMI of each pixel on the plot:
+pdf('figures/nUMI_plot.pdf')
+plot_puck_continuous(
+    puck = puck,
+    barcodes = colnames(puck@counts),
+    plot_val = puck@nUMI,
+    ylimit = c(0,round(quantile(puck@nUMI,0.9))),
+    title ='plot of nUMI')
+dev.off()
+
+### Run the RCTD
+myRCTD <- create.RCTD(
+                spatialRNA = puck,
+                reference = reference,
+                gene_cutoff = $gene_cutoff,
+                fc_cutoff = $fc_cutoff,
+                gene_cutoff_reg = $gene_cutoff_reg,
+                fc_cutoff_reg = $fc_cutoff_reg,
+                UMI_min = $umi_min,
+                UMI_max = $umi_max,
+                counts_MIN = $counts_min,
+                UMI_min_sigma = $umi_min_sigma,
+                class_df = NULL, # set as default
+                CELL_MIN_INSTANCE = $cell_min_instance,
+                #if str($cell_type_names) != "":
+                    cell_type_names = $cell_type_names,
+                #end if                            
+                MAX_MULTI_TYPES = $max_multi_types,
+                keep_reference = F, # set as default
+                cell_type_profiles = NULL, # set as default
+                CONFIDENCE_THRESHOLD = $confidence_threshold,
+                DOUBLET_THRESHOLD = $doublet_threshold,)
+
+myRCTD <- run.RCTD(
+                myRCTD,
+                doublet_mode = "$doublet_mode")
+
+
+# save results
+#if str($doublet_mode) == 'doublet':
+results <- myRCTD@results
+
+# save the data frame
+result_df <- results["results_df"]
+write.table(result_df, file = 'results/doublet_results_df.tabular', sep = '\t', quote = F, row.names = T)
+
+# RCTD plots
+# normalize the cell type proportions to sum to 1.
+norm_weights <- normalize_weights(results[["weights"]])
+cell_type_names <- myRCTD@cell_type_info[["info"]][[2]] #list of cell type names
+spatialRNA <- myRCTD@spatialRNA
+
+resultsdir <- 'figures'
+
+# make the plots
+# Plots the confident weights for each cell type as in full_mode (saved as 'figures/cell_type_weights.pdf')
+plot_weights(cell_type_names, spatialRNA, resultsdir, norm_weights) 
+
+# Plots all weights for each cell type as in full_mode. (saved as 'figures/cell_type_weights_unthreshold.pdf')
+plot_weights_unthreshold(cell_type_names, spatialRNA, resultsdir, norm_weights) 
+
+# Plots the weights for each cell type as in doublet_mode. (saved as 'figures/cell_type_weights_doublets.pdf')
+plot_weights_doublet(cell_type_names, spatialRNA, resultsdir, results[["weights_doublet"]],results[["results_df"]])
+
+# Plots the number of confident pixels of each cell type in 'full_mode'. (saved as 'figures/cell_type_occur.pdf')
+plot_cond_occur(cell_type_names, resultsdir, norm_weights, spatialRNA)
+
+# makes a map of all cell types, (saved as 'figures/all_cell_types.pdf')
+plot_all_cell_types(results[["results_df"]], spatialRNA@coords, cell_type_names, resultsdir) 
+
+# doublets
+#obtain a dataframe of only doublets
+doublets <- results[["results_df"]][results[["results_df"]][["spot_class"]] == "doublet_certain",] 
+
+# Plots all doublets in space (saved as 'figures/all_doublets.pdf')
+plot_doublets(spatialRNA, doublets, resultsdir, cell_type_names)
+
+# Plots all doublets in space for each cell type (saved as 'figures/all_doublets_type.pdf')
+plot_doublets_type(spatialRNA, doublets, resultsdir, cell_type_names) 
+
+# a table of frequency of doublet pairs 
+doub_occur <- table(doublets[["second_type"]], doublets[["first_type"]]) 
+# Plots a stacked bar plot of doublet ocurrences (saved as 'figures/doublet_stacked_bar.pdf')
+plot_doub_occur_stack(doub_occur, resultsdir, cell_type_names) 
+#end if
+
+#if str($doublet_mode) == 'full':
+results <- myRCTD@results
+
+# RCTD plots
+# normalize the cell type proportions to sum to 1.
+norm_weights <- normalize_weights(results[["weights"]])
+cell_type_names <- myRCTD@cell_type_info[["info"]][[2]] #list of cell type names
+spatialRNA <- myRCTD@spatialRNA
+
+resultsdir <- 'figures'
+
+# make the plots
+# Plots the confident weights for each cell type as in full_mode (saved as 'figures/cell_type_weights.pdf')
+plot_weights(cell_type_names, spatialRNA, resultsdir, norm_weights) 
+
+# Plots all weights for each cell type as in full_mode. (saved as 'figures/cell_type_weights_unthreshold.pdf')
+plot_weights_unthreshold(cell_type_names, spatialRNA, resultsdir, norm_weights) 
+
+# Plots the number of confident pixels of each cell type in 'full_mode'. (saved as 'figures/cell_type_occur.pdf')
+plot_cond_occur(cell_type_names, resultsdir, norm_weights, spatialRNA)
+#end if
+
+#if str($doublet_mode) == 'multi':
+sink('results/multi_results.txt')
+# Loop through all elements in "myRCTD@results"
+for (i in seq_along(myRCTD@results)) {
+cat('Examining results on pixel / spot', i, '\n')
+
+pixel <- myRCTD@results[[i]]  # Access the ith pixel
+
+cat('Check convergence:\n')
+print(pixel[["conv_sub"]])
+
+cat('Check cell types:\n')
+print(pixel[["cell_type_list"]])
+
+cat('Check confidence:\n')
+print(pixel[["conf_list"]])
+
+cat('Check weights:\n')
+print(pixel[["sub_weights"]])
+
+cat('\n')
+}
+sink()
+#end if
+
+# save rds file
+#if 'rds' in $output_selector:
+saveRDS(myRCTD, file = 'results/rctd_results.rds')
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="sc_count" type="data" format="tabular" label="Single-cell count matrix" help="A matrix representing Digital Gene Expression (DGE). Rownames should be genes and colnames represent barcodes/cell names" />
+        <param name="metadata" type="data" format="tabular" label="Metadata" help="single-cell annotation file with columns: barcode, annotation, and nUMI(optional)" />
+        <param name="sc_umi_input" type="boolean" truevalue="True" falsevalue="False" checked="false" label="nUMI" help="Does your single-cell metadata have nUMI column?" />
+        <param name="st_count" type="data" format="tabular" label="Spatial count matrix" help="A matrix representing Digital Gene Expression (DGE). Rownames should be genes and colnames represent barcodes/pixel names" />
+        <param name="coord" type="data" format="tabular" label="Spatial coordinates" help="A numeric table representing the spatial pixel locations. Rownames are barcodes/pixel names, and there should be two columns for x and for y" />
+        <param name="doublet_mode" type="select" label="Doublet mode">
+            <option value="doublet">doublet</option>
+            <option value="full">full</option>
+            <option value="multi">multi</option>
+        </param>
+        <section name="advanced_param" title="Advanced parameters">
+            <section name="ref_param" title="Reference object parameters">
+                <param argument="n_max_cells" type="integer" min="0" value="10000" label="Maximum number of cells per cell type" help="Will downsample if this number is exceeded." />
+                <param argument="min_UMI" type="integer" min="0" value="100" label="Minimum UMI count for cells to be included in the reference"/>
+            </section>
+            <section name="st_param" title="SpatialRNA object parameters">
+                <param argument="gene_cutoff" type="float" min="0" value="0.000125" label="Gene cutoff" help="Minimum normalized gene expression for genes to be included in the platform effect normalization step." />
+                <param argument="fc_cutoff" type="float" min="0" value="0.5" label="logFC cutoff" help="Minimum log-fold-change (across cell types) for genes to be included in the platform effect normalization step." />
+                <param argument="gene_cutoff_reg" type="float" min="0" value="0.0002" label="Gene cutoff-reg" help="Minimum normalized gene expression for genes to be included in the RCTD step." />
+                <param argument="fc_cutoff_reg" type="float" min="0" value="0.75" label="logFC cutoff-reg" help="Minimum log-fold-change (across cell types) for genes to be included in the RCTD step." />
+                <param argument="umi_min" type="integer" min="0" value="100" label="Minimum UMI per pixel"/>
+                <param argument="umi_max" type="integer" min="0" value="20000000" label="Maximum UMI per pixel"/>
+                <param argument="counts_min" type="integer" min="0" value="10" label="Minimum total counts per pixel"/>
+                <param argument="umi_min_sigma" type="integer" min="0" value="300" label="Minimum UMI per pixel for the choose_sigma_c function"/>
+                <param argument="cell_min_instance" type="integer" min="0" value="25" label="Minimum number of cells per cell type"/>
+                <param argument="cell_type_names" type="text" value="" label="Cell types to be included from the reference" help="A comma separated list. If NULL, uses all cell types">
+                    <expand macro="sanitizer"/>
+                </param>
+                <param argument="max_multi_types" type="integer" min="0" value="4" label="Max number of cell types per pixel"/>
+                <param argument="confidence_threshold" type="integer" min="0" value="5" label="Confidence threshold" help="The minimum change in likelihood (compared to other cell types) necessary to determine a cell type identity with confidence." />
+                <param argument="doublet_threshold" type="integer" min="0" value="20" label="Doublet threshold" help="The penalty weight of predicting a doublet instead of a singlet for a pixel." />
+            </section>
+        </section>
+        <expand macro="output"/>
+    </inputs>
+    <outputs>
+        <collection name="out_fig" type="list" label="${tool.name} on ${on_string}: Spacexr Results">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.pdf$" format="pdf" directory="figures/"/>
+        </collection>
+
+        <data name="out_doublet_df" format="tabular" from_work_dir="results/doublet_results_df.tabular" label="${tool.name} on ${on_string}: Doublet result table">
+            <filter>doublet_mode == 'doublet'</filter>
+        </data>
+
+        <data name="out_multi" format="txt" from_work_dir="results/multi_results.txt" label="${tool.name} on ${on_string}: multi result">
+            <filter>doublet_mode == 'multi'</filter>
+        </data>
+        <data name="out_rds" format="rds" from_work_dir="results/rctd_results.rds" label="${tool.name} on ${on_string}: RDS file">
+            <filter>output['output_selector'] and 'rds' in output['output_selector']</filter>
+        </data>
+        <data name="out_rscript" format="txt" from_work_dir="results/rctd_script.R" label="${tool.name} on ${on_string}: RScript">
+            <filter>output['output_selector'] and 'rscript' in output['output_selector']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <param name="sc_count" location="https://zenodo.org/records/14642119/files/sc_count.tabular"/>
+            <param name="metadata" location="https://zenodo.org/records/14642119/files/metadata.tabular"/>
+            <param name="sc_umi_input" value="True"/>
+            <param name="st_count" location="https://zenodo.org/records/14642119/files/st_count.tabular"/>
+            <param name="coord" location="https://zenodo.org/records/14642119/files/coords.tabular"/>
+            <param name="doublet_mode" value="doublet"/>
+            <param name="output_selector" value="rds,rscript" />
+            <output_collection name="out_fig" type="list">
+                <element name="all_cell_types" location="https://zenodo.org/records/14642119/files/all_cell_types_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="all_doublets" location="https://zenodo.org/records/14642119/files/all_doublets_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="all_doublets_type" location="https://zenodo.org/records/14642119/files/all_doublets_type_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="cell_type_occur" location="https://zenodo.org/records/14642119/files/cell_type_occur_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="cell_type_weights" location="https://zenodo.org/records/14642119/files/cell_type_weights_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="cell_type_weights_doublets" location="https://zenodo.org/records/14642119/files/cell_type_weights_doublets_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="cell_type_weights_unthreshold" location="https://zenodo.org/records/14642119/files/cell_type_weights_unthreshold_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="doublet_stacked_bar" location="https://zenodo.org/records/14642119/files/doublet_stacked_bar_d.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="nUMI_plot" location="https://zenodo.org/records/14642119/files/nUMI_plot.pdf" ftype="pdf" compare="sim_size"/>
+            </output_collection>
+            <output name="out_doublet_df">
+                <assert_contents>
+                    <has_text_matching expression="results_df.spot_class\tresults_df.first_type\tresults_df.second_type\tresults_df.first_class\tresults_df.second_class\tresults_df.min_score\tresults_df.singlet_score\tresults_df.conv_all\tresults_df.conv_doublet"/>
+                    <has_text_matching expression="CACGGCCATATTGC\tsinglet\ttype10\ttype6\tFALSE\tFALSE\t228.242919161702\t237.523081507358\tTRUE\tTRUE"/>
+                </assert_contents>
+            </output>
+            <output name="out_rds" location="https://zenodo.org/records/14642119/files/rds_doublet.rds" compare="sim_size"/>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text text="library('spacexr')"/>
+                    <has_text text="nUMI &lt;- metadata[, &quot;nUMI&quot;]"/>
+                    <has_text text="doublet_mode = &quot;doublet&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="sc_count" location="https://zenodo.org/records/14642119/files/sc_count.tabular"/>
+            <param name="metadata" location="https://zenodo.org/records/14642119/files/metadata.tabular"/>
+            <param name="sc_umi_input" value="False"/>
+            <param name="st_count" location="https://zenodo.org/records/14642119/files/st_count.tabular"/>
+            <param name="coord" location="https://zenodo.org/records/14642119/files/coords.tabular"/>
+            <param name="doublet_mode" value="full"/>
+            <param name="output_selector" value="rds,rscript" />
+            <output_collection name="out_fig" type="list">
+                <element name="cell_type_occur" location="https://zenodo.org/records/14642119/files/cell_type_occur_f.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="cell_type_weights" location="https://zenodo.org/records/14642119/files/cell_type_weights_f.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="cell_type_weights_unthreshold" location="https://zenodo.org/records/14642119/files/cell_type_weights_unthreshold_f.pdf" ftype="pdf" compare="sim_size"/>
+                <element name="nUMI_plot" location="https://zenodo.org/records/14642119/files/nUMI_plot.pdf" ftype="pdf" compare="sim_size"/>
+            </output_collection>
+            <output name="out_rds" location="https://zenodo.org/records/14642119/files/rds_full.rds" compare="sim_size"/>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text text="library('spacexr')"/>
+                    <not_has_text text="nUMI &lt;- metadata[, &quot;nUMI&quot;]"/>
+                    <has_text text="doublet_mode = &quot;full&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="4">
+            <param name="sc_count" location="https://zenodo.org/records/14642119/files/sc_count.tabular"/>
+            <param name="metadata" location="https://zenodo.org/records/14642119/files/metadata.tabular"/>
+            <param name="sc_umi_input" value="False"/>
+            <param name="st_count" location="https://zenodo.org/records/14642119/files/st_count.tabular"/>
+            <param name="coord" location="https://zenodo.org/records/14642119/files/coords.tabular"/>
+            <param name="doublet_mode" value="multi"/>
+            <param name="output_selector" value="rds,rscript" />
+            <output_collection name="out_fig" type="list">
+                <element name="nUMI_plot" location="https://zenodo.org/records/14642119/files/nUMI_plot.pdf" ftype="pdf" compare="sim_size"/>
+            </output_collection>
+            <output name="out_multi">
+                <assert_contents>
+                    <has_text text="Examining results on pixel / spot 1"/>
+                    <has_text text="Check convergence:"/>
+                    <has_text text="[1] TRUE"/>
+                    <has_text text="Check cell types:"/>
+                    <has_text text="[1] &quot;type18&quot; &quot;type6&quot;"/>
+                    <has_text text="Check confidence:"/>
+                    <has_text text="Check weights:"/>
+                </assert_contents>
+            </output>
+            <output name="out_rds" location="https://zenodo.org/records/14642119/files/rds_multi.rds" compare="sim_size"/>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text text="library('spacexr')"/>
+                    <not_has_text text="nUMI &lt;- metadata[, &quot;nUMI&quot;]"/>
+                    <has_text text="doublet_mode = &quot;multi&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Robust Cell Type Decomposition, or **RCTD**, is an statistical method for learning cell types from spatial transcriptomics data.
+
+**Reference object**:
+
+To create the single-cell reference object, the following inputs are required:
+    * counts: A matrix representing Digital Gene Expression (DGE). **Rownames** should be genes and **colnames** represent barcodes/cell names. Counts should be **untransformed** count-level data.
+    * cell_types: A named (by cell barcode) factor of cell type for each cell.
+    * nUMI: Optional, a named (by cell barcode) list of total counts or UMI&apos;s appearing at each cell. If not provided, nUMI will be assumed to be the total counts appearing on each cell. 
+
+**SpatialRNA object**:
+
+To create the spatialRNA object, the following inputs are required:
+    * coords: A numeric table representing the spatial pixel locations. **Rownames** are barcodes/pixel names, and there should be two columns for **x** and for **y**.
+    * counts: A matrix representing Digital Gene Expression (DGE). **Rownames** should be genes and **colnames** represent barcodes/pixel names. Counts should be **untransformed** count-level data.
+
+-----
+
+RCTD has **three** modes:
+    * **doublet mode**, which assigns 1-2 cell types per spot and is recommended for technologies with high spatial resolution such as Slide-seq and MERFISH.
+    * **full mode**, which assigns any number of cell types per spot and is recommended for technologies with poor spatial resolution such as 100-micron resolution Visium.
+    * **multi mode**, an extension of doublet mode that can discover more than two cell types per spot (3-4 cell types) as an alternative option to full mode.
+
+    ]]></help>
+
+    <expand macro="citations" />
+</tool>

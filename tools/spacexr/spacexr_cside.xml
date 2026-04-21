@@ -1,0 +1,442 @@
+<tool id="spacexr_cside" name="CSIDE" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Cell type-specific differential expression with C-SIDE</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements">
+        <requirement type="package" version="3.5.1">r-ggplot2</requirement>
+    </expand>
+    <command detect_errors="exit_code"><![CDATA[
+        export GALAXY_SLOTS=2 &&
+        mkdir -p 'inputs' 'results' 'logs' 'figures' &&
+        ln -s '$rctd' 'inputs/rctd.rds' &&
+        #if $type.de_type == 'point_density':
+            ln -s '$barcodes' 'inputs/barcodes.tabular' &&
+        #end if
+        #if $type.de_type == 'custom':
+            ln -s '$barcodes' 'inputs/barcodes.tabular' &&
+        #end if
+        touch 'results/cside_script.R' &&
+        cat '$cside_script' > 'results/cside_script.R' &&
+        Rscript 'results/cside_script.R'
+    ]]></command>
+    <configfiles>
+        <configfile name="cside_script"><![CDATA[
+            #if $type.cell_types != '':
+                #set $cell_types_list = ['"' + str(x.strip()) + '"' for x in str($type.cell_types).split(',')]
+                #set $cell_types = ','.join($cell_types_list)
+            #end if
+            #if str($type.cell_types_present) != '':
+                #set $cell_types_present_list = ['"' + str(x.strip()) + '"' for x in str($type.cell_types_present).split(',')]
+                #set $cell_types_present = ','.join($cell_types_present_list)
+            #end if
+# cside script
+# This file is used to specify the parameters for the cside from spacexr package
+
+# Load the spacexr library
+library('spacexr')
+library('Matrix')
+library('doParallel')
+
+# load RCTD object
+myRCTD <- readRDS('inputs/rctd.rds')
+
+# set max cores
+cores = Sys.getenv("GALAXY_SLOTS", unset= NA)
+if (is.na(cores) || !nzchar(cores)) {
+    cores = 1
+}
+myRCTD@config[["max_cores"]] <- as.numeric(cores)
+print(paste("Using", cores, "cores"))
+
+# CSIDE
+#if str($type.de_type) == 'non_parametric':
+myRCTD <- run.CSIDE.nonparam(myRCTD,
+                            df = $type.df,
+                            barcodes = NULL, # use all barcodes
+                            CSIDE_COMMON_RUN
+                            )
+
+#else if str($type.de_type) == 'point_density':
+barcodes <- read.delim('inputs/barcodes.tabular', header = FALSE, sep = '\t', check.names = FALSE)
+barcodes <- barcodes[,1]
+pathogen_coords <- myRCTD@spatialRNA@coords[barcodes,]
+barcodes <- colnames(myRCTD@spatialRNA@counts)
+explanatory.variable <- exvar.point.density(myRCTD,
+                                            barcodes,
+                                            pathogen_coords,
+                                            radius = $type.radius
+                                            )
+CSIDE_SINGLE_RUN
+
+
+#else if str($type.de_type) == 'cell2cell':
+barcodes <- colnames(myRCTD@spatialRNA@counts)
+explanatory.variable <- exvar.celltocell.interactions(myRCTD,
+                                                        barcodes,
+                                                        '$type.cell_type',
+                                                        radius = $type.radius
+                                                        )
+CSIDE_SINGLE_RUN
+
+
+#else if str($type.de_type) == 'XY':
+    #if str($type.xy) == 'X':
+explanatory.variable <- as.integer(myRCTD@spatialRNA@coords[['x']] > $type.lim)
+names(explanatory.variable) <- rownames(myRCTD@spatialRNA@coords)
+
+    #else
+explanatory.variable <- as.integer(myRCTD@spatialRNA@coords[['y']] > $type.lim)
+names(explanatory.variable) <- rownames(myRCTD@spatialRNA@coords)
+    #end if
+CSIDE_SINGLE_RUN
+
+#else:
+barcodes_df <- read.delim('inputs/barcodes.tabular', header = FALSE, sep = '\t', check.names = FALSE)
+region_list <- list()
+for (i in 1:ncol(barcodes_df)) {
+  region <- barcodes_df[, i]
+  region <- region[region != "" & !is.na(region)]
+  region_list[[i]] <- region
+}
+
+myRCTD <- run.CSIDE.regions(myRCTD,
+                            region_list,
+                            log_fc_thresh = $type.log_FC_thresh,
+                            CSIDE_COMMON_RUN
+                            )
+#end if
+
+
+# save the results
+
+# save significant genes in each cell type
+cell_types <- names(myRCTD@de_results[["sig_gene_list"]])
+for (cell_type in cell_types) {
+    df <- myRCTD@de_results[["sig_gene_list"]][[cell_type]]
+    assign(cell_type, df)
+    write.table(df, file = paste0("results/", cell_type, "_sig.tabular"), sep = "\t", quote = FALSE)
+}
+# save all genes in each cell type
+cell_types <- names(myRCTD@de_results[["all_gene_list"]])
+for (cell_type in cell_types) {
+    df <- myRCTD@de_results[["all_gene_list"]][[cell_type]]
+    assign(cell_type, df)
+    write.table(df, file = paste0("results/", cell_type, ".tabular"), sep = "\t", quote = FALSE)
+}
+
+#if 'plots' in $output_selector:
+# create plots
+library('ggplot2')
+make_all_de_plots(myRCTD, "figures")
+#end if
+
+#if 'rds' in $output_selector:
+# save rds file
+saveRDS(myRCTD, file = 'results/cside_results.rds')
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="rctd" type="data" format="rds" label="RCTD object" help="annotated RCTD object"/>
+        <conditional name="type">
+            <param name="de_type" type="select" label="Type of covariates for explaining differential expression with C-SIDE">
+                <option value="non_parametric">Smooth spatial pattern (non-non_parametric)</option>
+                <option value="point_density">Proximity to pathology</option>
+                <option value="cell2cell">Cell-to-cell interaction</option>
+                <option value="XY">define X or Y axis</option>
+                <option value="custom">Custom spatial locations</option>
+            </param>
+            <when value="non_parametric">
+                <param argument="df" type="integer" min="0" value="15" label="Degrees of freedom" help="The degrees of freedom, or number of basis functions to be used in the model."/>
+                <expand macro="cside_common_input"/>
+            </when>
+            <when value="point_density">
+                <expand macro="barcodes_input" label="One-column list of spatial barcodes" help="Only barcodes in first column will be used."/>
+                <expand macro="radius"/>
+                <expand macro="cside_single_input"/>
+            </when>
+            <when value="cell2cell">
+                <param name="cell_type" type="text" optional="false" label="Cell type for which to compute density">
+                    <expand macro="sanitizer"/>
+                </param>
+                <expand macro="radius"/>
+                <expand macro="cside_single_input"/>
+            </when>
+            <when value="XY">
+                <param name="lim" type="integer" value="" optional="false" label="Axis" help="The number on X or Y axis to discriminate two spatial regions"/>
+                <param name="xy" type="boolean" truevalue="X" falsevalue="Y" checked="true" label="Is the number on X axis?"/>
+                <expand macro="cside_single_input"/>
+            </when>
+            <when value="custom">
+                <expand macro="barcodes_input" label="Tabular list of spatial barcodes" help="At least 3 regions should be specified"/>
+                <expand macro="cside_common_input"/>
+                <param argument="log_FC_thresh" type="float" min="0" value="0.4" label="logFC cutoff for differential expression"/>
+            </when>
+        </conditional>
+        <expand macro="output">
+            <option value="plots">DEG plots</option>
+            <option value="log">log File</option>
+        </expand>
+    </inputs>
+    <outputs>
+        <collection name="de_results" type="list" label="${tool.name} on ${on_string}: DE Results">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.tabular$" format="tabular" directory="results"/>
+        </collection>
+        <collection name="de_plots" type="list" label="${tool.name} on ${on_string}: DE plots">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.pdf$" format="pdf" directory="figures/de_plots"/>
+            <filter>output['output_selector'] and 'plots' in output['output_selector']</filter>
+        </collection>
+        <collection name="de_plots_quant" type="list" label="${tool.name} on ${on_string}: DE plots (quant)">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.pdf$" format="pdf" directory="figures/de_plots_quant"/>
+            <filter>output['output_selector'] and 'plots' in output['output_selector']</filter>
+        </collection>
+        <collection name="de_plots_two_regions" type="list" label="${tool.name} on ${on_string}: DE plots (two regions)">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.pdf$" format="pdf" directory="figures/de_plots_two_regions"/>
+            <filter>output['output_selector'] and 'plots' in output['output_selector']</filter>
+        </collection>
+        <data name="out_rds" format="rds" from_work_dir="results/cside_results.rds" label="${tool.name} on ${on_string}: RDS file">
+            <filter>output['output_selector'] and 'rds' in output['output_selector']</filter>
+        </data>
+        <data name="out_rscript" format="txt" from_work_dir="results/cside_script.R" label="${tool.name} on ${on_string}: RScript">
+            <filter>output['output_selector'] and 'rscript' in output['output_selector']</filter>
+        </data>
+        <data name="out_log" format="txt" from_work_dir="logs/de_log.txt" label="${tool.name} on ${on_string}: Log">
+            <filter>output['output_selector'] and 'log' in output['output_selector']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test non_parametric -->
+        <test expect_num_outputs="2">
+            <param name="rctd" location="https://zenodo.org/records/14642119/files/myRCTD_merfish.rds"/>
+            <param name="de_type" value="non_parametric"/>
+            <param name="cell_types" value="Astrocytes"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rscript" />
+            <output_collection name="de_results" type="list">
+                <element name="Astrocytes" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val"/>
+                        <has_text_matching expression="Gad1.*3.8390[0-9].*-3.6943[0-9].*0.9623[0-9].*6.*TRUE.*0.0017[0-9]"/>
+                    </assert_contents>
+                </element>
+                <element name="Astrocytes_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val"/>
+                        <has_text_matching expression="Glra3.*3.9271[0-9].*-7.2991[0-9].*1.8586[0-9].*8.*TRUE.*0.0012[0-9]"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="run.CSIDE.nonparam"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test fig and rds -->
+        <test expect_num_outputs="7">
+            <param name="rctd" location="https://zenodo.org/records/14642119/files/myRCTD_merfish.rds"/>
+            <param name="de_type" value="non_parametric"/>
+            <param name="cell_types" value="Astrocytes"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rds,rscript,plots,log" />
+            <output_collection name="de_results" type="list">
+                <element name="Astrocytes" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val"/>
+                        <has_text_matching expression="Gad1.*3.8390[0-9].*-3.6943[0-9].*0.9623[0-9].*6.*TRUE.*0.0017[0-9]"/>
+                    </assert_contents>
+                </element>
+                <element name="Astrocytes_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val"/>
+                        <has_text_matching expression="Glra3.*3.9271[0-9].*-7.2991[0-9].*1.8586[0-9].*8.*TRUE.*0.0012[0-9]"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="de_plots" type="list">
+                <element name="de_genes_Astrocytes" location="https://zenodo.org/records/14642119/files/de_genes_Astrocytes.pdf" ftype="pdf" compare="sim_size"/>
+            </output_collection>
+            <output_collection name="de_plots_quant" type="list">
+                <element name="de_genes_Astrocytes" location="https://zenodo.org/records/14642119/files/de_genes_Astrocytes_quant.pdf" ftype="pdf" compare="sim_size"/>
+            </output_collection>
+            <output_collection name="de_plots_two_regions" type="list">
+                <element name="de_genes_Astrocytes" location="https://zenodo.org/records/14642119/files/de_genes_Astrocytes_two_regions" ftype="pdf" compare="sim_size"/>
+            </output_collection>
+            <output name="out_rds" location="https://zenodo.org/records/14642119/files/cside.rds" ftype="rds" compare="sim_size"/>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="run.CSIDE.nonparam"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Testing sample: 1 gene Rnd3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test point_density -->
+        <test expect_num_outputs="3">
+            <param name="rctd" location="https://zenodo.org/records/14642119/files/myRCTD_merfish.rds"/>
+            <param name="de_type" value="point_density"/>
+            <param name="barcodes" location="https://zenodo.org/records/14642119/files/barcode.tabular"/>
+            <param name="cell_types" value="Astrocytes"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rscript,log" />
+            <output_collection name="de_results" type="list">
+                <element name="Astrocytes" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val.*mean_0.*mean_1.*sd_0.*sd_1"/>
+                        <has_text_matching expression="Gad1.*0.0155[0-9].*0.0088[0-9].*0.5666[0-9].*2.*TRUE.*0.9876[0-9].*-4.9869[0-9].*-4.9781[0-9].*0.2504[0-9].*0.5083[0-9]"/>
+                    </assert_contents>
+                </element>
+                <element name="Astrocytes_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val.*mean_0.*mean_1.*sd_0.*sd_1"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="exvar.point.density"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Testing sample: 2 gene Gad1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test cell2cell -->
+        <test expect_num_outputs="3">
+            <param name="rctd" location="https://zenodo.org/records/14642119/files/myRCTD_merfish.rds"/>
+            <param name="de_type" value="cell2cell"/>
+            <param name="cell_type" value="Excitatory"/>
+            <param name="cell_types" value="Astrocytes"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rscript,log" />
+            <output_collection name="de_results" type="list">
+                <element name="Astrocytes" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val.*mean_0.*mean_1.*sd_0.*sd_1"/>
+                        <has_text_matching expression="Gad1.*1.2142[0-9].*-0.9565[0-9].*0.7877[0-9].*2.*TRUE.*0.2246[0-9].*-4.6413[0-9].*-5.5978[0-9].*0.3508[0-9].*0.7053[0-9]"/>
+                    </assert_contents>
+                </element>
+                <element name="Astrocytes_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val.*mean_0.*mean_1.*sd_0.*sd_1"/>
+                        <has_text_matching expression="Pgr.*3.6958[0-9].*2.4095[0-9].*0.6519[0-9].*2.*TRUE.*0.0002[0-9].*-7.2097[0-9].*-4.8002[0-9].*0.3666[0-9].*0.5390[0-9]"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="exvar.celltocell.interactions"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Testing sample: 1 gene Rnd3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test XY -->
+        <test expect_num_outputs="3">
+            <param name="rctd" location="https://zenodo.org/records/14642119/files/myRCTD_merfish.rds"/>
+            <param name="de_type" value="XY"/>
+            <param name="lim" value="2000"/>
+            <param name="xy" value="X"/>
+            <param name="cell_types" value="Astrocytes"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rscript,log" />
+            <output_collection name="de_results" type="list">
+                <element name="Astrocytes" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val.*mean_0.*mean_1.*sd_0.*sd_1"/>
+                        <has_text_matching expression="Gad1.*0.7420[0-9].*-0.3333[0-9].*0.4492[0-9].*2.*TRUE.*0.4580[0-9].*-4.7997[0-9].*-5.1331[0-9].*0.3343[0-9].*0.3000[0-9]"/>
+                    </assert_contents>
+                </element>
+                <element name="Astrocytes_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="Z_score.*log_fc.*se.*paramindex_best.*conv.*p_val.*mean_0.*mean_1.*sd_0.*sd_1"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="explanatory\.variable &lt;- as\.integer\(myRCTD@spatialRNA@coords\[\['x'\]\] &gt; 2000\)"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Testing sample: 1 gene Rnd3"/>
+                </assert_contents>
+            </output>
+        </test>
+       <!-- test custom -->
+        <test expect_num_outputs="3">
+            <param name="rctd" location="https://zenodo.org/records/14642119/files/myRCTD_merfish.rds"/>
+            <param name="de_type" value="custom"/>
+            <param name="barcodes" location="https://zenodo.org/records/14642119/files/barcodes.tabular"/>
+            <param name="cell_types" value="Inhibitory"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="gene_threshold" value="0.001"/>
+            <param name="cell_type_threshold" value="10"/>
+            <param name="fdr" value="0.25"/>
+            <param name="output_selector" value="rscript,log" />
+            <output_collection name="de_results" type="list">
+                <element name="Inhibitory" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="sd_lfc.*paramindex1_best.*paramindex2_best.*sd_best.*p_val_best.*log_fc_best.*mean_1.*mean_2.*mean_3.*sd_1.*sd_2.*sd_3"/>
+                        <has_text_matching expression="Rnd3.*0.0576[0-9].*1.*3.*0.3116[0-9].*1.*0.1091[0-9].*-5.1913[0-9].*-5.1046[0-9].*-5.0822[0-9].*0.1963[0-9]"/>
+                    </assert_contents>
+                </element>
+                <element name="Inhibitory_sig" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression=""/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_rscript">
+                <assert_contents>
+                    <has_text_matching expression="read\.delim\('inputs/barcodes\.tabular'"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression="Testing sample: 1 gene Rnd3"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Cell type-Specific Inference of Differential Expression, or CSIDE, is part of the spacexr R package for learning cell type-specific differential expression from spatial transcriptomics data.
+
+C-SIDE can detect differential expression (DE) along one or multiple user-defined axes, termed explanatory variables.
+
+The user should first run RCTD on the data to annotated cell types. and use RCTD object rds file as input.
+
+The explanatory variable (i.e. covariate) is used for predicting differential expression in CSIDE. In general one should set the explanatory variable to biologically relevant predictors of gene expression such as spatial position.
+
+The explanatory variable can be defined in several ways:
+
+* Smooth spatial pattern (non-parametric): This method uses a smooth spatial pattern to explain the differential expression.
+* Proximity to pathology: This method uses the proximity to pathology (specific spatial locations) to explain the differential expression.
+* Cell-to-cell interaction: This method uses the cell-to-cell interaction to explain the differential expression. The user should specify the cell type for which to compute density and the radius for the cell-to-cell interaction.
+* Define X or Y axis: This method uses the X or Y axis to explain the differential expression. The user should specify the axis and the number on the axis to discriminate two spatial regions.
+* Custom spatial locations: This method uses custom spatial locations to explain the differential expression. The user should specify at least 3 regions containing at least 2 spatial barcodes.
+    ]]></help>
+    <expand macro="citations" />
+</tool>

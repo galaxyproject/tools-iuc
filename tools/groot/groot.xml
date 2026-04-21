@@ -1,0 +1,173 @@
+<tool id="groot" name="Groot" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description> align reads to references and weight variation graphs and generate report</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.1.2</token>
+        <token name="@VERSION_SUFFIX@">2</token>
+        <token name="@PROFILE@">22.05</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">groot</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">groot</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+set -x pipefail;
+#set $extension = "fastq.gz" if str($fastq.ext).endswith(".gz") else "fastq"
+ln -s -f '${fastq}' 'input.${extension}' &&
+groot index
+    --msaDir '$groot_db_select.fields.path'
+    --indexDir 'grootIndex'
+    --windowSize $windowSize
+    --kmerSize $kmerSize
+    --maxK $maxK
+    --maxSketchSpan $maxSketchSpan
+    --numPart $numPart
+    --sketchSize $sketchSize
+&&
+
+groot align
+    --fastq 'input.${extension}'
+    --indexDir 'grootIndex'
+    --contThresh $contThresh
+    --minKmerCov $minKmerCov
+    $noAlign
+    --processors "\${GALAXY_SLOTS:-1}"
+
+| groot report
+    #if str($coverage.mode) == "cutoff"
+    --covCutoff '$covCutoff'
+    #elif str($coverage.mode) == "lowcov"
+    --lowCov
+    #end if
+    > '$report_out'
+
+]]></command>
+    <inputs>
+        <param argument="--fastq" type="data" format="fastqsanger,fastqsanger.gz" label="FASTQ file(s) to align"/>
+        <section name="index" title="Index">
+            <param name="groot_db_select" type="select" label="Groot database">
+                <options from_data_table="groot_database">
+                    <validator message="No groot database is available" type="no_options"/>
+                </options>
+            </param>
+            <param argument="--windowSize" type="integer" min="0" value="100" label="Size of window to sketch graph traversals" />
+            <param argument="--kmerSize" type="integer" min="0" value="31" label="Size of k-mer" />
+            <param argument="--maxK" type="integer" min="0" value="40" label="maxK in the LSH Ensemble" />
+            <param argument="--maxSketchSpan" type="integer" min="0" value="4" label="Maximum number of identical neighbouring sketches permitted in any graph traversal" />
+            <param argument="--numPart" type="integer" min="0" value="8" label="Number of partitions in the LSH Ensemble" />
+            <param argument="--sketchSize" type="integer" min="0" value="21" label="Size of MinHash sketch" />
+        </section>
+        <section name="align" title="Align">
+            <param argument="--contThresh" type="float" min="0" max="1.0" value="0.99" label="Containment threshold for the LSH ensemble" />
+            <param argument="--minKmerCov" type="integer" min="0" value="1" label="Minimum number of k-mers covering each base of a graph segment" />
+            <param argument="--noAlign" type="boolean" checked="true" truevalue="" falsevalue="--noAlign" label="Perform exact alignment?" 
+                help="If 'No', --noAlign will be set, no exact alignment will be performed and graphs will still be weighted using approximate read mappings"/>
+        </section>
+        <section name="report" title="Report">
+            <conditional name="coverage">
+                <param name="mode" type="select" label="Choose your coverage mode" help="" >
+                    <option value="cutoff" selected="true">Choose your coverage cutoff</option>
+                    <option value="lowcov">Low coverage (will report ARGs which may not be covered at the 5’/3’ ends)</option>
+                </param>
+                <when value="cutoff">
+                    <param argument="--covCutoff" type="float" min="0" max="1.0" value="0.97" label="Coverage cutoff for reporting ARGs" />
+                </when>
+                <when value="lowcov"/>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="report_out" format="tabular" label="${tool.name} on ${on_string}: Report"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="fastq" value="bla-b7-150bp-5x.fq" ftype="fastq"/>
+            <section name="index">
+                <param name="groot_db_select" value="resfinder.90-1.1.2-15112024" />
+                <param name="windowSize" value="150"/>
+                <param name="kmerSize" value="31"/>
+                <param name="maxK" value="20"/>
+                <param name="maxSketchSpan" value="30"/>
+                <param name="numPart" value="8"/>
+                <param name="sketchSize" value="20"/>
+            </section>
+            <section name="align">
+                <param name="contThresh" value="0.99"/>
+                <param name="minKmerCov" value="1" />
+            </section>
+            <section name="report">
+                <conditional name="coverage">
+                    <param name="mode" value="cutoff"/>
+                    <param name="covCutoff" value="0.97" />
+                </conditional>
+            </section>
+            <output name="report_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="blaB-7_1_AF189304"/>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="fastq" value="argannot_light-150bp-10000-reads.fq.gz" ftype="fastq.gz"/>
+            <section name="index">
+                <param name="groot_db_select" value="arg-annot.90-1.1.2-15112024" />
+                <param name="windowSize" value="150"/>
+                <param name="kmerSize" value="41"/>
+                <param name="maxK" value="4"/>
+                <param name="maxSketchSpan" value="30"/>
+                <param name="numPart" value="8"/>
+                <param name="sketchSize" value="21"/>
+            </section>
+            <section name="align">
+                <param name="contThresh" value="0.99"/>
+                <param name="minKmerCov" value="1" />
+                <param name="noAlign" value="true"/>
+            </section>
+            <section name="report">
+                <conditional name="coverage">
+                    <param name="mode" value="lowcov"/>
+                </conditional>
+            </section>
+            <output name="report_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="argannot~~~(Bla)VIM-9~~~AY524988:1-801"/>
+                    <has_text text="argannot~~~(Bla)VIM-20~~~GQ414736:1-801"/>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+GROOT is a tool to profile Antibiotic Resistance Genes (ARGs) in metagenomic samples.
+
+The method combines variation graph representation of gene sets with an LSH Forest 
+indexing scheme to allow for fast classification of metagenomic reads using 
+similarity-search queries. Subsequent hierarchical local alignment of classified reads 
+against graph traversals facilitates accurate reconstruction of full-length gene sequences 
+using a scoring scheme. 
+
+The main advantages of GROOT over existing tools are:
+
+- quick classification of reads to candidate ARGs
+- accurate annotation of full-length ARGs
+- can run on a laptop in minutes
+
+GROOT aligns reads to ARG variation graphs, producing an alignment file that contains 
+the graph traversals possible for each query read. The alignment file is then used to 
+generate a simple resistome profile report.
+
+**Output**
+
+GROOT will output an ARG alignment file (in BAM format) that contains the graph traversals possible for each query read; the alignment file is then used by GROOT to generate a resistome profile. 
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/bty387</citation>
+    </citations>
+</tool>

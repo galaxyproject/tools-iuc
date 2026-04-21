@@ -1,5 +1,5 @@
-[![Galaxy Tool Linting and Tests for push and PR](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml/badge.svg)
-[![Weekly global Tool Linting and Tests](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml/badge.svg)
+[![Galaxy Tool Linting and Tests for push and PR](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/pr.yaml?query=branch:main)
+[![Weekly global Tool Linting and Tests](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/galaxyproject/tools-iuc/actions/workflows/ci.yaml?query=branch:main)
 [![Gitter](https://badges.gitter.im/galaxyproject/tools-iuc.svg)](https://gitter.im/galaxy-iuc/iuc?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) 
 
 Galaxy Tools maintained by IUC
@@ -9,11 +9,12 @@ Galaxy Tools maintained by IUC
 
 This repo contains a subset of Galaxy repositories used in the Tool Shed (https://toolshed.g2.bx.psu.edu/).
 
-These repositories are maintained and developed by the [Intergalactic Utilities Commission](https://galaxyproject.org/iuc/) ([Github Org](https://github.com/galaxy-iuc/))
+These repositories are maintained and developed by the [Intergalactic Utilities Commission](https://galaxyproject.org/iuc/) ([Github Org](https://github.com/galaxy-iuc/)). Galaxy tools maintained by the IUC should follow the [IUC best practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices.html).
 
 Pull Requests with dependencies specified as conda-package will be automatically tested and verified using [planemo](https://github.com/galaxyproject/planemo). If the tests pass and the pull request is merged, the tool will be automatically uploaded to the [Test](http://testtoolshed.g2.bx.psu.edu/)- and [Main Tool Shed](http://toolshed.g2.bx.psu.edu/).
 
-Other repositories with Galaxy tools:
+## Other repositories with Galaxy tools
+
  * [Björn Grüning repo](https://github.com/bgruening/galaxytools)
  * [Galaxy devteam repo](https://github.com/galaxyproject/tools-devteam)
  * Peter Cock's repos:
@@ -29,5 +30,9 @@ Other repositories with Galaxy tools:
  * [AAFC-MBB Canada repo](https://github.com/AAFC-MBB/Galaxy/tree/master/wrappers)
  * [Mark Einon's repo](https://gitlab.com/einonm/galaxy-tools)
  * [National Microbiology Laboratory's repo](https://github.com/phac-nml/galaxy_tools)
+ * [RECETOX's repo](https://github.com/RECETOX/galaxytools)
+ * [Workflow4Metabolomics' repo](https://github.com/workflow4metabolomics/tools-metabolomics)
+ * [Galaxy-M](https://github.com/Viant-Metabolomics/Galaxy-M)
+  
 
  

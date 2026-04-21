@@ -1,0 +1,244 @@
+<tool id="ggplot2_boxplot" name="Boxplot w ggplot2" version="@TOOL_VERSION@+galaxy0" profile="23.0">
+    <description>Boxplot visualization tool using ggplot2</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="1.3.1">r-tidyr</requirement>
+        <requirement type="package" version="19.0.0">r-arrow</requirement>
+        <requirement type="package" version="1.1.5">r-rlang</requirement>
+    </expand>
+    <required_files>
+        <include path="utils.r" />
+    </required_files>
+    <creator>
+        <person
+            givenName="Kristina"
+            familyName="Gomoryova"
+            url="https://github.com/KristinaGomoryova"
+            identifier="0000-0003-4407-3917" />
+        <person
+            givenName="Helge"
+            familyName="Hecht"
+            url="https://github.com/hechth"
+            identifier="0000-0001-6744-996X" />
+        <organization
+            url="https://www.recetox.muni.cz/"
+            email="GalaxyToolsDevelopmentandDeployment@space.muni.cz"
+            name="RECETOX MUNI" />
+    </creator>
+    
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript -e 'source("${__tool_directory__}/utils.r")' -e 'source("${run_script}")'
+        #if $export_R_script
+        && cat ${run_script} >> $script
+        #end if
+    ]]></command>
+
+    <configfiles>
+        <configfile name="run_script"><![CDATA[
+        file_name <- "$input_data"
+        file_extension <- "$input_data.ext"
+        data_input <- load_data(file_name, file_extension)
+
+        #if $has_rownames
+        rownames(data_input) <- data_input[, 1]
+        data_input <- data_input[ ,-1]
+        #end if
+
+        y_colname <- "intensity"
+        data_long <- tidyr::pivot_longer(data_input,
+                                         cols = c(1:ncol(data_input)),
+                                         names_to = "samples",
+                                         values_to = y_colname)
+
+        #if $transform_data == "replace_zero"
+        data_long[data_long == 0] <- NA
+        #else if $transform_data == "log2"
+        data_long[[y_colname]] <- log2(data_long[[y_colname]])
+        #else if $transform_data == "log10"
+        data_long[[y_colname]] <- log10(data_long[[y_colname]])        
+        #end if
+
+        #if $grouping_boxplot.use_grouping == "yes"
+        metadata_input <- read.delim("$grouping_boxplot.input_metadata", sep="\t",  check.names = "false")
+        sampleID_column <- colnames(metadata_input)[$grouping_boxplot.sampleID]
+        plotting_column <- colnames(metadata_input)[$grouping_boxplot.groupingCol]
+        metadata_input <- data.frame(lapply(metadata_input, as.factor))
+
+        data_long <- dplyr::left_join(data_long, metadata_input, by = c("samples" = sampleID_column), keep = TRUE)
+
+        #if $grouping_boxplot.facet_x
+        facet_x <- rlang::sym(colnames(metadata_input)[$grouping_boxplot.facet_x])
+        #else 
+        facet_x <- NULL
+        #end if
+ 
+        #if $grouping_boxplot.facet_y
+        facet_y <- rlang::sym(colnames(metadata_input)[$grouping_boxplot.facet_y])
+        #else
+        facet_y <- NULL
+        #end if
+
+        plot_boxplot <- ggplot2::ggplot(
+            data_long, ggplot2::aes(
+                x = !!rlang::sym(plotting_column),
+                y = intensity,
+                #if $grouping_boxplot.colorCol
+                fill = !!rlang::sym(colnames(metadata_input)[$grouping_boxplot.colorCol])
+                #end if
+            )) + ggplot2::geom_boxplot() +
+                 ggplot2::theme_bw()+
+                 ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust=1)) +
+                 ggplot2::facet_grid(rows = if(!is.null(facet_y)) dplyr::vars(!!facet_y) else NULL,
+                                     cols = if(!is.null(facet_x)) dplyr::vars(!!facet_x) else NULL,
+                                     scales = "free")
+
+
+        #else 
+
+        plot_boxplot <- ggplot2::ggplot(
+            data_long,
+            ggplot2::aes(x = samples, y = intensity)
+        ) + ggplot2::geom_boxplot() +
+            ggplot2::theme_bw()+
+            ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust=1))
+
+        #end if
+
+        #if $xlab
+        plot_boxplot <- plot_boxplot + ggplot2::xlab("$xlab")
+        #end if
+
+        #if $ylab
+        plot_boxplot <- plot_boxplot + ggplot2::ylab("$ylab")
+        #end if
+
+        #if $flip_axes == "true"
+        plot_boxplot <- plot_boxplot + ggplot2::coord_flip()
+        #end if
+
+        ggplot2::ggsave(filename = "boxplot.png", plot_boxplot)
+        ]]></configfile>
+    </configfiles>
+
+    <inputs>
+        <expand macro="data_input"/>
+        <param name="has_rownames" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Does the first column of input table contain rownames?" help="Whether the first column of the input data table identifies the rownames (e.g. proteinID) - i.e. it is not a part of data matrix to be plotted."/>
+        <param name="transform_data" type="select" display="radio" label="Should the quantitative variable be transformed?" optional="false" help="Whether to transform the quantitative variable (e.g. intensity, counts, etc.)">
+            <option value="none" selected="true">No transformation</option>
+            <option value="replace_zero">Replace zeroes with NA values</option>
+            <option value="log2">Log2 transformation</option> 
+            <option value="log10">Log10 transformation</option> 
+        </param>
+        <param name="flip_axes" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Plot the boxplots horizontally? (flip the axes)" help="Whether to flip the axes, so the boxplots will be horizontal instead of vertical."/> 
+        <conditional name="grouping_boxplot">
+            <param type="select" name="use_grouping" label="Plot boxplot based on a column from the metadata table?" help="Whether to base the boxplot on a different variable than column names (usually corresponding to the samples) from the input table.">
+                <option value="no" selected="true">no</option> 
+                <option value="yes">yes</option>
+            </param>     
+            <when value="yes">
+                <param name="input_metadata" type="data" format="tabular" label="Input metadata table" help= "Input metadata file in a tabular format"/>
+                <param name="sampleID" type="data_column" data_ref="input_metadata" use_header_names="true" label="Sample identification column in metadata table" help="Column containing sample names - it should correspond to the colNames in the data table."/>
+                <param name="groupingCol" type="data_column" data_ref="input_metadata" use_header_names="true" label="Which variable column to plot on the x-axis?" help="Which column from the metadata table should be plotted on x axis?"/>
+                <param name="colorCol" type="data_column" data_ref="input_metadata" use_header_names="true" label="Color the boxplot based on a variable?" help="Which column from the metadata table should be used for coloring?" optional = "true"/>
+                <param name="facet_x" type="data_column" data_ref="input_metadata" use_header_names="true" label="Column to use as facet on x-axis" optional="true" help="If using faceting, which column should be plotted on x-axis? Default 'Nothing selected' means no faceting will be done on x-axis."/>
+                <param name="facet_y" type="data_column" data_ref="input_metadata" use_header_names="true" label="Column to use as facet on y-axis" optional="true" help="If using faceting, which column should be plotted on y-axis? Default 'Nothing selected' means no faceting will be done on y-axis."/>
+            </when>
+            <when value="no"/>
+        </conditional>
+        <expand macro="axes_labels"/>
+        <expand macro="export_data"/>
+    </inputs>
+
+    <outputs>
+        <data name="boxplot" format="png" label="Boxplot on ${on_string}" from_work_dir="boxplot.png"/>        
+        <data name="script" format="txt" label="R script">
+            <filter>export_R_script</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_data" value="boxplot_test_data.txt" ftype="tabular"/>
+            <param name="has_rownames" value="true"/>
+            <output name="boxplot" ftype="png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_height height="2100"/>
+                    <has_image_width width="2100" />
+                    <has_image_center_of_mass center_of_mass="1048.15, 1051.40" eps="0.1"/>
+                </assert_contents>
+            </output>          
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_data" value="boxplot_test_data.txt" ftype="tabular"/>
+            <param name="has_rownames" value="true"/>
+            <param name="use_grouping" value="yes"/>
+            <param name="input_metadata" value="boxplot_test_expDesign.txt"/>
+            <param name="sampleID" value="1"/>
+            <param name="groupingCol" value="1"/>
+            <param name="export_R_script" value="TRUE"/>
+            <output name="boxplot" ftype="png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_height height="2100"/>
+                    <has_image_width width="2100" />
+                    <has_image_center_of_mass center_of_mass="1048.14, 1051.30" eps="0.1"/>
+                </assert_contents>
+            </output>          
+        </test>
+    </tests>
+
+    <help><![CDATA[
+recetox-boxplot help
+=====================
+
+Overview
+--------
+
+recetox-boxplot tool can be used to plot boxplots for the tabular data. On the input, a dataframe in tabular/csv/parquet format, containing only columns to be plotted (the pre-filtering can be achieved e.g. using the `Cut` Galaxy tool) is expected. If the data contains as the first column the rownames - meaning identificators, ProteinID, etc., please do set the `Does the first column of input table contain rownames?` to TRUE.  
+
+Typically, a table where rows are features and columns are samples is expected - if one wishes to plot the boxplots for the features, we recommend to transpose the table beforehand.
+
+Sometimes, it is better to transform the data for the visualization (or processing) purposes (`Should the quantitative variable be transformed?`). If no transformation option is selected, the data will be plotted as it is. Otherwise, one can choose from replacing all zero values by NA, log2 transformation or log10 transformation. Please note, that NA values are omitted while plotting.
+
+`Plot the boxplots horizontally?` option means flipping the axes: a categorical variable (e.g. samples) would be on y-axis, whereas quantitative variable (e.g. intensity) would be on x-axis. This improves the legibility in case of larger datasets.
+
+It is possible to use also a different variable for the plotting and coloring - in that case, a metadata table (in a tabular format) can be supplied. The metadata table must contain a column which will map to the data table column names (e.g. SampleName). 
+
+It is also possible to use faceting, meaning splitting the plot based on multiple variables. One can then choose which variable to split the x axis and y axis on.
+
+Example data table
+-------------------
+
++----------------------+-------------------+-----------------------+--------------------+
+| RowID                |    sample1        |    sample2            |    sample3         |
++======================+===================+=======================+====================+
+| 1                    |    350.58         |    211.33             |    288.90          |
++----------------------+-------------------+-----------------------+--------------------+
+| 2                    |    130.17         |    287.54             |    100.11          |
++----------------------+-------------------+-----------------------+--------------------+
+| 3                    |    134.80         |    683.15             |    112.34          |
++----------------------+-------------------+-----------------------+--------------------+
+| 4                    |    183.99         |    920.57             |    590.44          |
++----------------------+-------------------+-----------------------+--------------------+
+| ...                  |    ...            |    ...                |    ...             |
++----------------------+-------------------+-----------------------+--------------------+
+
+
+Example metadata table
+-----------------------
+
++----------------------+-------------------+-----------------------+--------------------+
+| SampleName           |    replicate      |    condition          |    batch           |
++======================+===================+=======================+====================+
+| sample1              |    1              |    control            |    A               |
++----------------------+-------------------+-----------------------+--------------------+
+| sample2              |    1              |    treatment          |    A               |
++----------------------+-------------------+-----------------------+--------------------+
+| sample3              |    2              |    treatment          |    A               |
++----------------------+-------------------+-----------------------+--------------------+
+]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,0 +1,151 @@
+<tool id="ampvis2_export_otu" name="ampvis2 export otu" version="@TOOL_VERSION@+galaxy1" profile="@PROFILE@" license="MIT">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="header"/>
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript '$rscript' &&
+        mv tmp_otu.tsv $otu_long
+    ]]></command>
+    <configfiles>
+        <configfile name="rscript"><![CDATA[
+            library(ampvis2, quietly = TRUE)
+            library(phyloseq)
+            library(tibble)
+
+            ## read the data
+            data <- readRDS("$data")
+
+            ## Export otutable (including taxonomy) from an ampvis2 object as TSV
+            amp_export_otutable(data, filename = "tmp_otu", sep = "\t", extension = "tsv", normalise = "$norm")
+
+            ## get only tax table (first column OTU ID)
+            tax_table <- data\$tax
+            tax_table <- tax_table[,c(8,(ncol(tax_table)-6):(ncol(tax_table) - 1))]
+            write.table(tax_table, "$tax", sep = "\t", row.names=FALSE, quote = FALSE)
+
+            ## get only otu table (first column OTU ID)
+            #if $norm
+                data_norm <- normaliseTo100(data)
+                otu_table <- data_norm\$abund
+            #else
+                otu_table <- data\$abund
+            #end if
+
+            otu_table <- cbind(OTU = rownames(otu_table), otu_table)
+
+            ## add index col manually: https://stackoverflow.com/questions/2478352/write-table-writes-unwanted-leading-empty-column-to-header-when-has-rownames
+            write.table(otu_table, "$otu_short", sep = "\t", row.names=FALSE, quote = FALSE)
+
+            ## get metadata
+            meta_data = data\$metadata
+            write.table(meta_data, "$meta", sep = "\t", row.names = FALSE, quote = FALSE)
+
+            ## needs to be numeric
+            otu_table <- apply(otu_table, 2, as.numeric)
+
+            ## needs to be character so that reupload as ampvis object works
+            meta_data[] <- lapply(meta_data, as.character)
+
+            OTU <- otu_table(otu_table, taxa_are_rows = TRUE)
+            TAX <- tax_table(tax_table)
+            META <- sample_data(meta_data)
+
+            ## we always assume this names and order
+            colnames(TAX) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+
+            physeq <- phyloseq(OTU, TAX, META)
+
+            ## Save the Phyloseq object
+            saveRDS(physeq, "$phyloseq")
+
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="rds_input_macro"/>
+        <param argument="norm" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Transform the OTU read counts to be in percent per sample"/>
+        <param name="output_selection" type="select" multiple="true" label="Output files selection" min="1">
+            <option value="otu_long" selected="false">
+                Long OTU with Taxonomy at the end 
+            </option>
+            <option value="otu_short" selected="true">
+                Short OTU
+            </option>
+            <option value="tax" selected="true">
+                Taxonomy mapping
+            </option>
+            <option value="meta" selected="true">
+                Metadata mapping
+            </option>
+            <option value="phyloseq" selected="false">
+                Phyloseq object
+            </option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="otu_long" format="tabular" label="${tool.name}: Long OTU" >
+        <filter>"otu_long" in output_selection</filter>
+        </data>
+        <data name="otu_short" format="tabular" label="${tool.name}: Short OTU">
+        <filter>"otu_short" in output_selection</filter>
+        </data>
+        <data name="tax" format="tabular" label="${tool.name}: Taxonomy mapping" >
+        <filter>"tax" in output_selection</filter>
+        </data>
+        <data name="meta" format="tabular" label="${tool.name}: Metadata mapping" >
+        <filter>"meta" in output_selection</filter>
+        </data>
+        <data name="phyloseq" format="phyloseq" label="${tool.name}: Phyloseq object" >
+        <filter>"phyloseq" in output_selection</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- defaults -->
+        <test expect_num_outputs="3">
+            <param name="data" value="AalborgWWTPs-complete.rds" ftype="ampvis2"/> 
+            <output name="otu_short" value="output_otu_short.tsv" ftype="tabular" />
+            <output name="tax" value="output_otu_taxonomy_mapping.tsv" ftype="tabular" />
+            <output name="meta" value="output_metadata.tsv" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="5">
+            <param name="data" value="AalborgWWTPs-complete.rds" ftype="ampvis2"/> 
+            <param name="output_selection" value="otu_long,otu_short,tax,meta,phyloseq" />
+            <output name="otu_long" value="output_otu_long.tsv" ftype="tabular" />
+            <output name="otu_short" value="output_otu_short.tsv" ftype="tabular" />
+            <output name="tax" value="output_otu_taxonomy_mapping.tsv" ftype="tabular" />
+            <output name="meta" value="output_metadata.tsv" ftype="tabular" />
+            <output name="phyloseq" ftype="phyloseq" >
+                <assert_contents>
+                    <has_size value="12684" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+What it does
+============
+
+Exports OTU/ASV, Taxonomy table, Metadata, or phyloseq object from an ampvis2 object.  
+The taxonomy table in the phyloseq object always uses the following headers:  
+``Kingdom, Phylum, Class, Order, Family, Genus, Species``.  
+
+This can be changed using the `Add Rank Names to Phyloseq Object <toolshed.g2.bx.psu.edu/repos/iuc/phyloseq_add_rank_names/phyloseq_add_rank_names/1.50.0+galaxy2>`_ tool.  
+
+The Galaxy tool calls the `amp_export_otutable <https://kasperskytte.github.io/ampvis2/reference/amp_export_otutable.html>`_ function  
+from the ampvis2 package.  
+
+Input
+=====
+
+@HELP_RDS_INPUT@
+
+Use case
+========
+
+Load your OTU into a ampvis object with ampvis load. Subset based on metadata and/or taxonomy. Export the OTU table / phyloseq object.
+Perform downstream analysis such as differential analysis and/or phyloseq visualization.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

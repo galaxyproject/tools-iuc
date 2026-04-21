@@ -1,0 +1,403 @@
+<tool id="vcontact2" name="vConTACT2" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        guilt-by-contig-association classification and provide taxonomic context for viral genomix sequence data
+    </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $proteins_fp.file_ext == "tabular"
+            #set $proteins2contig = 'proteins2contig.tsv'
+        #else
+            #set $proteins2contig = 'proteins2contig.csv'
+        #end if
+
+        ln -s '$proteins_fp' '$proteins2contig' &&
+
+        #if $similarity.analysis == "legacy"
+            ln -s '$similarity.contigs' 'vConTACT_contigs.csv' &&
+            ln -s '$similarity.pcs' 'vConTACT_pcs.csv' &&
+            ln -s '$similarity.pc_profiles' 'vConTACT_profiles.csv' &&
+        #end if
+
+        vcontact2
+            #if $similarity.analysis == "de_novo"
+                --raw-proteins '$similarity.raw_proteins'
+                --db '$similarity.db'
+
+                --rel-mode Diamond
+                --pc-evalue $extra.similarity.pc_evalue
+                --reported-alignments $extra.similarity.reported_alignments
+            #else if $similarity.analysis == "custom"
+                --blast-fp '$similarity.blast_fp'
+                --db 'None'
+            #else
+                --contigs 'vConTACT_contigs.csv'
+                --pcs 'vConTACT_pcs.csv'
+                --pc-profiles 'vConTACT_profiles.csv'
+                --db '$similarity.db'
+            #end if
+            --proteins-fp $proteins2contig
+
+            --pcs-mode MCL
+            --pc-inflation $extra.pcs.pc_inflation
+
+            --vcs-mode ClusterONE
+            --min-density $extra.vcs.min_density
+            --min-size $extra.vcs.min_size
+            --vc-overlap $extra.vcs.vc_overlap
+            --vc-penalty $extra.vcs.vc_penalty
+            --vc-haircut $extra.vcs.vc_haircut
+            --merge-method $extra.vcs.merge_method
+            --similarity $extra.vcs.similarity
+            --seed-method $extra.vcs.seed_method
+            $extra.vcs.optimize
+
+            --sig $extra.network.sig
+            --max-sig $extra.network.max_sig
+            $extra.network.permissive
+            --mod-inflation $extra.network.mod_inflation
+            --mod-sig $extra.network.mod_sig
+            --link-sig $extra.network.link_sig
+            --link-prop $extra.network.link_prop
+
+            --output-dir Outputs
+            --threads \${GALAXY_SLOTS:-6}
+    ]]></command>
+    <inputs>
+        <conditional name="similarity">
+            <param name="analysis" type="select" label="Protein similarity">
+                <option value="de_novo">Cluster proteins against a reference database</option>
+                <option value="custom">Cluster an existing BLASTp protein similarity file without a reference</option>
+                <option value="legacy">Start vConTACT2 after protein cluster generation</option>
+            </param>
+            <when value="de_novo">
+                <param argument="--raw-proteins" type="data" format="fasta" label="Amino acid sequences"/>
+                <param argument="--db" type="select" label="Reference database" help="'Merged' databases supplements the ICTV taxonomy with NCBI. Selecting 'None' disables taxonomic annotation.">
+                    <expand macro="database_options" select_latest="true"/>
+                </param>
+                <!-- vContact can theoretically reuse an existing protein similarity file,
+                     when rerunning an analysis with identical proteins, database and contig mapping.
+                     The expected file name would depend on the selected db:
+                     'Outputs/(merged|{basename(raw-proteins) w/o ext}).self-diamond.tab' -->
+            </when>
+            <when value="custom">
+                <param argument="--blast-fp" type="data" format="csv,tabular" label="Protein similarity file" help="This option does not support using a reference database and will not produce taxonomic annotations."/>
+            </when>
+            <when value="legacy">
+                <param argument="--contigs" type="data" format="csv" label="vConTACT contigs file" help="Intermediary / legacy file, mapping contig_ids to the number of proteins in the contig."/>
+                <param argument="--pcs" type="data" format="csv" label="vConTACT pcs file" help="Intermediary / legacy file, mapping protein clusters to their size and keywords."/>
+                <param argument="--pc-profiles" type="data" format="csv" label="vConTACT profiles file" help="Intermediary / legacy file, mapping contig_ids to protein clusters."/>
+                <param argument="--db" type="select" label="Reference database" help="Must be the same database as the one used to generate the contigs / pcs / profiles files.">
+                    <expand macro="database_options" select_none="true"/>
+                </param>
+            </when>
+        </conditional>
+        <param argument="--proteins-fp" type="data" format="csv,tabular" label="Protein to contig mapping" help="The file should have the following headers: 'protein_id', 'contig_id' and 'keywords'."/>
+        <section name="extra" title="Advanced settings" expanded="false">
+            <section name="similarity" title="Protein similarity" expanded="true">
+                <param argument="--pc-evalue" type="float" value="0.0001" min="0.0001" max="1"
+                    label="E-value used by Diamond when creating the protein-protein similarity network."/>
+                <param argument="--reported-alignments" type="integer" value="25" min="1" max="100"
+                    label="Maximum number of target sequences per query to report alignments for."/>
+            </section>
+            <section name="pcs" title="Protein clusters" expanded="True">
+                <param argument="--pc-inflation" type="float" value="2.0" min="1.5" max="7.0"
+                       label="Inflation parameter to define contig clusters with MCL."
+                       help="How to select the right inflation parameter for clustering? https://github.com/micans/mcl/discussions/5"/>
+            </section>
+            <section name="vcs" title="Viral clusters" expanded="true">
+                <param argument="--min-density" type="float" value="0.3" min="0.1" max="1.0"
+                       label="Minimum density of predicted complexes."
+                       help="Increase the minimum density if you get too many clusters and they seem too sparse, or decrease it if you are not getting enough clusters. "/>
+                <param argument="--min-size" type="integer" value="2" min="2" max="10"
+                       label="Minimum size for the Viral Cluster." help="Smaller clusters are discarded immediately."/>
+                <param argument="--vc-overlap" type="float" value="0.9" min="0.0" max="3.0"
+                       label="Maximum allowed overlap between two clusters."/>
+                <param argument="--vc-penalty" type="integer" value="2" min="0" max="10"
+                       label="Penalty value for the inclusion of each node in a cluster."
+                       help="It can be used to model the possibility of uncharted connections for each node, so nodes with only a single weak connection to a cluster will not be added to the cluster as the penalty value will outweigh the benefits of adding the node."/>
+                <param argument="--vc-haircut" type="float" value="0.55" min="0.0" max="1.0"
+                       label="Apply a haircut transformation to remove dangling nodes from detected clusters."/>
+                <param argument="--merge-method" type="select" label="Method used to merge highly overlapping complexes.">
+                    <option value="single"></option>
+                    <option value="multi"></option>
+                </param>
+                <param argument="--similarity" type="select" label="Similarity function used in the merging step.">
+                    <option value="match"></option>
+                    <option value="simpson"></option>
+                    <option value="jaccard"></option>
+                    <option value="dice"></option>
+                </param>
+                <param argument="--seed-method" type="select" label="Seed generation method">
+                    <option value="unused_nodes"></option>
+                    <option value="nodes" selected="true"></option>
+                    <option value="edges"></option>
+                    <option value="cliques"></option>
+                </param>
+                <param argument="--optimize" type="boolean" truevalue="--optimize" falsevalue=""
+                       label="Optimize hierarchical distances during second-pass of the viral clusters."/>
+            </section>
+            <section name="network" title="Similarity network and module" expanded="true">
+                <param argument="--sig" type="float" value="1.0" min="0" max="1.0"
+                       label="Significance threshold in the contig similarity network."/>
+                <param argument="--max-sig" type="integer" value="300" min="0" max="1000"
+                       label="Maximum significance threshold"/>
+                <param argument="--permissive" type="boolean" truevalue="--permissive" falsevalue=""
+                       label="Use permissive affiliation for associating VCs with reference sequences."/>
+                <param argument="--mod-inflation" type="float" value="5.0" min="1.5" max="7.0"
+                       label="Inflation parameter to define protein modules with MCL."/>
+                <param argument="--mod-sig" type="float" value="1.0" min="0" max="1.0"
+                       label="Significance threshold in the protein cluster similarity network."/>
+                <param argument="--mod-shared-min" type="integer" value="3" min="1" max="20"
+                       label="Minimal number of contigs a PC must appear in to be taken into account in the modules computing."/>
+                <param argument="--link-sig" type="float" value="1.0" min="0" max="1.0"
+                       label="Significance threshold to link a cluster and a module"/>
+                <param argument="--link-prop" type="float" value="0.5" min="0" max="1.0"
+                       label="Proportion of a module's PC a contig must have to be considered as displaying this module."/>
+            </section>
+        </section>
+        <param name="additional_outputs" type="select" multiple="true" optional="true" label="Additional (intermediary) outputs">
+            <option value="similarity">Protein similarity file</option>
+            <option value="keywords" selected="true">Accumulated protein cluster keywords</option>
+            <option value="vContact-PC">vContact-PC outputs</option>
+            <option value="pc_network">Protein cluster network</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="genome_by_genome" format="csv" from_work_dir="Outputs/genome_by_genome_overview.csv"
+              label="${tool.name} on ${on_string}: genome_by_genome_overview.csv"/>
+        <data name="viral_cluster" format="csv" from_work_dir="Outputs/viral_cluster_overview.csv"
+              label="${tool.name} on ${on_string}: viral_cluster_overview.csv"/>
+        <data name="graph" format="tabular" from_work_dir="Outputs/c1.ntw"
+              label="${tool.name} on ${on_string}: c1.ntw"/>
+        <data name="diamond_similarity" format="tabular" from_work_dir="Outputs/*.self-diamond.tab"
+              label="${tool.name} (Diamond) on ${on_string}: protein similarity">
+            <filter>similarity['analysis'] == 'de_novo' and additional_outputs and 'similarity' in additional_outputs</filter>
+        </data>
+        <data name="pc_proteins" format="csv" from_work_dir="Outputs/vConTACT_proteins.csv"
+              label="${tool.name} on ${on_string}: vConTACT_proteins.csv">
+            <filter>additional_outputs and 'keywords' in additional_outputs</filter>
+        </data>
+        <data name="pc_pcs" format="csv" from_work_dir="Outputs/vConTACT_pcs.csv"
+              label="${tool.name} on ${on_string}: vConTACT_pcs.csv">
+            <filter>additional_outputs and ('keywords' in additional_outputs or 'vContact-PC' in additional_outputs or 'pc_network' in additional_outputs)</filter>
+        </data>
+        <data name="pc_contigs" format="csv" from_work_dir="Outputs/vConTACT_contigs.csv"
+              label="${tool.name} on ${on_string}: vConTACT_contigs.csv">
+            <filter>additional_outputs and 'vContact-PC' in additional_outputs</filter>
+        </data>
+        <data name="pc_profiles" format="csv" from_work_dir="Outputs/vConTACT_profiles.csv"
+              label="${tool.name} on ${on_string}: vConTACT_profiles.csv">
+            <filter>additional_outputs and 'vContact-PC' in additional_outputs</filter>
+        </data>
+        <data name="pc_network" format="tabular" from_work_dir="Outputs/modules.ntwk"
+              label="${tool.name} on ${on_string}: modules.ntwk">
+            <filter>additional_outputs and 'pc_network' in additional_outputs</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Todo: normal, db=None, BLASTp -->
+        <test expect_num_outputs="9">
+            <conditional name="similarity">
+                <param name="analysis" value="de_novo"/>
+                <param name="raw_proteins" ftype="fasta" value="VIRSorter_genome.faa"/>
+                <param name="db" value="ArchaeaViralRefSeq85-Merged"/>
+            </conditional>
+            <param name="proteins_fp" ftype="csv" value="VIRSorter_genome_g2g.csv"/>
+            <param name="additional_outputs" value="similarity,keywords,vContact-PC,pc_network"/>
+            <output name="genome_by_genome">
+                <assert_contents>
+                    <has_n_lines n="82" />
+                </assert_contents>
+            </output>
+            <output name="viral_cluster">
+                <assert_contents>
+                    <has_n_lines n="16" />
+                </assert_contents>
+            </output>
+            <output name="graph">
+                <assert_contents>
+                    <has_n_lines n="406" />
+                </assert_contents>
+            </output>
+            <output name="diamond_similarity">
+                <assert_contents>
+                    <has_n_lines n="23339" />
+                </assert_contents>
+            </output>
+            <output name="pc_proteins">
+                <assert_contents>
+                    <has_n_lines n="5044" />
+                </assert_contents>
+            </output>
+            <output name="pc_pcs">
+                <assert_contents>
+                    <has_n_lines n="932" />
+                </assert_contents>
+            </output>
+            <output name="pc_contigs">
+                <assert_contents>
+                    <has_n_lines n="82" />
+                </assert_contents>
+            </output>
+            <output name="pc_profiles">
+                <assert_contents>
+                    <has_n_lines n="3463" />
+                </assert_contents>
+            </output>
+            <output name="pc_network">
+                <assert_contents>
+                    <has_n_lines n="8464" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="similarity">
+                <param name="analysis" value="de_novo"/>
+                <param name="raw_proteins" ftype="fasta" value="ViralRefSeq-archaea-v85.faa"/>
+                <param name="db" value="None"/>
+            </conditional>
+            <param name="proteins_fp" ftype="csv" value="ViralRefSeq-archaea-v85.protein2contig.csv"/>
+            <param name="additional_outputs" value="similarity"/>
+            <output name="genome_by_genome">
+                <assert_contents>
+                    <has_size size="907" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="viral_cluster">
+                <assert_contents>
+                    <has_size size="722" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="graph">
+                <assert_contents>
+                    <has_size size="644" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="diamond_similarity" file="ViralRefSeq-archaea-v85.protein-similarity.tsv"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="similarity">
+                <param name="analysis" value="custom"/>
+                <param name="blast_fp" ftype="tabular" value="ViralRefSeq-archaea-v85.protein-similarity.tsv"/>
+            </conditional>
+            <param name="proteins_fp" ftype="csv" value="ViralRefSeq-archaea-v85.protein2contig.csv"/>
+            <param name="additional_outputs" value="similarity"/>
+            <output name="genome_by_genome">
+                <assert_contents>
+                    <has_size size="907" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="viral_cluster">
+                <assert_contents>
+                    <has_size size="722" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="graph">
+                <assert_contents>
+                    <has_size size="644" delta="5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="similarity">
+                <param name="analysis" value="legacy"/>
+                <param name="contigs" ftype="csv" value="ViralRefSeq-vConTACT_contigs.csv"/>
+                <param name="pcs" ftype="csv" value="ViralRefSeq-vConTACT_pcs.csv"/>
+                <param name="pc_profiles" ftype="csv" value="ViralRefSeq-vConTACT_profiles.csv"/>
+                <param name="db" value="None"/>
+            </conditional>
+            <param name="proteins_fp" ftype="csv" value="ViralRefSeq-archaea-v85.protein2contig.csv"/>
+            <param name="additional_outputs" value="similarity"/>
+            <output name="genome_by_genome">
+                <assert_contents>
+                    <has_size size="907" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="viral_cluster">
+                <assert_contents>
+                    <has_size size="722" delta="5"/>
+                </assert_contents>
+            </output>
+            <output name="graph">
+                <assert_contents>
+                    <has_size size="644" delta="5"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+vConTACT2 is a tool to perform guilt-by-contig-association classification of viral genomic sequence data. It's designed to cluster and provide taxonomic context of viral metagenomic sequencing data.
+
+Required Inputs
+===============
+
+- **Amino acid sequences**: A FASTA-formatted amino acid file. It will be combined with reference proteins to generate protein-protein similarities.
+- **Protein to contig mapping**: A file linking protein and genome names. The file should have the headers protein_id, contig_id and keywords. Multiple keywords should be separated using ';'. vContact will aggregate gene keywords from all proteins assigned to a protein cluster.
+
+Main Parameters
+===============
+
+- **Reference database** (--db): Select one of the references included with vConTACT2 or 'None'. 'Merged' databases supplements the ICTV taxonomy with NCBI. Selecting 'None' disables taxonomic annotation.
+- **Additional (intermediary) outputs**: Select additioanl outputs based on their category:
+
+  - **Protein similarity file**: protein similarity
+  - **Accumulated protein cluster keywords**: vConTACT_proteins.csv, vConTACT_pcs.csv
+  - **vContact-PC outputs**: vConTACT_pcs.csv, vConTACT_contigs.csv, vConTACT_profiles.csv (used to restart vConTACT2 after protein cluster generation)
+  - **Protein cluster network**: modules.ntwk
+
+Generated Outputs
+=================
+
+- **genome_by_genome_overview.csv**: This file contains the taxonomic information for reference genomes, as well as all the clustering information. It does not include the taxonomic information for user sequences, which needs to be inferred from the reference genomes assigned to the same viral cluster or VC subcluster (see below).
+- **viral_cluster_overview.csv**: Contains information on each viral (sub)cluster, its members, and their taxonomy.
+- **c1.ntw**: Contains source / target / edge weight information for all genome pairs higher than the significance threshold.
+
+Additional outputs
+------------------
+
+- **protein similarity**: The Diamond protein similarity file.
+- **vConTACT_proteins.csv**: A mapping of proteins to protein clusters.
+- **vConTACT_pcs.csv**: Contains the size and accumulated keywords of each protein cluster.
+- **vConTACT_contigs.csv**: The number of proteins found in each genome.
+- **vConTACT_profiles.csv**: A mapping of genomes to protein clusters.
+- **modules.ntwk**: The protein cluster network.
+
+Notes
+=====
+
+This tool always uses Diamond to create the protein-protein similarity edge file, MCL for Protein Cluster (PC) generation and ClusterONE for Viral Cluster (VC) generation.
+
+To generate a minimal protein2contig file you can use the tool **vcontact_gene2genome**.
+
+Excerpts from the vConTACT2 wiki
+================================
+
+Inferring taxonomic information
+-------------------------------
+
+If the user genome is within the same VC subcluster as a reference genome, then there's a very high probability that the user genome is part of the same genus. If the user genome is in the same VC but not the same subcluster as a reference, then it's highly likely the two genomes are related at roughly genus-subfamily level. If there are no reference genomes in the same VC or VC subcluster, then it's likely that they are not related at the genus level at all. That said, it is possible they could be related at a higher taxonomic level (subfamily, family, order)
+
+Many times a user will notice that their genome is connected to another (possibly reference) genome in the network but those two genomes won't be in the same VC subcluster or even the same VC. This doesn't mean that they aren't related, it just means they did not share a sufficiently significant proportion of their genes to be of the same genus. They could very much be related at the subfamily or family level. However, that's for the researcher to decide.
+
+VC Statuses
+-----------
+
+- **Clustered**: high-confidence clustering, and we argue is roughly equivalent to an ICTV genus
+- **Singleton**: Had few or no gene similarities against other genomes. Most don’t even make it into the network
+- **Overlap**: Genomes sharing overlap with other genome(s) from multiple VCs. Often, these viruses have shared core genes, or a large portion of their genome has a conserved region that is shared amongst many.
+- **Outlier**: Had some genes shared with other genomes, but ClusterONE wasn’t confident enough to place them within a particular VC. We suspect these are related to the VCs they’re connected to (within the network), but not at the genus level. Probably, at the sub-family or family level though.
+- **Clustered/Singleton**: A weird category. These are genomes that ClusterONE clustered into the same VC. However, when running a distance-based threshold based on the placement of ICTV/NCBI reference genomes, vContact2 decides that they are not in the same genus and therefore move them to a subcluster. But when that genome goes to the new subcluster, there are no other genomes that get moved to that new subcluster, so it’s “alone.” Hence, why it’s a singleton. But not really, because it was clustered. It’s just that its cluster got split.
+
+Additional Resources
+====================
+
+- vConTACT2 wiki on their Bitbucket: https://bitbucket.org/MAVERICLab/vcontact2/wiki/Home
+- A protocol for using Cytoscape to visualize the genome network (step 6): https://dx.doi.org/10.17504/protocols.io.x5xfq7n
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

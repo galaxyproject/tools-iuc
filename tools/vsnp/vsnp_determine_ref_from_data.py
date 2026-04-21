@@ -8,8 +8,8 @@ from collections import OrderedDict
 import yaml
 from Bio.SeqIO.QualityIO import FastqGeneralIterator
 
-OUTPUT_DBKEY_DIR = 'output_dbkey'
-OUTPUT_METRICS_DIR = 'output_metrics'
+OUTPUT_DBKEY_DIR = "output_dbkey"
+OUTPUT_METRICS_DIR = "output_metrics"
 
 
 def get_sample_name(file_path):
@@ -66,7 +66,15 @@ def get_dnaprints_dict(dnaprint_fields):
     return dnaprints_dict
 
 
-def get_group_and_dbkey(dnaprints_dict, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum):
+def get_group_and_dbkey(
+    dnaprints_dict,
+    brucella_string,
+    brucella_sum,
+    bovis_string,
+    bovis_sum,
+    para_string,
+    para_sum,
+):
     if brucella_sum > 3:
         group = "Brucella"
         dbkey = get_dbkey(dnaprints_dict, "brucella", brucella_string)
@@ -118,14 +126,14 @@ def get_seq_counts(value, fastq_list, gzipped):
     count = 0
     for fastq_file in fastq_list:
         if gzipped:
-            with gzip.open(fastq_file, 'rt') as fh:
+            with gzip.open(fastq_file, "rt") as fh:
                 for title, seq, qual in FastqGeneralIterator(fh):
                     count += seq.count(value)
         else:
-            with open(fastq_file, 'r') as fh:
+            with open(fastq_file, "r") as fh:
                 for title, seq, qual in FastqGeneralIterator(fh):
                     count += seq.count(value)
-    return(value, count)
+    return (value, count)
 
 
 def get_species_counts(fastq_list, gzipped):
@@ -157,11 +165,11 @@ def get_species_strings(count_summary):
     for v in binary_dictionary.values():
         binary_list.append(v)
     brucella_binary = binary_list[:16]
-    brucella_string = ''.join(str(e) for e in brucella_binary)
+    brucella_string = "".join(str(e) for e in brucella_binary)
     bovis_binary = binary_list[16:24]
-    bovis_string = ''.join(str(e) for e in bovis_binary)
+    bovis_string = "".join(str(e) for e in bovis_binary)
     para_binary = binary_list[24:]
-    para_string = ''.join(str(e) for e in para_binary)
+    para_string = "".join(str(e) for e in para_binary)
     return brucella_string, bovis_string, para_string
 
 
@@ -194,15 +202,42 @@ def output_metrics(file_name, count_list, group, dbkey, output_file):
         fh.write("\ndbkey: %s\n" % dbkey)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dnaprint_fields', action='append', dest='dnaprint_fields', nargs=2, help="List of dnaprints data table value, name and path fields")
-    parser.add_argument('--read1', action='store', dest='read1', help='Required: single read')
-    parser.add_argument('--read2', action='store', dest='read2', required=False, default=None, help='Optional: paired read')
-    parser.add_argument('--gzipped', action='store_true', dest='gzipped', help='Input files are gzipped')
-    parser.add_argument('--output_dbkey', action='store', dest='output_dbkey', help='Output reference file')
-    parser.add_argument('--output_metrics', action='store', dest='output_metrics', help='Output metrics file')
+    parser.add_argument(
+        "--dnaprint_fields",
+        action="append",
+        dest="dnaprint_fields",
+        nargs=2,
+        help="List of dnaprints data table value, name and path fields",
+    )
+    parser.add_argument(
+        "--read1", action="store", dest="read1", help="Required: single read"
+    )
+    parser.add_argument(
+        "--read2",
+        action="store",
+        dest="read2",
+        required=False,
+        default=None,
+        help="Optional: paired read",
+    )
+    parser.add_argument(
+        "--gzipped", action="store_true", dest="gzipped", help="Input files are gzipped"
+    )
+    parser.add_argument(
+        "--output_dbkey",
+        action="store",
+        dest="output_dbkey",
+        help="Output reference file",
+    )
+    parser.add_argument(
+        "--output_metrics",
+        action="store",
+        dest="output_metrics",
+        help="Output metrics file",
+    )
 
     args = parser.parse_args()
 
@@ -219,7 +254,24 @@ if __name__ == '__main__':
 
     # Here fastq_list consists of either a single read
     # or a set of paired reads, producing single outputs.
-    count_summary, count_list, brucella_sum, bovis_sum, para_sum = get_species_counts(fastq_list, args.gzipped)
+    count_summary, count_list, brucella_sum, bovis_sum, para_sum = get_species_counts(
+        fastq_list, args.gzipped
+    )
     brucella_string, bovis_string, para_string = get_species_strings(count_summary)
-    group, dbkey = get_group_and_dbkey(dnaprints_dict, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum)
-    output_files(args.read1, count_list, group, dbkey, dbkey_file=args.output_dbkey, metrics_file=args.output_metrics)
+    group, dbkey = get_group_and_dbkey(
+        dnaprints_dict,
+        brucella_string,
+        brucella_sum,
+        bovis_string,
+        bovis_sum,
+        para_string,
+        para_sum,
+    )
+    output_files(
+        args.read1,
+        count_list,
+        group,
+        dbkey,
+        dbkey_file=args.output_dbkey,
+        metrics_file=args.output_metrics,
+    )

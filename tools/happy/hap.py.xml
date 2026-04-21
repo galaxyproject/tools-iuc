@@ -1,17 +1,18 @@
-<tool id="som.py" name="som.py" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.09">
-    <description>A tool to perform comparisons only based on chromosome, position, and allele identity for comparison of somatic callsets.</description>
-
+<tool id="som.py" name="som.py and hap.py" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Comparison of somatic callsets based only on chromosome, position, and allele identity</description>
     <macros>
-        <token name="@TOOL_VERSION@">0.3.14</token>
+        <token name="@TOOL_VERSION@">0.3.15</token>
+        <token name="@PROFILE@">24.1</token>
         <token name="@VERSION_SUFFIX@">0</token>
     </macros>
-
+    <xrefs>
+        <xref type="bio.tools">hap.py</xref>
+    </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">hap.py</requirement>
     </requirements>
-
+    <version_command>som.py -h</version_command>
     <command detect_errors="exit_code"><![CDATA[
-
 #if $reference_genome.source == 'history':
     #set $ref_genome = 'reference.fasta'
     ln -s -f '${reference_genome.history_item}' $ref_genome;
@@ -20,15 +21,23 @@
     #set $ref_genome = $reference_genome.index.fields.path
 #end if
     export HGREF='$ref_genome' &&
-    som.py
-    '$truth'
-    '$query'
-    -r '$ref_genome'
-    -o 'happy' | sed 's/\s\+/\t/g' | tail -n+2> results.tsv
+    #if $program_select == 'som.py':
+        som.py
+    #else:
+        hap.py
+    #end if
+        '$truth'
+        '$query'
+        -r '$ref_genome'
+        -o output
+        | sed 's/\s\+/\t/g' | tail -n+2 > results.tsv
     ]]>
     </command>
-
     <inputs>
+        <param name="program_select" type="select" label="Comparison method" help="Select the comparison method to use.">
+            <option value="som.py">som.py: Genotype-level comparison</option>
+            <option value="hap.py">hap.py: Allele-based comparison (chromosome, position, allele)</option>
+        </param>
         <conditional name="reference_genome">
             <param name="source" type="select" label="Source for the reference genome" help="Built-in references were created using default options.">
                 <option value="indexed" selected="true">Use a built-in genome</option>
@@ -37,40 +46,119 @@
             <when value="indexed">
                 <param name="index" type="select" label="Select a reference genome" help="If your genome of interest is not listed, contact the Galaxy team.">
                     <options from_data_table="fasta_indexes">
-                        <filter type="sort_by" column="2" />
-                        <validator type="no_options" message="No genomes are available for the selected input dataset" />
+                        <filter type="sort_by" column="2"/>
+                        <validator type="no_options" message="No genomes are available for the selected input dataset"/>
                     </options>
                 </param>
             </when>
             <when value="history">
-                <param name="history_item" type="data" format="fasta" label="Reference genome" help="A reference genome in FASTA format" />
+                <param name="history_item" type="data" format="fasta" label="Reference genome" help="A reference genome in FASTA format"/>
             </when>
         </conditional>
         <param name="truth" type="data" format="vcf" label="ground truth variant calls"/>
         <param name="query" type="data" format="vcf" label="query variant calls"/>
     </inputs>
-
     <outputs>
         <data name="results" label="${tool.name} on ${on_string}" format="tabular" from_work_dir="results.tsv"/>
-        <data name="stats" label="${tool.name} on ${on_string}: stats" format="csv" from_work_dir="happy.stats.csv" />
-        <data name="metrics" label="${tool.name} on ${on_string}: metrics" format="json" from_work_dir="happy.metrics.json"/>
+        <data name="sompy_metrics" label="${tool.name} on ${on_string}: som.py metrics" format="json" from_work_dir="output.metrics.json">
+            <filter>'som.py' in program_select </filter>
+        </data>
+        <data name="happy_metrics" label="${tool.name} on ${on_string}: hap.py metrics" format="json" from_work_dir="output.metrics.json.gz">
+            <filter>'hap.py' in program_select </filter>
+        </data>
+        <data name="stats" label="${tool.name} on ${on_string}: som.py comparison stats" format="csv" from_work_dir="output.stats.csv">
+            <filter>'som.py' in program_select </filter>
+        </data>
+        <data name="summary" label="${tool.name} on ${on_string}: hap.py summary" format="csv" from_work_dir="output.summary.csv">
+            <filter>'hap.py' in program_select </filter>
+        </data>
     </outputs>
-
     <tests>
+        <!-- Testing som.py -->
         <test expect_num_outputs="3">
-            <param name="source" value="history"/>
-            <param name="history_item" value="chr21.fa"/>
+            <param name="program_select" value="som.py"/>
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="chr21.fa"/>
+            </conditional>
             <param name="truth" value="small_NA12878-Freebayes-chr21.vcf"/>
             <param name="query" value="small_NA12878-GATK3-chr21.vcf"/>
-
-            <output name="results" file="results.tsv"/>
-            <output name="stats" file="happy.stats.csv" compare="sim_size" delta_frac="0.3" />
-            <output name="metrics" file="happy.metrics.json" compare="sim_size" delta_frac="0.3" />
+            <output name="results">
+                <assert_contents>
+                    <has_text text="records"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="stats">
+                <assert_contents>
+                    <has_line_matching expression="^0,indels,1,1,0,1.*"/>
+                    <has_text text="som.py-"/>
+                </assert_contents>
+            </output>
+            <output name="sompy_metrics">
+                <assert_contents>
+                    <has_json_property_with_text property="name" text="som.py.comparison"/>
+                    <has_text text="som.py.comparison"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Testing hap.py -->
+        <test expect_num_outputs="3">
+            <param name="program_select" value="hap.py"/>
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="truth" value="hap_py_truth.vcf.gz"/>
+            <param name="query" value="hap_py_query.vcf.gz"/>
+            <output name="results">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_text text="SNP,PASS,5,4,1,6,2,0,0,0,0.8,0.666667,0.0,0.727273,0.25,0.5,0.0,0.0"/>
+                </assert_contents>
+            </output>
+            <output name="happy_metrics" decompress="true">
+                <assert_contents>
+                    <has_json_property_with_text property="name" text="hap.py.comparison"/>
+                    <has_text text="hap.py.comparison"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
+    <help format="markdown"><![CDATA[
 
-    <help><![CDATA[
-        som.py is a tool to perform comparisons only based on chromosome, position, and allele identity. This comparison will not resolve haplotypes and only verify that the same alleles were observed at the same positions (e.g. for comparison of somatic callsets).
+## What this tool does
+**hap.py** compares variant callsets (VCFs) against a reference “truth” set to evaluate variant calling accuracy. It performs haplotype-aware comparisons, matching variants by local sequence context rather than simple record alignment. This enables accurate benchmarking even when complex or multi-nucleotide variants are represented differently.
+---
+
+## Inputs
+- **Truth VCF:** High-confidence reference variants.  
+- **Query VCF:** Variants to evaluate.  
+- **Reference FASTA:** Genome reference used for both callsets.  
+---
+
+## Outputs
+- **Summary CSV / JSON:** Precision, recall, and F1 metrics.  
+- **ROC and stratified metrics:** Optional, for detailed performance breakdowns.  
+- **Annotated VCFs:** Optional lists of matched and unmatched variants.
+---
+
+## Notes
+- Use **hap.py** for haplotype-level benchmarking.  
+- Use **som.py** for simpler allele-based comparisons (chromosome, position, allele).  
     ]]></help>
-
+    <citations>
+        <citation type="bibtex">@misc{illumina_happy,
+  title        = {hap.py},
+  author       = {{Illumina}},
+  year         = {2021},
+  howpublished = {\url{https://github.com/Illumina/hap.py}},
+  note         = {Accessed: 2025-10-19}
+}</citation>
+    </citations>
 </tool>

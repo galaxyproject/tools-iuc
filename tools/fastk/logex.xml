@@ -1,0 +1,297 @@
+<tool id="fastk_logex" name="FastK Logex" version="@TOOL_VERSION@+galaxy5" profile="24.2" license="MIT">
+    <description>Performs binary operations on the generated Ktab files from FASTK suite</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir -p logex_ktabs &&
+        mkdir -p input_files &&
+        #if $input_type.input_type_selector != 'collection'
+            cp '$input_ktab1' input_files/input1.ktab &&
+            ln -s '$input_ktab1_tar' input1.tar &&
+            tar -xf input1.tar && 
+            mv ktabfiles ktabfiles_in1 &&
+            mv "\$(find ktabfiles_in1 -type f -name '*.ktab.1')" "ktabfiles_in1/.input1.ktab.1" &&
+            cp '$input_ktab2' input_files/input2.ktab &&
+            ln -s '$input_ktab2_tar' input2.tar &&
+            tar -xf input2.tar &&
+            mv ktabfiles ktabfiles_in2 &&
+            mv "\$(find ktabfiles_in2 -type f -name '*.ktab.1')" "ktabfiles_in2/.input2.ktab.1" &&
+            mv ktabfiles_in1/.input1.ktab.1 input_files/ &&
+            mv ktabfiles_in2/.input2.ktab.1 input_files/ &&
+            #if $input_type.operation_selector == 'and'
+                Logex -T\${GALAXY_SLOTS:-8} -h 'out = A&.B' input_files/input1.ktab input_files/input2.ktab &&
+            #elif $input_type.operation_selector == 'or'
+                Logex -T\${GALAXY_SLOTS:-8} -h 'out = A|.B' input_files/input1.ktab input_files/input2.ktab &&
+            #elif $input_type.operation_selector == 'minus'
+                Logex -T\${GALAXY_SLOTS:-8} -h 'out = A-B' input_files/input1.ktab input_files/input2.ktab &&
+            #elif $input_type.operation_selector == 'xor'
+                Logex -T\${GALAXY_SLOTS:-8} -h 'out = A^B' input_files/input1.ktab input_files/input2.ktab && 
+            #elif $input_type.operation_selector == 'unionsum'
+                Logex -T\${GALAXY_SLOTS:-8} -h 'out = A&+B' input_files/input1.ktab input_files/input2.ktab &&
+            #end if
+        #else
+            #for $i, $j in enumerate($input_type.input_ktab_collection):
+                cp "$j" input_files/${i+1}.ktab &&
+            #end for
+            #for $p, $q in enumerate($input_type.input_ktab_collection_tar):
+                ln -s "$q" input_files/input_ktab_${p+1}.tar &&
+                tar -tf input_files/input_ktab_${p+1}.tar | grep '/\.[^/]*$' | tar --strip-components=1 -xf input_files/input_ktab_${p+1}.tar -C input_files/ -T - &&
+                for file_name in input_files/.output.ktab.*; do
+                    if [ -f "\$file_name" ]; then
+                        new_name=\$(echo "\$file_name" | sed "s/\.output\.ktab\./\.$((p+1))\.ktab\./");
+                        mv "\$file_name" "\$new_name";
+                    fi
+                done &&
+                rm input_files/input_ktab_${p+1}.tar &&
+            #end for
+            COUNT=\$(ls -1 input_files/*.ktab 2>/dev/null | wc -l) &&
+            if [ "\$COUNT" -ge 2 ]; then
+                #if $input_type.operation_sel.operation_selector_collection == 'unionsum':
+                    EXPRESSION="out=\$(seq -s '&+' 0 \$((COUNT-1)) | tr '0-9' 'A-Z')" &&                   
+                #elif $input_type.operation_sel.operation_selector_collection == 'and':
+                    EXPRESSION="out=\$(seq -s '&.' 0 \$((COUNT-1)) | tr '0-9' 'A-Z')" &&
+                #elif $input_type.operation_sel.operation_selector_collection == 'minus':
+                    EXPRESSION="out=\$(seq -s '-' 0 \$((COUNT-1)) | tr '0-9' 'A-Z')" &&
+                #elif $input_type.operation_sel.operation_selector_collection == 'or':
+                    EXPRESSION="out=\$(seq -s '|.' 0 \$((COUNT-1)) | tr '0-9' 'A-Z')" &&
+                #elif $input_type.operation_sel.operation_selector_collection == 'xor':
+                    EXPRESSION="out=\$(seq -s '^' 0 \$((COUNT-1)) | tr '0-9' 'A-Z')" &&
+                #elif $input_type.operation_sel.operation_selector_collection == 'custom':
+                    EXPRESSION="out=$input_type.operation_sel.custom_expression" &&
+                #end if
+                Logex -T\${GALAXY_SLOTS:-8} -h "\$EXPRESSION" input_files/*.ktab;   
+            else
+                echo "ERROR: Logex needs atleast 2 Ktab files" >&2 && exit 1;
+            fi &&
+        #end if
+        cp *.ktab logex_ktabs/ &&
+        cp .*.ktab* logex_ktabs/ &&
+        tar -cf logex_ktab.tar input_files/ logex_ktabs/
+    ]]></command>
+    <inputs>
+        <conditional name="input_type">
+            <param name="input_type_selector" type="select" label="Single Ktab file or Ktab Collection">
+                <option value="single">Single Ktab file</option>
+                <option value="collection">Ktab files Collection</option>
+            </param>
+            <when value="single">
+                <param name="input_ktab1" type="data" format="fastk_ktab" label="Input FastK ktab file (first)"/>
+                <param name="input_ktab1_tar" type="data" format="fastk_ktab_tar" label="Associated FastK TAR file consisting of intermediate .ktab files"/>
+                <param name="input_ktab2" type="data" format="fastk_ktab" label="Input FastK ktab file (second)"/>
+                <param name="input_ktab2_tar" type="data" format="fastk_ktab_tar" label="Associated FastK TAR file consisting of intermediate .ktab files"/>
+                <param name="operation_selector" type="select" label="Select Operation to Perform" help="Select the operation to be performed on the input ktab files.">
+                    <option value="and">AND</option>
+                    <option value="or">OR</option>
+                    <option value="minus">Minus</option>
+                    <option value="unionsum">Unionsum</option>
+                    <option value="xor">XOR</option>
+                </param>
+            </when>
+            <when value="collection">
+                <param name="input_ktab_collection" type="data_collection" collection_type="list" format="fastk_ktab" label="Input FastK ktab Collection"/>
+                <param name="input_ktab_collection_tar" type="data_collection" collection_type="list" format="fastk_ktab_tar" label="Associated FastK TAR file consisting of intermediate .ktab files"/>
+                <conditional name="operation_sel">
+                    <param name="operation_selector_collection" type="select" label="Select Operation to Perform" help="Select the operation to be performed on the input ktab files.">
+                        <option value="and">AND</option>
+                        <option value="or">OR</option>
+                        <option value="minus">Minus</option>
+                        <option value="unionsum">Unionsum</option>
+                        <option value="xor">XOR</option>
+                        <option value="custom">Custom Logical Expression</option>
+                    </param>
+                    <when value="and"/>
+                    <when value="or"/>
+                    <when value="minus"/>
+                    <when value="unionsum"/>
+                    <when value="xor"/>
+                    <when value="custom">
+                        <param name="custom_expression" type="text" label="Custom Logical Expression" value="out=" help="Enter a custom logical expression based on number of your input ktab files. For Eg: For 3 Ktab files the expression can be out=(A^B)-C">
+                            <sanitizer invalid_char="">
+                                    <valid>
+                                        <add value="+"/>
+                                        <add value="-"/>
+                                        <add value="|"/>
+                                        <add value="."/>
+                                        <add value="^"/>
+                                        <add value="="/>
+                                        <add value="&amp;"/>
+                                    </valid>
+                            </sanitizer>
+                        </param>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="fastk_hist_out" format="fastk_hist" from_work_dir="out.hist" label="${tool.name} on ${on_string}: Logex .hist file"/>
+        <data name="fastk_ktab_out" format="fastk_ktab" from_work_dir="out.ktab" label="${tool.name} on ${on_string}: Logex .ktab file"/>
+        <data name="fastk_ktab_files" format="fastk_ktab_tar" from_work_dir="logex_ktab.tar" label="${tool.name} on ${on_string}: FastK Logex ktab files"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="single"/>
+                <param name="input_ktab1" value="fastq1.ktab"/>
+                <param name="input_ktab1_tar" value="fastk_in1.tar"/>
+                <param name="input_ktab2" value="fastq2.ktab"/>
+                <param name="input_ktab2_tar" value="fastk_in2.tar"/>
+                <param name="operation_selector" value="and"/>
+            </conditional>
+            <output name="fastk_hist_out" ftype="fastk_hist">
+                <assert_contents>
+                    <has_size value="262164"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_out" ftype="fastk_ktab">
+                <assert_contents>
+                    <has_size value="2064"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_files" ftype="fastk_ktab_tar">
+                <assert_contents>
+                    <has_archive_member path="logex_ktabs/out.ktab"/>
+                    <has_archive_member path="logex_ktabs/.out.ktab.1"/>
+                    <has_archive_member path="input_files/input1.ktab"/>
+                    <has_archive_member path="input_files/.input1.ktab.1"/>
+                    <has_archive_member path="input_files/input2.ktab"/>
+                    <has_archive_member path="input_files/.input2.ktab.1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="collection"/>
+                <param name="input_ktab_collection">
+                    <collection type="list">
+                        <element name="input1" value="fastq1.ktab"/>
+                        <element name="input2" value="fastq2.ktab"/>
+                    </collection>
+                </param>
+                <param name="input_ktab_collection_tar">
+                    <collection type="list">
+                        <element name="input1" value="fastk_in1.tar"/>
+                        <element name="input2" value="fastk_in2.tar"/>
+                    </collection>
+                </param>
+                <conditional name="operation_sel">
+                    <param name="operation_selector_collection" value="and"/>
+                </conditional>
+            </conditional>
+            <output name="fastk_hist_out" ftype="fastk_hist">
+                <assert_contents>
+                    <has_size value="262164"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_out" ftype="fastk_ktab">
+                <assert_contents>
+                    <has_size value="2064"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_files" ftype="fastk_ktab_tar">
+                <assert_contents>
+                    <has_archive_member path="logex_ktabs/out.ktab"/>
+                    <has_archive_member path="logex_ktabs/.out.ktab.1"/>
+                    <has_archive_member path="input_files/1.ktab"/>
+                    <has_archive_member path="input_files/.1.ktab.1"/>
+                    <has_archive_member path="input_files/2.ktab"/>
+                    <has_archive_member path="input_files/.2.ktab.1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="collection"/>
+                <param name="input_ktab_collection">
+                    <collection type="list">
+                        <element name="input1" value="fastq1.ktab"/>
+                        <element name="input2" value="fastq2.ktab"/>
+                    </collection>
+                </param>
+                <param name="input_ktab_collection_tar">
+                    <collection type="list">
+                        <element name="input1" value="fastk_in1.tar"/>
+                        <element name="input2" value="fastk_in2.tar"/>
+                    </collection>
+                </param>
+                <conditional name="operation_sel">
+                    <param name="operation_selector_collection" value="unionsum"/>
+                </conditional>
+            </conditional>
+            <output name="fastk_hist_out" ftype="fastk_hist">
+                <assert_contents>
+                    <has_size value="262164"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_out" ftype="fastk_ktab">
+                <assert_contents>
+                    <has_size value="2064"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_files" ftype="fastk_ktab_tar">
+                <assert_contents>
+                    <has_archive_member path="logex_ktabs/out.ktab"/>
+                    <has_archive_member path="logex_ktabs/.out.ktab.1"/>
+                    <has_archive_member path="input_files/1.ktab"/>
+                    <has_archive_member path="input_files/.1.ktab.1"/>
+                    <has_archive_member path="input_files/2.ktab"/>
+                    <has_archive_member path="input_files/.2.ktab.1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="collection"/>
+                <param name="input_ktab_collection">
+                    <collection type="list">
+                        <element name="input1" value="fastq1.ktab"/>
+                        <element name="input2" value="fastq2.ktab"/>
+                    </collection>
+                </param>
+                <param name="input_ktab_collection_tar">
+                    <collection type="list">
+                        <element name="input1" value="fastk_in1.tar"/>
+                        <element name="input2" value="fastk_in2.tar"/>
+                    </collection>
+                </param>
+                <conditional name="operation_sel">
+                    <param name="operation_selector_collection" value="custom"/>
+                    <param name="custom_expression" value="A&amp;.B"/>
+                </conditional>
+            </conditional>
+            <output name="fastk_hist_out" ftype="fastk_hist">
+                <assert_contents>
+                    <has_size value="262164"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_out" ftype="fastk_ktab">
+                <assert_contents>
+                    <has_size value="2064"/>
+                </assert_contents>
+            </output>
+            <output name="fastk_ktab_files" ftype="fastk_ktab_tar">
+                <assert_contents>
+                    <has_archive_member path="logex_ktabs/out.ktab"/>
+                    <has_archive_member path="logex_ktabs/.out.ktab.1"/>
+                    <has_archive_member path="input_files/1.ktab"/>
+                    <has_archive_member path="input_files/.1.ktab.1"/>
+                    <has_archive_member path="input_files/2.ktab"/>
+                    <has_archive_member path="input_files/.2.ktab.1"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+     Logex tool can perform operations such as AND, OR, XOR, Minus and Unionsum on the input given input Ktab files.
+     
+     The tool requires two input Ktab files and their associated files (Generated in the tarball of FASTK tool with .1 extension) as inputs to perform various binary operations.
+    
+    The tool also supports Ktab file collections as input. The user can select the operation to be performed on the input Ktab files.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,0 +1,191 @@
+<tool id="binette" name="Binette" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Binning refinement tool</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.2.1</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">24.1</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">binette</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">binette</requirement>
+    </requirements>
+    <command detect_errors="exit_code">
+        <![CDATA[
+            mkdir -p 'input' 'output' &&
+
+            #for $i, $file in enumerate($contig2bin_tables):
+                ln -s '$file' 'input/bin_table_${i}.tsv' &&
+            #end for
+
+            ln -s '$contigs' 'input_contigs.fasta' &&
+            #if $database_type.is_select == 'his':
+                ln -s '$checkm2_db' 'input_database.dmnd' &&
+            #end if
+
+            #if $proteins:
+                ln -s '$proteins' 'input_proteins.fasta' &&
+            #end if
+
+            binette
+            -b input/*.tsv
+            -c 'input_contigs.fasta'
+            #if $proteins:
+                -p 'input_proteins.fasta'
+            #end if
+            --min_completeness ${min_completeness}
+            -t "\${GALAXY_SLOTS:-1}"
+            -o 'output/'
+            -w ${contamination_weight}
+            #if $database_type.is_select == 'his':
+                --checkm2_db 'input_database.dmnd'
+            #else
+                --checkm2_db '$datamanager.fields.path'
+            #end if
+        
+        ]]>
+    </command>
+    <inputs>
+        <param argument="--contig2bin_tables" type="data" multiple="true" min="2" format="tabular" label="Input contig table"
+            help="Input at least 2 different contig tables. Look into the help section at the bottom for more information!"/>
+        <param argument="--contigs" type="data" format="fasta,fasta.gz" label="Input contig file"/>
+        <param argument="--proteins" type="data" format="fasta,fasta.gz" optional="true" label="Input FASTA file in Prodigal format (>contigID_geneID)"
+            help="If this file is provided all predicted genes contained in this file will be skipped. A example for this format is in the help section"/>
+        <param argument="--min_completeness" type="integer" min="0" max="100" value="40" label="Set minimus completeness"
+            help="Threshold for bins for the final bin selection"/>
+        <param argument="--contamination_weight" type="integer" value="2" label="Set contamination weight"
+            help="This weight is used for the scoring the bins. A low weight favor complete bins over low contaminated bins"/>
+        <conditional name="database_type">
+            <param name="is_select" type="select" label="Select if database should be used either via file or cached database">
+                <option value="cached">cached database</option>
+                <option value="his">History</option>
+            </param>
+            <when value="his">
+                <param argument="--checkm2_db" type="data" format="dmnd" label="Input CheckM2 diamond database"
+                help="When a CheckM2 diamond database should be used download and input it here."/>
+            </when>
+            <when value="cached">
+                <param name="datamanager" type="select" label="Select Diamond DB" help="Checkm2 Diamond database">
+                    <options from_data_table="checkm2">
+                            <filter type="sort_by" column="2"/>
+                    </options>
+                    <validator type="no_options" message="No databases are available for this version of Checkm2. Please contact the Galaxy administrators to request one be installed."/>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <collection name="bins" type="list" label="${tool.name} on ${on_string}: Bins">
+            <discover_datasets pattern="((?P&lt;designation&gt;.*)\.fa)" format="fasta" directory="output/final_bins"/>
+        </collection>
+        <collection name="quality" type="list" label="${tool.name} on ${on_string}: Quality Report">
+            <discover_datasets pattern="((?P&lt;designation&gt;.*)\.tsv)" format="tabular" directory="output/input_bins_quality_reports"/>
+        </collection>
+        <data name="final" format="tabular" from_work_dir="output/final_bins_quality_reports.tsv" label="${tool.name} on ${on_string}: Final Quality Report"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="contig2bin_tables" ftype="tabular" value="A.binning,B.binning,C.binning"/>
+            <param name="contigs" value="all_contig.fasta.gz" ftype="fasta.gz"/>
+            <param name="min_completeness" value="5"/>
+            <param name="contamination_weight" value="0"/>
+            <conditional name="database_type">
+                <param name="is_select" value="his"/> 
+                <param name="checkm2_db" value="checkm2_tiny_db.dmnd"/>
+            </conditional>
+            <output name="final" ftype="tabular">
+                <assert_contents>
+                    <has_text text="binC"/>
+                    <has_text text="50"/>
+                    <has_text text="9"/>
+                </assert_contents>
+            </output>
+            <output_collection name="bins" count="4"/>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="contig2bin_tables" ftype="tabular" value="A.binning,B.binning,C.binning"/> 
+            <param name="contigs" value="all_contig.fasta.gz" ftype="fasta.gz"/>
+            <param name="min_completeness" value="40"/>
+            <param name="contamination_weight" value="2"/>
+            <conditional name="database_type">
+                <param name="is_select" value="cached"/> 
+                <param name="datamanager" value="test_db"/>
+            </conditional> 
+            <param name="proteins" ftype="fasta.gz" value="proteins.fasta.gz"/>
+            <output name="final" ftype="tabular">
+                <assert_contents>
+                    <has_text text="binC"/>
+                    <has_text text="50"/>
+                    <has_text text="40"/>
+                </assert_contents>
+            </output>
+            <output_collection name="bins" count="4"/>
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+
+        .. class:: infomark
+
+        **What does Binette**
+
+        Binette is a fast and accurate binning refinement tool to constructs high quality MAGs from the output of multiple binning tools.
+
+        **Inputs**
+
+        - At least 2 different contig tables.
+
+        .. class:: infomark
+
+        The contig tables can be generate by the tool *Converts genome bins in fasta format*. This tool only need the bins which where created by any binner as input.
+
+        - The contig file
+
+        .. class:: infomark
+        
+        This file should contain all reads used to create the bins. The format of this file should be either fasta or fasta.gz.
+
+        - A CheckM2 diamond database
+
+        .. class::infomark
+
+        This database can be download with using the CheckM2 package and the followed command: *checkm2 database --download --path <checkm2/database/>* or it is possible to use a database cached on Galaxy.
+        
+
+        - An optional (fasta/fasta.gz) file with predicted genes 
+
+        .. class:: infomark
+
+        This file, in a fasta format, is generate with the tool *Prodigal*
+
+        Example:
+        
+        ::
+
+         >Chlamydia_trachomatis_part1_1 # 1 # 1776 # 1 # ID=1_1;partial=10;start_type=Edge;rbs_motif=None;rbs_spacer=None;gc_cont=0.466
+         MSIRGVGGNGNSRIPSHNGDGSNRRSQNTKGNNKVEDRVCSLYSSRSNENRESPYAVVDV
+         SSMIESTPTSGETTRASRGVFSRFQRGLVRIADKVRRAVQCAWSSVSTSRSSATRAAESG
+         SSSRTARGASSGYREYSPSAARGLRLMFTDFWRTRVLRQTSPMAGVFGNLDVNEARLMAA
+         YTSECADHLEAKELAGPDGVAAAREIAKRWEKRVRDLQDKGAARKLLNDPLGRRTPNYQS
+         KNPGEYTVGNSMFYDGPQVANLQNVDTGFWLDMSNLSDVVLSREIQTGLRARATLEESMP
+         MLENLEERFRRLQETCDAARTEIEESGWTRESASRMEGDEAQGPSRAQQAFQSFVNECNS
+         IEFSFGSFGEHVRVLCARVSRGLAAAGEAIRRCFSCCKGSTHRYAPRDDLSPEGASLAET
+         LARFADDMGIERGADGTYDIPLVDDWRRGVPSIEGEGSDSIYEIMMPIYEVMNMDLETRR
+         SFAVQQGHYQDPRASDYDLPRASDYDLPRSPYPTPPLPPRYQLQNMDVEAGFREAVYASF
+         VAGMYNYVVTQPQERIPNSQQVEGILRDMLTNGSQTFRDLMKRWNREVDRE* 
+        
+        **Outputs**
+
+        - A collection (list) with all the selected bins in fasta format.
+
+        - A final quality report file containing quality information about the final selected bins.
+
+        - A collection (list) storing quality reports for the input bin sets, with files following the same structure as the final quality report file.
+        
+        ]]>
+    </help>
+    <citations>
+        <citation type="doi">10.21105/joss.06782</citation>
+    </citations> 
+</tool>
