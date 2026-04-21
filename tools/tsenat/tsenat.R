@@ -150,7 +150,7 @@ option_list <- list(
         action = "store",
         dest = "norm_method",
         default = NULL,
-        help = "Normalization method (NULL for default) [default: %default]"
+        help = "Normalization method: NULL (automatic), 'zscore', 'log_odds_ratio', or 'relative_reference'"
     ),
     make_option(c("--pseudocount"),
         action = "store",
@@ -258,7 +258,7 @@ option_list <- list(
         action = "store",
         type = "double",
         dest = "min_tpm",
-        default = NULL,
+        default = 1,
         help = "Minimum TPM threshold for filtering [default: %default]"
     ),
     make_option(c("--min_isoform_abundance"),
@@ -266,7 +266,7 @@ option_list <- list(
         type = "double",
         dest = "min_isoform_abundance",
         default = NULL,
-        help = "Minimum relative isoform abundance within gene [default: %default]"
+        help = "Minimum relative isoform abundance within gene (NULL for no filtering)"
     ),
     make_option(c("--reference_group"),
         action = "store",
@@ -286,13 +286,13 @@ option_list <- list(
         action = "store",
         dest = "multicorr",
         default = NULL,
-        help = "Advanced multiple correction method: 'hochberg', 'westfall-young', 'benjamini-yekutieli' [default: %default]"
+        help = "Advanced multiple correction method: NULL (none), 'hochberg', 'westfall-young', or 'benjamini-yekutieli'"
     ),
     make_option(c("--corstr"),
         action = "store",
         dest = "corstr",
         default = NULL,
-        help = "Correlation structure for GEE: 'ar1', 'exchangeable', 'independence' [default: %default]"
+        help = "Correlation structure for GEE: NULL (default), 'ar1', 'exchangeable', or 'independence'"
     ),
 
     # Subsampling options
@@ -301,7 +301,7 @@ option_list <- list(
         type = "integer",
         dest = "subset_n_genes",
         default = NULL,
-        help = "Number of genes to retain (subsampling) [default: %default]"
+        help = "Number of genes to retain for subsampling (NULL for all genes)"
     ),
     make_option(c("--subset_select_by"),
         action = "store",
@@ -322,7 +322,7 @@ option_list <- list(
         action = "store",
         dest = "what_output",
         default = "S",
-        help = "Diversity output type: 'S' (entropy, default) or 'D' (diversity) [default: %default]"
+        help = "Diversity output type: 'S' (Tsallis entropy) or 'D' (Hill numbers)"
     ),
 
     # SRH advanced parameters
