@@ -117,16 +117,16 @@ option_list <- list(
                 default = 0.95,
                 help = "Bootstrap confidence level [default: %default]"),
     make_option(c("--bootstrap_include_diagnostics"), 
-                action = "store", 
+                action = "store_true", 
                 dest = "bootstrap_include_diagnostics",
-                default = "true",
+                default = TRUE,
                 help = "Include bootstrap diagnostics [default: %default]"),
     
     # Normalization parameters
     make_option(c("--norm"), 
-                action = "store", 
+                action = "store_true", 
                 dest = "norm",
-                default = "true",
+                default = TRUE,
                 help = "Enable normalization [default: %default]"),
     make_option(c("--norm_method"), 
                 action = "store", 
@@ -163,9 +163,9 @@ option_list <- list(
                 default = "BH",
                 help = "P-value correction: 'BH', 'bonferroni', 'hochberg', or 'holm' [default: %default]"),
     make_option(c("--sait_jis_fdr"), 
-                action = "store", 
+                action = "store_true", 
                 dest = "jis_use_sait_fdr",
-                default = "true",
+                default = TRUE,
                 help = "Use SAIT FDR for jackknife isoform switching [default: %default]"),
     make_option(c("--divergence_ci"), 
                 action = "store", 
@@ -368,12 +368,6 @@ if (is.null(args$annotation) || !file.exists(args$annotation)) {
 if (!dir.exists(args$salmon_dir)) {
     error_exit(paste("Salmon directory not found:", args$salmon_dir))
 }
-
-# Convert string boolean parameters to logical
-args$norm <- tolower(args$norm) %in% c("true", "yes", "1")
-args$bootstrap <- tolower(args$bootstrap) %in% c("true", "yes", "1")
-args$bootstrap_include_diagnostics <- tolower(args$bootstrap_include_diagnostics) %in% c("true", "yes", "1")
-args$jis_use_sait_fdr <- tolower(args$jis_use_sait_fdr) %in% c("true", "yes", "1")
 
 tryCatch({
     # ============================================================================
