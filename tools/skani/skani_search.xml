@@ -1,0 +1,137 @@
+<tool id="skani_search" name="skani search" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>query genomes against a pre-built skani sketch database</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        ## Extract the sketch database tar. Handle archives that contain a single
+        ## wrapping directory as well as archives whose contents are at the root.
+        mkdir -p db_extract &&
+        tar -xf '$sketch_db' -C db_extract &&
+        if [ -f db_extract/index.db ]; then
+            DB_DIR=db_extract;
+        else
+            DB_DIR=\$(find db_extract -mindepth 2 -name index.db -exec dirname {} \; | head -n 1);
+        fi &&
+        if [ -z "\$DB_DIR" ]; then
+            echo "Error: could not find a skani sketch database (no index.db found in archive)" >&2; exit 1;
+        fi &&
+        skani search
+            -t \${GALAXY_SLOTS:-1}
+            -d "\$DB_DIR"
+            @OUTPUT_CMD@
+            -s $algorithm.s
+            $algorithm.robust
+            $algorithm.median
+            $algorithm.no_learned_ani
+            $algorithm.keep_refs
+            $individual_seqs
+            #if str($n_results).strip()
+                -n $n_results
+            #end if
+            -q
+            #for $q in $queries
+                '$q'
+            #end for
+            -o '$output'
+    ]]></command>
+    <inputs>
+        <param name="sketch_db" type="data" format="tar" label="Sketch database" help="A skani sketch database produced by the 'skani sketch' tool (a tar archive containing index.db, markers.bin, sketches.db)."/>
+        <param name="queries" type="data" format="fasta,fasta.gz" multiple="true" label="Query genomes" help="One or more query FASTA files (gzip accepted)."/>
+        <param argument="--qi" name="individual_seqs" type="boolean" truevalue="--qi" falsevalue="" checked="false" label="Treat each query sequence as its own genome" help="Use individual sequences in a multi-fasta query as separate genomes."/>
+        <param argument="-n" name="n_results" type="integer" value="" optional="true" min="1" label="Maximum results per query" help="Limit the number of reference matches reported per query. Leave empty for unlimited."/>
+        <expand macro="output_section"/>
+        <section name="algorithm" title="Algorithm parameters" expanded="false">
+            <param argument="-s" type="integer" value="80" min="0" max="100" label="Screening identity (%)" help="Pairs with approximately less than this percent identity are screened out by k-mer sketching."/>
+            <param argument="--keep-refs" type="boolean" truevalue="--keep-refs" falsevalue="" checked="false" label="Keep references in memory" help="Cache reference sketches in memory once they pass the marker filter. Uses more memory but is much faster when querying many similar sequences."/>
+            <param argument="--robust" type="boolean" truevalue="--robust" falsevalue="" checked="false" label="Robust mean" help="Estimate the mean ANI after trimming the 10%/90% quantiles."/>
+            <param argument="--median" type="boolean" truevalue="--median" falsevalue="" checked="false" label="Use median instead of mean" help="Estimate the median identity instead of the mean."/>
+            <param argument="--no-learned-ani" type="boolean" truevalue="--no-learned-ani" falsevalue="" checked="false" label="Disable learned-ANI regression" help="Disable the regression model used to predict ANI."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}: ANI table"/>
+    </outputs>
+    <tests>
+        <!-- Search against a pre-built sketch DB tar. -->
+        <test expect_num_outputs="1">
+            <param name="sketch_db" value="skani_db.tar" ftype="tar"/>
+            <param name="queries" value="e_coli_EC590_alt.fasta.gz" ftype="fasta.gz"/>
+            <section name="output_opts">
+                <param name="min_af" value="1"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="Ref_file"/>
+                    <has_text text="ANI"/>
+                    <has_text text="NZ_CP016182.2"/>
+                    <has_text_matching expression="99\.\d+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Detailed and CI columns plus result limit. -->
+        <test expect_num_outputs="1">
+            <param name="sketch_db" value="skani_db.tar" ftype="tar"/>
+            <param name="queries" value="e_coli_EC590_alt.fasta.gz" ftype="fasta.gz"/>
+            <param name="n_results" value="1"/>
+            <section name="output_opts">
+                <param name="min_af" value="1"/>
+                <param name="ci" value="true"/>
+                <param name="detailed" value="true"/>
+                <param name="short_header" value="true"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="ANI_5_percentile"/>
+                    <has_text text="Ref_50_ctg_len"/>
+                    <has_text text="Total_bases_covered"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**skani search**
+
+Query one or more genome assemblies against a pre-built skani sketch database.
+Use this when you want to compare many queries against a fixed reference set --
+the sketch database is built once with the *skani sketch* tool and can be
+re-used for many query runs.
+
+-----
+
+**Inputs**
+
+- A **sketch database** (tar archive) produced by the *skani sketch* tool.
+- One or more **query** FASTA files (``.fasta`` or ``.fasta.gz``).
+
+-----
+
+**Output**
+
+A tab-separated ANI table in the same format as ``skani dist``:
+
+- ``Ref_file`` / ``Query_file`` -- file paths
+- ``ANI`` -- average nucleotide identity (%)
+- ``Align_fraction_ref`` / ``Align_fraction_query`` -- fraction of each genome covered
+- ``Ref_name`` / ``Query_name`` -- first record id from each file
+
+Enable *Detailed output* to add contig N50s and other per-comparison stats, or
+*Confidence intervals* to add bootstrap-derived ANI percentiles.
+
+-----
+
+**Tips**
+
+- The sketch parameters (compression factor, marker compression) are baked into
+  the database and cannot be changed at search time.
+- Enable *Keep references in memory* when querying many similar sequences -- it
+  trades memory for a substantial speedup.
+- Use the *Maximum results per query* option for "best-hit" style queries when
+  the database is large.
+]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,0 +1,155 @@
+<tool id="skani_dist" name="skani dist" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>compute ANI between query and reference genomes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        skani dist
+            -t \${GALAXY_SLOTS:-1}
+            @PRESET_CMD@
+            @ALGORITHM_CMD@
+            @OUTPUT_CMD@
+            #if str($n_results).strip()
+                -n $n_results
+            #end if
+            $individual_seqs.qi
+            $individual_seqs.ri
+            -q
+            #for $q in $queries
+                '$q'
+            #end for
+            -r
+            #for $r in $references
+                '$r'
+            #end for
+            -o '$output'
+    ]]></command>
+    <inputs>
+        <param name="queries" type="data" format="fasta,fasta.gz" multiple="true" label="Query genomes" help="One or more query FASTA files (gzip accepted)."/>
+        <param name="references" type="data" format="fasta,fasta.gz" multiple="true" label="Reference genomes" help="One or more reference FASTA files (gzip accepted)."/>
+        <expand macro="preset_param"/>
+        <section name="individual_seqs" title="Per-record comparison" expanded="false">
+            <param argument="--qi" type="boolean" truevalue="--qi" falsevalue="" checked="false" label="Treat each query sequence as its own genome" help="Use individual sequences in a multi-fasta query as separate genomes."/>
+            <param argument="--ri" type="boolean" truevalue="--ri" falsevalue="" checked="false" label="Treat each reference sequence as its own genome" help="Use individual sequences in a multi-fasta reference as separate genomes."/>
+        </section>
+        <param argument="-n" name="n_results" type="integer" value="" optional="true" min="1" label="Maximum results per query" help="Limit the number of reference matches reported per query. Leave empty for unlimited."/>
+        <expand macro="output_section"/>
+        <expand macro="algorithm_section"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}: ANI table"/>
+    </outputs>
+    <tests>
+        <!-- Defaults: a query with high enough AF passes the default min-af 15 filter. -->
+        <test expect_num_outputs="1">
+            <param name="queries" value="e_coli_K12_trim.fasta.gz" ftype="fasta.gz"/>
+            <param name="references" value="e_coli_EC590_alt.fasta.gz" ftype="fasta.gz"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="Ref_file"/>
+                    <has_text text="ANI"/>
+                    <has_text text="Align_fraction_ref"/>
+                    <has_text text="NZ_CP016182.2"/>
+                    <has_text text="NC_007779.1"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Lowered min-af plus detailed and CI options to exercise output options. -->
+        <test expect_num_outputs="1">
+            <param name="queries" value="e_coli_EC590_trim.fasta.gz" ftype="fasta.gz"/>
+            <param name="references" value="e_coli_K12_trim.fasta.gz" ftype="fasta.gz"/>
+            <section name="output_opts">
+                <param name="min_af" value="1"/>
+                <param name="ci" value="true"/>
+                <param name="detailed" value="true"/>
+                <param name="short_header" value="true"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="ANI"/>
+                    <has_text text="ANI_5_percentile"/>
+                    <has_text text="ANI_95_percentile"/>
+                    <has_text text="Ref_50_ctg_len"/>
+                    <has_text text="Total_bases_covered"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Multiple queries and references against each other. -->
+        <test expect_num_outputs="1">
+            <param name="queries" value="e_coli_EC590_trim.fasta.gz,e_coli_EC590_alt.fasta.gz" ftype="fasta.gz"/>
+            <param name="references" value="e_coli_K12_trim.fasta.gz" ftype="fasta.gz"/>
+            <section name="output_opts">
+                <param name="min_af" value="1"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="Ref_file"/>
+                    <has_text_matching expression="98\.\d+"/>
+                    <has_text_matching expression="99\.\d+"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Slow preset path. -->
+        <test expect_num_outputs="1">
+            <param name="queries" value="e_coli_K12_trim.fasta.gz" ftype="fasta.gz"/>
+            <param name="references" value="e_coli_EC590_alt.fasta.gz" ftype="fasta.gz"/>
+            <param name="preset" value="--slow"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="ANI"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**skani dist**
+
+Compute average nucleotide identity (ANI) and aligned fraction (AF) between query
+and reference genome assemblies. ``skani`` is fast and accurate for both complete
+genomes and metagenome-assembled genomes (MAGs), and is reliable for genome pairs
+above ~80% ANI.
+
+-----
+
+**Inputs**
+
+- One or more **query** FASTA files (``.fasta`` or ``.fasta.gz``).
+- One or more **reference** FASTA files (``.fasta`` or ``.fasta.gz``).
+
+Use the *Per-record comparison* section to compare each contig in a multi-FASTA as
+its own "genome" instead of treating the whole file as a single assembly.
+
+-----
+
+**Output**
+
+A tab-separated table with one row per reference/query pair that passes the
+``--min-af`` filter. Default columns:
+
+- ``Ref_file`` / ``Query_file`` -- file paths
+- ``ANI`` -- average nucleotide identity (%)
+- ``Align_fraction_ref`` / ``Align_fraction_query`` -- fraction of each genome covered
+- ``Ref_name`` / ``Query_name`` -- first record id from each file
+
+Enable *Detailed output* to add contig N50s and other per-comparison stats, or
+*Confidence intervals* to add bootstrap-derived ANI percentiles.
+
+-----
+
+**Tips**
+
+- For closely related genomes (>95% ANI) with high N50, the **Fast** preset is
+  ~2x faster with little loss of accuracy.
+- For viral or plasmid-sized inputs, use the **Small genomes** preset.
+- If you expect distant or fragmented genomes, the **Slow** preset gives more
+  accurate aligned-fraction estimates.
+]]></help>
+    <expand macro="citations"/>
+</tool>
