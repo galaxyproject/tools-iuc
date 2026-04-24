@@ -1,5 +1,27 @@
-<tool id="fastqc" name="FastQC" version="0.74+galaxy1" profile="23.0">
+<tool id="fastqc" name="FastQC" version="0.74+galaxy2" profile="23.0">
     <description>Read Quality reports</description>
+    <macros>
+        <token name="@LN_S@">
+        <![CDATA[
+            #if $input_file.ext.endswith('.gz'):
+                #set input_file_sl = $input_name + '.gz'
+            #elif $input_file.ext.endswith('.bz2'):
+                #set input_file_sl = $input_name + '.bz2'
+            #else
+                #set input_file_sl = $input_name
+            #end if
+
+            #if 'bam' in $input_file.ext:
+                #set format = 'bam'
+            #elif 'sam' in $input_file.ext:
+                #set format = 'sam'
+            #else
+                #set format = 'fastq'
+            #end if
+
+            ln -s '${input_file}' '${input_file_sl}' &&
+    ]]></token>
+    </macros>
     <xrefs>
         <xref type="bio.tools">fastqc</xref>
     </xrefs>
@@ -16,28 +38,25 @@
     </stdio>
     <command><![CDATA[
         #import re
-        #set input_name = re.sub('[^\w\-\s]', '_', str($input_file.element_identifier))
-
-        #if $input_file.ext.endswith('.gz'):
-            #set input_file_sl = $input_name + '.gz'
-        #elif $input_file.ext.endswith('.bz2'):
-            #set input_file_sl = $input_name + '.bz2'
+        #set $input_files=[]
+        #if str($input_type_select.input_type) == 'individually'
+            #set input_file = $input_type_select.input_file
+            #set input_name = re.sub('[^\w\-\s]', '_', str($input_file.element_identifier))
+            @LN_S@
+            #set $input_files += [$input_file_sl]
         #else
-            #set input_file_sl = $input_name
+            #set input_file = $input_type_select.input_col['forward']
+            #set input_name = re.sub('[^\w\-\s]', '_', str($input_type_select.input_col.element_identifier)) + '_forward'
+            @LN_S@
+            #set $input_files += [$input_file_sl]
+            #set input_file = $input_type_select.input_col['reverse']
+            #set input_name = re.sub('[^\w\-\s]', '_', str($input_type_select.input_col.element_identifier)) + '_reverse'
+            @LN_S@
+            #set $input_files += [$input_file_sl]
         #end if
-
-        #if 'bam' in $input_file.ext:
-            #set format = 'bam'
-        #elif 'sam' in $input_file.ext:
-            #set format = 'sam'
-        #else
-            #set format = 'fastq'
-        #end if
-
-        ln -s '${input_file}' '${input_file_sl}' &&
-        mkdir -p '${html_file.files_path}' &&
+        mkdir -p 'out_dir' &&
         fastqc
-            --outdir '${html_file.files_path}'
+            --outdir 'out_dir'
             #if $contaminants.dataset and str($contaminants) > ''
                 --contaminants '${contaminants}'
             #end if
@@ -59,15 +78,38 @@
             $nogroup
             --kmers $kmers
             -f '${format}'
-            '${input_file_sl}'
-
-        && cp '${html_file.files_path}'/*/fastqc_data.txt output.txt
-        && cp '${html_file.files_path}'/*\.html output.html
-
+            #for $input_file_sl in $input_files
+                '${input_file_sl}'
+            #end for
+        #if str($input_type_select.input_type) == 'individually'
+            && cp 'out_dir'/*/fastqc_data.txt 'output.txt'
+            && cp 'out_dir'/*\.html 'output.html'
+            && mkdir ${html_file.files_path}
+            && cp -r 'out_dir'/*/Images ${html_file.files_path}/
+        #else
+            #for $suffix in ['forward', 'reverse']
+                && cp 'out_dir'/*'${suffix}'_fastqc/fastqc_data.txt 'output_${suffix}.txt'
+                && cp 'out_dir'/*'${suffix}'_fastqc/fastqc_report.html 'output_${suffix}.html'
+                && mkdir ${html_files[$suffix].files_path}
+                && cp -r 'out_dir'/*'${suffix}'_fastqc/Images ${html_files[$suffix].files_path}/
+            #end for
+        #end if
     ]]></command>
     <inputs>
-        <param format="fastq,fastq.gz,fastq.bz2,bam,sam" name="input_file" type="data"
-               label="Raw read data from your current history" />
+        <conditional name="input_type_select">
+            <param name="input_type" type="select" label="How is your input data organized?">
+                <option value="individually">As separate datasets (single-end fastq or sam/bam)</option>
+                <option value="paired">As a paired collection of forward and reverse reads</option>
+            </param>
+            <when value="individually">
+                <param format="fastq,fastq.gz,fastq.bz2,bam,sam" name="input_file" type="data"
+                    label="Raw read data from your current history" />
+            </when>
+            <when value="paired">
+                <param format="fastq,fastq.gz,fastq.bz2" name="input_col" type="data_collection"
+                    collection_type="paired" label="Raw read data from your current history in paired collections"/>
+            </when>
+        </conditional>
         <param name="contaminants" type="data" format="tabular" optional="true" label="Contaminant list"
                help="tab delimited file with 2 columns: name and sequence.  For example: Illumina Small RNA RT Primer CAAGCAGAAGACGGCATACGA" />
         <param argument="--adapters" type="data" format="tabular" optional="true" label="Adapter list"
@@ -83,35 +125,59 @@
                label="Length of Kmer to look for" help="Note: the Kmer test is disabled and needs to be enabled using a custom Submodule and limits file"/>
     </inputs>
     <outputs>
-        <data format="html" name="html_file" from_work_dir="output.html" label="${tool.name} on ${on_string}: Webpage" />
-        <data format="txt" name="text_file"  from_work_dir="output.txt" label="${tool.name} on ${on_string}: RawData" />
+        <data format="html" name="html_file" from_work_dir="output.html" label="${tool.name} on ${on_string}: Webpage" >
+            <filter>input_type_select['input_type'] == 'individually'</filter>
+        </data>
+        <data format="txt" name="text_file"  from_work_dir="output.txt" label="${tool.name} on ${on_string}: RawData" >
+            <filter>input_type_select['input_type'] == 'individually'</filter>
+        </data>
+        <collection name="html_files" format="html" type="paired" label="${tool.name} on ${on_string}: Webpages">
+            <data name="forward" from_work_dir="output_forward.html" />
+            <data name="reverse" from_work_dir="output_reverse.html" />
+            <filter>input_type_select['input_type'] == 'paired'</filter>
+        </collection>
+        <collection name="text_files" format="txt" type="paired" label="${tool.name} on ${on_string}: RawData text files">
+            <data name="forward" from_work_dir="output_forward.txt" />
+            <data name="reverse" from_work_dir="output_reverse.txt" />
+            <filter>input_type_select['input_type'] == 'paired'</filter>
+        </collection>
     </outputs>
     <tests>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
             <output name="html_file" file="fastqc_report.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data.txt" ftype="txt"/>
         </test>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
             <param name="contaminants" value="fastqc_contaminants.txt" ftype="tabular" />
             <output name="html_file" file="fastqc_report_contaminants.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data_contaminants.txt" ftype="txt"/>
         </test>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
             <param name="adapters" value="fastqc_adapters.txt" ftype="tabular" />
             <output name="html_file" file="fastqc_report_adapters.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data_adapters.txt" ftype="txt"/>
         </test>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
             <param name="limits" value="fastqc_customlimits.txt" ftype="txt" />
             <output name="html_file" file="fastqc_report_customlimits.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data_customlimits.txt" ftype="txt"/>
         </test>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" ftype="fastq" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
             <param name="kmers" value="3" />
             <param name="limits" value="fastqc_customlimits.txt" ftype="txt" />
             <output name="html_file" file="fastqc_report_kmer.html" ftype="html" lines_diff="2"/>
@@ -120,25 +186,62 @@
                 <has_text text="--kmers 3"/>
             </assert_command>
         </test>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
             <param name="min_length" value="108" />
             <output name="html_file" file="fastqc_report_min_length.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data_min_length.txt" ftype="txt"/>
         </test>
-        <test>
-            <param name="input_file" value="1000trimmed.fastq" ftype="fastq" />
-            <param name="nogroup" value="--nogroup" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="1000trimmed.fastq" />
+            </conditional>
+            <param name="nogroup" value="true" />
             <output name="html_file" file="fastqc_report_nogroup.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data_nogroup.txt" ftype="txt"/>
             <assert_command>
                 <has_text text="--nogroup"/>
             </assert_command>
         </test>
-        <test>
-            <param name="input_file" value="hisat_output_1.bam" ftype="bam" />
+        <test expect_num_outputs="2">
+            <conditional name="input_type_select">
+                <param name="input_file" value="hisat_output_1.bam" ftype="bam" />
+            </conditional>
             <output name="html_file" file="fastqc_report_hisat.html" ftype="html" lines_diff="2"/>
             <output name="text_file" file="fastqc_data_hisat.txt" ftype="txt"/>
+        </test>
+        <test expect_num_outputs="6">
+            <conditional name="input_type_select">
+                <param name="input_type" value="paired"/>
+                <param name="input_col">
+                    <collection type="paired" name="1000trimmed">
+                        <element name="forward" value="1000trimmed.fastq" />
+                        <element name="reverse" value="1000trimmed.fastq" />
+                    </collection>
+                </param>
+            </conditional>
+            <output_collection name="html_files">
+                <element name="forward">
+                    <assert_contents>
+                        <has_text text='1000trimmed_forward FastQC Report'/>
+                    </assert_contents>
+                </element>
+                <element name="reverse">
+                    <assert_contents>
+                        <has_text text='1000trimmed_reverse FastQC Report'/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="text_files">
+                <element name="forward" value="fastqc_data_forward.txt"/>
+                <element name="reverse">
+                    <assert_contents>
+                    <has_text text="1000trimmed_reverse" />
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
@@ -204,7 +307,7 @@ The tool produces a basic text and a HTML output file that contain all of the re
 - Kmer Content
 
 All except Basic Statistics and Overrepresented sequences are plots.
- .. _FastQC: http://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+ .. _FastQC: https://www.bioinformatics.babraham.ac.uk/projects/fastqc/
  .. _Picard-tools: https://broadinstitute.github.io/picard/
     ]]></help>
     <citations>
@@ -214,7 +317,7 @@ All except Basic Statistics and Overrepresented sequences are plots.
             keywords = {bioinformatics, ngs, qc},
             priority = {2},
             title = {{FastQC A Quality Control tool for High Throughput Sequence Data}},
-            url = {http://www.bioinformatics.babraham.ac.uk/projects/fastqc/}
+            url = {https://www.bioinformatics.babraham.ac.uk/projects/fastqc/}
         }
         </citation>
     </citations>
