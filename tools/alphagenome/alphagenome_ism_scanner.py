@@ -9,9 +9,11 @@ server-side chunking and parallelism.
 
 import argparse
 import csv
+import json
 import logging
 import os
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -133,9 +135,6 @@ def _load_mock_ism_results(path):
     consumed by _write_region_results so CI can exercise the vectorized code
     path against controlled multi-region / NaN / missing-quantile cases.
     """
-    import json
-    from types import SimpleNamespace
-
     class _MockAd:
         def __init__(self, obs, var, X, quantiles, variant):
             self.obs = pd.DataFrame(obs)

@@ -82,6 +82,7 @@ def run(args):
 
     stats = {"total": 0, "scored": 0, "errors": 0, "skipped": 0}
     row_count = 0
+    output_columns = None
     wrote_header = False
 
     with open(args.output, "w", newline="") as outfile:
@@ -123,6 +124,14 @@ def run(args):
                     )
 
                     df = tidy_scores(scores)
+                    columns = list(df.columns)
+                    if output_columns is None:
+                        output_columns = columns
+                    elif columns != output_columns:
+                        raise ValueError(
+                            "tidy_scores output columns changed from "
+                            f"{output_columns} to {columns}"
+                        )
                     df.to_csv(
                         outfile,
                         sep="\t",
