@@ -27,7 +27,23 @@ def _col_as_list(df, col):
     return [""] * len(df)
 
 
-def _write_region_results(outfile, name, results, scorers_arg):
+ISM_OUTPUT_COLUMNS = [
+    "region", "position", "ref_base", "alt_base",
+    "gene_id", "gene_name", "gene_type",
+    "scorer", "track_name", "ontology_curie",
+    "raw_score", "quantile_score",
+]
+
+
+def _write_chunked_tsv(outfile, columns):
+    df = pd.DataFrame(columns)
+    df.to_csv(outfile, sep="\t", header=False, index=False,
+              float_format="%.6f", na_rep="",
+              lineterminator="\r\n")
+    return len(df)
+
+
+def _write_region_results(outfile, name, results, scorers_arg, flush_rows=200_000):
     """Post-process ISM results for one region and stream TSV rows to outfile.
 
     Returns the number of non-NaN rows written. obs/var metadata is identical
@@ -35,8 +51,23 @@ def _write_region_results(outfile, name, results, scorers_arg):
     then flatten non-NaN cells into a DataFrame and let pandas' C path handle
     CSV formatting.
     """
+    chunks = {col: [] for col in ISM_OUTPUT_COLUMNS}
+    pending_rows = 0
     per_scorer_meta = {}
     row_count = 0
+
+    def flush_pending():
+        nonlocal pending_rows, row_count
+        if pending_rows == 0:
+            return
+        row_count += _write_chunked_tsv(
+            outfile,
+            {col: np.concatenate(values) for col, values in chunks.items()},
+        )
+        for values in chunks.values():
+            values.clear()
+        pending_rows = 0
+
     for var_results in results:
         for scorer_idx, ad in enumerate(var_results):
             variant_obj = ad.uns["variant"]
@@ -74,27 +105,23 @@ def _write_region_results(outfile, name, results, scorers_arg):
             else:
                 q_flat = np.full(gi.size, np.nan)
 
-            df = pd.DataFrame({
-                "region": name,
-                "position": pos,
-                "ref_base": ref_base,
-                "alt_base": alt_base,
-                "gene_id": gene_ids[gi],
-                "gene_name": gene_names[gi],
-                "gene_type": gene_types[gi],
-                "scorer": scorer_name,
-                "track_name": track_names[ti],
-                "ontology_curie": track_curies[ti],
-                "raw_score": raw_scores[gi, ti],
-                "quantile_score": q_flat,
-            })
-            # lineterminator="\r\n" matches csv.writer's default (used for the
-            # header) so output stays byte-identical to the pre-vectorization
-            # baseline across all rows.
-            df.to_csv(outfile, sep="\t", header=False, index=False,
-                      float_format="%.6f", na_rep="",
-                      lineterminator="\r\n")
-            row_count += len(df)
+            size = gi.size
+            chunks["region"].append(np.full(size, name, dtype=object))
+            chunks["position"].append(np.full(size, pos))
+            chunks["ref_base"].append(np.full(size, ref_base, dtype=object))
+            chunks["alt_base"].append(np.full(size, alt_base, dtype=object))
+            chunks["gene_id"].append(gene_ids[gi])
+            chunks["gene_name"].append(gene_names[gi])
+            chunks["gene_type"].append(gene_types[gi])
+            chunks["scorer"].append(np.full(size, scorer_name, dtype=object))
+            chunks["track_name"].append(track_names[ti])
+            chunks["ontology_curie"].append(track_curies[ti])
+            chunks["raw_score"].append(raw_scores[gi, ti])
+            chunks["quantile_score"].append(q_flat)
+            pending_rows += size
+            if pending_rows >= flush_rows:
+                flush_pending()
+    flush_pending()
     return row_count
 
 
