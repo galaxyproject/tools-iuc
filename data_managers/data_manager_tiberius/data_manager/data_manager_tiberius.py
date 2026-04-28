@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
+import sys
 import argparse
 import json
 import os
 import shutil
 import tarfile
-import sys
 import tempfile
 from pathlib import Path
 
