@@ -172,6 +172,7 @@ def _load_mock_ism_results(path):
         regions.append((region_data["name"], region_results))
     return regions, data.get("scorers", [])
 
+
 __version__ = "0.6.1"
 
 ORGANISM_MAP = {
