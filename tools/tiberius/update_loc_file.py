@@ -33,10 +33,6 @@ def get_version(macros_xml):
 
 def pull_repo(tool_version):
 
-    # testing
-    tempdir = Path("/tmp/tmp.h2rizqIzM5")
-    return tempdir
-
     git = which("git")
 
     tempdir = tempfile.mkdtemp()
@@ -92,7 +88,7 @@ def main():
     model_dicts = [get_model_dict(x) for x in yaml_files]
 
     for model_dict in model_dicts:
-        model_dict["name"] = make_display_name(model_dict)
+        model_dict["value"] = make_display_name(model_dict)
         model_dict["container_version"] = tool_version
 
     with open(_LOC_FILE_PATH, "wt") as f:
