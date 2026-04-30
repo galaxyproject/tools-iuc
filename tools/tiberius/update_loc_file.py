@@ -72,7 +72,7 @@ def make_display_name(model_dict):
     model_type = [x for x in model_type if x is not None]
 
     if model_type:
-        return base_name + f" ({", ".join(model_type)})"
+        return base_name + f' ({", ".join(model_type)})'
 
     return base_name
 
@@ -93,7 +93,7 @@ def main():
 
     with open(_LOC_FILE_PATH, "wt") as f:
         loc_file_keys = sorted(set().union(*(d.keys() for d in model_dicts)))
-        f.write(f"#{"\t".join(loc_file_keys)}\n")
+        f.write(f'#{"\t".join(loc_file_keys)}\n')
         fc = DictWriter(f, fieldnames=loc_file_keys, delimiter="\t")
         fc.writerows(model_dicts)
 
