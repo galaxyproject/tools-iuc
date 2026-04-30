@@ -93,7 +93,8 @@ def main():
 
     with open(_LOC_FILE_PATH, "wt") as f:
         loc_file_keys = sorted(set().union(*(d.keys() for d in model_dicts)))
-        f.write(f'#{"\t".join(loc_file_keys)}\n')
+        header = "\t".join(loc_file_keys)
+        f.write(f"#{header}\n")
         fc = DictWriter(f, fieldnames=loc_file_keys, delimiter="\t")
         fc.writerows(model_dicts)
 
