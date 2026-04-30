@@ -5,6 +5,7 @@ import subprocess as sp
 from ftplib import FTP
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, Set
 
 import pandas as pd
 
@@ -20,11 +21,13 @@ class GetAmrFinderPlusDataManager:
         db_name="amrfinderplus-db",
         amrfinderplus_version="latest",
         date_version=None,
+        known_databases: Optional[Set[str]] = None,
     ):
         self.data_table_name = amrfinderplus_database
         self._db_name = db_name
         self._amrfinderplus_version = amrfinderplus_version
         self._amrfinderplus_date_version = date_version
+        self._known_databases = known_databases or set()
         self.data_table_entry = None
         self.amrfinderplus_table_list = None
 
@@ -49,6 +52,11 @@ class GetAmrFinderPlusDataManager:
         amrfinderplus_name = (
             f"V{self._amrfinderplus_version}" f"-{self._amrfinderplus_date_version}"
         )
+        # Galaxy data table values are unique row identifiers. If this value is
+        # already present, do not emit another row for the same database.
+        if amrfinderplus_value in self._known_databases:
+            self.amrfinderplus_table_list["data_tables"][self.data_table_name] = []
+            return self.amrfinderplus_table_list
         data_info = dict(
             value=amrfinderplus_value,
             name=amrfinderplus_name,
@@ -79,9 +87,10 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         date_version=None,
         amrfinderplus_db_path=None,
         test_mode=False,
+        known_databases: Optional[Set[str]] = None,
     ):
 
-        super().__init__()
+        super().__init__(known_databases=known_databases)
         self.json_file_path = json_file_path
         self._output_dir = output_dir
         self._ncbi_ftp_url = ncbi_url
@@ -97,6 +106,17 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         self.species_list = None
         self.test_mode = test_mode
         self.amrfinderplus_db_path = amrfinderplus_db_path
+
+    @property
+    def amrfinderplus_value(self) -> str:
+        return (
+            f"amrfinderplus_V{self._amrfinderplus_version}"
+            f"_{self._amrfinderplus_date_version}"
+        )
+
+    @property
+    def is_known_database(self) -> bool:
+        return self.amrfinderplus_value in self._known_databases
 
     @staticmethod
     def subprocess_cmd(command, *args):
@@ -116,6 +136,10 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         """
         Download the amrfinderplus database from the ncbi ftp server
         """
+        # Avoid overwriting files or appending duplicate .loc rows when this
+        # database value is already registered in Galaxy.
+        if self.is_known_database:
+            return
         self.amrfinderplus_db_path = f"{self._output_dir}/{self._db_name}"
         os.makedirs(self.amrfinderplus_db_path)
 
@@ -170,6 +194,8 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         """
         Make the hmm profile using the AMR.LIB file previously download
         """
+        if self.is_known_database:
+            return
         hmm_file = Path(f"{self.amrfinderplus_db_path}/AMR.LIB")
         if Path.exists(hmm_file) and self.test_mode is False:
             self.subprocess_cmd("hmmpress", "-f", hmm_file)
@@ -208,6 +234,8 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         """
         Index fasta file for blast
         """
+        if self.is_known_database:
+            return
         self.extract_filelist_makeblast()
         if self._amrfinderplus_version == "3.12":
             nucl_file_db_list = [
@@ -301,6 +329,11 @@ def parse_arguments():
         action="store_true",
         help="option to test the script with an lighted database",
     )
+    arg_parser.add_argument(
+        "--known_databases",
+        default="",
+        help="comma-separated list of installed amrfinderplus database values",
+    )
     return arg_parser.parse_args()
 
 
@@ -311,6 +344,7 @@ def main():
         date_version=all_args.db_date,
         json_file_path=all_args.data_manager_json,
         test_mode=all_args.test,
+        known_databases=set(filter(None, all_args.known_databases.split(","))),
     )
     amrfinderplus_download.read_json_input_file()
     amrfinderplus_download.download_amrfinderplus_db()
