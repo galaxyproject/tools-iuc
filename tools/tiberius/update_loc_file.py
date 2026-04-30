@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
-from csv import DictWriter
-from pathlib import Path
-from shutil import which
-from subprocess import Popen, PIPE
-from yaml import safe_load
+
 import argparse
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
+from csv import DictWriter
+from pathlib import Path
+from shutil import which
+from subprocess import PIPE, Popen
+
+from yaml import safe_load
 
 _TIBERIUS_REPO = "https://github.com/Gaius-Augustus/Tiberius"
 _YAML_KEYS = ["target_species", "tiberius_version", "date", "softmasking", "clamsa"]
