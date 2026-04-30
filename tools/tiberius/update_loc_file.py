@@ -63,7 +63,7 @@ def parse_arguments():
 
 def make_display_name(model_dict):
     base_name = (
-        model_dict["target_species"] + f" version {model_dict["tiberius_version"]}"
+        model_dict["target_species"] + f' version {model_dict["tiberius_version"]}'
     )
     model_type = [
         "Soft-masked" if model_dict["softmasking"] else None,
