@@ -128,9 +128,13 @@ class DownloadAmrFinderPlusDatabase(GetAmrFinderPlusDataManager):
         """
         cmd = [command]
         [cmd.append(i) for i in args]
-        proc = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
+        proc = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE, text=True)
         if proc.returncode != 0:
-            print(f"Error type {proc.returncode} with : \n {proc}")
+            raise RuntimeError(
+                f"Command failed with exit code {proc.returncode}: {' '.join(cmd)}\n"
+                f"stdout:\n{proc.stdout}\n"
+                f"stderr:\n{proc.stderr}"
+            )
 
     def download_amrfinderplus_db(self):
         """
