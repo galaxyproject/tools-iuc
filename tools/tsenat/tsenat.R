@@ -27,10 +27,17 @@ error_exit <- function(message, status = 1) {
 
 # Parse command-line arguments
 option_list <- list(
-    make_option(c("--salmon_dir"),
+    make_option(c("--salmon_files"),
         action = "store",
-        dest = "salmon_dir",
-        help = "Path to Salmon output directory (contains sample subdirs with quant.sf files)"
+        dest = "salmon_files",
+        default = "",
+        help = "Comma-separated list of Salmon .sf quantification files (file names must match sample column in metadata)"
+    ),
+    make_option(c("--salmon_collection"),
+        action = "store",
+        dest = "salmon_collection",
+        default = "",
+        help = "Path to dataset collection containing Salmon .sf files (element names must match sample column in metadata)"
     ),
     make_option(c("--metadata"),
         action = "store",
@@ -408,9 +415,6 @@ parser <- OptionParser(option_list = option_list)
 args <- parse_args(parser)
 
 # Validate required inputs
-if (is.null(args$salmon_dir) || !dir.exists(args$salmon_dir)) {
-    error_exit("Required input '--salmon_dir' (Salmon output directory with quant.sf files) not found or not specified")
-}
 if (is.null(args$metadata) || !file.exists(args$metadata)) {
     error_exit("Required input file 'metadata' not found or not specified")
 }
@@ -418,9 +422,41 @@ if (is.null(args$annotation) || !file.exists(args$annotation)) {
     error_exit("Required input file 'annotation' not found or not specified")
 }
 
-# Validate Salmon directory (build_analysis will handle all loading)
-if (!dir.exists(args$salmon_dir)) {
-    error_exit(paste("Salmon directory not found:", args$salmon_dir))
+# Parse salmon files from either individual files or collection
+salmon_files <- NULL
+
+if (!is.null(args$salmon_files) && args$salmon_files != "") {
+    # Parse comma-separated salmon files
+    salmon_files <- trimws(unlist(strsplit(args$salmon_files, ",")))
+    if (length(salmon_files) == 0) {
+        error_exit("No salmon files specified")
+    }
+    
+    # Validate all salmon files exist
+    missing_files <- salmon_files[!file.exists(salmon_files)]
+    if (length(missing_files) > 0) {
+        error_exit(paste("The following salmon files not found:", paste(missing_files, collapse = ", ")))
+    }
+} else if (!is.null(args$salmon_collection) && args$salmon_collection != "") {
+    # Handle dataset collection
+    if (!dir.exists(args$salmon_collection)) {
+        error_exit(paste("Salmon collection directory not found:", args$salmon_collection))
+    }
+    
+    # List all files in the collection
+    collection_files <- list.files(args$salmon_collection, 
+                                   pattern = "\\.sf$", 
+                                   full.names = TRUE,
+                                   recursive = FALSE)
+    
+    if (length(collection_files) == 0) {
+        error_exit(paste("No .sf files found in collection:", args$salmon_collection))
+    }
+    
+    salmon_files <- collection_files
+    cat("Found", length(salmon_files), "salmon files in collection\n")
+} else {
+    error_exit("Required input: either '--salmon_files' (individual files) or '--salmon_collection' (dataset collection) must be specified")
 }
 
 tryCatch(
@@ -536,22 +572,47 @@ tryCatch(
 
 
         # ============================================================================
-        # STEP 3: Build analysis object
+        # STEP 3: Prepare salmon directory structure from individual files
+        # ============================================================================
+        
+        # Create temporary directory for salmon files
+        salmon_temp_dir <- tempfile(pattern = "salmon_", tmpdir = ".")
+        dir.create(salmon_temp_dir, showWarnings = FALSE)
+        
+        # Process each salmon file
+        cat("Processing salmon files...\n")
+        for (salmon_file in salmon_files) {
+            # Extract sample name from file name (remove .sf extension)
+            sample_name <- sub("\\.sf$", "", basename(salmon_file))
+            
+            # Create sample subdirectory
+            sample_dir <- file.path(salmon_temp_dir, sample_name)
+            dir.create(sample_dir, showWarnings = FALSE)
+            
+            # Copy file as quant.sf
+            file.copy(salmon_file, file.path(sample_dir, "quant.sf"), overwrite = TRUE)
+            cat("  Linked:", sample_name, "\n")
+        }
+        
+        cat("Salmon directory structure created at:", salmon_temp_dir, "\n")
+        
+        # ============================================================================
+        # STEP 4: Build analysis object
         # ============================================================================
 
-        # Note: salmon_dir is passed directly; build_analysis() will auto-load:
+        # Note: salmon_temp_dir is passed; build_analysis() will auto-load:
         #   - readcounts (from NumReads column)
         #   - tpm (from TPM column)
         #   - effective_length (from EffectiveLength column)
         analysis <- build_analysis(
-            salmon_dir = args$salmon_dir,
+            salmon_dir = salmon_temp_dir,
             metadata = metadata,
             tx2gene = args$annotation,
             config = config
         )
 
         # ============================================================================
-        # STEP 4: Run complete TSENAT pipeline (includes filtering internally)
+        # STEP 5: Run complete TSENAT pipeline (includes filtering internally)
         # ============================================================================
 
         # Run TSENAT - handles all output generation (tables + plots) automatically
@@ -561,9 +622,13 @@ tryCatch(
             save_output = TRUE,
             output_format = "tsv"
         )
+        
+        # Clean up temporary directory
+        unlink(salmon_temp_dir, recursive = TRUE)
+
 
         # ============================================================================
-        # STEP 5: Save analysis object (optional)
+        # STEP 6: Save analysis object (optional)
         # ============================================================================
         if (args$save_intermediates) {
             saveRDS(result,

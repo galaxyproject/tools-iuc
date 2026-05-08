@@ -21,13 +21,21 @@ echo $(R --version | grep version | head -n 1) && Rscript -e "library('TSENAT');
 
     <command detect_errors="exit_code"><![CDATA[
 Rscript '${__tool_directory__}/tsenat.R'
-  --salmon_dir '${salmon_dir}'
+#if str($salmon_input.input_type) == 'individual'
+#set $files = []
+#for $f in $salmon_input.salmon_files
+#set $dummy = $files.append(str($f))
+#end for
+  --salmon_files '${",".join($files)}'
+#else
+  --salmon_collection '${salmon_input.salmon_collection}'
+#end if
   --metadata '${metadata}'
   --annotation '${annotation}'
   --sample_col '${sample_col}'
   --condition_col '${condition_col}'
-  --subject_col '${subject_col}'
 #if str($paired_design.paired) == 'yes'
+  --subject_col '${paired_design.subject_col}'
   --paired
 #end if
   --control '${control}'
@@ -98,9 +106,9 @@ Rscript '${__tool_directory__}/tsenat.R'
   --fdr_threshold $statistical_thresholds.fdr_threshold
   --significance_threshold $statistical_thresholds.significance_threshold
   --divergence_ci $divergence_testing.divergence_ci
-  --nthreads ${GALAXY_SLOTS:-1}
+  --nthreads "\${GALAXY_SLOTS:-1}"
   --output_prefix 'tsenat'
-#if str($advanced_options.enabled) == 'yes' && $advanced_options.save_intermediates
+#if str($advanced_options.enabled) == 'yes' and $advanced_options.save_intermediates
   --save_intermediates
 #end if
   --output_dir './'
@@ -108,10 +116,23 @@ Rscript '${__tool_directory__}/tsenat.R'
     ]]></command>
 
     <inputs>
-        <param name="salmon_dir" type="data" format="directory" label="Salmon quantification directory"
-            help="Directory containing Salmon quantification output with subdirectories for each sample, each containing a quant.sf file (Salmon output format). Sample directory names must exactly match the 'sample' column in metadata file (case-sensitive)."/>
+        <conditional name="salmon_input">
+            <param name="input_type" type="select" label="Salmon input format"
+                help="Choose how to provide Salmon quantification files: individual files or a dataset collection">
+                <option value="individual" selected="true">Individual files</option>
+                <option value="collection">Dataset collection</option>
+            </param>
+            <when value="individual">
+                <param name="salmon_files" type="data" format="tabular" multiple="true" label="Salmon quantification files (.sf)"
+                    help="Select individual Salmon .sf quantification files. File names must match the 'sample' column in metadata (e.g., SRR14800475.sf for sample SRR14800475). Format: tab-delimited text files with columns: Name, Length, EffectiveLength, TPM, NumReads."/>
+            </when>
+            <when value="collection">
+                <param name="salmon_collection" type="data_collection" collection_type="list" label="Salmon dataset collection"
+                    help="Select a dataset collection containing Salmon .sf files. Element names must match the 'sample' column in metadata."/>
+            </when>
+        </conditional>
         <param name="metadata" type="data" format="tabular,tsv" label="Sample metadata"
-            help="TSV file with required columns: 'sample' (sample IDs matching Salmon directories), 'condition' (experimental conditions). Optional column for paired designs: 'subject_col' or 'paired_samples' (groups paired/repeated samples). Example: sample\tcondition\tpaired_samples; SRR14800481\tnormal\tA; SRR14800479\ttumor\tA"/>
+            help="TSV file with required columns: 'sample' (sample IDs matching the names in salmon .sf files), 'condition' (experimental conditions). Optional column for paired designs: 'subject_col' or 'paired_samples' (groups paired/repeated samples). Example: sample\tcondition\tpaired_samples; SRR14800481\tnormal\tA; SRR14800479\ttumor\tA"/>
         <param name="annotation" type="data" format="gff3,gff,gff3.gz" label="Transcript annotation"
             help="GFF3 annotation file with transcript ID to gene ID mapping (e.g., GENCODE GFF3 filtered to your genes of interest). Used to group transcripts by gene and map annotation information."/>
 
@@ -373,7 +394,110 @@ Rscript '${__tool_directory__}/tsenat.R'
     </outputs>
 
     <tests>
-    <!-- Waiting for conda package -->
+        <!-- Basic test - minimal parameters -->
+        <test expect_num_outputs="17">
+            <conditional name="salmon_input">
+                <param name="input_type" value="individual"/>
+                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+            </conditional>
+            <param name="metadata" value="metadata.tsv"/>
+            <param name="annotation" value="annotation.gff3.gz"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
+            <param name="control" value="normal"/>
+            <conditional name="paired_design">
+                <param name="paired" value="yes"/>
+                <param name="subject_col" value="paired_samples"/>
+            </conditional>
+            <!-- Tabular outputs should exist and have content -->
+            <output name="diversity_results">
+                <assert_contents>
+                    <has_text text="gene_id" n="1"/>
+                </assert_contents>
+            </output>
+            <output name="sait_results">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="srh_results">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="assumptions_check">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+            <!-- PNG plots should exist and have minimum size -->
+            <output name="qspectrum_plot">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="sait_plot">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="influence_heatmap">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="divergence_distribution_plot">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="divergence_spectrum_plot">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="divergence_spectrum_plot_top">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="top_transcripts_plot">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <!-- Additional tabular outputs -->
+            <output name="concordance_results">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="effect_sizes">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="divergence_results">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="jis_switching">
+                <assert_contents>
+                    <has_n_lines n="0" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="jis_switching_transcripts">
+                <assert_contents>
+                    <has_n_lines n="0" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="m_estimate_qc">
+                <assert_contents>
+                    <has_n_lines n="1" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
 
     <help><![CDATA[
