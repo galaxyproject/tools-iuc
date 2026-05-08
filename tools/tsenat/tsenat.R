@@ -10,11 +10,40 @@
 ### Required Packages: optparse, TSENAT, S4Vectors
 ################################################################################
 
-suppressPackageStartupMessages({
-    library("optparse")
-    library("TSENAT")
-    library("S4Vectors")
+# Immediate output - if this fails, Galaxy will see it
+cat("[TSENAT] Script starting...\n", file=stderr())
+cat("[TSENAT] Script starting...\n")
+
+# Force output immediately (no buffering)
+options(warn = 1)
+
+cat("=== TSENAT Galaxy Wrapper Starting ===\n")
+cat("R version:", paste(R.version$major, R.version$minor, sep="."), "\n")
+flush.console()
+
+tryCatch({
+    suppressPackageStartupMessages({
+        cat("Loading optparse...\n")
+        flush.console()
+        library("optparse")
+        
+        cat("Loading TSENAT...\n")
+        flush.console()
+        library("TSENAT")
+        
+        cat("Loading S4Vectors...\n")
+        flush.console()
+        library("S4Vectors")
+    })
+}, error = function(e) {
+    cat("ERROR during library loading:\n", file=stderr())
+    cat(conditionMessage(e), "\n", file=stderr())
+    cat(traceback(), file=stderr())
+    quit(status = 1)
 })
+
+cat("All libraries loaded successfully\n")
+flush.console()
 
 # Set locale for consistent output
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
@@ -27,17 +56,11 @@ error_exit <- function(message, status = 1) {
 
 # Parse command-line arguments
 option_list <- list(
-    make_option(c("--salmon_files"),
+    make_option(c("--salmon_dir"),
         action = "store",
-        dest = "salmon_files",
+        dest = "salmon_dir",
         default = "",
-        help = "Comma-separated list of Salmon .sf quantification files (file names must match sample column in metadata)"
-    ),
-    make_option(c("--salmon_collection"),
-        action = "store",
-        dest = "salmon_collection",
-        default = "",
-        help = "Path to dataset collection containing Salmon .sf files (element names must match sample column in metadata)"
+        help = "Path to directory containing Salmon quantification subdirectories (one per sample, each with quant.sf file). Sample folder names must match the 'sample' column in metadata."
     ),
     make_option(c("--metadata"),
         action = "store",
@@ -408,55 +431,61 @@ option_list <- list(
         dest = "scale_method",
         default = "mad",
         help = "M-estimator scale method: 'mad', 'proposal2', or 's-estimator' [default: %default]"
+    ),
+    make_option(c("--skip_unmapped"),
+        action = "store_true",
+        dest = "skip_unmapped",
+        default = FALSE,
+        help = "Skip unmapped transcripts (not found in annotation). If FALSE and unmapped transcripts exist, analysis will fail. [default: %default]"
     )
 )
 
 parser <- OptionParser(option_list = option_list)
+cat("Parsing command-line arguments...\n")
+flush.console()
 args <- parse_args(parser)
 
-# Validate required inputs
-if (is.null(args$metadata) || !file.exists(args$metadata)) {
-    error_exit("Required input file 'metadata' not found or not specified")
-}
-if (is.null(args$annotation) || !file.exists(args$annotation)) {
-    error_exit("Required input file 'annotation' not found or not specified")
-}
+cat("Arguments parsed successfully\n")
+cat("Salmon directory:", args$salmon_dir, "\n")
+cat("Metadata:", args$metadata, "\n")
+cat("Annotation:", args$annotation, "\n")
+cat("Output directory:", args$output_dir, "\n")
+flush.console()
 
-# Parse salmon files from either individual files or collection
-salmon_files <- NULL
 
-if (!is.null(args$salmon_files) && args$salmon_files != "") {
-    # Parse comma-separated salmon files
-    salmon_files <- trimws(unlist(strsplit(args$salmon_files, ",")))
-    if (length(salmon_files) == 0) {
-        error_exit("No salmon files specified")
+# Validate Salmon directory structure
+{
+    # Validate required inputs
+    if (is.null(args$metadata) || !file.exists(args$metadata)) {
+        error_exit("Required input file 'metadata' not found or not specified")
+    }
+    if (is.null(args$annotation) || !file.exists(args$annotation)) {
+        error_exit("Required input file 'annotation' not found or not specified")
+    }
+    if (is.null(args$salmon_dir) || args$salmon_dir == "") {
+        error_exit("Required input: --salmon_dir (path to Salmon output directory) must be specified")
+    }
+    if (!dir.exists(args$salmon_dir)) {
+        error_exit(paste("Salmon directory not found:", args$salmon_dir))
     }
     
-    # Validate all salmon files exist
-    missing_files <- salmon_files[!file.exists(salmon_files)]
-    if (length(missing_files) > 0) {
-        error_exit(paste("The following salmon files not found:", paste(missing_files, collapse = ", ")))
-    }
-} else if (!is.null(args$salmon_collection) && args$salmon_collection != "") {
-    # Handle dataset collection
-    if (!dir.exists(args$salmon_collection)) {
-        error_exit(paste("Salmon collection directory not found:", args$salmon_collection))
+    # Validate directory structure - should contain sample subdirectories with quant.sf files
+    sample_dirs <- list.dirs(args$salmon_dir, full.names = TRUE, recursive = FALSE)
+    if (length(sample_dirs) == 0) {
+        error_exit(paste("No sample subdirectories found in:", args$salmon_dir, 
+                        "\nExpected structure: salmon_dir/sample_name/quant.sf"))
     }
     
-    # List all files in the collection
-    collection_files <- list.files(args$salmon_collection, 
-                                   pattern = "\\.sf$", 
-                                   full.names = TRUE,
-                                   recursive = FALSE)
-    
-    if (length(collection_files) == 0) {
-        error_exit(paste("No .sf files found in collection:", args$salmon_collection))
+    # Check that each sample has a quant.sf file
+    quant_files <- list.files(sample_dirs, pattern = "quant\\.sf$", full.names = TRUE, recursive = FALSE)
+    if (length(quant_files) != length(sample_dirs)) {
+        error_exit(paste("Not all sample directories contain quant.sf files.",
+                        "Found", length(quant_files), "quant.sf files in", length(sample_dirs), "sample directories"))
     }
     
-    salmon_files <- collection_files
-    cat("Found", length(salmon_files), "salmon files in collection\n")
-} else {
-    error_exit("Required input: either '--salmon_files' (individual files) or '--salmon_collection' (dataset collection) must be specified")
+    cat("Salmon directory validation passed\n")
+    cat("Found", length(sample_dirs), "sample subdirectories\n")
+    cat("All samples have quant.sf files\n")
 }
 
 tryCatch(
@@ -464,19 +493,30 @@ tryCatch(
         # ============================================================================
         # STEP 1: Load and validate input data
         # ============================================================================
+        cat("Loading metadata from:", args$metadata, "\n")
         metadata <- read.table(args$metadata,
             header = TRUE,
             sep = "\t",
             stringsAsFactors = FALSE
         )
+        cat("Metadata loaded: ", nrow(metadata), "samples x", ncol(metadata), "columns\n")
+        
+        # Show column names for debugging
+        cat("Metadata columns:", paste(colnames(metadata), collapse = ", "), "\n")
 
         # Validate required columns exist
         if (!args$sample_col %in% colnames(metadata)) {
-            stop("Metadata must have '", args$sample_col, "' column (sample column)")
+            stop("Metadata must have '", args$sample_col, "' column (sample column)\n",
+                 "Available columns: ", paste(colnames(metadata), collapse = ", "))
         }
         if (!args$condition_col %in% colnames(metadata)) {
-            stop("Metadata must have '", args$condition_col, "' column (condition column)")
+            stop("Metadata must have '", args$condition_col, "' column (condition column)\n",
+                 "Available columns: ", paste(colnames(metadata), collapse = ", "))
         }
+        
+        # Set row names to sample column (required by build_analysis())
+        rownames(metadata) <- metadata[[args$sample_col]]
+        cat("Set metadata row names to sample column\n")
 
         # Detect subject_col for paired designs (check for various standard names)
         subject_col_name <- NULL
@@ -498,15 +538,6 @@ tryCatch(
                     stop("Paired design specified but no subject/pairing column found (expected: subject_col, paired_samples, subject_id, pair_id, or subject)")
                 }
             }
-        }
-
-        # Validate sample names match
-        missing_samples <- setdiff(colnames(readcounts), metadata[[args$sample_col]])
-        if (length(missing_samples) > 0) {
-            stop(
-                "Samples in readcounts not found in metadata: ",
-                paste(missing_samples, collapse = ", ")
-            )
         }
 
         # ============================================================================
@@ -572,43 +603,21 @@ tryCatch(
 
 
         # ============================================================================
-        # STEP 3: Prepare salmon directory structure from individual files
-        # ============================================================================
-        
-        # Create temporary directory for salmon files
-        salmon_temp_dir <- tempfile(pattern = "salmon_", tmpdir = ".")
-        dir.create(salmon_temp_dir, showWarnings = FALSE)
-        
-        # Process each salmon file
-        cat("Processing salmon files...\n")
-        for (salmon_file in salmon_files) {
-            # Extract sample name from file name (remove .sf extension)
-            sample_name <- sub("\\.sf$", "", basename(salmon_file))
-            
-            # Create sample subdirectory
-            sample_dir <- file.path(salmon_temp_dir, sample_name)
-            dir.create(sample_dir, showWarnings = FALSE)
-            
-            # Copy file as quant.sf
-            file.copy(salmon_file, file.path(sample_dir, "quant.sf"), overwrite = TRUE)
-            cat("  Linked:", sample_name, "\n")
-        }
-        
-        cat("Salmon directory structure created at:", salmon_temp_dir, "\n")
-        
-        # ============================================================================
-        # STEP 4: Build analysis object
+        # STEP 3: Build analysis object
         # ============================================================================
 
-        # Note: salmon_temp_dir is passed; build_analysis() will auto-load:
-        #   - readcounts (from NumReads column)
-        #   - tpm (from TPM column)
-        #   - effective_length (from EffectiveLength column)
+        # Galaxy XML has already created the correct Salmon directory structure:
+        # ./salmon_input/sample_name/quant.sf for each sample
+        # Just pass the directory path directly to build_analysis()
+        cat("Building TSENAT analysis object from Salmon directory:", args$salmon_dir, "\n")
+        flush.console()
+        
         analysis <- build_analysis(
-            salmon_dir = salmon_temp_dir,
+            salmon_dir = args$salmon_dir,
             metadata = metadata,
             tx2gene = args$annotation,
-            config = config
+            config = config,
+            skip = args$skip_unmapped
         )
 
         # ============================================================================
@@ -622,13 +631,9 @@ tryCatch(
             save_output = TRUE,
             output_format = "tsv"
         )
-        
-        # Clean up temporary directory
-        unlink(salmon_temp_dir, recursive = TRUE)
-
 
         # ============================================================================
-        # STEP 6: Save analysis object (optional)
+        # STEP 5: Save analysis object (optional)
         # ============================================================================
         if (args$save_intermediates) {
             saveRDS(result,
@@ -640,10 +645,22 @@ tryCatch(
         }
     },
     error = function(e) {
-        cat("ERROR:", conditionMessage(e), "\n", file = stderr())
-        traceback()
+        cat("\n==========================================\n", file=stderr())
+        cat("TSENAT WRAPPER ERROR\n", file=stderr())
+        cat("==========================================\n", file=stderr())
+        cat("Error message:", conditionMessage(e), "\n", file=stderr())
+        cat("Error class:", class(e), "\n", file=stderr())
+        flush(stderr())
+        
+        # Print traceback
+        cat("\nTraceback:\n", file=stderr())
+        traceback(file=stderr())
+        flush(stderr())
+        
         quit(status = 1)
     }
 )
 
+cat("\n=== TSENAT Analysis Complete ===\n")
+flush.console()
 quit(status = 0)
