@@ -48,6 +48,12 @@ tryCatch(
 cat("All libraries loaded successfully\n")
 flush.console()
 
+# Suppress vroom parsing warnings (these are non-critical for Galaxy testing)
+options(warn = 0)
+suppressWarnings({
+    options(readr.show_col_types = FALSE)
+})
+
 # Set locale for consistent output
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
@@ -617,18 +623,56 @@ tryCatch(
         # STEP 3: Build analysis object
         # ============================================================================
 
+        # Prepare annotation file - handle both gzipped and uncompressed formats
+        annotation_path <- args$annotation
+        
+        # Check if annotation needs decompression (Galaxy might pass .dat files that are gzipped)
+        if (file.exists(annotation_path)) {
+            # Try to detect if file is gzipped by reading first bytes
+            f <- file(annotation_path, "rb")
+            header <- readBin(f, "raw", n = 2)
+            close(f)
+            
+            is_gzipped <- length(header) >= 2 && header[1] == as.raw(0x1f) && header[2] == as.raw(0x8b)
+            
+            # If it's not obviously gzipped but ends with .gz, try decompressing anyway
+            if (!is_gzipped && grepl("\\.gz$", annotation_path, ignore.case = TRUE)) {
+                cat("Annotation file appears gzipped based on name. Attempting decompression...\n")
+                is_gzipped <- TRUE
+            }
+            
+            # If file is gzipped but doesn't have .gz extension, decompress to temp file
+            if (is_gzipped && !grepl("\\.gz$", annotation_path, ignore.case = TRUE)) {
+                cat("Detected gzipped annotation file without .gz extension. Decompressing...\n")
+                temp_ann <- tempfile(fileext = ".gff3")
+                system(paste("gunzip -c", shQuote(annotation_path), ">", shQuote(temp_ann)))
+                if (file.exists(temp_ann) && file.size(temp_ann) > 0) {
+                    annotation_path <- temp_ann
+                    cat("Decompressed to temporary file:", annotation_path, "\n")
+                }
+            }
+        }
+
         # Galaxy XML has already created the correct Salmon directory structure:
         # ./salmon_input/sample_name/quant.sf for each sample
         # Just pass the directory path directly to build_analysis()
         cat("Building TSENAT analysis object from Salmon directory:", args$salmon_dir, "\n")
+        cat("Metadata dimensions:", nrow(metadata), "samples x", ncol(metadata), "columns\n")
+        cat("Metadata row names sample (first 3):", paste(head(rownames(metadata), 3), collapse = ", "), "\n")
+        cat("Annotation file (final):", annotation_path, "\n")
+        cat("Annotation file exists:", file.exists(args$annotation), "\n")
+        cat("Annotation file size:", file.size(args$annotation), "bytes\n")
+        cat("Config object class:", class(config), "\n")
+        cat("Skip unmapped:", args$skip_unmapped, "\n")
         flush.console()
 
         analysis <- build_analysis(
             salmon_dir = args$salmon_dir,
             metadata = metadata,
-            tx2gene = args$annotation,
+            tx2gene = annotation_path,
             config = config,
-            skip = args$skip_unmapped
+            skip = args$skip_unmapped,
+            verbose = TRUE
         )
 
         # ============================================================================
@@ -661,13 +705,8 @@ tryCatch(
         cat("==========================================\n", file = stderr())
         cat("Error message:", conditionMessage(e), "\n", file = stderr())
         cat("Error class:", class(e), "\n", file = stderr())
+        cat("Suggestion: Check that Salmon quant files match annotation file genes/transcripts\n", file = stderr())
         flush(stderr())
-
-        # Print traceback
-        cat("\nTraceback:\n", file = stderr())
-        traceback(file = stderr())
-        flush(stderr())
-
         quit(status = 1)
     }
 )
