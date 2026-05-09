@@ -48,13 +48,8 @@ tryCatch(
 cat("All libraries loaded successfully\n")
 flush.console()
 
-# Suppress non-critical vroom parsing warnings from readr/vroom
-# These warnings about column type mismatches are harmless and pollute output
-options(warn = -1)  # Suppress ALL warnings temporarily during file loading
-suppressWarnings({
-    options(readr.show_col_types = FALSE)
-    options(readr.num_threads = 1)
-})
+options(readr.show_col_types = FALSE)
+options(readr.num_threads = 1)
 
 # Set locale for consistent output
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
@@ -446,7 +441,7 @@ option_list <- list(
     make_option(c("--skip_unmapped"),
         action = "store_true",
         dest = "skip_unmapped",
-        default = FALSE,
+        default = TRUE,
         help = "Skip unmapped transcripts (not found in annotation). If FALSE and unmapped transcripts exist, analysis will fail. [default: %default]"
     )
 )
@@ -468,13 +463,6 @@ if (is.null(args$pseudocount) || args$pseudocount == "") {
     }
     cat("Pseudocount set to:", args$pseudocount, "\n")
 }
-
-cat("Arguments parsed successfully\n")
-cat("Salmon directory:", args$salmon_dir, "\n")
-cat("Metadata:", args$metadata, "\n")
-cat("Annotation:", args$annotation, "\n")
-cat("Output directory:", args$output_dir, "\n")
-flush.console()
 
 
 # Validate Salmon directory structure
@@ -684,9 +672,10 @@ tryCatch(
         cat("[DEBUG] Bootstrap enabled:", args$bootstrap, "(nboot=", args$nboot, ")\n")
         flush.console()
 
-        # Re-enable warnings for analysis (vroom warnings from setup are already suppressed)
-        options(warn = 1)
 
+        # Set seed for reproducible analysis (matching test workflow)
+        set.seed(42)
+        
         analysis <- build_analysis(
             salmon_dir = args$salmon_dir,
             metadata = metadata,
@@ -699,7 +688,7 @@ tryCatch(
         # ============================================================================
         # STEP 5: Run complete TSENAT pipeline (includes filtering internally)
         # ============================================================================
-
+        
         # Run TSENAT - handles all output generation (tables + plots) automatically
         result <- TSENAT(
             analysis,
