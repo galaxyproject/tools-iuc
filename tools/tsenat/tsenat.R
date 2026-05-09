@@ -675,7 +675,7 @@ tryCatch(
 
         # Set seed for reproducible analysis (matching test workflow)
         set.seed(42)
-        
+
         analysis <- build_analysis(
             salmon_dir = args$salmon_dir,
             metadata = metadata,
@@ -688,7 +688,7 @@ tryCatch(
         # ============================================================================
         # STEP 5: Run complete TSENAT pipeline (includes filtering internally)
         # ============================================================================
-        
+
         # Run TSENAT - handles all output generation (tables + plots) automatically
         result <- TSENAT(
             analysis,
