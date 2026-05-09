@@ -48,10 +48,12 @@ tryCatch(
 cat("All libraries loaded successfully\n")
 flush.console()
 
-# Suppress vroom parsing warnings (these are non-critical for Galaxy testing)
-options(warn = 0)
+# Suppress non-critical vroom parsing warnings from readr/vroom
+# These warnings about column type mismatches are harmless and pollute output
+options(warn = -1)  # Suppress ALL warnings temporarily during file loading
 suppressWarnings({
     options(readr.show_col_types = FALSE)
+    options(readr.num_threads = 1)
 })
 
 # Set locale for consistent output
@@ -193,10 +195,10 @@ option_list <- list(
     ),
     make_option(c("--pseudocount"),
         action = "store",
-        type = "double",
+        type = "character",
         dest = "pseudocount",
-        default = 0,
-        help = "Pseudocount for zeros [default: %default]"
+        default = NULL,
+        help = "Pseudocount for zeros [default: NULL = use TSENAT default]"
     ),
     make_option(c("--shrinkage"),
         action = "store",
@@ -454,6 +456,19 @@ cat("Parsing command-line arguments...\n")
 flush.console()
 args <- parse_args(parser)
 
+# Handle pseudocount: empty/NULL → 0 (default), numbers → as numeric
+if (is.null(args$pseudocount) || args$pseudocount == "") {
+    args$pseudocount <- 0
+    cat("Pseudocount: not specified → 0 (default, no regularization)\n")
+} else {
+    # Try to convert to numeric
+    args$pseudocount <- as.numeric(args$pseudocount)
+    if (is.na(args$pseudocount)) {
+        error_exit("Pseudocount must be numeric (0-10) or left empty for default")
+    }
+    cat("Pseudocount set to:", args$pseudocount, "\n")
+}
+
 cat("Arguments parsed successfully\n")
 cat("Salmon directory:", args$salmon_dir, "\n")
 cat("Metadata:", args$metadata, "\n")
@@ -625,22 +640,22 @@ tryCatch(
 
         # Prepare annotation file - handle both gzipped and uncompressed formats
         annotation_path <- args$annotation
-        
+
         # Check if annotation needs decompression (Galaxy might pass .dat files that are gzipped)
         if (file.exists(annotation_path)) {
             # Try to detect if file is gzipped by reading first bytes
             f <- file(annotation_path, "rb")
             header <- readBin(f, "raw", n = 2)
             close(f)
-            
+
             is_gzipped <- length(header) >= 2 && header[1] == as.raw(0x1f) && header[2] == as.raw(0x8b)
-            
+
             # If it's not obviously gzipped but ends with .gz, try decompressing anyway
             if (!is_gzipped && grepl("\\.gz$", annotation_path, ignore.case = TRUE)) {
                 cat("Annotation file appears gzipped based on name. Attempting decompression...\n")
                 is_gzipped <- TRUE
             }
-            
+
             # If file is gzipped but doesn't have .gz extension, decompress to temp file
             if (is_gzipped && !grepl("\\.gz$", annotation_path, ignore.case = TRUE)) {
                 cat("Detected gzipped annotation file without .gz extension. Decompressing...\n")
@@ -664,7 +679,13 @@ tryCatch(
         cat("Annotation file size:", file.size(args$annotation), "bytes\n")
         cat("Config object class:", class(config), "\n")
         cat("Skip unmapped:", args$skip_unmapped, "\n")
+        cat("[DEBUG] Pseudocount value being used:", args$pseudocount, "\n")
+        cat("[DEBUG] Normalization enabled:", args$norm, "\n")
+        cat("[DEBUG] Bootstrap enabled:", args$bootstrap, "(nboot=", args$nboot, ")\n")
         flush.console()
+
+        # Re-enable warnings for analysis (vroom warnings from setup are already suppressed)
+        options(warn = 1)
 
         analysis <- build_analysis(
             salmon_dir = args$salmon_dir,
@@ -713,4 +734,16 @@ tryCatch(
 
 cat("\n=== TSENAT Analysis Complete ===\n")
 flush.console()
+
+# ============================================================================
+# Check for and display warnings (important for debugging)
+# ============================================================================
+warning_count <- length(warnings())
+if (warning_count > 0) {
+    cat("\n[WARNINGS] Warnings encountered during analysis:\n")
+    cat("Total warnings: ", warning_count, "\n\n")
+    print(warnings())
+    cat("\n")
+}
+
 quit(status = 0)
