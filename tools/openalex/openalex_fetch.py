@@ -26,7 +26,7 @@ def make_request(url, params=None, email=None):
             response = requests.get(url, params=request_params, headers=headers, timeout=30)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.HTTPError as e:
+        except requests.exceptions.HTTPError:
             if response.status_code == 429:
                 wait_time = RETRY_DELAY * (attempt + 1) * 2
                 print(f"[!] Rate limited, waiting {wait_time}s before retry...")
@@ -440,7 +440,7 @@ def main():
 
                 if mode == 'citing_papers':
                     is_oa, is_not_oa = print_papers(citing_papers, download=args.download, download_dir=download_dir)
-                    print(f"\nSummary:")
+                    print("\nSummary:")
                     print(f"Total citing papers: {len(citing_papers)}")
                     print(f"Open Access papers: {is_oa}")
                     print(f"Closed Access papers: {is_not_oa}")
@@ -468,19 +468,19 @@ def main():
                 referenced = fetch_referenced_works(openalex_id, max_works=max_citations, email=args.email, args=args)
                 print(f"\nFound {len(referenced)} referenced works")
                 write_referenced_works_tsv(referenced, os.path.join(output_dir, "referenced_works.tsv"))
-                print(f"Saved to referenced_works.tsv")
+                print("Saved to referenced_works.tsv")
 
             elif mode == 'related':
                 related = fetch_related_works(openalex_id, max_works=max_citations, email=args.email, args=args)
                 print(f"\nFound {len(related)} related works")
                 write_related_works_tsv(related, os.path.join(output_dir, "related_works.tsv"))
-                print(f"Saved to related_works.tsv")
+                print("Saved to related_works.tsv")
 
             elif mode == 'authors':
                 authors = fetch_author_details(openalex_id, email=args.email)
                 print(f"\nFound {len(authors)} authors")
                 write_authors_tsv(authors, os.path.join(output_dir, "authors.tsv"))
-                print(f"Saved to authors.tsv")
+                print("Saved to authors.tsv")
 
             elif mode == 'concepts':
                 if work_data is None:
@@ -488,7 +488,7 @@ def main():
                 concepts = work_data.get('concepts', [])
                 print(f"\nFound {len(concepts)} concepts/topics")
                 write_concepts_tsv(work_data, os.path.join(output_dir, "concepts.tsv"))
-                print(f"Saved to concepts.tsv")
+                print("Saved to concepts.tsv")
 
     except Exception as e:
         print(f"[!] Error: {e}", file=sys.stderr)
