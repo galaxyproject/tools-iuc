@@ -446,6 +446,19 @@ tryCatch(
             stringsAsFactors = FALSE
         )
 
+        # Convert column indices (from data_column Galaxy param) to column names
+        # data_column returns "1", "2", "3" as strings for column positions
+        if (!is.na(suppressWarnings(as.numeric(args$sample_col)))) {
+            args$sample_col <- colnames(metadata)[as.numeric(args$sample_col)]
+        }
+        if (!is.na(suppressWarnings(as.numeric(args$condition_col)))) {
+            args$condition_col <- colnames(metadata)[as.numeric(args$condition_col)]
+        }
+        if (args$subject_col != "" && args$subject_col != "NULL" && 
+            !is.na(suppressWarnings(as.numeric(args$subject_col)))) {
+            args$subject_col <- colnames(metadata)[as.numeric(args$subject_col)]
+        }
+
         # Set row names to sample column (required by build_analysis())
         rownames(metadata) <- metadata[[args$sample_col]]
 
