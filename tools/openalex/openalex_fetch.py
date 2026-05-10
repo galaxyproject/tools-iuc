@@ -17,12 +17,13 @@ RETRY_DELAY = 2  # seconds
 def make_request(url, params=None, email=None):
     """Make a request to the OpenAlex API with retry logic and optional polite pool."""
     headers = {}
+    request_params = dict(params or {})
     if email:
-        headers["mailto"] = email
+        request_params["mailto"] = email
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=30)
+            response = requests.get(url, params=request_params, headers=headers, timeout=30)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as e:
@@ -76,10 +77,51 @@ def fetch_work_details(openalex_id, email=None):
     return make_request(url, email=email)
 
 
-def fetch_citing_papers(openalex_id, max_citations=None, email=None):
+def build_work_filters(base_filter, args):
+    """Build OpenAlex works filter clauses from wrapper options."""
+    filters = [base_filter]
+    if args.open_access != "any":
+        filters.append(f"open_access.is_oa:{args.open_access}")
+    if args.publication_year_from:
+        filters.append(f"from_publication_date:{args.publication_year_from}-01-01")
+    if args.publication_year_to:
+        filters.append(f"to_publication_date:{args.publication_year_to}-12-31")
+    if args.work_type != "any":
+        filters.append(f"type:{args.work_type}")
+    return ",".join(filters)
+
+
+def filter_work(work, args):
+    """Apply the same work filters client-side for dereferenced works."""
+    if args.open_access != "any":
+        is_oa = work.get("open_access", {}).get("is_oa", False)
+        if is_oa != (args.open_access == "true"):
+            return False
+    year = work.get("publication_year")
+    if args.publication_year_from and (year is None or year < args.publication_year_from):
+        return False
+    if args.publication_year_to and (year is None or year > args.publication_year_to):
+        return False
+    if args.work_type != "any" and work.get("type") != args.work_type:
+        return False
+    return True
+
+
+def sort_works(works, sort_by):
+    """Sort client-side work lists with the same choices exposed in Galaxy."""
+    if sort_by == "none":
+        return works
+    reverse = sort_by.endswith(":desc")
+    field = sort_by.split(":", 1)[0]
+    if field == "relevance_score":
+        return works
+    return sorted(works, key=lambda work: work.get(field) or 0, reverse=reverse)
+
+
+def fetch_citing_papers(openalex_id, max_citations=None, email=None, args=None):
     """Fetch citing papers for a given OpenAlex work ID."""
     all_citing_papers = []
-    per_page = 200
+    per_page = 100
     page = 1
 
     work_data = fetch_work_details(openalex_id, email=email)
@@ -87,11 +129,20 @@ def fetch_citing_papers(openalex_id, max_citations=None, email=None):
     if cited_by_count == 0:
         raise ValueError("This work has no citing papers.")
 
-    cited_by_url = f"{OPENALEX_API_BASE}/works?filter=cites:{openalex_id}"
+    params = {
+        "filter": build_work_filters(f"cites:{openalex_id}", args),
+        "per_page": per_page,
+        "page": page,
+        "select": "id,title,doi,publication_year,publication_date,cited_by_count,type,open_access,locations",
+    }
+    if args.sort != "none":
+        params["sort"] = args.sort
+    if args.include_xpac:
+        params["include_xpac"] = "true"
 
     while True:
-        paged_url = f"{cited_by_url}&per_page={per_page}&page={page}"
-        data = make_request(paged_url, email=email)
+        params["page"] = page
+        data = make_request(f"{OPENALEX_API_BASE}/works", params=params, email=email)
 
         results = data.get('results', [])
         if not results:
@@ -111,7 +162,7 @@ def fetch_citing_papers(openalex_id, max_citations=None, email=None):
     return all_citing_papers
 
 
-def fetch_referenced_works(openalex_id, max_works=None, email=None):
+def fetch_referenced_works(openalex_id, max_works=None, email=None, args=None):
     """Fetch works referenced by a given OpenAlex work (its bibliography)."""
     work_data = fetch_work_details(openalex_id, email=email)
     referenced_works = work_data.get('referenced_works', [])
@@ -119,29 +170,33 @@ def fetch_referenced_works(openalex_id, max_works=None, email=None):
     if not referenced_works:
         raise ValueError("This work has no referenced works.")
 
-    if max_works:
-        referenced_works = referenced_works[:max_works]
-
     details = []
     for ref_id in referenced_works:
         ref_openalex_id = ref_id.split('/')[-1]
         try:
             ref_data = fetch_work_details(ref_openalex_id, email=email)
-            details.append(ref_data)
+            if filter_work(ref_data, args):
+                details.append(ref_data)
+                if max_works and len(details) >= max_works:
+                    break
         except ValueError:
             continue
 
-    return details
+    return sort_works(details, args.sort)
 
 
-def fetch_related_works(openalex_id, max_works=None, email=None):
+def fetch_related_works(openalex_id, max_works=None, email=None, args=None):
     """Fetch works related to a given OpenAlex work."""
     url = f"{OPENALEX_API_BASE}/works"
     params = {
-        "filter": f"related_to:{openalex_id}",
-        "per_page": min(max_works or 50, 200),
-        "sort": "relevance_score:desc"
+        "filter": build_work_filters(f"related_to:{openalex_id}", args),
+        "per_page": min(max_works or 50, 100),
+        "select": "id,title,doi,publication_year,publication_date,cited_by_count,type,open_access,locations",
     }
+    if args.sort != "none":
+        params["sort"] = args.sort
+    if args.include_xpac:
+        params["include_xpac"] = "true"
     data = make_request(url, params=params, email=email)
     results = data.get('results', [])
 
@@ -323,18 +378,34 @@ def main():
     group.add_argument('--title', help='Title of the paper')
 
     parser.add_argument('--mode', choices=['citing_papers', 'summary', 'references', 'related', 'authors', 'concepts'],
-                        default='citing_papers',
+                        action='append', default=[],
                         help='What to fetch: citing_papers (default), summary only, references (bibliography), related works, authors, or concepts/topics')
     parser.add_argument('--download', action='store_true', help='Download available OA PDFs (only for citing_papers mode)')
     parser.add_argument('--max-citations', type=str, default="50", dest='max_citations',
                         help="Max papers to fetch or 'all' (default: 50)")
     parser.add_argument('--output-dir', default='.', help='Directory to save output files')
     parser.add_argument('--email', default=None, help='Email for OpenAlex polite pool (faster API access)')
+    parser.add_argument('--open-access', choices=['any', 'true', 'false'], default='any',
+                        help='Filter works by Open Access status')
+    parser.add_argument('--publication-year-from', type=int, default=None,
+                        help='Only include works published in or after this year')
+    parser.add_argument('--publication-year-to', type=int, default=None,
+                        help='Only include works published in or before this year')
+    parser.add_argument('--work-type', default='any',
+                        choices=['any', 'article', 'book', 'book-chapter', 'dataset', 'dissertation', 'editorial', 'letter', 'paratext', 'peer-review', 'preprint', 'reference-entry', 'report', 'review'],
+                        help='Filter works by OpenAlex work type')
+    parser.add_argument('--sort', default='none',
+                        choices=['none', 'cited_by_count:desc', 'publication_year:desc', 'publication_year:asc'],
+                        help='Sort order for work lists')
+    parser.add_argument('--include-xpac', action='store_true',
+                        help='Include works from Crossref posted-content archives in OpenAlex list queries')
 
     args = parser.parse_args()
 
     output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
     download_dir = os.path.join(output_dir, "downloads")
+    modes = args.mode or ['citing_papers']
 
     if args.max_citations.lower() == "all":
         max_citations = None
@@ -354,58 +425,70 @@ def main():
             identifier = args.id
 
         openalex_id = resolve_openalex_id(identifier, id_type, email=args.email)
+        work_data = None
+        citing_papers = None
 
-        if args.mode == 'citing_papers' or args.mode == 'summary':
-            citing_papers = fetch_citing_papers(openalex_id, max_citations=max_citations, email=args.email)
+        for mode in modes:
+            if mode == 'citing_papers' or mode == 'summary':
+                if citing_papers is None:
+                    citing_papers = fetch_citing_papers(
+                        openalex_id,
+                        max_citations=max_citations,
+                        email=args.email,
+                        args=args,
+                    )
 
-            if args.mode == 'citing_papers':
-                is_oa, is_not_oa = print_papers(citing_papers, download=args.download, download_dir=download_dir)
-                print(f"\nSummary:")
-                print(f"Total citing papers: {len(citing_papers)}")
-                print(f"Open Access papers: {is_oa}")
-                print(f"Closed Access papers: {is_not_oa}")
+                if mode == 'citing_papers':
+                    is_oa, is_not_oa = print_papers(citing_papers, download=args.download, download_dir=download_dir)
+                    print(f"\nSummary:")
+                    print(f"Total citing papers: {len(citing_papers)}")
+                    print(f"Open Access papers: {is_oa}")
+                    print(f"Closed Access papers: {is_not_oa}")
 
-                work_data = fetch_work_details(openalex_id, email=args.email)
-                write_summary(work_data, citing_papers, os.path.join(output_dir, "summary.txt"))
-                write_citing_papers_tsv(citing_papers, os.path.join(output_dir, "citing_papers.tsv"))
-            else:
-                # summary only mode
-                work_data = fetch_work_details(openalex_id, email=args.email)
-                cited_by_count = work_data.get('cited_by_count', 0)
-                print(f"Title: {work_data.get('title', 'N/A')}")
-                print(f"DOI: {work_data.get('doi', 'N/A')}")
-                print(f"Year: {work_data.get('publication_year', 'N/A')}")
-                print(f"Cited by: {cited_by_count}")
-                print(f"Type: {work_data.get('type', 'N/A')}")
-                is_oa = work_data.get('open_access', {}).get('is_oa', False)
-                print(f"Open Access: {is_oa}")
-                write_summary(work_data, citing_papers, os.path.join(output_dir, "summary.txt"))
-                write_citing_papers_tsv(citing_papers, os.path.join(output_dir, "citing_papers.tsv"))
+                    if work_data is None:
+                        work_data = fetch_work_details(openalex_id, email=args.email)
+                    write_summary(work_data, citing_papers, os.path.join(output_dir, "summary.txt"))
+                    write_citing_papers_tsv(citing_papers, os.path.join(output_dir, "citing_papers.tsv"))
+                else:
+                    # summary only mode
+                    if work_data is None:
+                        work_data = fetch_work_details(openalex_id, email=args.email)
+                    cited_by_count = work_data.get('cited_by_count', 0)
+                    print(f"Title: {work_data.get('title', 'N/A')}")
+                    print(f"DOI: {work_data.get('doi', 'N/A')}")
+                    print(f"Year: {work_data.get('publication_year', 'N/A')}")
+                    print(f"Cited by: {cited_by_count}")
+                    print(f"Type: {work_data.get('type', 'N/A')}")
+                    is_oa = work_data.get('open_access', {}).get('is_oa', False)
+                    print(f"Open Access: {is_oa}")
+                    write_summary(work_data, citing_papers, os.path.join(output_dir, "summary.txt"))
+                    write_citing_papers_tsv(citing_papers, os.path.join(output_dir, "citing_papers.tsv"))
 
-        elif args.mode == 'references':
-            referenced = fetch_referenced_works(openalex_id, max_works=max_citations, email=args.email)
-            print(f"\nFound {len(referenced)} referenced works")
-            write_referenced_works_tsv(referenced, os.path.join(output_dir, "referenced_works.tsv"))
-            print(f"Saved to referenced_works.tsv")
+            elif mode == 'references':
+                referenced = fetch_referenced_works(openalex_id, max_works=max_citations, email=args.email, args=args)
+                print(f"\nFound {len(referenced)} referenced works")
+                write_referenced_works_tsv(referenced, os.path.join(output_dir, "referenced_works.tsv"))
+                print(f"Saved to referenced_works.tsv")
 
-        elif args.mode == 'related':
-            related = fetch_related_works(openalex_id, max_works=max_citations, email=args.email)
-            print(f"\nFound {len(related)} related works")
-            write_related_works_tsv(related, os.path.join(output_dir, "related_works.tsv"))
-            print(f"Saved to related_works.tsv")
+            elif mode == 'related':
+                related = fetch_related_works(openalex_id, max_works=max_citations, email=args.email, args=args)
+                print(f"\nFound {len(related)} related works")
+                write_related_works_tsv(related, os.path.join(output_dir, "related_works.tsv"))
+                print(f"Saved to related_works.tsv")
 
-        elif args.mode == 'authors':
-            authors = fetch_author_details(openalex_id, email=args.email)
-            print(f"\nFound {len(authors)} authors")
-            write_authors_tsv(authors, os.path.join(output_dir, "authors.tsv"))
-            print(f"Saved to authors.tsv")
+            elif mode == 'authors':
+                authors = fetch_author_details(openalex_id, email=args.email)
+                print(f"\nFound {len(authors)} authors")
+                write_authors_tsv(authors, os.path.join(output_dir, "authors.tsv"))
+                print(f"Saved to authors.tsv")
 
-        elif args.mode == 'concepts':
-            work_data = fetch_work_details(openalex_id, email=args.email)
-            concepts = work_data.get('concepts', [])
-            print(f"\nFound {len(concepts)} concepts/topics")
-            write_concepts_tsv(work_data, os.path.join(output_dir, "concepts.tsv"))
-            print(f"Saved to concepts.tsv")
+            elif mode == 'concepts':
+                if work_data is None:
+                    work_data = fetch_work_details(openalex_id, email=args.email)
+                concepts = work_data.get('concepts', [])
+                print(f"\nFound {len(concepts)} concepts/topics")
+                write_concepts_tsv(work_data, os.path.join(output_dir, "concepts.tsv"))
+                print(f"Saved to concepts.tsv")
 
     except Exception as e:
         print(f"[!] Error: {e}", file=sys.stderr)
