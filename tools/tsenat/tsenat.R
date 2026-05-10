@@ -10,43 +10,22 @@
 ### Required Packages: optparse, TSENAT, S4Vectors
 ################################################################################
 
-# Immediate output - if this fails, Galaxy will see it
-cat("[TSENAT] Script starting...\n", file = stderr())
-cat("[TSENAT] Script starting...\n")
-
-# Force output immediately (no buffering)
 options(warn = 1)
-
-cat("=== TSENAT Galaxy Wrapper Starting ===\n")
-cat("R version:", paste(R.version$major, R.version$minor, sep = "."), "\n")
-flush.console()
 
 tryCatch(
     {
         suppressPackageStartupMessages({
-            cat("Loading optparse...\n")
-            flush.console()
             library("optparse")
-
-            cat("Loading TSENAT...\n")
-            flush.console()
             library("TSENAT")
-
-            cat("Loading S4Vectors...\n")
-            flush.console()
             library("S4Vectors")
         })
     },
     error = function(e) {
         cat("ERROR during library loading:\n", file = stderr())
         cat(conditionMessage(e), "\n", file = stderr())
-        cat(traceback(), file = stderr())
         quit(status = 1)
     }
 )
-
-cat("All libraries loaded successfully\n")
-flush.console()
 
 options(readr.show_col_types = FALSE)
 options(readr.num_threads = 1)
@@ -56,7 +35,6 @@ Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 # Error handling function
 error_exit <- function(message, status = 1) {
-    cat("ERROR:", message, "\n", file = stderr())
     quit(status = status)
 }
 
@@ -447,122 +425,37 @@ option_list <- list(
 )
 
 parser <- OptionParser(option_list = option_list)
-cat("Parsing command-line arguments...\n")
-flush.console()
 args <- parse_args(parser)
 
 # Handle pseudocount: empty/NULL → 0 (default), numbers → as numeric
 if (is.null(args$pseudocount) || args$pseudocount == "") {
     args$pseudocount <- 0
-    cat("Pseudocount: not specified → 0 (default, no regularization)\n")
 } else {
-    # Try to convert to numeric
     args$pseudocount <- as.numeric(args$pseudocount)
     if (is.na(args$pseudocount)) {
         error_exit("Pseudocount must be numeric (0-10) or left empty for default")
     }
-    cat("Pseudocount set to:", args$pseudocount, "\n")
-}
-
-
-# Validate Salmon directory structure
-{
-    # Validate required inputs
-    if (is.null(args$metadata) || !file.exists(args$metadata)) {
-        error_exit("Required input file 'metadata' not found or not specified")
-    }
-    if (is.null(args$annotation) || !file.exists(args$annotation)) {
-        error_exit("Required input file 'annotation' not found or not specified")
-    }
-    if (is.null(args$salmon_dir) || args$salmon_dir == "") {
-        error_exit("Required input: --salmon_dir (path to Salmon output directory) must be specified")
-    }
-    if (!dir.exists(args$salmon_dir)) {
-        error_exit(paste("Salmon directory not found:", args$salmon_dir))
-    }
-
-    # Validate directory structure - should contain sample subdirectories with quant.sf files
-    sample_dirs <- list.dirs(args$salmon_dir, full.names = TRUE, recursive = FALSE)
-    if (length(sample_dirs) == 0) {
-        error_exit(paste(
-            "No sample subdirectories found in:", args$salmon_dir,
-            "\nExpected structure: salmon_dir/sample_name/quant.sf"
-        ))
-    }
-
-    # Check that each sample has a quant.sf file
-    quant_files <- list.files(sample_dirs, pattern = "quant\\.sf$", full.names = TRUE, recursive = FALSE)
-    if (length(quant_files) != length(sample_dirs)) {
-        error_exit(paste(
-            "Not all sample directories contain quant.sf files.",
-            "Found", length(quant_files), "quant.sf files in", length(sample_dirs), "sample directories"
-        ))
-    }
-
-    cat("Salmon directory validation passed\n")
-    cat("Found", length(sample_dirs), "sample subdirectories\n")
-    cat("All samples have quant.sf files\n")
 }
 
 tryCatch(
     {
-        # ============================================================================
         # STEP 1: Load and validate input data
-        # ============================================================================
-        cat("Loading metadata from:", args$metadata, "\n")
         metadata <- read.table(args$metadata,
             header = TRUE,
             sep = "\t",
             stringsAsFactors = FALSE
         )
-        cat("Metadata loaded: ", nrow(metadata), "samples x", ncol(metadata), "columns\n")
-
-        # Show column names for debugging
-        cat("Metadata columns:", paste(colnames(metadata), collapse = ", "), "\n")
-
-        # Validate required columns exist
-        if (!args$sample_col %in% colnames(metadata)) {
-            stop(
-                "Metadata must have '", args$sample_col, "' column (sample column)\n",
-                "Available columns: ", paste(colnames(metadata), collapse = ", ")
-            )
-        }
-        if (!args$condition_col %in% colnames(metadata)) {
-            stop(
-                "Metadata must have '", args$condition_col, "' column (condition column)\n",
-                "Available columns: ", paste(colnames(metadata), collapse = ", ")
-            )
-        }
 
         # Set row names to sample column (required by build_analysis())
         rownames(metadata) <- metadata[[args$sample_col]]
-        cat("Set metadata row names to sample column\n")
 
-        # Detect subject_col for paired designs (check for various standard names)
+        # Detect subject_col for paired designs
         subject_col_name <- NULL
-        if (args$paired) {
-            # If user provided a subject_col parameter, use it
-            if (args$subject_col != "" && args$subject_col != "NULL") {
-                if (args$subject_col %in% colnames(metadata)) {
-                    subject_col_name <- args$subject_col
-                } else {
-                    stop("Specified subject column '", args$subject_col, "' not found in metadata")
-                }
-            } else {
-                # Auto-detect: check for various standard names
-                potential_names <- c("subject_col", "paired_samples", "subject_id", "pair_id", "subject")
-                detected <- potential_names[potential_names %in% colnames(metadata)]
-                if (length(detected) > 0) {
-                    subject_col_name <- detected[1]
-                } else {
-                    stop("Paired design specified but no subject/pairing column found (expected: subject_col, paired_samples, subject_id, pair_id, or subject)")
-                }
-            }
+        if (args$paired && args$subject_col != "" && args$subject_col != "NULL") {
+            subject_col_name <- args$subject_col
         }
 
-        # ============================================================================
         # STEP 2: Build TSENAT configuration
-        # ============================================================================
 
         # Create q-spectrum
         q_spectrum <- seq(args$q_min, args$q_max, by = args$q_step)
@@ -626,52 +519,8 @@ tryCatch(
         # STEP 3: Build analysis object
         # ============================================================================
 
-        # Prepare annotation file - handle both gzipped and uncompressed formats
-        annotation_path <- args$annotation
-
-        # Check if annotation needs decompression (Galaxy might pass .dat files that are gzipped)
-        if (file.exists(annotation_path)) {
-            # Try to detect if file is gzipped by reading first bytes
-            f <- file(annotation_path, "rb")
-            header <- readBin(f, "raw", n = 2)
-            close(f)
-
-            is_gzipped <- length(header) >= 2 && header[1] == as.raw(0x1f) && header[2] == as.raw(0x8b)
-
-            # If it's not obviously gzipped but ends with .gz, try decompressing anyway
-            if (!is_gzipped && grepl("\\.gz$", annotation_path, ignore.case = TRUE)) {
-                cat("Annotation file appears gzipped based on name. Attempting decompression...\n")
-                is_gzipped <- TRUE
-            }
-
-            # If file is gzipped but doesn't have .gz extension, decompress to temp file
-            if (is_gzipped && !grepl("\\.gz$", annotation_path, ignore.case = TRUE)) {
-                cat("Detected gzipped annotation file without .gz extension. Decompressing...\n")
-                temp_ann <- tempfile(fileext = ".gff3")
-                system(paste("gunzip -c", shQuote(annotation_path), ">", shQuote(temp_ann)))
-                if (file.exists(temp_ann) && file.size(temp_ann) > 0) {
-                    annotation_path <- temp_ann
-                    cat("Decompressed to temporary file:", annotation_path, "\n")
-                }
-            }
-        }
-
-        # Galaxy XML has already created the correct Salmon directory structure:
-        # ./salmon_input/sample_name/quant.sf for each sample
-        # Just pass the directory path directly to build_analysis()
-        cat("Building TSENAT analysis object from Salmon directory:", args$salmon_dir, "\n")
-        cat("Metadata dimensions:", nrow(metadata), "samples x", ncol(metadata), "columns\n")
-        cat("Metadata row names sample (first 3):", paste(head(rownames(metadata), 3), collapse = ", "), "\n")
-        cat("Annotation file (final):", annotation_path, "\n")
-        cat("Annotation file exists:", file.exists(args$annotation), "\n")
-        cat("Annotation file size:", file.size(args$annotation), "bytes\n")
-        cat("Config object class:", class(config), "\n")
-        cat("Skip unmapped:", args$skip_unmapped, "\n")
-        cat("[DEBUG] Pseudocount value being used:", args$pseudocount, "\n")
-        cat("[DEBUG] Normalization enabled:", args$norm, "\n")
-        cat("[DEBUG] Bootstrap enabled:", args$bootstrap, "(nboot=", args$nboot, ")\n")
-        flush.console()
-
+        # Galaxy XML has already properly handled annotation file format detection
+        # and created symlink with correct extension (.gz or uncompressed)
 
         # Set seed for reproducible analysis (matching test workflow)
         set.seed(42)
@@ -679,16 +528,13 @@ tryCatch(
         analysis <- build_analysis(
             salmon_dir = args$salmon_dir,
             metadata = metadata,
-            tx2gene = annotation_path,
+            tx2gene = args$annotation,
             config = config,
             skip = args$skip_unmapped,
             verbose = TRUE
         )
 
-        # ============================================================================
-        # STEP 5: Run complete TSENAT pipeline (includes filtering internally)
-        # ============================================================================
-
+        # STEP 3: Run complete TSENAT pipeline
         # Run TSENAT - handles all output generation (tables + plots) automatically
         result <- TSENAT(
             analysis,
@@ -697,9 +543,7 @@ tryCatch(
             output_format = "tsv"
         )
 
-        # ============================================================================
-        # STEP 5: Save analysis object (optional)
-        # ============================================================================
+        # STEP 4: Save analysis object (optional)
         if (args$save_intermediates) {
             saveRDS(result,
                 file = file.path(
@@ -710,29 +554,9 @@ tryCatch(
         }
     },
     error = function(e) {
-        cat("\n==========================================\n", file = stderr())
-        cat("TSENAT WRAPPER ERROR\n", file = stderr())
-        cat("==========================================\n", file = stderr())
-        cat("Error message:", conditionMessage(e), "\n", file = stderr())
-        cat("Error class:", class(e), "\n", file = stderr())
-        cat("Suggestion: Check that Salmon quant files match annotation file genes/transcripts\n", file = stderr())
-        flush(stderr())
+        cat("ERROR:", conditionMessage(e), "\n", file = stderr())
         quit(status = 1)
     }
 )
-
-cat("\n=== TSENAT Analysis Complete ===\n")
-flush.console()
-
-# ============================================================================
-# Check for and display warnings (important for debugging)
-# ============================================================================
-warning_count <- length(warnings())
-if (warning_count > 0) {
-    cat("\n[WARNINGS] Warnings encountered during analysis:\n")
-    cat("Total warnings: ", warning_count, "\n\n")
-    print(warnings())
-    cat("\n")
-}
 
 quit(status = 0)
