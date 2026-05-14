@@ -1,7 +1,6 @@
 import argparse
 import os
 import re
-import shutil
 import sys
 import time
 import unicodedata
@@ -472,29 +471,6 @@ def validate_modes(input_entity, modes):
         raise ValueError(f"Mode(s) {', '.join(invalid)} are not valid for {input_entity} inputs.")
 
 
-def copy_fixture_outputs(fixture_dir, output_dir, modes):
-    mode_files = {
-        "summary": "summary.tsv",
-        "citing_papers": "citing_papers.tsv",
-        "references": "referenced_works.tsv",
-        "related": "related_works.tsv",
-        "authors": "authors.tsv",
-        "concepts": "concepts.tsv",
-        "author_works": "author_works.tsv",
-        "institution_works": "institution_works.tsv",
-    }
-    for mode, filename in mode_files.items():
-        if mode in modes:
-            source = os.path.join(fixture_dir, filename)
-            if not os.path.exists(source):
-                raise ValueError(f"Fixture is missing expected output file: {filename}")
-            shutil.copyfile(source, os.path.join(output_dir, filename))
-    if "download_pdfs" in modes:
-        source_downloads = os.path.join(fixture_dir, "downloads")
-        if os.path.isdir(source_downloads):
-            shutil.copytree(source_downloads, os.path.join(output_dir, "downloads"), dirs_exist_ok=True)
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Fetch OpenAlex work, author, and institution data")
     parser.add_argument("--input-entity", choices=["work", "author", "institution"], required=True)
@@ -549,7 +525,6 @@ def parse_args():
         choices=["none", "cited_by_count:desc", "publication_year:desc", "publication_year:asc"],
     )
     parser.add_argument("--include-xpac", action="store_true")
-    parser.add_argument("--test-fixture", default=None)
     return parser.parse_args()
 
 
@@ -559,10 +534,6 @@ def main():
     download_dir = os.path.join(args.output_dir, "downloads")
     modes = args.mode or ["citing_papers"]
     validate_modes(args.input_entity, modes)
-
-    if args.test_fixture:
-        copy_fixture_outputs(args.test_fixture, args.output_dir, modes)
-        return
 
     if args.max_citations.lower() == "all":
         max_works = None
