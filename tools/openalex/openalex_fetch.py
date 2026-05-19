@@ -1,29 +1,29 @@
 import argparse
 import os
+import re
 import sys
 import time
+import unicodedata
+from urllib.parse import unquote, urlparse
 
 import requests
 
 
-# OpenAlex API base URL
 OPENALEX_API_BASE = "https://api.openalex.org"
-
-# Retry settings
 MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+RETRY_DELAY = 2
+WORK_SELECT = "id,title,doi,publication_year,publication_date,cited_by_count,type,open_access,locations,authorships"
 
 
 def make_request(url, params=None, email=None):
     """Make a request to the OpenAlex API with retry logic and optional polite pool."""
-    headers = {}
     request_params = dict(params or {})
     if email:
         request_params["mailto"] = email
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.get(url, params=request_params, headers=headers, timeout=30)
+            response = requests.get(url, params=request_params, timeout=30)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError:
@@ -32,7 +32,7 @@ def make_request(url, params=None, email=None):
                 print(f"[!] Rate limited, waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
             elif response.status_code == 404:
-                raise ValueError(f"Work not found: {url}")
+                raise ValueError(f"OpenAlex record not found: {url}")
             elif response.status_code >= 500:
                 wait_time = RETRY_DELAY * (attempt + 1)
                 print(f"[!] Server error {response.status_code}, retrying in {wait_time}s...")
@@ -51,34 +51,185 @@ def make_request(url, params=None, email=None):
     raise RuntimeError(f"Failed after {MAX_RETRIES} retries for URL: {url}")
 
 
-def resolve_openalex_id(identifier, id_type, email=None):
-    """Resolve an identifier to an OpenAlex work ID."""
-    if id_type == "id":
-        return identifier
-    elif id_type == "doi":
-        url = f"{OPENALEX_API_BASE}/works/https://doi.org/{identifier}"
-        data = make_request(url, email=email)
-        return data['id'].split('/')[-1]
-    elif id_type == "title":
-        url = f"{OPENALEX_API_BASE}/works"
-        params = {"search": identifier}
-        data = make_request(url, params=params, email=email)
-        results = data.get('results', [])
-        if not results:
-            raise ValueError("No paper found with the given title.")
-        return results[0]['id'].split('/')[-1]
+def tsv_value(value):
+    if value is None:
+        return "N/A"
+    return str(value).replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
+def short_openalex_id(value):
+    if not value:
+        return "N/A"
+    return value.rstrip("/").split("/")[-1]
+
+
+def extract_openalex_id(identifier, prefix):
+    match = re.search(rf"\b{prefix}\d+\b", identifier, flags=re.IGNORECASE)
+    if match:
+        return match.group(0).upper()
+    return None
+
+
+def normalize_doi(identifier):
+    value = identifier.strip()
+    parsed = urlparse(value)
+    if parsed.netloc.lower() in {"doi.org", "dx.doi.org"}:
+        value = unquote(parsed.path.lstrip("/"))
+    if value.lower().startswith("doi:"):
+        value = value[4:]
+    match = re.search(r"10\.\d{4,9}/\S+", value, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(0).rstrip(".,;")
+
+
+def normalize_orcid(identifier):
+    value = identifier.strip()
+    parsed = urlparse(value)
+    if parsed.netloc.lower() == "orcid.org":
+        value = parsed.path.lstrip("/")
+    if value.lower().startswith("orcid:"):
+        value = value[6:]
+    match = re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{3}[\dXx]", value)
+    if match:
+        return match.group(0).upper()
+    return None
+
+
+def normalize_ror(identifier):
+    value = identifier.strip()
+    parsed = urlparse(value)
+    if parsed.netloc.lower() == "ror.org":
+        return f"https://ror.org/{parsed.path.lstrip('/')}"
+    if re.fullmatch(r"0[a-hj-km-np-tv-z|0-9]{6}\d{2}", value, flags=re.IGNORECASE):
+        return f"https://ror.org/{value}"
+    return None
+
+
+def search_variants(term):
+    variants = [term]
+    transliterated = (
+        term.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ä", "Ae")
+        .replace("Ö", "Oe")
+        .replace("Ü", "Ue")
+        .replace("ß", "ss")
+    )
+    ascii_folded = unicodedata.normalize("NFKD", term).encode("ascii", "ignore").decode("ascii")
+    for variant in (transliterated, ascii_folded):
+        if variant and variant not in variants:
+            variants.append(variant)
+    return variants
+
+
+def read_identifiers(args):
+    if args.identifiers:
+        values = args.identifiers.replace("__cn__", "\n").splitlines()
     else:
-        raise ValueError(f"Unknown identifier type: {id_type}")
+        with open(args.identifier_file, encoding="utf-8") as handle:
+            values = handle.readlines()
+
+    identifiers = []
+    for line in values:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "\t" in line:
+            line = line.split("\t", 1)[0].strip()
+        if line:
+            identifiers.append(line)
+    if not identifiers:
+        raise ValueError("No identifiers were provided.")
+    return identifiers
+
+
+def with_xpac(args, params=None):
+    params = dict(params or {})
+    if args.include_xpac:
+        params["include_xpac"] = "true"
+    return params
 
 
 def fetch_work_details(openalex_id, email=None):
-    """Fetch full details for a single OpenAlex work."""
     url = f"{OPENALEX_API_BASE}/works/{openalex_id}"
     return make_request(url, email=email)
 
 
+def search_first(endpoint, search_term, args, entity_name):
+    for variant in search_variants(search_term):
+        params = with_xpac(args, {"search": variant, "per_page": 1})
+        data = make_request(f"{OPENALEX_API_BASE}/{endpoint}", params=params, email=args.email)
+        results = data.get("results", [])
+        if results:
+            return results[0]
+    raise ValueError(f"No OpenAlex {entity_name} found for: {search_term}")
+
+
+def resolve_work(identifier, args):
+    work_id = extract_openalex_id(identifier, "W")
+    if work_id:
+        data = fetch_work_details(work_id, email=args.email)
+    else:
+        doi = normalize_doi(identifier)
+        if doi:
+            data = make_request(f"{OPENALEX_API_BASE}/works/https://doi.org/{doi}", email=args.email)
+        else:
+            data = search_first("works", identifier, args, "work")
+    return {
+        "input": identifier,
+        "entity_id": short_openalex_id(data["id"]),
+        "entity_name": data.get("title") or "N/A",
+        "data": data,
+    }
+
+
+def resolve_author(identifier, args):
+    author_id = extract_openalex_id(identifier, "A")
+    orcid = normalize_orcid(identifier)
+    if author_id:
+        data = make_request(f"{OPENALEX_API_BASE}/authors/{author_id}", email=args.email)
+        filter_clause = f"author.id:{author_id}"
+    elif orcid:
+        data = make_request(f"{OPENALEX_API_BASE}/authors/orcid:{orcid}", email=args.email)
+        filter_clause = f"author.orcid:{orcid}"
+    else:
+        data = search_first("authors", identifier, args, "author")
+        author_id = short_openalex_id(data["id"])
+        filter_clause = f"author.id:{author_id}"
+    return {
+        "input": identifier,
+        "entity_id": short_openalex_id(data["id"]),
+        "entity_name": data.get("display_name") or "N/A",
+        "filter": filter_clause,
+        "data": data,
+    }
+
+
+def resolve_institution(identifier, args):
+    institution_id = extract_openalex_id(identifier, "I")
+    ror = normalize_ror(identifier)
+    if institution_id:
+        data = make_request(f"{OPENALEX_API_BASE}/institutions/{institution_id}", email=args.email)
+        filter_clause = f"institutions.id:{institution_id}"
+    elif ror:
+        data = make_request(f"{OPENALEX_API_BASE}/institutions/ror:{ror}", email=args.email)
+        filter_clause = f"institutions.ror:{ror}"
+    else:
+        data = search_first("institutions", identifier, args, "institution")
+        institution_id = short_openalex_id(data["id"])
+        filter_clause = f"institutions.id:{institution_id}"
+    return {
+        "input": identifier,
+        "entity_id": short_openalex_id(data["id"]),
+        "entity_name": data.get("display_name") or "N/A",
+        "filter": filter_clause,
+        "data": data,
+    }
+
+
 def build_work_filters(base_filter, args):
-    """Build OpenAlex works filter clauses from wrapper options."""
     filters = [base_filter]
     if args.open_access != "any":
         filters.append(f"open_access.is_oa:{args.open_access}")
@@ -92,7 +243,6 @@ def build_work_filters(base_filter, args):
 
 
 def filter_work(work, args):
-    """Apply the same work filters client-side for dereferenced works."""
     if args.open_access != "any":
         is_oa = work.get("open_access", {}).get("is_oa", False)
         if is_oa != (args.open_access == "true"):
@@ -108,392 +258,366 @@ def filter_work(work, args):
 
 
 def sort_works(works, sort_by):
-    """Sort client-side work lists with the same choices exposed in Galaxy."""
     if sort_by == "none":
         return works
     reverse = sort_by.endswith(":desc")
     field = sort_by.split(":", 1)[0]
-    if field == "relevance_score":
-        return works
     return sorted(works, key=lambda work: work.get(field) or 0, reverse=reverse)
 
 
-def fetch_citing_papers(openalex_id, max_citations=None, email=None, args=None):
-    """Fetch citing papers for a given OpenAlex work ID."""
-    all_citing_papers = []
+def fetch_work_list(base_filter, max_works, args):
+    works = []
     per_page = 100
-    page = 1
-
-    work_data = fetch_work_details(openalex_id, email=email)
-    cited_by_count = work_data.get('cited_by_count', 0)
-    if cited_by_count == 0:
-        raise ValueError("This work has no citing papers.")
-
-    params = {
-        "filter": build_work_filters(f"cites:{openalex_id}", args),
-        "per_page": per_page,
-        "page": page,
-        "select": "id,title,doi,publication_year,publication_date,cited_by_count,type,open_access,locations",
-    }
+    params = with_xpac(
+        args,
+        {
+            "filter": build_work_filters(base_filter, args),
+            "per_page": per_page,
+            "select": WORK_SELECT,
+            "cursor": "*",
+        },
+    )
     if args.sort != "none":
         params["sort"] = args.sort
-    if args.include_xpac:
-        params["include_xpac"] = "true"
 
     while True:
-        params["page"] = page
-        data = make_request(f"{OPENALEX_API_BASE}/works", params=params, email=email)
-
-        results = data.get('results', [])
+        data = make_request(f"{OPENALEX_API_BASE}/works", params=params, email=args.email)
+        results = data.get("results", [])
         if not results:
             break
-
-        all_citing_papers.extend(results)
-
-        if max_citations and len(all_citing_papers) >= max_citations:
-            all_citing_papers = all_citing_papers[:max_citations]
+        works.extend(results)
+        if max_works and len(works) >= max_works:
+            return works[:max_works]
+        next_cursor = data.get("meta", {}).get("next_cursor")
+        if not next_cursor or len(results) < per_page:
             break
-
-        if len(results) < per_page:
-            break
-
-        page += 1
-
-    return all_citing_papers
+        params["cursor"] = next_cursor
+    return works
 
 
-def fetch_referenced_works(openalex_id, max_works=None, email=None, args=None):
-    """Fetch works referenced by a given OpenAlex work (its bibliography)."""
-    work_data = fetch_work_details(openalex_id, email=email)
-    referenced_works = work_data.get('referenced_works', [])
-
-    if not referenced_works:
-        raise ValueError("This work has no referenced works.")
-
+def fetch_referenced_works(openalex_id, max_works, args):
+    work_data = fetch_work_details(openalex_id, email=args.email)
+    referenced_works = work_data.get("referenced_works", [])
     details = []
     for ref_id in referenced_works:
-        ref_openalex_id = ref_id.split('/')[-1]
         try:
-            ref_data = fetch_work_details(ref_openalex_id, email=email)
-            if filter_work(ref_data, args):
-                details.append(ref_data)
-                if max_works and len(details) >= max_works:
-                    break
+            ref_data = fetch_work_details(short_openalex_id(ref_id), email=args.email)
         except ValueError:
             continue
-
+        if filter_work(ref_data, args):
+            details.append(ref_data)
+            if max_works and len(details) >= max_works:
+                break
     return sort_works(details, args.sort)
 
 
-def fetch_related_works(openalex_id, max_works=None, email=None, args=None):
-    """Fetch works related to a given OpenAlex work."""
-    url = f"{OPENALEX_API_BASE}/works"
-    params = {
-        "filter": build_work_filters(f"related_to:{openalex_id}", args),
-        "per_page": min(max_works or 50, 100),
-        "select": "id,title,doi,publication_year,publication_date,cited_by_count,type,open_access,locations",
-    }
-    if args.sort != "none":
-        params["sort"] = args.sort
-    if args.include_xpac:
-        params["include_xpac"] = "true"
-    data = make_request(url, params=params, email=email)
-    results = data.get('results', [])
-
-    if not results:
-        raise ValueError("No related works found.")
-
-    if max_works:
-        results = results[:max_works]
-
-    return results
+def get_best_pdf_url(work):
+    locations = work.get("locations") or []
+    for location in locations:
+        if location.get("is_oa") and location.get("pdf_url"):
+            return location["pdf_url"]
+    primary = work.get("primary_location") or {}
+    if primary.get("is_oa") and primary.get("pdf_url"):
+        return primary["pdf_url"]
+    return None
 
 
-def fetch_author_details(openalex_id, email=None):
-    """Fetch author details for a given OpenAlex work."""
-    work_data = fetch_work_details(openalex_id, email=email)
-    authorships = work_data.get('authorships', [])
-
-    if not authorships:
-        raise ValueError("No author information found for this work.")
-
-    authors = []
-    for authorship in authorships:
-        author = authorship.get('author', {})
-        author_info = {
-            'name': author.get('display_name', 'N/A'),
-            'orcid': author.get('orcid', 'N/A'),
-            'openalex_id': author.get('id', 'N/A'),
-            'affiliation': 'N/A',
-            'country': 'N/A'
-        }
-        institutions = authorship.get('institutions', [])
-        if institutions:
-            inst = institutions[0]
-            author_info['affiliation'] = inst.get('display_name', 'N/A')
-            author_info['country'] = inst.get('country_code', 'N/A')
-        authors.append(author_info)
-
-    return authors
+def safe_pdf_name(index, resolved, work=None):
+    work = work or resolved["data"]
+    title = work.get("title") or resolved["entity_name"] or resolved["entity_id"]
+    safe_title = "".join(char for char in title if char.isalnum() or char in " _-").strip()
+    safe_title = safe_title[:160] or short_openalex_id(work.get("id")) or resolved["entity_id"]
+    return f"{index:03d}_{short_openalex_id(work.get('id'))}_{safe_title}.pdf"
 
 
-def write_summary(work_data, citing_papers, output_path):
-    """Write a summary file."""
-    is_oa = 0
-    is_not_oa = 0
-    for paper in citing_papers:
-        locations = paper.get('locations') or []
-        if not locations:
-            is_not_oa += 1
-        else:
-            location = locations[0]
-            if location.get('is_oa', False):
-                is_oa += 1
-            else:
-                is_not_oa += 1
-
-    with open(output_path, "w") as f:
-        f.write(f"Total citing papers: {len(citing_papers)}\n")
-        f.write(f"Open Access papers: {is_oa}\n")
-        f.write(f"Closed Access papers: {is_not_oa}\n")
-
-
-def write_citing_papers_tsv(citing_papers, output_path):
-    """Write citing papers to a TSV file."""
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("Title\tDOI\tIs_OA\n")
-        for paper in citing_papers:
-            raw_title = paper.get("title") or "N/A"
-            title = raw_title.replace("\t", " ")
-            doi = paper.get("doi", "N/A")
-            locations = paper.get('locations') or []
-            location = locations[0] if locations else {}
-            is_oa_val = location.get("is_oa", False)
-            f.write(f"{title}\t{doi}\t{is_oa_val}\n")
-
-
-def write_referenced_works_tsv(referenced_works, output_path):
-    """Write referenced works (bibliography) to a TSV file."""
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("Title\tDOI\tYear\tIs_OA\n")
-        for work in referenced_works:
-            raw_title = work.get("title") or "N/A"
-            title = raw_title.replace("\t", " ")
-            doi = work.get("doi", "N/A")
-            year = work.get("publication_year", "N/A")
-            is_oa = work.get("open_access", {}).get("is_oa", False)
-            f.write(f"{title}\t{doi}\t{year}\t{is_oa}\n")
-
-
-def write_related_works_tsv(related_works, output_path):
-    """Write related works to a TSV file."""
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("Title\tDOI\tYear\tCited_By_Count\tIs_OA\n")
-        for work in related_works:
-            raw_title = work.get("title") or "N/A"
-            title = raw_title.replace("\t", " ")
-            doi = work.get("doi", "N/A")
-            year = work.get("publication_year", "N/A")
-            cited_by = work.get("cited_by_count", 0)
-            is_oa = work.get("open_access", {}).get("is_oa", False)
-            f.write(f"{title}\t{doi}\t{year}\t{cited_by}\t{is_oa}\n")
-
-
-def write_authors_tsv(authors, output_path):
-    """Write author details to a TSV file."""
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("Name\tORCID\tAffiliation\tCountry\n")
-        for author in authors:
-            name = author['name'].replace("\t", " ")
-            orcid = author.get('orcid', 'N/A')
-            affiliation = author.get('affiliation', 'N/A').replace("\t", " ")
-            country = author.get('country', 'N/A')
-            f.write(f"{name}\t{orcid}\t{affiliation}\t{country}\n")
-
-
-def write_concepts_tsv(work_data, output_path):
-    """Write concepts/topics to a TSV file."""
-    concepts = work_data.get('concepts', [])
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("Concept\tScore\tWikidata_ID\n")
-        for concept in concepts:
-            name = concept.get('display_name', 'N/A').replace("\t", " ")
-            score = f"{concept.get('score', 0):.4f}"
-            wikidata = concept.get('wikidata', 'N/A')
-            f.write(f"{name}\t{score}\t{wikidata}\n")
-
-
-def download_pdf(url, title, folder_name):
-    """Download a PDF from a URL and save it to the specified folder."""
+def download_pdf(url, file_path):
     try:
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            safe_title = "".join(x for x in title if x.isalnum() or x in " _-").rstrip()
-            file_path = os.path.join(folder_name, f"{safe_title}.pdf")
-            with open(file_path, 'wb') as f:
-                f.write(response.content)
-            print(f"[+] Downloaded: {file_path}")
-        else:
-            print(f"[x] Failed to download: {url}")
-    except Exception as e:
-        print(f"[!] Error downloading {url}: {e}")
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        response.raise_for_status()
+        with open(file_path, "wb") as handle:
+            handle.write(response.content)
+        print(f"[+] Downloaded: {file_path}")
+    except Exception as error:
+        print(f"[!] Error downloading {url}: {error}")
 
 
-def print_papers(papers, download=False, download_dir="downloads"):
-    """Print paper info and optionally download PDFs."""
-    is_oa = 0
-    is_not_oa = 0
-    for paper in papers:
-        locations = paper.get('locations') or []
-        if not locations:
-            is_not_oa += 1
-            continue
-        location = locations[0]
-        is_open = location.get('is_oa', False)
-        landing_url = location.get('landing_page_url', 'No URL')
+def work_row(resolved, work):
+    return [
+        resolved["input"],
+        resolved["entity_id"],
+        resolved["entity_name"],
+        short_openalex_id(work.get("id", "N/A")),
+        work.get("title"),
+        work.get("doi"),
+        work.get("publication_year"),
+        work.get("type"),
+        work.get("cited_by_count", 0),
+        work.get("open_access", {}).get("is_oa", False),
+    ]
 
-        if is_open:
-            is_oa += 1
-            print("[OA]", landing_url)
-            if download:
-                pdf_url = location.get('pdf_url')
-                if pdf_url:
-                    download_pdf(pdf_url, paper['title'], download_dir)
-                else:
-                    print(f"[!] No direct PDF URL for: {paper['title']}")
-        else:
-            is_not_oa += 1
-            print("[Closed]", landing_url)
 
-    return is_oa, is_not_oa
+def write_rows(path, header, rows):
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\t".join(header) + "\n")
+        for row in rows:
+            handle.write("\t".join(tsv_value(value) for value in row) + "\n")
+
+
+def write_summary(resolved_works, output_path):
+    rows = []
+    for resolved in resolved_works:
+        work = resolved["data"]
+        rows.append(
+            [
+                resolved["input"],
+                resolved["entity_id"],
+                resolved["entity_name"],
+                work.get("doi"),
+                work.get("publication_year"),
+                work.get("type"),
+                work.get("cited_by_count", 0),
+                work.get("open_access", {}).get("is_oa", False),
+            ]
+        )
+    write_rows(
+        output_path,
+        ["Input", "Resolved_OpenAlex_ID", "Resolved_Title", "DOI", "Year", "Type", "Cited_By_Count", "Is_OA"],
+        rows,
+    )
+
+
+def write_work_list(path, rows):
+    write_rows(
+        path,
+        [
+            "Input",
+            "Resolved_Entity_ID",
+            "Resolved_Entity_Name",
+            "Work_OpenAlex_ID",
+            "Title",
+            "DOI",
+            "Year",
+            "Type",
+            "Cited_By_Count",
+            "Is_OA",
+        ],
+        rows,
+    )
+
+
+def write_authors(resolved_works, output_path):
+    rows = []
+    for resolved in resolved_works:
+        for authorship in resolved["data"].get("authorships", []):
+            author = authorship.get("author", {})
+            institutions = authorship.get("institutions") or [{}]
+            institution = institutions[0]
+            rows.append(
+                [
+                    resolved["input"],
+                    resolved["entity_id"],
+                    resolved["entity_name"],
+                    author.get("display_name"),
+                    author.get("orcid"),
+                    short_openalex_id(author.get("id", "N/A")),
+                    institution.get("display_name", "N/A"),
+                    institution.get("country_code", "N/A"),
+                ]
+            )
+    write_rows(
+        output_path,
+        [
+            "Input",
+            "Resolved_OpenAlex_ID",
+            "Resolved_Title",
+            "Name",
+            "ORCID",
+            "Author_OpenAlex_ID",
+            "Affiliation",
+            "Country",
+        ],
+        rows,
+    )
+
+
+def write_concepts(resolved_works, output_path):
+    rows = []
+    for resolved in resolved_works:
+        for concept in resolved["data"].get("concepts", []):
+            rows.append(
+                [
+                    resolved["input"],
+                    resolved["entity_id"],
+                    resolved["entity_name"],
+                    concept.get("display_name"),
+                    f"{concept.get('score', 0):.4f}",
+                    concept.get("wikidata"),
+                ]
+            )
+    write_rows(
+        output_path,
+        ["Input", "Resolved_OpenAlex_ID", "Resolved_Title", "Concept", "Score", "Wikidata_ID"],
+        rows,
+    )
+
+
+def validate_modes(input_entity, modes):
+    work_modes = {"summary", "citing_papers", "references", "related", "authors", "concepts", "download_pdfs"}
+    author_modes = {"author_works", "download_pdfs"}
+    institution_modes = {"institution_works", "download_pdfs"}
+    allowed = {"work": work_modes, "author": author_modes, "institution": institution_modes}[input_entity]
+    invalid = sorted(set(modes) - allowed)
+    if invalid:
+        raise ValueError(f"Mode(s) {', '.join(invalid)} are not valid for {input_entity} inputs.")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fetch OpenAlex work, author, and institution data")
+    parser.add_argument("--input-entity", choices=["work", "author", "institution"], required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--identifiers", help="One identifier/title/entity per line")
+    group.add_argument("--identifier-file", help="Text or tabular file with identifiers in the first non-empty column")
+    parser.add_argument(
+        "--mode",
+        choices=[
+            "summary",
+            "citing_papers",
+            "references",
+            "related",
+            "authors",
+            "concepts",
+            "download_pdfs",
+            "author_works",
+            "institution_works",
+        ],
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--max-citations", type=str, default="50", dest="max_citations")
+    parser.add_argument("--output-dir", default=".")
+    parser.add_argument("--email", default=None)
+    parser.add_argument("--open-access", choices=["any", "true", "false"], default="any")
+    parser.add_argument("--publication-year-from", type=int, default=None)
+    parser.add_argument("--publication-year-to", type=int, default=None)
+    parser.add_argument(
+        "--work-type",
+        default="any",
+        choices=[
+            "any",
+            "article",
+            "book",
+            "book-chapter",
+            "dataset",
+            "dissertation",
+            "editorial",
+            "letter",
+            "paratext",
+            "peer-review",
+            "preprint",
+            "reference-entry",
+            "report",
+            "review",
+        ],
+    )
+    parser.add_argument(
+        "--sort",
+        default="none",
+        choices=["none", "cited_by_count:desc", "publication_year:desc", "publication_year:asc"],
+    )
+    parser.add_argument("--include-xpac", action="store_true")
+    return parser.parse_args()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch citing papers from OpenAlex")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--id', help='OpenAlex ID of the paper (e.g., W2088676066)')
-    group.add_argument('--doi', help='DOI of the paper')
-    group.add_argument('--title', help='Title of the paper')
-
-    parser.add_argument('--mode', choices=['citing_papers', 'summary', 'references', 'related', 'authors', 'concepts'],
-                        action='append', default=[],
-                        help='What to fetch: citing_papers (default), summary only, references (bibliography), related works, authors, or concepts/topics')
-    parser.add_argument('--download', action='store_true', help='Download available OA PDFs (only for citing_papers mode)')
-    parser.add_argument('--max-citations', type=str, default="50", dest='max_citations',
-                        help="Max papers to fetch or 'all' (default: 50)")
-    parser.add_argument('--output-dir', default='.', help='Directory to save output files')
-    parser.add_argument('--email', default=None, help='Email for OpenAlex polite pool (faster API access)')
-    parser.add_argument('--open-access', choices=['any', 'true', 'false'], default='any',
-                        help='Filter works by Open Access status')
-    parser.add_argument('--publication-year-from', type=int, default=None,
-                        help='Only include works published in or after this year')
-    parser.add_argument('--publication-year-to', type=int, default=None,
-                        help='Only include works published in or before this year')
-    parser.add_argument('--work-type', default='any',
-                        choices=['any', 'article', 'book', 'book-chapter', 'dataset', 'dissertation', 'editorial', 'letter', 'paratext', 'peer-review', 'preprint', 'reference-entry', 'report', 'review'],
-                        help='Filter works by OpenAlex work type')
-    parser.add_argument('--sort', default='none',
-                        choices=['none', 'cited_by_count:desc', 'publication_year:desc', 'publication_year:asc'],
-                        help='Sort order for work lists')
-    parser.add_argument('--include-xpac', action='store_true',
-                        help='Include works from Crossref posted-content archives in OpenAlex list queries')
-
-    args = parser.parse_args()
-
-    output_dir = args.output_dir
-    os.makedirs(output_dir, exist_ok=True)
-    download_dir = os.path.join(output_dir, "downloads")
-    modes = args.mode or ['citing_papers']
+    args = parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
+    download_dir = os.path.join(args.output_dir, "downloads")
+    modes = args.mode or ["citing_papers"]
+    validate_modes(args.input_entity, modes)
 
     if args.max_citations.lower() == "all":
-        max_citations = None
+        max_works = None
     else:
-        max_citations = int(args.max_citations)
+        max_works = int(args.max_citations)
 
     try:
-        # Resolve identifier type
-        if args.title:
-            id_type = "title"
-            identifier = args.title
-        elif args.doi:
-            id_type = "doi"
-            identifier = args.doi
-        else:
-            id_type = "id"
-            identifier = args.id
+        if args.publication_year_from and args.publication_year_to and args.publication_year_from > args.publication_year_to:
+            raise ValueError("Publication year from must be less than or equal to publication year to.")
+        identifiers = read_identifiers(args)
+        if args.input_entity == "work":
+            resolved_works = [resolve_work(identifier, args) for identifier in identifiers]
 
-        openalex_id = resolve_openalex_id(identifier, id_type, email=args.email)
-        work_data = None
-        citing_papers = None
+            if "summary" in modes:
+                write_summary(resolved_works, os.path.join(args.output_dir, "summary.tsv"))
 
-        for mode in modes:
-            if mode == 'citing_papers' or mode == 'summary':
-                if citing_papers is None:
-                    citing_papers = fetch_citing_papers(
-                        openalex_id,
-                        max_citations=max_citations,
-                        email=args.email,
-                        args=args,
-                    )
+            if "citing_papers" in modes:
+                rows = []
+                for resolved in resolved_works:
+                    works = fetch_work_list(f"cites:{resolved['entity_id']}", max_works, args)
+                    rows.extend(work_row(resolved, work) for work in works)
+                write_work_list(os.path.join(args.output_dir, "citing_papers.tsv"), rows)
 
-                if mode == 'citing_papers':
-                    is_oa, is_not_oa = print_papers(citing_papers, download=args.download, download_dir=download_dir)
-                    print("\nSummary:")
-                    print(f"Total citing papers: {len(citing_papers)}")
-                    print(f"Open Access papers: {is_oa}")
-                    print(f"Closed Access papers: {is_not_oa}")
+            if "references" in modes:
+                rows = []
+                for resolved in resolved_works:
+                    works = fetch_referenced_works(resolved["entity_id"], max_works, args)
+                    rows.extend(work_row(resolved, work) for work in works)
+                write_work_list(os.path.join(args.output_dir, "referenced_works.tsv"), rows)
 
-                    if work_data is None:
-                        work_data = fetch_work_details(openalex_id, email=args.email)
-                    write_summary(work_data, citing_papers, os.path.join(output_dir, "summary.txt"))
-                    write_citing_papers_tsv(citing_papers, os.path.join(output_dir, "citing_papers.tsv"))
-                else:
-                    # summary only mode
-                    if work_data is None:
-                        work_data = fetch_work_details(openalex_id, email=args.email)
-                    cited_by_count = work_data.get('cited_by_count', 0)
-                    print(f"Title: {work_data.get('title', 'N/A')}")
-                    print(f"DOI: {work_data.get('doi', 'N/A')}")
-                    print(f"Year: {work_data.get('publication_year', 'N/A')}")
-                    print(f"Cited by: {cited_by_count}")
-                    print(f"Type: {work_data.get('type', 'N/A')}")
-                    is_oa = work_data.get('open_access', {}).get('is_oa', False)
-                    print(f"Open Access: {is_oa}")
-                    write_summary(work_data, citing_papers, os.path.join(output_dir, "summary.txt"))
-                    write_citing_papers_tsv(citing_papers, os.path.join(output_dir, "citing_papers.tsv"))
+            if "related" in modes:
+                rows = []
+                for resolved in resolved_works:
+                    works = fetch_work_list(f"related_to:{resolved['entity_id']}", max_works, args)
+                    rows.extend(work_row(resolved, work) for work in works)
+                write_work_list(os.path.join(args.output_dir, "related_works.tsv"), rows)
 
-            elif mode == 'references':
-                referenced = fetch_referenced_works(openalex_id, max_works=max_citations, email=args.email, args=args)
-                print(f"\nFound {len(referenced)} referenced works")
-                write_referenced_works_tsv(referenced, os.path.join(output_dir, "referenced_works.tsv"))
-                print("Saved to referenced_works.tsv")
+            if "authors" in modes:
+                write_authors(resolved_works, os.path.join(args.output_dir, "authors.tsv"))
 
-            elif mode == 'related':
-                related = fetch_related_works(openalex_id, max_works=max_citations, email=args.email, args=args)
-                print(f"\nFound {len(related)} related works")
-                write_related_works_tsv(related, os.path.join(output_dir, "related_works.tsv"))
-                print("Saved to related_works.tsv")
+            if "concepts" in modes:
+                write_concepts(resolved_works, os.path.join(args.output_dir, "concepts.tsv"))
 
-            elif mode == 'authors':
-                authors = fetch_author_details(openalex_id, email=args.email)
-                print(f"\nFound {len(authors)} authors")
-                write_authors_tsv(authors, os.path.join(output_dir, "authors.tsv"))
-                print("Saved to authors.tsv")
+            if "download_pdfs" in modes:
+                os.makedirs(download_dir, exist_ok=True)
+                for index, resolved in enumerate(resolved_works, start=1):
+                    pdf_url = get_best_pdf_url(resolved["data"])
+                    if pdf_url:
+                        download_pdf(pdf_url, os.path.join(download_dir, safe_pdf_name(index, resolved)))
+                    else:
+                        print(f"[!] No direct OA PDF URL for: {resolved['entity_name']}")
 
-            elif mode == 'concepts':
-                if work_data is None:
-                    work_data = fetch_work_details(openalex_id, email=args.email)
-                concepts = work_data.get('concepts', [])
-                print(f"\nFound {len(concepts)} concepts/topics")
-                write_concepts_tsv(work_data, os.path.join(output_dir, "concepts.tsv"))
-                print("Saved to concepts.tsv")
+        elif args.input_entity == "author":
+            resolved_authors = [resolve_author(identifier, args) for identifier in identifiers]
+            rows = []
+            for resolved in resolved_authors:
+                works = fetch_work_list(resolved["filter"], max_works, args)
+                rows.extend(work_row(resolved, work) for work in works)
+                if "download_pdfs" in modes:
+                    os.makedirs(download_dir, exist_ok=True)
+                    for index, work in enumerate(works, start=1):
+                        pdf_url = get_best_pdf_url(work)
+                        if pdf_url:
+                            download_pdf(pdf_url, os.path.join(download_dir, safe_pdf_name(index, resolved, work)))
+            write_work_list(os.path.join(args.output_dir, "author_works.tsv"), rows)
 
-    except Exception as e:
-        print(f"[!] Error: {e}", file=sys.stderr)
+        elif args.input_entity == "institution":
+            resolved_institutions = [resolve_institution(identifier, args) for identifier in identifiers]
+            rows = []
+            for resolved in resolved_institutions:
+                works = fetch_work_list(resolved["filter"], max_works, args)
+                rows.extend(work_row(resolved, work) for work in works)
+                if "download_pdfs" in modes:
+                    os.makedirs(download_dir, exist_ok=True)
+                    for index, work in enumerate(works, start=1):
+                        pdf_url = get_best_pdf_url(work)
+                        if pdf_url:
+                            download_pdf(pdf_url, os.path.join(download_dir, safe_pdf_name(index, resolved, work)))
+            write_work_list(os.path.join(args.output_dir, "institution_works.tsv"), rows)
+
+    except Exception as error:
+        print(f"[!] Error: {error}", file=sys.stderr)
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
