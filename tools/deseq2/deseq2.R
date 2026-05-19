@@ -80,7 +80,8 @@ spec <- matrix(c(
     "design_formula", "G", 1, "character",
     "contrast_definition", "K", 1, "character",
     "count_matrix_mode", "M", 0, "logical",
-    "count_matrix", "X", 1, "character"
+    "count_matrix", "X", 1, "character",
+    "plot_transform", "Z", 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -581,12 +582,16 @@ if (!is.null(opt$custom_design_formula)) {
 }
 
 # these are plots which are made once for each analysis
-generate_generic_plots <- function(dds, factors) {
+generate_generic_plots <- function(dds, factors, transform_type = "vst") {
     library("ggplot2")
     library("ggrepel")
     library("pheatmap")
 
-    rld <- rlog(dds)
+    if (transform_type == "rlog") {
+        rld <- rlog(dds)
+    } else {
+        rld <- vst(dds)
+    }
     p <- plotPCA(rld, intgroup = rev(factors))
     print(p + geom_text_repel(aes_string(x = "PC1", y = "PC2", label = factor(colnames(dds))), size = 3) + geom_point())
     dat <- assay(rld)
@@ -790,9 +795,10 @@ dds <- DESeq(dds, fitType = fit_type, betaPrior = beta_prior, minReplicatesForRe
 
 # create the generic plots and leave the device open
 if (!is.null(opt$plots)) {
-    if (verbose) cat("creating plots\n")
+    plot_transform <- ifelse(is.null(opt$plot_transform), "vst", opt$plot_transform)
+    if (verbose) cat(paste("creating plots using", plot_transform, "transformation\n"))
     pdf(opt$plots)
-    generate_generic_plots(dds, factors)
+    generate_generic_plots(dds, factors, transform_type = plot_transform)
 }
 
 n <- nlevels(colData(dds)[[primary_factor]])
