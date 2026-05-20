@@ -1,8 +1,12 @@
 #!/usr/bin/env python
+# Copyright 2006 The Galaxy Project. All rights reserved.
 """
 Stanza NLP Processing Script for Galaxy
 
 Processes text files with Stanza and outputs results in various formats.
+
+Author: Keith Suderman
+License: MIT
 """
 
 import argparse
