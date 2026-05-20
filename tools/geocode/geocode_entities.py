@@ -1,10 +1,14 @@
 #!/usr/bin/env python
+# Copyright 2006 The Galaxy Project. All rights reserved.
 """
 Geocode Named Entities for Galaxy
 
 Extracts location entities from NLP-annotated JSON (spaCy or Stanza)
 and geocodes them using Nominatim (OpenStreetMap) via urllib.
 No external dependencies — uses only the Python standard library.
+
+Author: Keith Suderman
+License: MIT
 """
 
 import argparse
