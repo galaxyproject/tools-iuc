@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright 2006 The Galaxy Project. All rights reserved.
 """
 Data Manager for spaCy Language Models
 
