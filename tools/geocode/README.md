@@ -123,7 +123,3 @@ OpenStreetMap contributors. OpenStreetMap. 2024.
 https://www.openstreetmap.org
 ```
 
-## Version History
-
-- **1.0.0+galaxy1**: Initial release with GeoJSON output and OpenLayers integration
-- **1.0.0+galaxy0**: Beta release
