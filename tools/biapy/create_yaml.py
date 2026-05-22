@@ -137,15 +137,13 @@ def main():
         workflow_type = workflow_map[args.workflow]
 
         ndim = "3D" if args.dims == "3d" else "2D"
-        as_stack = args.dims in ["2d_stack", "2d"]
-
         config = download_yaml_template(workflow_type, ndim, biapy_version=args.biapy_version)
 
         # Initialization using setdefault to prevent KeyErrors
         config.setdefault("PROBLEM", {})
         config["PROBLEM"].update({"TYPE": workflow_type, "NDIM": ndim})
 
-        config.setdefault("TEST", {})["ANALIZE_2D_IMGS_AS_3D_STACK"] = as_stack
+        config.setdefault("TEST", {})["ANALIZE_2D_IMGS_AS_3D_STACK"] = bool(args.dims == "2d_stack")
 
         # Handle MODEL and PATHS
         model_cfg = config.setdefault("MODEL", {})
@@ -227,6 +225,14 @@ def main():
     else:
         test_cfg["ENABLE"] = False
 
+    # Double-check MODEL configuration for checkpoint loading
+    if args.model_source == "biapy":
+        model_cfg = config.setdefault("MODEL", {})
+        is_loading = bool(args.model)
+        model_cfg["LOAD_CHECKPOINT"] = is_loading
+        model_cfg["LOAD_MODEL_FROM_CHECKPOINT"] = is_loading
+        if is_loading:
+            config.setdefault("PATHS", {})["CHECKPOINT_FILE"] = args.model
     config.setdefault("MODEL", {})["OUT_CHECKPOINT_FORMAT"] = "safetensors"
 
     # Final cleanup and save
