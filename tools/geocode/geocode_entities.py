@@ -163,9 +163,9 @@ def geocode_entities(entities, domain, user_agent, is_public):
                 "count": mention_counts[name],
                 "display_name": display_name,
             })
-            print(f"  [{i+1}/{total}] {original} -> ({lat:.4f}, {lon:.4f})")
+            print(f"  [{i + 1}/{total}] {original} -> ({lat:.4f}, {lon:.4f})")
         else:
-            print(f"  [{i+1}/{total}] {original} -> not found")
+            print(f"  [{i + 1}/{total}] {original} -> not found")
 
     return results
 
