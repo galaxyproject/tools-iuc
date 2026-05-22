@@ -8,29 +8,45 @@
     <command detect_errors="exit_code"><![CDATA[
         NUMBA_NUM_THREADS=\$GALAXY_SLOTS &&
         mkdir -p input output &&
-        unzip -q '$input_spatialdata' -d input &&
+        #if $input_spatialdata.ext == 'spatialdata.zip':
+            unzip -q '$input_spatialdata' -d input &&
 
-        ## Rename directory to spatialdata if it has a different name
-        dir_name=\$(ls -d input/*/ | head -1 | xargs basename) &&
-        if [ "\$dir_name" != "spatialdata" ]; then
-            mv "input/\$dir_name" input/spatialdata;
-        fi &&
+            ## Rename directory to spatialdata if it has a different name
+            dir_name=\$(ls -d input/*/ | head -1 | xargs basename) &&
+            if [ "\$dir_name" != "spatialdata" ]; then
+                mv "input/\$dir_name" input/spatialdata;
+            fi &&
+        #else if $input_spatialdata.ext == 'h5ad':
+            cp '$input_spatialdata' input/spatialdata.h5ad &&
+        #end if
         ## run the graph operation
         cat 'squidpy_graph.py' &&
-        python3 'squidpy_graph.py' &&
-        cd output && zip -r ../spatialdata.spatialdata.zip spatialdata/ && cd ..
+        python3 'squidpy_graph.py'
+        #if $input_spatialdata.ext == 'spatialdata.zip':
+            && cd output && zip -r ../spatialdata.spatialdata.zip spatialdata/ && cd ..
+        #end if
     ]]></command>
     <configfiles>
         <configfile name="squidpy_config" filename="squidpy_graph.py"><![CDATA[
 import spatialdata as sd
+import anndata as ad
 import squidpy as sq
 import numpy as np
 
+#if $input_spatialdata.ext == 'spatialdata.zip':
 ## Load the SpatialData object
 adata = sd.read_zarr("input/spatialdata")
 
 print("Input SpatialData object:")
 print(adata)
+
+#else if $input_spatialdata.ext == 'h5ad':
+## Load the AnnData object
+adata = ad.read_h5ad("input/spatialdata.h5ad")
+
+print("Input Anndata object:")
+print(adata)
+#end if
 
 #if $operation_condi.operation == 'spatial_neighbors':
 ## Compute spatial neighbors
@@ -341,7 +357,11 @@ print("\nUpdated table:")
 print(adata)
 
 ## Save the result
+#if $input_spatialdata.ext == 'spatialdata.zip':
 adata.write("./output/spatialdata", overwrite=True)
+#else if $input_spatialdata.ext == 'h5ad':
+adata.write_h5ad("./output/spatialdata.h5ad", compression="gzip")
+#end if
         ]]></configfile>
     </configfiles>
     <inputs>
@@ -555,10 +575,15 @@ adata.write("./output/spatialdata", overwrite=True)
         </conditional>
     </inputs>
     <outputs>
-        <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation} - SpatialData"/>
+        <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation} - Spatialdata">
+            <filter>input_spatialdata.ext == "spatialdata.zip"</filter>
+        </data>
+        <data name="spatialdata_output_h5ad" format="h5ad" from_work_dir="output/spatialdata.h5ad" label="${tool.name} on ${on_string}: ${operation_condi.operation} - Anndata">
+            <filter>input_spatialdata.ext == "h5ad"</filter>
+        </data>
     </outputs>
     <tests>
-        <!-- Test 1: spatial_neighbors -->
+        <!-- Test 1: spatial_neighbors spdata -->
         <test expect_num_outputs="1">
             <param name="input_spatialdata" value="visium_spatialdata.spatialdata.zip"/>
             <param name="table_key" value="table"/>
@@ -586,7 +611,30 @@ adata.write("./output/spatialdata", overwrite=True)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 2: mask_graph -->
+        <!-- Test 2: spatial_neighbors adata-->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" value="visium.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="spatial_neighbors"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="elements_to_coordinate_systems" value="elements_to_coordinate_systems.json"/>
+                <param name="coord_type" value="grid"/>
+                <param name="n_neighs" value="6"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing spatial neighbors"/>
+                <has_text text="sq.gr.spatial_neighbors"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_size value="75200000" delta="500000"/>
+                    <has_h5_keys keys="obsp/spatial_connectivities,obsp/spatial_distances,uns/spatial_neighbors"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: mask_graph spdata -->
         <test expect_num_outputs="1">
             <param name="input_spatialdata" value="visium_sq_neighbor_spatialdata.spatialdata.zip"/>
             <param name="table_key" value="table"/>
@@ -612,7 +660,28 @@ adata.write("./output/spatialdata", overwrite=True)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 3: nhood_enrichment -->
+        <!-- Test 4: mask_graph adata -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" value="visium_sq_neighbor_spatialdata.h5ad"/>
+            <param name="table_key" value=""/>
+            <conditional name="operation_condi">
+                <param name="operation" value="mask_graph"/>
+                <param name="polygon_coords" value="0,0;100,0;100,100;0,100"/>
+                <param name="spatial_key" value="spatial"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Masking graph by polygon"/>
+                <has_text text="sq.gr.mask_graph"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_size value="75200000" delta="500000"/>
+                    <has_h5_keys keys="obsp/mask_spatial_connectivities,obsp/mask_spatial_distances,uns/mask_spatial_neighbors"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: nhood_enrichment -->
         <test expect_num_outputs="1">
             <param name="input_spatialdata" value="visium_sq_neighbor_spatialdata.spatialdata.zip"/>
             <param name="table_key" value="table"/>
@@ -634,6 +703,28 @@ adata.write("./output/spatialdata", overwrite=True)
                         <has_text text="&quot;zarr_format&quot;: 3"/>
                         <has_text text="tables/table/uns/leiden_nhood_enrichment"/>
                     </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: nhood_enrichment adata -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" value="visium_sq_neighbor_spatialdata.h5ad"/>
+            <param name="table_key" value=""/>
+            <conditional name="operation_condi">
+                <param name="operation" value="nhood_enrichment"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="n_perms" value="100"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing neighborhood enrichment"/>
+                <has_text text="sq.gr.nhood_enrichment"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_size value="75200000" delta="500000"/>
+                    <has_h5_keys keys="uns/leiden_nhood_enrichment"/>
                 </assert_contents>
             </output>
         </test>
