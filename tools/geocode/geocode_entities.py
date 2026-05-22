@@ -25,7 +25,8 @@ from collections import Counter
 
 NOMINATIM_PUBLIC = "nominatim.openstreetmap.org"
 
-# Force CI refresh
+
+# Force CI refresh - GitHub Actions environment issue
 def detect_format(data):
     """Detect whether JSON is spaCy or Stanza format."""
     if "sentences" in data and data["sentences"]:
