@@ -251,7 +251,7 @@ def main():
 
             # Verify the package was installed
             try:
-                result = subprocess.run(
+                subprocess.run(
                     [sys.executable, "-m", "pip", "show", model_name],
                     capture_output=True,
                     text=True,
