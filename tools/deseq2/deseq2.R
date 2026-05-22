@@ -67,6 +67,7 @@ spec <- matrix(c(
     "outlier_filter_off", "b", 0, "logical",
     "auto_mean_filter_off", "c", 0, "logical",
     "use_beta_priors", "d", 0, "logical",
+    "lfc_shrinkage_type", "L", 1, "character",
     "alpha_ma", "A", 1, "numeric",
     "prefilter", "P", 0, "logical",
     "prefilter_value", "V", 1, "numeric",
@@ -96,6 +97,14 @@ if (is.null(opt$outfile)) {
 }
 if (is.null(opt$factors) && is.null(opt$sample_sheet_mode)) {
     cat("'factors' is required when not using sample_sheet_mode\n")
+    q(status = 1)
+}
+if (is.null(opt$lfc_shrinkage_type)) {
+    opt$lfc_shrinkage_type <- "none"
+}
+valid_lfc_shrinkage_types <- c("none", "normal", "apeglm", "ashr")
+if (!(opt$lfc_shrinkage_type %in% valid_lfc_shrinkage_types)) {
+    cat(paste0("'lfc_shrinkage_type' must be one of: ", paste(valid_lfc_shrinkage_types, collapse = ", "), "\n"))
     q(status = 1)
 }
 
@@ -466,6 +475,66 @@ generate_specific_plots <- function(res, threshold, title_suffix) {
     plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
 }
 
+get_contrast_coefficient_name <- function(dds, contrast_factor, lvl, ref) {
+    coefficient_name <- paste0(contrast_factor, "_", lvl, "_vs_", ref)
+    sanitized_coefficient_name <- paste0(
+        make.names(contrast_factor), "_",
+        make.names(lvl), "_vs_",
+        make.names(ref)
+    )
+    available_names <- resultsNames(dds)
+    coefficient_candidates <- unique(c(coefficient_name, sanitized_coefficient_name))
+    matching_names <- coefficient_candidates[coefficient_candidates %in% available_names]
+    if (length(matching_names) > 0) {
+        return(matching_names[1])
+    }
+
+    stop(
+        paste0(
+            "Could not find coefficient for '", contrast_factor, ": ", lvl, " vs ", ref, "' for lfcShrink. ",
+            "Checked: ", paste(coefficient_candidates, collapse = ", "), ". ",
+            "Available coefficients are: ", paste(available_names, collapse = ", "), ". ",
+            "lfcShrink requires a model coefficient; for non-reference pairwise contrasts, ",
+            "rerun with the requested reference level or disable lfcShrink."
+        )
+    )
+}
+
+get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, independent_filtering, lfc_shrinkage_type, parallel) {
+    res <- results(
+        dds,
+        contrast = c(contrast_factor, lvl, ref),
+        cooksCutoff = cooks_cutoff,
+        independentFiltering = independent_filtering
+    )
+
+    if (lfc_shrinkage_type == "none") {
+        return(res)
+    }
+
+    if (lfc_shrinkage_type == "apeglm" && !requireNamespace("apeglm", quietly = TRUE)) {
+        stop("lfcShrink type 'apeglm' requires the apeglm package.")
+    }
+    if (lfc_shrinkage_type == "ashr" && !requireNamespace("ashr", quietly = TRUE)) {
+        stop("lfcShrink type 'ashr' requires the ashr package.")
+    }
+
+    coefficient_name <- get_contrast_coefficient_name(dds, contrast_factor, lvl, ref)
+    if (verbose) {
+        cat(paste0("Applying DESeq2 lfcShrink type '", lfc_shrinkage_type, "' using coefficient '", coefficient_name, "'\n"))
+    }
+    shrunk_res <- lfcShrink(
+        dds,
+        coef = coefficient_name,
+        res = res,
+        type = lfc_shrinkage_type,
+        parallel = parallel
+    )
+    res$log2FoldChange <- shrunk_res$log2FoldChange
+    res$lfcSE <- shrunk_res$lfcSE
+    res
+}
+
 if (verbose) {
     cat(paste("primary factor:", primary_factor, "\n"))
     if (length(factors) > 1) {
@@ -604,6 +673,15 @@ if (is.null(opt$use_beta_priors)) {
 }
 sprintf("use_beta_prior is set to %s", beta_prior)
 
+if (beta_prior && opt$lfc_shrinkage_type != "none") {
+    cat("Error: DESeq2 lfcShrink cannot be combined with beta prior shrinkage. Turn off beta priors or set lfcShrink to none.\n")
+    q(status = 1)
+}
+if (!is.null(opt$many_contrasts) && opt$lfc_shrinkage_type != "none") {
+    cat("Error: lfcShrink is only supported for a single selected contrast. Disable many_contrasts or set lfcShrink to none.\n")
+    q(status = 1)
+}
+
 
 # dispersion fit type
 if (is.null(opt$fit_type)) {
@@ -682,11 +760,15 @@ if (is.null(opt$many_contrasts)) {
         contrast_factor <- primary_factor
     }
 
-    res <- results(
+    res <- get_contrast_results(
         dds,
-        contrast = c(contrast_factor, lvl, ref),
-        cooksCutoff = cooks_cutoff,
-        independentFiltering = independent_filtering
+        contrast_factor = contrast_factor,
+        lvl = lvl,
+        ref = ref,
+        cooks_cutoff = cooks_cutoff,
+        independent_filtering = independent_filtering,
+        lfc_shrinkage_type = opt$lfc_shrinkage_type,
+        parallel = parallel
     )
     if (verbose) {
         cat("summary of results\n")
@@ -716,11 +798,15 @@ if (is.null(opt$many_contrasts)) {
         ref <- all_levels[i]
         contrast_levels <- all_levels[(i + 1):n]
         for (lvl in contrast_levels) {
-            res <- results(
+            res <- get_contrast_results(
                 dds,
-                contrast = c(primary_factor, lvl, ref),
-                cooksCutoff = cooks_cutoff,
-                independentFiltering = independent_filtering
+                contrast_factor = primary_factor,
+                lvl = lvl,
+                ref = ref,
+                cooks_cutoff = cooks_cutoff,
+                independent_filtering = independent_filtering,
+                lfc_shrinkage_type = opt$lfc_shrinkage_type,
+                parallel = parallel
             )
             res_sorted <- res[order(res$padj), ]
             out_df <- as.data.frame(res_sorted)
