@@ -9,6 +9,7 @@ Uses the conda vadersentiment package.
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 
