@@ -9,11 +9,9 @@ Processes text files with spaCy and outputs results in various formats.
 import argparse
 import json
 import sys
-from pathlib import Path
 
 try:
     import spacy
-    from spacy.tokens import DocBin
 except ImportError:
     print("Error: spaCy is not installed. Please install spaCy and required models.", file=sys.stderr)
     sys.exit(1)
