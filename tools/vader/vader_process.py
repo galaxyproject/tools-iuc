@@ -112,9 +112,8 @@ def main():
         print("Warning: empty input file", file=sys.stderr)
         results = []
     else:
-        # Initialize VADER with bundled lexicon
-        lexicon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vader_lexicon.txt')
-        analyzer = SentimentIntensityAnalyzer(lexicon_file=lexicon_path)
+        # Initialize VADER with conda package lexicon
+        analyzer = SentimentIntensityAnalyzer()
 
         if args.granularity == "sentence":
             results = analyze_sentences(text, analyzer)
