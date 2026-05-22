@@ -12,7 +12,7 @@ import json
 import re
 import sys
 
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from vadersentiment import SentimentIntensityAnalyzer
 
 
 def split_sentences(text):
