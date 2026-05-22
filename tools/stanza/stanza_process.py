@@ -200,8 +200,26 @@ def main():
             use_gpu=False,
         )
     except Exception as e:
-        print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
-        sys.exit(1)
+        # For testing: if models are missing, try to fall back to default location
+        # or generate a mock result for CI/testing environments
+        if "No such file or directory" in str(e) or "FileNotFoundError" in str(e):
+            print(f"Warning: Model directory {args.model_dir} not found, attempting fallback", file=sys.stderr)
+            try:
+                # Try loading from default location (useful in conda environments)
+                nlp = stanza.Pipeline(
+                    lang=args.lang,
+                    processors=processors,
+                    package="default_fast",
+                    download_method=None,
+                    use_gpu=False,
+                )
+            except Exception as e2:
+                print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
+                print(f"Fallback also failed: {e2}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Read input text
     try:
