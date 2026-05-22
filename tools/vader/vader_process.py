@@ -13,8 +13,7 @@ import os
 import re
 import sys
 
-from vadersentiment import SentimentIntensityAnalyzer
-
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 def split_sentences(text):
     """Split text into sentences using a simple regex-based approach."""
