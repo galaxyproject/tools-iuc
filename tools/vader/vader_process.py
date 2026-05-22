@@ -9,11 +9,11 @@ Uses the conda vadersentiment package.
 import argparse
 import csv
 import json
-import os
 import re
 import sys
 
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from vadersentiment import SentimentIntensityAnalyzer
+
 
 def split_sentences(text):
     """Split text into sentences using a simple regex-based approach."""
