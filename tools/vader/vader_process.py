@@ -3,19 +3,16 @@
 VADER Sentiment Analysis for Galaxy
 
 Performs sentence-level or document-level sentiment analysis using VADER.
-Bundles the VADER lexicon — no external dependencies required.
+Uses the conda vadersentiment package.
 """
 
 import argparse
 import csv
 import json
-import os
 import re
 import sys
 
-# Add tool directory to path so we can import the bundled vaderSentiment
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from vaderSentiment import SentimentIntensityAnalyzer
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 
 def split_sentences(text):
