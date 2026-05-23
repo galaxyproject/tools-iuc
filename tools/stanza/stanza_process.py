@@ -203,6 +203,7 @@ def main():
             lang=args.lang,
             dir=args.model_dir,
             processors=processors,
+            package='default_fast',
             download_method=None,
             use_gpu=False,
         )
@@ -216,6 +217,7 @@ def main():
                 nlp = stanza.Pipeline(
                     lang=args.lang,
                     processors=processors,
+                    package='default_fast',
                     download_method=None,
                     use_gpu=False,
                 )
