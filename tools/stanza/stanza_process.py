@@ -91,7 +91,15 @@ def format_json(doc, annotator):
 
         output["sentences"].append(sent_data)
 
-    return json.dumps(output, indent=2, ensure_ascii=False)
+    json_result = json.dumps(output, indent=2, ensure_ascii=False)
+    # Debug output for troubleshooting JSON assertions
+    print(f"DEBUG: JSON length: {len(json_result)} chars", file=sys.stderr)
+    try:
+        test_parse = json.loads(json_result)
+        print(f"DEBUG: JSON valid, first token = {test_parse['sentences'][0]['tokens'][0]['text']}", file=sys.stderr)
+    except Exception as e:
+        print(f"DEBUG: JSON parse error: {e}", file=sys.stderr)
+    return json_result
 
 
 def format_conll(doc):
@@ -195,7 +203,6 @@ def main():
             lang=args.lang,
             dir=args.model_dir,
             processors=processors,
-            package="default_fast",
             download_method=None,
             use_gpu=False,
         )
@@ -209,7 +216,6 @@ def main():
                 nlp = stanza.Pipeline(
                     lang=args.lang,
                     processors=processors,
-                    package="default_fast",
                     download_method=None,
                     use_gpu=False,
                 )
