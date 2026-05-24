@@ -9,7 +9,6 @@ the default model package (zip) directly via HTTP.
 
 import argparse
 import json
-import os
 import sys
 import urllib.request
 import zipfile
