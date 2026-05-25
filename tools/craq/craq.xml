@@ -1,0 +1,300 @@
+<tool id="craq" name="CRAQ" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>assess the accuracy of assembled genomic sequences</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        ## Decision Tree to structure and prepare input files
+        ## Craq expects sorted and indexed bam files
+        cp '$genome' genome.fa &&
+
+        ## Prepare SMS input
+        #if $sms_input:
+            #if $sms_input[0].is_of_type('bam'):
+                cp '${sms_input[0]}' 'sms_sorted.bam' &&
+                samtools index 'sms_sorted.bam' &&
+            #else:
+                #for $i, $f in enumerate($sms_input):
+                    cp '$f' 'sms_${i}.${f.ext}' &&
+                #end for
+            #end if
+        #end if
+
+        ## Prepare NGS input
+        #if $ngs_input:
+            #if $ngs_input[0].is_of_type('bam'):
+                cp '${ngs_input[0]}' 'ngs_sorted.bam' &&
+                samtools index 'ngs_sorted.bam' &&
+            #else:
+                #for $i, $f in enumerate($ngs_input):
+                    cp '$f' 'ngs_${i}.${f.ext}' &&
+                #end for
+            #end if
+        #end if
+
+
+        ## Build tool command line
+        craq
+        -g genome.fa
+
+        ## SMS input
+        #if $sms_input:
+            -sms
+            #if $sms_input[0].is_of_type('bam'):
+                'sms_sorted.bam'
+            #else:
+                #set $sms_files = ','.join(['sms_%d.%s' % ($i, $f.ext) for $i, $f in enumerate($sms_input)])
+                $sms_files
+            #end if
+        #end if
+
+        ## NGS input
+        #if $ngs_input:
+            -ngs
+            #if $ngs_input[0].is_of_type('bam'):
+                'ngs_sorted.bam'
+            #else:
+                #set $ngs_files = ','.join(['ngs_%d.%s' % ($i, $f.ext) for $i, $f in enumerate($ngs_input)])
+                $ngs_files
+            #end if
+        #end if
+
+        ## Filter parameters
+        -sn $filter_params.sn
+        -sf $filter_params.sf
+        -ln $filter_params.ln
+        -lf $filter_params.lf
+        -hmin $filter_params.hmin
+        -hmax $filter_params.hmax
+        -mgs $filter_params.mgs
+        --sms_coverage $filter_params.sms_coverage
+        --ngs_coverage $filter_params.ngs_coverage
+
+        ## Other parameters
+        $other_params.ser
+        $other_params.snv
+        --gapmodel $other_params.gapmodel
+        $other_params.break
+        --map $other_params.map
+        --mapq $other_params.mapq
+        --norm_window $other_params.norm_window
+        --regional_window $other_params.regional_window
+        $other_params.plot
+        #if $other_params.plot_ids:
+            --plot_ids $other_params.plot_ids
+        #end if
+        --thread "\${GALAXY_SLOTS:-8}"
+        -D outputs
+    ]]></command>
+    <inputs>
+        <param name="genome" type="data" label="Assembly sequence file" format="fasta" help="The genome assembly to be evaluated in FASTA format"/>
+        <param name="sms_input" type="data" optional="true" multiple="true" label="SMS long-read alignment or sequences" format="bam,fastq,fastq.gz" help="Provide either a single BAM file OR multiple FASTQ files (uncompressed or gzipped). At least one of SMS or NGS input must be provided"/>
+        <param name="ngs_input" type="data" optional="true" multiple="true" label="NGS short-read alignment or sequences" format="bam,fastq,fastq.gz" help="Provide either a single BAM file OR multiple FASTQ files (uncompressed or gzipped). At least one of SMS or NGS input must be provided"/>
+        <section name="filter_params" title="Filter Parameters" expanded="False">
+            <param argument="-sn" type="integer" min="0" value="2" label="Minimum number of NGS clipped-reads" help="Minimum number of NGS reads that must show clipping to flag potential errors"/>
+            <param argument="-sf" type="float" min="0.0" max="1.0" value="0.75" label="Minimum proportion of NGS clipped-reads" help="Minimum proportion of NGS reads that must show clipping relative to total coverage"/>
+            <param argument="-ln" type="integer" min="0" value="2" label="Minimum number of SMS clipped-reads" help="Minimum number of SMS long reads that must show clipping to flag potential errors"/>
+            <param argument="-lf" type="float" min="0.0" max="1.0" value="0.75" label="Minimum proportion of SMS clipped-reads" help="Minimum proportion of SMS reads that must show clipping relative to total coverage"/>
+            <param argument="-hmin" type="float" min="0.0" max="1.0" value="0.4" label="Lower clipping rate for heterozygous allele" help="Lower clipping rate threshold to identify heterozygous variants (CRHs)"/>
+            <param argument="-hmax" type="float" min="0.0" max="1.0" value="0.6" label="Upper clipping rate for heterozygous allele" help="Upper clipping rate threshold to identify heterozygous variants (CRHs)"/>
+            <param argument="-mgs" type="integer" min="1" value="10" label="Minimum gap size (bp)" help="Gap[N] sequences longer than this threshold will be treated as breakage"/>
+            <param argument="--sms_coverage" type="integer" min="0" value="100" label="Average SMS coverage" help="Expected average SMS long-read coverage depth for normalization"/>
+            <param argument="--ngs_coverage" type="integer" min="0" value="100" label="Average NGS coverage" help="Expected average NGS short-read coverage depth for normalization"/>
+        </section>
+        <section name="other_params" title="Other Parameters" expanded="False">
+            <param argument="-ser" type="boolean" checked="true" truevalue="-ser T" falsevalue="" label="Search error regions near breakpoints" help="Search noisy error regions near CRE/CSE breakpoints"/>
+            <param argument="-snv" type="boolean" checked="false" truevalue="-snv T" falsevalue="" label="Report SNV/heterozygous variants" help="Report tiny indel errors or heterozygous variants under 40bp.(Resource intensive)"/>
+            <param argument="--gapmodel" type="select" label="Gap model" help="Gap[N] treatment">
+                <option value="1" selected="true">CRE (regional error)</option>
+                <option value="2">CSE (structural error)</option>
+            </param>
+            <param argument="--break" type="boolean" checked="false" truevalue="--break T" falsevalue="" label="Break chimeric fragments" help="Detect and break chimeric contigs at conflict breakpoints"/>
+            <param argument="--map" type="select" label="Mapping preset" help="Ignored if .bam provided">
+                <option value="map-hifi" selected="true">PacBio HiFi</option>
+                <option value="map-pb" >PacBio CLR</option>
+                <option value="map-ont">Nanopore</option>
+            </param>
+            <param argument="--mapq" type="integer" min="0" max="60" value="20" label="Minimum mapping quality" help="Minimum read mapping quality threshold"/>
+            <param argument="--norm_window" type="float" min="0.0" max="1.0" value="0.0001" label="Normalization window fraction" help="Fraction of the total assembly length used as the window size for normalizing error counts"/>
+            <param argument="--regional_window" type="integer" min="1" value="500000" label="Regional quality window size (bp)" help="Window size in base pairs for regional quality benchmarking across the assembly"/>
+            <param argument="--plot" type="boolean" checked="false" truevalue="--plot T" falsevalue="" label="Generate plots" help="Create CRAQ visualization plots"/>
+            <param argument="--plot_ids" type="data" format="tabular,txt" optional="true" label="Selected assembly IDs for plotting" help="File listing specific assembly IDs to plot (default: all IDs)"/>
+            <param name="advanced_output" type="boolean" checked="false" label="Output advanced error region files" help="Output detailed CRE/CRH and CSE/CSH BED files for regional and structural error regions"/>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="runAQI_out" type="list" label="${tool.name} on ${on_string}: AQI Results">
+            <discover_datasets pattern="__designation_and_ext__" directory="outputs/runAQI_out"/>
+        </collection>
+        <collection name="sr_out" type="list" label="${tool.name} on ${on_string}: Short Reads outputs">
+            <discover_datasets pattern="__designation_and_ext__" directory="outputs/SRout"/>
+            <filter>ngs_input</filter>
+        </collection>
+        <collection name="lr_out" type="list" label="${tool.name} on ${on_string}: Long Reads outputs">
+            <discover_datasets pattern="__designation_and_ext__" directory="outputs/LRout"/>
+            <filter>sms_input</filter>
+        </collection>
+        <collection name="regional_errors" type="list" label="${tool.name} on ${on_string}: Regional Error Regions">
+            <discover_datasets pattern="__designation_and_ext__" directory="outputs/runAQI_out/locER_out"/>
+            <filter>other_params['advanced_output']</filter>
+        </collection>
+        <collection name="structural_errors" type="list" label="${tool.name} on ${on_string}: Structural Error Regions">
+            <discover_datasets pattern="__designation_and_ext__" directory="outputs/runAQI_out/strER_out"/>
+            <filter>other_params['advanced_output']</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Test 1:  Genome + SMS BAM Input, no NGS input -->
+        <test expect_num_outputs="2">
+            <param name="genome" location="https://zenodo.org/records/19091739/files/genome.fa"/>
+            <param name="sms_input" location="https://zenodo.org/records/19091739/files/SMS_sort.bam"/>
+            <output_collection name="runAQI_out" type="list" count="3"/>
+            <output_collection name="lr_out" type="list" count="10"/>
+        </test>
+        <!-- Test 2: Genome + NGS BAM Input, no SMS input -->
+        <test expect_num_outputs="2">
+            <param name="genome" location="https://zenodo.org/records/19091739/files/genome.fa"/>
+            <param name="ngs_input" location="https://zenodo.org/records/19091739/files/NGS_sort.bam"/>
+            <section name="other_params">
+                <param name="plot" value="true"/>
+            </section>
+            <output_collection name="runAQI_out" type="list" count="4"/>
+            <output_collection name="sr_out" type="list" count="11"/>
+        </test>
+        <!-- Test 3: NGS FASTQ pair + break + snv variants + MAPQ30 -->
+        <test expect_num_outputs="3">
+            <param name="genome" location="https://zenodo.org/records/19091739/files/genome.fa"/>
+            <param name="ngs_input" location="https://zenodo.org/records/19091739/files/NGS_R1.fq.gz,https://zenodo.org/records/19091739/files/NGS_R2.fq.gz"/>
+            <param name="sms_input" location="https://zenodo.org/records/19091739/files/SMS_sort.bam"/>
+            <section name="other_params">
+                <param name="break" value="true"/>
+                <param name="snv" value="true"/>
+                <param name="mapq" value="30"/>
+            </section>
+            <output_collection name="runAQI_out" type="list" count="4"/>
+            <output_collection name="sr_out" type="list" count="9"/>
+        </test>
+        <!-- Test 4: Genome + NGS Paired FASTQ + SMS BAM + Advanced outputs-->
+        <test expect_num_outputs="5">
+            <param name="genome" location="https://zenodo.org/records/19091739/files/genome.fa"/>
+            <param name="ngs_input" location="https://zenodo.org/records/19091739/files/NGS_R1.fq.gz,https://zenodo.org/records/19091739/files/NGS_R2.fq.gz"/>
+            <param name="sms_input" location="https://zenodo.org/records/19091739/files/SMS_sort.bam"/>
+            <section name="other_params">
+                <param name="advanced_output" value="true"/>
+            </section>
+            <output_collection name="runAQI_out" type="list" count="3"/>
+            <output_collection name="lr_out" type="list" count="10"/>
+            <output_collection name="sr_out" type="list" count="9"/>
+            <output_collection name="regional_errors" type="list" count="5"/>
+            <output_collection name="structural_errors" type="list" count="6"/>
+        </test>
+        <!-- Test 5: Plot + file ids selected for plotting -->
+        <test expect_num_outputs="2">
+            <param name="genome" location="https://zenodo.org/records/19091739/files/genome.fa"/>
+            <param name="ngs_input" location="https://zenodo.org/records/19091739/files/SMS_sort.bam"/>
+            <section name="other_params">
+                <param name="plot" value="true"/>
+                <param name="plot_ids" value="ids.txt"/>
+            </section>
+            <output_collection name="runAQI_out" type="list" count="4"/>
+            <output_collection name="sr_out" type="list" count="11"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does?**
+
+CRAQ (Clipping Reveals Assembly Quality) is a reference-free genome assembly quality evaluator.
+It identifies potential errors in assembled sequences by analysing how reads clip (fail to align continuously)
+at specific positions - without requiring a reference genome.
+
+CRAQ produces two key quality scores:
+
+- **R-AQI** (Regional Assembly Quality Index): captures small-scale errors such as indels and local misassemblies detected by short reads
+- **S-AQI** (Structural Assembly Quality Index): captures large-scale structural errors such as chimeric joins and inversions detected by long reads
+
+-----
+
+**Inputs**
+
++---------------------------+----------+----------------------------------------------------------+
+| Input                     | Required | Description                                              |
++===========================+==========+==========================================================+
+| Assembly FASTA            | Yes      | Genome assembly to evaluate in FASTA format              |
++---------------------------+----------+----------------------------------------------------------+
+| SMS long-read data        | No*      | PacBio or Nanopore data as BAM (sorted or unsorted)      |
+|                           |          | OR one or more FASTQ/FASTQ.GZ sequence files             |
++---------------------------+----------+----------------------------------------------------------+
+| NGS short-read data       | No*      | Illumina data as BAM (sorted or unsorted)                |
+|                           |          | OR one or more FASTQ/FASTQ.GZ sequence files             |
++---------------------------+----------+----------------------------------------------------------+
+
+\* At least one of SMS or NGS input must be provided. Using both together gives the most complete assessment.
+
+.. class:: warningmark
+
+If providing sequence files (FASTQ) rather than alignments, CRAQ will perform the mapping internally
+using minimap2 for SMS and BWA for NGS. Ensure the correct mapping preset is selected under
+**Other Parameters** when using raw reads.
+
+-----
+
+**Outputs**
+
+**1) AQI Results** *(always produced)*
+
+The primary output collection containing:
+
+- ``AQI_summary.txt`` - final R-AQI and S-AQI scores summarising overall assembly quality
+- ``regional_statistics.txt`` - per-region breakdown of error counts and coverage
+- ``circos_plot.pdf`` - visualisation of quality metrics across the assembly *(only if plotting is enabled)*
+
+**2) Long Read Outputs** *(produced when SMS input is provided)*
+
+- Filtered long-read alignment in BAM format with index
+- Putative structural error (CSE) breakpoint coordinates
+- Heterozygous variant (CSH) breakpoint coordinates flagged by long reads
+
+**3) Short Read Outputs** *(produced when NGS input is provided)*
+
+- Filtered short-read alignment in BAM format with index
+- Putative regional error (CRE) coordinates flagged by short reads
+- Heterozygous variant (CRH) coordinates from short-read clipping patterns
+
+**4) Regional Error Regions** *(advanced output, optional)*
+
+BED files with precise coordinates of:
+
+- CRE (Clipping-based Regional Errors): local assembly errors detected by short reads
+- CRH (Clipping-based Regional Heterozygous variants): heterozygous positions in regional context
+
+**5) Structural Error Regions** *(advanced output, optional)*
+
+BED files with precise coordinates of:
+
+- CSE (Clipping-based Structural Errors): large-scale misassemblies detected by long reads
+- CSH (Clipping-based Structural Heterozygous variants): heterozygous structural positions
+- Low-coverage regions and ambiguous breakpoints
+
+-----
+
+**Interpreting AQI Scores**
+
+Both R-AQI and S-AQI are scored from 0 to 100, where higher is better:
+
++------------+-------------------+------------------------------------------+
+| Score      | Quality           | Interpretation                           |
++============+===================+==========================================+
+| 90 – 100   | Excellent         | Very few errors, high-confidence assembly|
++------------+-------------------+------------------------------------------+
+| 70 – 89    | Good              | Minor errors, suitable for most analyses |
++------------+-------------------+------------------------------------------+
+| 50 – 69    | Moderate          | Noticeable errors, use with caution      |
++------------+-------------------+------------------------------------------+
+| < 50       | Poor              | Significant errors, reassembly advised   |
++------------+-------------------+------------------------------------------+
+
+    ]]></help>
+    <expand macro="citations"/>
+    <expand macro="creators"/>
+</tool>

@@ -1,5 +1,5 @@
 <tool id="bbtools_bbduk" name="BBTools: BBduk" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>decontamination using kmers</description>
+    <description>kmer- and entropy-based decontamination</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -78,13 +78,13 @@ in='${read1_file}'
 
 #if str($reference_type_cond.reference_type) != 'no_reference':
     ref='$refs'
+	k=$advanced_options.k
     #if str($reference_type_cond.ktrim_cond.ktrim_select) == 'yes':
         ktrim='${reference_type_cond.ktrim_cond.ktrim}'
         minlength=$reference_type_cond.ktrim_cond.minlength
     #end if
 #end if
 
-k=$advanced_options.k
 rcomp='${advanced_options.rcomp}'
 maskmiddle='${advanced_options.maskmiddle}'
 minkmerhits='${advanced_options.minkmerhits}'
@@ -98,6 +98,12 @@ trimfailures='${advanced_options.trimfailures}'
 findbestmatch='${advanced_options.findbestmatch}'
 skipr1='${advanced_options.skipr1}'
 skipr2='${advanced_options.skipr2}'
+#if float($advanced_options.entropy) > 0:
+    entropy=$advanced_options.entropy
+    entropymask=$advanced_options.entropymask
+    entropywindow=$advanced_options.entropywindow
+    entropyk=$advanced_options.entropyk
+#end if
 
 #if str($output_stats_cond.output_stats) == 'yes':
     #if str($output_stats_cond.output_stats_select).find('stats') >= 0:
@@ -188,6 +194,14 @@ t=\${GALAXY_SLOTS:-4}
             <param argument="findbestmatch" type="boolean" truevalue="t" falsevalue="f" checked="false" label="Associate read with sequence sharing most kmers if multiple matches?"/>
             <param argument="skipr1" type="boolean" truevalue="t" falsevalue="f" checked="false" label="Don't do kmer-based operations on read 1?"/>
             <param argument="skipr2" type="boolean" truevalue="t" falsevalue="f" checked="false" label="Don't do kmer-based operations on read 2?"/>
+			<param argument="entropy" type="float" min="0" max="1" value="0" label="Entropy threshold" />
+			<param argument="entropymask" type="select" label="Entropy mask mode">
+				<option value="f" selected="true">Filter (f)</option>
+				<option value="t">Mask low-entropy parts of sequences with Ns (t)</option>
+				<option value="lc">Soft-mask (change low-entropy parts of sequences to lowercase) (lc)</option>
+			</param>
+			<param argument="entropywindow" type="integer" value="50" min="1" label="Sliding window for entropy calculation" />
+			<param argument="entropyk" type="integer" value="5" min="1" label="kmer size for entropy calculation" help="Needs to be smaller than the entropy window." />
         </section>
         <param name="outputs_select" type="select" optional="false" label="Specify outputs" multiple="true">
             <option value="outu">Unmatched</option>
@@ -294,9 +308,14 @@ t=\${GALAXY_SLOTS:-4}
     <tests>
         <!-- Single read -->
         <test expect_num_outputs="2">
-            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
-            <param name="reference" value="adapters.fa.gz" ftype="fasta.gz"/>
-            <param name="reference_type" value="files"/>
+            <conditional name="input_type_cond">
+                <param name="input_type" value="single" />
+                <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="reference_type_cond">
+                <param name="reference_type" value="files"/>
+                <param name="reference" value="adapters.fa.gz" ftype="fasta.gz"/>
+            </conditional>
             <param name="outputs_select" value="outu"/>
             <param name="log_file" value="true"/>
             <output name="outputu" file="bduk_outputu1.fastqsanger" ftype="fastqsanger" compare="contains"/>
@@ -316,16 +335,26 @@ t=\${GALAXY_SLOTS:-4}
         </test>
         <!-- Paired reads in separate datasets -->
         <test expect_num_outputs="4">
-            <param name="input_type" value="pair"/>
-            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
-            <param name="read2" value="13-1941-6_S4_L001_R2_600000.fastq.gz" ftype="fastqsanger.gz"/>
-            <param name="reference_type" value="files"/>
-            <param name="reference" value="adapters.fa.gz" ftype="fasta.gz"/>
+            <conditional name="input_type_cond">
+                <param name="input_type" value="pair"/>
+                <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+                <param name="read2" value="13-1941-6_S4_L001_R2_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="reference_type_cond">
+                <param name="reference_type" value="files"/>
+                <param name="reference" value="adapters.fa.gz" ftype="fasta.gz"/>
+            </conditional>
             <param name="outputs_select" value="outu"/>
-            <param name="output_stats" value="yes"/>
-            <param name="output_stats_select" value="dump"/>
-            <param name="output_hists" value="yes"/>
-            <param name="output_hists_select" value="quhist"/>
+            
+            <conditional name="output_stats_cond">
+                <param name="output_stats" value="yes"/>
+                <param name="output_stats_select" value="dump"/>
+            </conditional>
+            <conditional name="output_hists_cond">
+                <param name="output_hists" value="yes"/>
+                <param name="output_hists_select" value="quhist"/>
+            </conditional>
+            
             <output name="outputu" file="bduk_outputu1.fastqsanger" ftype="fastqsanger" compare="contains"/>
             <output name="outputu2" file="bduk_outputu2.fastqsanger" ftype="fastqsanger" compare="contains"/>
             <output name="output_dump" file="bduk_output_dump1.fasta" ftype="fasta" compare="contains"/>
@@ -333,18 +362,54 @@ t=\${GALAXY_SLOTS:-4}
         </test>
         <!-- Collection of Paired reads -->
         <test expect_num_outputs="2">
-            <param name="input_type" value="paired"/>
-            <param name="reads_collection">
-                <collection type="paired">
-                    <element name="forward" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
-                    <element name="reverse" value="13-1941-6_S4_L001_R2_600000.fastq.gz"/>
-                </collection>
-            </param>
-            <param name="reference_type" value="keywords"/>
-            <param name="reference" value="adapters,artifacts,phix,lambda,pjet,mtst,kapa"/>
+            <conditional name="input_type_cond">
+                <param name="input_type" value="paired"/>
+                <param name="reads_collection">
+                    <collection type="paired">
+                        <element name="forward" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+                        <element name="reverse" value="13-1941-6_S4_L001_R2_600000.fastq.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="reference_type_cond">
+                <param name="reference_type" value="keywords"/>
+                <param name="reference" value="adapters,artifacts,phix,lambda,pjet,mtst,kapa"/>
+            </conditional>
             <param name="outputs_select" value="outu"/>
             <output name="outputu" file="bduk_outputu1.fastqsanger" ftype="fastqsanger" compare="contains"/>
             <output name="outputu2" file="bduk_outputu2.fastqsanger" ftype="fastqsanger" compare="contains"/>
+        </test>
+        <!-- Entropy filtering-->
+        <test expect_num_outputs="2">
+            <conditional name="input_type_cond">
+                <param name="input_type" value="single"/>
+                <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="reference_type_cond">
+                <param name="reference_type" value="no_reference"/>
+            </conditional>
+            
+            <section name="advanced_options">
+                <param name="entropy" value="0.9"/>
+                <param name="entropymask" value="t"/>
+            </section>
+
+            <param name="outputs_select" value="outu"/>
+            <param name="log_file" value="true"/>
+            <output name="outputu" ftype="fastqsanger">
+                <assert_contents>
+                    <has_text text="@" />
+                    <has_text text="NN" />
+                    <has_size min="100" />
+                </assert_contents>
+            </output>
+            
+            <output name="log_output" ftype="txt">
+                <assert_contents>
+                    <has_text text="Executing jgi.BBDuk"/>
+                    <has_text_matching expression="Entropy-masked:\s+2 reads \(2.00%\)\s+126 bases \(1.26%\)"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help>
