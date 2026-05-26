@@ -81,14 +81,15 @@ def unflatten_dict(d, sep='/'):
 if __name__ == "__main__":
     FILE_PATH = sys.argv[1]
     if FILE_PATH.endswith('.pt'):
-        checkpoint = torch.load("model.pt", map_location="cpu")
+        checkpoint = torch.load(FILE_PATH, map_location="cpu")
         encoded = encode_metadata(checkpoint)
         flat = flatten_dict(encoded)
         save_file(flat, os.path.join(os.path.dirname(sys.argv[1]), "model.safetensors"))
         print("Saved restorable SafeTensors file!")
     else:
-        loaded_flat = load_file("model_restorable.safetensors")
+        print(FILE_PATH, os.path.dirname(sys.argv[1]))
+        loaded_flat = load_file(FILE_PATH)
         loaded_nested = unflatten_dict(loaded_flat)
         restored_checkpoint = decode_metadata(loaded_nested)
         torch.save(restored_checkpoint, os.path.join(os.path.dirname(sys.argv[1]), "model.pt"))
-        print("Saved restored checkpoint as model_restored.pt!")
+        print("Saved restored checkpoint as model.pt!")
