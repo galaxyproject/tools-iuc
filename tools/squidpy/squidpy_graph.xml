@@ -265,7 +265,11 @@ sq.gr.ligrec(
     interactions=interactions,
     complex_policy='$operation_condi.complex_policy',
     threshold=$operation_condi.threshold,
+    #if str($operation_condi.corr_method) != 'None':
     corr_method = '$operation_condi.corr_method',
+    #else:
+    corr_method = None,
+    #end if
     corr_axis='$operation_condi.corr_axis',
     use_raw=$operation_condi.use_raw_bool,
     copy=False,
@@ -280,6 +284,46 @@ sq.gr.ligrec(
     gene_symbols = None
     #end if
 )
+
+## Convert tuple column names and SparseArrays to strings/dense for zarr compatibility
+#if $operation_condi.key_added:
+ligrec_key = '$operation_condi.key_added'
+#else:
+ligrec_key = '$operation_condi.cluster_key' + '_ligrec'
+#end if
+
+print(f"\nConverting ligrec results in {ligrec_key} for zarr compatibility...")
+#if $input_spatialdata.ext == 'spatialdata.zip':
+table_obj = adata.tables['$table_key']
+#else:
+table_obj = adata
+#end if
+
+if ligrec_key in table_obj.uns:
+    for sub_key in ['means', 'pvalues', 'metadata']:
+        if sub_key in table_obj.uns[ligrec_key] and isinstance(table_obj.uns[ligrec_key][sub_key], pd.DataFrame):
+            df = table_obj.uns[ligrec_key][sub_key]
+
+            ## Convert tuple column/index names to strings
+            if len(df.columns) > 0 and isinstance(df.columns[0], tuple):
+                df.columns = ['|'.join(map(str, col)) if isinstance(col, tuple) else str(col) for col in df.columns]
+            if len(df.index) > 0 and isinstance(df.index[0], tuple):
+                df.index = ['|'.join(map(str, idx)) if isinstance(idx, tuple) else str(idx) for idx in df.index]
+
+            ## Convert SparseArray columns to dense (zarr doesn't support SparseArray)
+            for col in df.columns:
+                if isinstance(df[col].dtype, pd.SparseDtype):
+                    df[col] = df[col].sparse.to_dense()
+
+            ## For metadata DataFrame, ensure proper dtypes for h5ad compatibility
+            if sub_key == 'metadata':
+                for col in df.columns:
+                    ## Try to convert to numeric if possible, otherwise to string
+                    try:
+                        df[col] = pd.to_numeric(df[col])
+                    except (ValueError, TypeError):
+                        ## Convert complex objects (lists, arrays, etc.) to strings element-wise
+                        df[col] = df[col].apply(lambda x: str(x) if not isinstance(x, str) else x)
 
 #else if $operation_condi.operation == 'spatial_autocorr':
 ## Compute spatial autocorrelation
@@ -303,7 +347,7 @@ sq.gr.spatial_autocorr(
     n_perms = None,
     #end if
     two_tailed=$operation_condi.two_tailed_bool,
-    #if $operation_condi.corr_method:
+    #if str($operation_condi.corr_method) != 'None':
     corr_method = '$operation_condi.corr_method',
     #else:
     corr_method = None,
@@ -936,6 +980,55 @@ adata.write_h5ad("./output/spatialdata.h5ad", compression="gzip")
                 <assert_contents>
                     <has_size value="75200000" delta="500000"/>
                     <has_h5_keys keys="uns/leiden_ripley_F"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 15: ligrec spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" value="visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="ligrec"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="complex_policy" value="min"/>
+                <param name="threshold" value="0.01"/>
+                <param name="use_raw_bool" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing ligand-receptor interactions"/>
+                <has_text text="sq.gr.ligrec"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_size value="88500000" delta="500000"/>
+                    <has_archive_member path="spatialdata/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_ligrec"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 16: ligrec adata -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" value="visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="ligrec"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="complex_policy" value="min"/>
+                <param name="threshold" value="0.01"/>
+                <param name="use_raw_bool" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Computing ligand-receptor interactions"/>
+                <has_text text="sq.gr.ligrec"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_size value="84500000" delta="500000"/>
+                    <has_h5_keys keys="uns/leiden_ligrec"/>
                 </assert_contents>
             </output>
         </test>
