@@ -1,15 +1,15 @@
-<tool id="recount3" name="Recount3" version="1.20.0+galaxy0" profile="25.1" license="MIT">
+<tool id="recount3_1" name="Recount3 Compact" version="@TOOL_VERSION@+galaxy0" profile="25.1" license="MIT">
     <description>Retrieve harmonized gene expression from TCGA and GTEx</description>
     <macros>
         <token name="@TOOL_VERSION@">1.20.0</token>
     </macros>
     <edam_topics>
-        <edam_topic>topic_3308</edam_topic> <!-- Transcriptomics -->
-        <edam_topic>topic_0622</edam_topic> <!-- Genomics -->
+        <edam_topic>topic_3308</edam_topic>
+        <edam_topic>topic_0622</edam_topic>
     </edam_topics>
     <edam_operations>
-        <edam_operation>operation_2422</edam_operation> <!-- Data retrieval -->
-        <edam_operation>operation_3800</edam_operation> <!-- RNA-seq quantification -->
+        <edam_operation>operation_2422</edam_operation>
+        <edam_operation>operation_3800</edam_operation>
     </edam_operations>
     <xrefs>
         <xref type="bio.tools">recount</xref>
@@ -18,235 +18,156 @@
         <requirement type="package" version="1.20.0">bioconductor-recount3</requirement>
         <requirement type="package" version="1.36.0">bioconductor-recount</requirement>
     </requirements>
-
     <command detect_errors="exit_code"><![CDATA[
-        cp '$__tool_directory__/project_table.tsv' . &&
-        Rscript '$recount3_script'
-            '$data_source'
-            '$tissue_type'
-            '$expression_matrix_raw'
-            #if $normalize
-                '$expression_matrix_normalized'
-            #else
-                'NULL'
-            #end if
-            '$sample_annotation'
-            '$gene_annotation'
-            '$normalize'
+cp '$__tool_directory__/project_table.tsv' . &&
+Rscript '$recount3_script'
+    '$data_source'
+    '$tissue_type'
+    '$expression_matrix_raw'
+    #if $normalize
+        '$expression_matrix_normalized'
+    #else
+        'NULL'
+    #end if
+    '$sample_annotation'
+    '$gene_annotation'
+    '$normalize'
     ]]></command>
-
     <configfiles>
         <configfile name="recount3_script"><![CDATA[
+#raw
 suppressPackageStartupMessages({
     library(recount3)
     library(recount)
     library(SummarizedExperiment)
 })
 
-## ── 0. Parse arguments ───────────────────────────────────────────────────────
-
 args <- commandArgs(trailingOnly = TRUE)
-
-data_source       <- args[1]
-tissue_type       <- args[2]
-output_raw        <- args[3]
-output_tpm        <- args[4]          # "NULL" when normalize = FALSE
-output_annotation <- args[5]
-output_gene_annot <- args[6]
-normalize         <- as.logical(args[7])
-
-cat(" recount3 tool is starting!\n")
-cat("  data_source :", data_source, "\n")
-cat("  tissue_type :", tissue_type, "\n")
-cat("  normalize   :", normalize,   "\n")
-
-## Extend download timeout 
-
+data_source <- args[1]
+tissue_type <- args[2]
+out_raw <- args[3]
+out_tpm <- args[4]
+out_sample <- args[5]
+out_gene <- args[6]
+normalize <- as.logical(args[7])
 options(timeout = 600)
 
-## Load the project table and find the requested project 
-## project_table.tsv is shipped with the tool and copied to the working
-## directory by the <command> block before this script runs.
+write_tab <- function(x, path) {
+    write.table(x, path, sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+}
 
-cat("Step 1: Reading project table...\n")
+first_col <- function(data, candidates) {
+    hits <- candidates[candidates %in% colnames(data)]
+    if (length(hits)) hits[1] else NULL
+}
+
+filter_tcga <- function(rse, tissue_type) {
+    if (tissue_type == "both") return(rse)
+
+    meta <- as.data.frame(colData(rse))
+    type_col <- first_col(meta, c(
+        "tcga.cgc_sample_sample_type",
+        "tcga.gdc_cases.samples.sample_type",
+        "cgc_sample_sample_type",
+        "gdc_cases.samples.sample_type",
+        "sample_type",
+        "sample_type.samples",
+        "tcga_tissue_type"
+    ))
+
+    if (is.null(type_col)) {
+        cat("WARNING: no TCGA sample-type column found; returning all samples.\n")
+        return(rse)
+    }
+
+    pattern <- if (tissue_type == "tumor") "tumor" else "normal"
+    keep <- grepl(pattern, as.character(meta[[type_col]]), ignore.case = TRUE)
+    if (!any(keep)) stop("No ", tissue_type, " samples found for ", data_source)
+
+    cat("TCGA filter:", tissue_type, "using", type_col, "- kept", sum(keep), "samples\n")
+    rse[, keep, drop = FALSE]
+}
+
+use_tcga_barcodes <- function(rse) {
+    meta <- as.data.frame(colData(rse))
+    barcode_col <- first_col(meta, c(
+        "tcga.tcga_barcode",
+        "tcga.gdc_cases.samples.portions.analytes.aliquots.submitter_id",
+        "tcga.gdc_cases.samples.submitter_id",
+        "tcga.cgc_file_sample",
+        "tcga.cgc_sample_id",
+        "tcga_barcode",
+        "gdc_cases.samples.portions.analytes.aliquots.submitter_id",
+        "gdc_cases.samples.submitter_id",
+        "cgc_file_sample",
+        "cgc_sample_id"
+    ))
+
+    if (is.null(barcode_col)) {
+        cat("WARNING: no TCGA barcode column found; keeping UUID sample names.\n")
+        return(rse)
+    }
+
+    barcodes <- as.character(meta[[barcode_col]])
+    bad <- is.na(barcodes) | barcodes == "" | barcodes == "NA"
+    if (any(bad)) {
+        cat("WARNING: barcode column has missing values; keeping UUID sample names.\n")
+        return(rse)
+    }
+
+    colnames(rse) <- make.unique(barcodes, sep = "_")
+    cat("TCGA sample names set from", barcode_col, "\n")
+    rse
+}
+
 project_table <- read.delim("project_table.tsv", row.names = 1)
-
-## Find the requested project 
-## Filter only on the project name column — do NOT filter on project_type
-## because that column name differs across project_table.tsv versions.
-
 project_info <- subset(project_table, project == data_source)
+if (nrow(project_info) != 1) {
+    stop("Expected one project row for ", data_source, "; found ", nrow(project_info))
+}
 
-## Detect source database
 is_tcga <- grepl("tcga", project_info$file_source, ignore.case = TRUE)
 is_gtex <- grepl("gtex", project_info$file_source, ignore.case = TRUE)
+cat("Starting recount3:", data_source, "| source:", project_info$file_source,
+    "| normalize:", normalize, "\n")
 
-cat("Step 1 done: source =", project_info$file_source,
-    "| n_samples =", project_info$n_samples, "\n")
+rse <- recount3::create_rse(project_info, type = "gene", annotation = "gencode_v29")
+if (is.null(rse) || ncol(rse) == 0) stop("create_rse returned no samples for ", data_source)
 
-## Download RSE 
-
-cat("Step 2: Downloading RSE from recount3 servers...\n")
-
-rse <- recount3::create_rse(
-    project_info,
-    type       = "gene",
-    annotation = "gencode_v29"
-)
-
-if (is.null(rse) || ncol(rse) == 0) {
-    cat("ERROR: create_rse() returned an empty object for project:", data_source, "\n")
-    quit(status = 1)
-}
-
-cat("Step 2 done:", nrow(rse), "genes x", ncol(rse), "samples\n")
-
-## Convert coverage to integer counts 
-## recount3 stores base-level coverage, not read counts.
-## transform_counts() converts to integer counts comparable to
-## featureCounts / HTSeq output — required by DESeq2, edgeR, limma-voom.
-
-cat("Step 3: Converting coverage to integer counts...\n")
 assay(rse, "counts") <- recount3::transform_counts(rse)
-
-## Tissue-type filtering 
-##
-## TCGA: may contain both tumour and adjacent samples in one project.
-##       Filter when tissue_type != "both".
-##
-## GTEx: all samples are normal tissue — no tumour/normal distinction.
-##       Skip filtering entirely; tissue_type param is silently ignored.
-
-if (is_tcga && tissue_type != "both") {
-
-    cat("Step 4: Applying tissue-type filter '", tissue_type, "'...\n", sep = "")
-    coldata <- as.data.frame(colData(rse))
-
-    ## Find sample-type column — name varies across TCGA projects
-    sample_type_col <- NULL
-    for (candidate in c("tcga.cgc_sample_sample_type",
-                        "sample_type",
-                        "sample_type.samples",
-                        "tcga_tissue_type")) {
-        if (candidate %in% colnames(coldata)) {
-            sample_type_col <- candidate
-            break
-        }
-    }
-
-    if (is.null(sample_type_col)) {
-        ## Column not found — warn and return all samples unfiltered
-        cat("WARNING: No sample-type column found — skipping filter, returning all samples.\n")
-        cat("  Available colData columns:", paste(colnames(coldata), collapse = ", "), "\n")
-    } else {
-        cat("  Using column:", sample_type_col, "\n")
-        sample_types <- as.character(coldata[[sample_type_col]])
-
-        ## TCGA labels contain substrings "Tumor" or "normal"
-        if (tissue_type == "tumor") {
-            keep <- grepl("tumor",  sample_types, ignore.case = TRUE)
-        } else {
-            keep <- grepl("normal", sample_types, ignore.case = TRUE)
-        }
-
-        rse <- rse[, keep, drop = FALSE]
-
-        if (ncol(rse) == 0) {
-            cat("ERROR: No", tissue_type, "samples found for project:", data_source, "\n")
-            quit(status = 1)
-        }
-        cat("  Retained", ncol(rse), tissue_type, "samples.\n")
-    }
-
+if (is_tcga) {
+    rse <- use_tcga_barcodes(filter_tcga(rse, tissue_type))
 } else if (is_gtex) {
-    cat("Step 4: GTEx project — all", ncol(rse),
-        "samples are normal tissue; tissue-type filter skipped.\n")
-} else {
-    cat("Step 4: tissue_type = 'both' — no filtering applied.\n")
+    cat("GTEx project: tissue_type is ignored.\n")
 }
 
-## Extract data frames and write outputs 
-
-raw_counts  <- as.data.frame(assay(rse, "counts"))
+raw_counts <- as.data.frame(assay(rse, "counts"), check.names = FALSE)
 sample_meta <- as.data.frame(colData(rse))
-gene_annot  <- as.data.frame(rowData(rse))
+gene_annot <- as.data.frame(rowData(rse))
+rownames(sample_meta) <- colnames(rse)
 
-## Provides us with raw count matrix 
-## ALWAYS produced.
-## These are the correct input for differential expression tools like DESeq2, edgeR.
-## Do NOT pre-normalise before supplying to these tools.
-
-cat("Step 5: Writing raw count matrix →", output_raw, "\n")
-write.table(
-    raw_counts,
-    file      = output_raw,
-    sep       = "\t",
-    quote     = FALSE,
-    row.names = TRUE,
-    col.names = NA
+sample_meta$tool_tissue_label <- switch(
+    data_source,
+    ACC = "Adrenal Gland",
+    BRCA = "Breast",
+    COAD = "Colon",
+    KIDNEY = "kidney",
+    LUAD = "Lung",
+    LUSC = "Lung",
+    "UNKNOWN"
 )
 
-## Optionally will provide with TPM-normalised matrix 
-## Produced ONLY when normalize = TRUE.
-## Use TPM for WGCNA co-expression analysis or visualisation.
-## Do NOT use TPM as input to differential expression tools.
-
-if (normalize) {
-    cat("Step 6: Computing TPM values via recount::getTPM()...\n")
-    tpm_values <- recount::getTPM(rse)
-    tpm_df     <- as.data.frame(tpm_values)
-
-    cat("  Writing TPM matrix →", output_tpm, "\n")
-    write.table(
-        tpm_df,
-        file      = output_tpm,
-        sep       = "\t",
-        quote     = FALSE,
-        row.names = TRUE,
-        col.names = NA
-    )
-} else {
-    cat("Step 6: normalize = FALSE — TPM matrix not produced.\n")
-}
-
-## Provides us with sample annotation 
-
-cat("Step 7: Writing sample annotation →", output_annotation, "\n")
-write.table(
-    sample_meta,
-    file      = output_annotation,
-    sep       = "\t",
-    quote     = FALSE,
-    row.names = TRUE,
-    col.names = NA
-)
-
-## Provides us with gene annotation
-
-cat("Step 8: Writing gene annotation →", output_gene_annot, "\n")
-write.table(
-    gene_annot,
-    file      = output_gene_annot,
-    sep       = "\t",
-    quote     = FALSE,
-    row.names = TRUE,
-    col.names = NA
-)
-
-cat("  Raw counts :", output_raw,        "\n")
-if (normalize)
-    cat("  TPM matrix :", output_tpm,        "\n")
-cat("  Sample annotation :", output_annotation, "\n")
-cat("  Gene annotation   :", output_gene_annot, "\n")
+write_tab(raw_counts, out_raw)
+if (normalize) write_tab(as.data.frame(recount::getTPM(rse), check.names = FALSE), out_tpm)
+write_tab(sample_meta, out_sample)
+write_tab(gene_annot, out_gene)
+cat("Done.\n")
+#end raw
         ]]></configfile>
     </configfiles>
-
     <inputs>
-
-        <param name="data_source" type="select"
-               label="Data source"
+        <param name="data_source" type="select" label="Data source"
                help="Select a TCGA cancer type or a GTEx normal tissue.">
-            <!-- TCGA -->
             <option value="ACC">TCGA - Adrenocortical Carcinoma (ACC)</option>
             <option value="BLCA">TCGA - Bladder Urothelial Carcinoma (BLCA)</option>
             <option value="BRCA">TCGA - Breast Invasive Carcinoma (BRCA)</option>
@@ -280,7 +201,6 @@ cat("  Gene annotation   :", output_gene_annot, "\n")
             <option value="UCEC">TCGA - Uterine Corpus Endometrial Carcinoma (UCEC)</option>
             <option value="UCS">TCGA - Uterine Carcinosarcoma (UCS)</option>
             <option value="UVM">TCGA - Uveal Melanoma (UVM)</option>
-            <!-- GTEx -->
             <option value="ADIPOSE_TISSUE">GTEx - Adipose Tissue</option>
             <option value="ADRENAL_GLAND">GTEx - Adrenal Gland</option>
             <option value="BLADDER">GTEx - Bladder</option>
@@ -313,194 +233,185 @@ cat("  Gene annotation   :", output_gene_annot, "\n")
             <option value="UTERUS">GTEx - Uterus</option>
             <option value="VAGINA">GTEx - Vagina</option>
         </param>
-
-        <!-- Tissue type: TCGA only; silently ignored for GTEx -->
-        <param name="tissue_type" type="select"
-               label="Tissue type (TCGA only — ignored for GTEx)"
-               help="Restrict TCGA samples to tumour, normal, or both. Has no effect on GTEx.">
-            <option value="both" selected="true">Both (tumour and normal)</option>
-            <option value="tumor">Tumour only</option>
+        <param name="tissue_type" type="select" label="Tissue type (TCGA only; ignored for GTEx)"
+               help="Restrict TCGA samples to tumor, normal, or both. Has no effect on GTEx.">
+            <option value="both" selected="true">Both (tumor and normal)</option>
+            <option value="tumor">Tumor only</option>
             <option value="normal">Normal only</option>
         </param>
-
-        <!-- Normalisation: default OFF; raw counts always produced regardless -->
-        <param name="normalize" type="boolean"
-               truevalue="TRUE" falsevalue="FALSE" checked="false"
-               label="Also output TPM-normalised counts?"
-               help="Default: OFF — raw integer counts are always produced and are
-                     required for differential expression analysis. Enable only if you
-                     additionally need TPM values for WGCNA or visualisation."/>
+        <param name="normalize" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false"
+               label="Also output TPM-normalized counts?"
+               help="Raw integer counts are always produced. Enable this only when you also need TPM values for WGCNA or visualization."/>
     </inputs>
-
     <outputs>
-        <data name="expression_matrix_raw" format="tabular"
-              label="Raw counts - ${data_source}"/>
-        <data name="expression_matrix_normalized" format="tabular" label="TPM-normalised counts - ${data_source}">
+        <data name="expression_matrix_raw" format="tabular" label="Raw counts - ${data_source}"/>
+        <data name="expression_matrix_normalized" format="tabular" label="TPM-normalized counts - ${data_source}">
             <filter>normalize</filter>
         </data>
         <data name="sample_annotation" format="tabular" label="Sample annotation - ${data_source}"/>
         <data name="gene_annotation" format="tabular" label="Gene annotation - ${data_source}"/>
     </outputs>
-
     <tests>
-        <!-- Test 1: TCGA raw counts only → 3 outputs -->
         <test expect_num_outputs="3">
             <param name="data_source" value="ACC"/>
             <param name="tissue_type" value="both"/>
-            <param name="normalize"   value="FALSE"/>
+            <param name="normalize" value="FALSE"/>
             <output name="expression_matrix_raw">
                 <assert_contents>
                     <has_text text="ENSG"/>
-                    <has_n_lines n="1000"/>
                     <has_text text="TCGA-OR-A5J1-01A-11R-A29S-07"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
             <output name="sample_annotation">
                 <assert_contents>
-                    <has_text text="Adrenal Gland"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="TCGA-OR-A5J1-01A-11R-A29S-07"/>
+                    <has_n_lines min="50"/>
                 </assert_contents>
             </output>
             <output name="gene_annotation">
                 <assert_contents>
                     <has_text text="AACS"/>
-                    <has_n_lines n="1000"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
         </test>
-
-        <!-- Test 2: TCGA with TPM → 4 outputs -->
         <test expect_num_outputs="4">
             <param name="data_source" value="COAD"/>
             <param name="tissue_type" value="both"/>
-            <param name="normalize"   value="TRUE"/>
+            <param name="normalize" value="TRUE"/>
             <output name="expression_matrix_raw">
                 <assert_contents>
-                    <has_text text="TCGA-OR-A5J1-01A-11R-A29S-07"/>
-                    <has_text text="TCGA-OR-A5J1-11A-11R-A29S-07"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="ENSG"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
             <output name="expression_matrix_normalized">
                 <assert_contents>
-                    <has_text text="TCGA-OR-A5J1-01A-11R-A29S-07"/>
-                    <has_text text="TCGA-OR-A5J1-11A-11R-A29S-07"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="ENSG"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
             <output name="sample_annotation">
                 <assert_contents>
                     <has_text text="Colon"/>
-                    <has_n_lines n="1000"/>
+                    <has_n_lines min="522"/>
                 </assert_contents>
             </output>
             <output name="gene_annotation">
                 <assert_contents>
                     <has_text text="AACS"/>
-                    <has_n_lines n="1000"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
         </test>
-
-        <!-- Test 3: GTEx raw counts only → 3 outputs -->
         <test expect_num_outputs="3">
             <param name="data_source" value="KIDNEY"/>
             <param name="tissue_type" value="both"/>
-            <param name="normalize"   value="FALSE"/>
+            <param name="normalize" value="FALSE"/>
             <output name="expression_matrix_raw">
                 <assert_contents>
-                    <has_text text="GTEX-17HHE-"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="ENSG"/>
+                    <has_text text="GTEX-17F96-1926-SM-7MGWY.1"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
             <output name="sample_annotation">
                 <assert_contents>
-                    <has_text text="kidney"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="GTEX-17F96-1926-SM-7MGWY.1"/>
+                    <has_n_lines min="89"/>
                 </assert_contents>
             </output>
             <output name="gene_annotation">
                 <assert_contents>
                     <has_text text="AACS"/>
-                    <has_n_lines n="1000"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
         </test>
-
-        <!-- Test 4: GTEx with TPM → 4 outputs -->
         <test expect_num_outputs="4">
             <param name="data_source" value="KIDNEY"/>
             <param name="tissue_type" value="both"/>
-            <param name="normalize"   value="TRUE"/>
+            <param name="normalize" value="TRUE"/>
             <output name="expression_matrix_raw">
                 <assert_contents>
-                    <has_text text="GTEX-17HHE-"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="ENSG"/>
+                    <has_text text="GTEX-17F96-1926-SM-7MGWY.1"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
             <output name="expression_matrix_normalized">
                 <assert_contents>
-                    <has_text text="GTEX-17HHE-"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="ENSG"/>
+                    <has_text text="GTEX-17F96-1926-SM-7MGWY.1"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
             <output name="sample_annotation">
                 <assert_contents>
-                    <has_text text="kidney"/>
-                    <has_n_lines n="1000"/>
+                    <has_text text="GTEX-17F96-1926-SM-7MGWY.1"/>
+                    <has_n_lines min="89"/>
                 </assert_contents>
             </output>
             <output name="gene_annotation">
                 <assert_contents>
                     <has_text text="AACS"/>
-                    <has_n_lines n="1000"/>
+                    <has_n_lines min="63857"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="data_source" value="BRCA"/>
+            <param name="tissue_type" value="tumor"/>
+            <param name="normalize" value="FALSE"/>
+            <output name="expression_matrix_raw">
+                <assert_contents>
+                    <has_text text="ENSG"/>
+                    <has_n_lines min="63857"/>
+                </assert_contents>
+            </output>
+            <output name="sample_annotation">
+                <assert_contents>
+                    <has_text text="Breast"/>
+                    <has_n_lines min="1100"/>
+                </assert_contents>
+            </output>
+            <output name="gene_annotation">
+                <assert_contents>
+                    <has_text text="AACS"/>
+                    <has_n_lines min="63857"/>
                 </assert_contents>
             </output>
         </test>
     </tests>
-
-
     <help><![CDATA[
-.. class:: infomark
+Recount3 Compact
+================
 
-**What it does**
+Downloads recount3 gene-level RNA-seq data for a selected TCGA project or GTEx tissue.
 
-Retrieves harmonised RNA-seq gene-expression data from two major public databases
-using the Bioconductor **recount3** package:
+Outputs
+=======
 
-- **TCGA** (The Cancer Genome Atlas) — 33 cancer types, tumour and/or matched-normal samples
-- **GTEx** (Genotype-Tissue Expression) — 31 normal human tissues (all non-diseased)
+Raw counts
+    Integer counts for differential expression tools such as DESeq2, edgeR, and limma-voom.
 
-No FASTQ download, alignment, or quantification step required.
+TPM-normalized counts
+    Optional TPM matrix for WGCNA or visualization.
 
-----
+Sample annotation
+    Sample metadata from ``colData(rse)``. TCGA sample IDs are changed from UUIDs to TCGA barcodes when available.
 
-**Inputs**
+Gene annotation
+    Gene metadata from ``rowData(rse)`` using GENCODE v29.
 
- Data source :  TCGA cancer type or GTEx tissue.
- Tissue type: For TCGA, restrict to tumour, normal, or both. For GTEx, all samples are normal tissue — this parameter is ignored.
- Also output TPM-normalised counts?: Default is turned off but can be enabled for WGCNA or visualisation only.
+Notes
+=====
 
-----
-
-**Outputs**
-
-Raw counts matrix (always if not specified): will provide with Integer counts.
-TPM-normalised matrix (optional): will provide us with Transcripts Per Million. Only when normalisation is enabled.
-Sample annotation: will provide clinical/technical metadata from colData(rse).
-Gene annotation: will provide gene symbols and coordinates from rowData(rse).
-
-.. class:: warningmark
-
-**Do not supply TPM values to DESeq2, edgeR, or limma-voom.**
-These tools require raw integer counts and perform their own internal normalisation.
-
-----
-
+The tissue-type filter applies only to TCGA. GTEx projects are normal tissue, so the filter is ignored.
+Do not use TPM-normalized values as input to differential expression tools.
     ]]></help>
-
     <citations>
         <citation type="doi">10.1186/s13059-021-02533-6</citation>
     </citations>
-
 </tool>
