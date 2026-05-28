@@ -1,0 +1,99 @@
+name: Auto-Label Ready for Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-and-label:
+    if: |
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, 'please review')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      checks: read
+
+    steps:
+      - name: Check PR Status and Apply Label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.issue.number;
+
+            // 1. Fetch PR details
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            if (pr.draft) {
+              console.log("PR is a draft. Skipping.");
+              return;
+            }
+
+            // 2. Check for unresolved review threads
+            const query = `
+              query($owner: String!, $repo: String!, $pull_number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pull_number) {
+                    reviewThreads(first: 100) {
+                      nodes { isResolved }
+                    }
+                  }
+                }
+              }
+            `;
+            const graphqlResult = await github.graphql(query, { owner, repo, pull_number });
+            const threads = graphqlResult.repository.pullRequest.reviewThreads.nodes;
+            if (threads.some(t => !t.isResolved)) {
+              console.log("Unresolved review comments exist. Skipping.");
+              return;
+            }
+
+            // 3. Check CI - exclude this workflow's own run
+            const { data: checkRunsData } = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: pr.head.sha,
+              per_page: 100,
+            });
+
+            const relevant = checkRunsData.check_runs.filter(r =>
+              r.name !== context.workflow
+            );
+
+            // Any check still running → not ready
+            const hasIncomplete = relevant.some(r => r.status !== 'completed');
+            if (hasIncomplete) {
+              console.log("Some CI checks are still running. Skipping.");
+              return;
+            }
+
+            // Any check failed → report and stop
+            const failing = relevant.filter(r =>
+              r.conclusion !== 'success' &&
+              r.conclusion !== 'skipped' &&
+              r.conclusion !== 'neutral'
+            );
+            if (failing.length > 0) {
+              const lines = failing
+                .map(r => `- **${r.name}**: ${r.conclusion} → [view](${r.html_url})`)
+                .join('\n');
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `❌ Please check the CI errors before requesting a review:\n\n${lines}`
+              });
+              return;
+            }
+
+            // 4. All good - add the label
+            console.log("All checks passed. Adding 'ready-for-review' label.");
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pull_number,
+              labels: ['ready-for-review']
+            });
