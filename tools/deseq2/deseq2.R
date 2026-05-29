@@ -444,9 +444,10 @@ generate_generic_plots <- function(dds, factors) {
 # these are plots which can be made for each comparison, e.g.
 # once for C vs A and once for B vs A
 generate_specific_plots <- function(res, threshold, title_suffix, unshrunken_res = NULL, lfc_shrinkage_type = "none") {
-    use <- res$baseMean > threshold
+    histogram_res <- if (!is.null(unshrunken_res)) unshrunken_res else res
+    use <- histogram_res$baseMean > threshold
     if (sum(!use) == 0) {
-        h <- hist(res$pvalue, breaks = 0:50 / 50, plot = FALSE)
+        h <- hist(histogram_res$pvalue, breaks = 0:50 / 50, plot = FALSE)
         barplot(
             height = h$counts,
             col = "powderblue",
@@ -457,8 +458,8 @@ generate_specific_plots <- function(res, threshold, title_suffix, unshrunken_res
         )
         text(x = c(0, length(h$counts)), y = 0, label = paste(c(0, 1)), adj = c(0.5, 1.7), xpd = NA)
     } else {
-        h1 <- hist(res$pvalue[!use], breaks = 0:50 / 50, plot = FALSE)
-        h2 <- hist(res$pvalue[use], breaks = 0:50 / 50, plot = FALSE)
+        h1 <- hist(histogram_res$pvalue[!use], breaks = 0:50 / 50, plot = FALSE)
+        h2 <- hist(histogram_res$pvalue[use], breaks = 0:50 / 50, plot = FALSE)
         colori <- c("filtered (low count)" = "khaki", "not filtered" = "powderblue")
         barplot(
             height = rbind(h1$counts, h2$counts),
