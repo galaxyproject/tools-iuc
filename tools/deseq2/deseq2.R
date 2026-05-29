@@ -443,7 +443,7 @@ generate_generic_plots <- function(dds, factors) {
 
 # these are plots which can be made for each comparison, e.g.
 # once for C vs A and once for B vs A
-generate_specific_plots <- function(res, threshold, title_suffix) {
+generate_specific_plots <- function(res, threshold, title_suffix, unshrunken_res = NULL, lfc_shrinkage_type = "none") {
     use <- res$baseMean > threshold
     if (sum(!use) == 0) {
         h <- hist(res$pvalue, breaks = 0:50 / 50, plot = FALSE)
@@ -472,7 +472,23 @@ generate_specific_plots <- function(res, threshold, title_suffix) {
         text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0, 1)), adj = c(0.5, 1.7), xpd = NA)
         legend("topright", fill = rev(colori), legend = rev(names(colori)), bg = "white")
     }
-    plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
+    if (!is.null(unshrunken_res)) {
+        ma_ylim <- range(c(unshrunken_res$log2FoldChange, res$log2FoldChange), na.rm = TRUE)
+        plotMA(
+            unshrunken_res,
+            main = paste("MA-plot for", title_suffix, "(without LFC shrinkage)"),
+            ylim = ma_ylim,
+            alpha = opt$alpha_ma
+        )
+        plotMA(
+            res,
+            main = paste("MA-plot for", title_suffix, paste0("(LFC shrinkage: ", lfc_shrinkage_type, ")")),
+            ylim = ma_ylim,
+            alpha = opt$alpha_ma
+        )
+    } else {
+        plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
+    }
 }
 
 get_contrast_coefficient_name <- function(dds, contrast_factor, lvl, ref) {
@@ -509,7 +525,7 @@ get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, i
     )
 
     if (lfc_shrinkage_type == "none") {
-        return(res)
+        return(list(results = res, unshrunken_results = NULL))
     }
 
     if (lfc_shrinkage_type == "apeglm" && !requireNamespace("apeglm", quietly = TRUE)) {
@@ -530,9 +546,10 @@ get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, i
         type = lfc_shrinkage_type,
         parallel = parallel
     )
-    res$log2FoldChange <- shrunk_res$log2FoldChange
-    res$lfcSE <- shrunk_res$lfcSE
-    res
+    output_res <- res
+    output_res$log2FoldChange <- shrunk_res$log2FoldChange
+    output_res$lfcSE <- shrunk_res$lfcSE
+    list(results = output_res, unshrunken_results = res)
 }
 
 if (verbose) {
@@ -760,7 +777,7 @@ if (is.null(opt$many_contrasts)) {
         contrast_factor <- primary_factor
     }
 
-    res <- get_contrast_results(
+    contrast_results <- get_contrast_results(
         dds,
         contrast_factor = contrast_factor,
         lvl = lvl,
@@ -770,6 +787,8 @@ if (is.null(opt$many_contrasts)) {
         lfc_shrinkage_type = opt$lfc_shrinkage_type,
         parallel = parallel
     )
+    res <- contrast_results$results
+    unshrunken_res <- contrast_results$unshrunken_results
     if (verbose) {
         cat("summary of results\n")
         cat(paste0(contrast_factor, ": ", lvl, " vs ", ref, "\n"))
@@ -788,7 +807,7 @@ if (is.null(opt$many_contrasts)) {
     }
     title_suffix <- paste0(primary_factor, ": ", lvl, " vs ", ref)
     if (!is.null(opt$plots)) {
-        generate_specific_plots(res, threshold, title_suffix)
+        generate_specific_plots(res, threshold, title_suffix, unshrunken_res, opt$lfc_shrinkage_type)
     }
 } else {
     # rotate through the possible contrasts of the primary factor
@@ -798,7 +817,7 @@ if (is.null(opt$many_contrasts)) {
         ref <- all_levels[i]
         contrast_levels <- all_levels[(i + 1):n]
         for (lvl in contrast_levels) {
-            res <- get_contrast_results(
+            contrast_results <- get_contrast_results(
                 dds,
                 contrast_factor = primary_factor,
                 lvl = lvl,
@@ -808,6 +827,8 @@ if (is.null(opt$many_contrasts)) {
                 lfc_shrinkage_type = opt$lfc_shrinkage_type,
                 parallel = parallel
             )
+            res <- contrast_results$results
+            unshrunken_res <- contrast_results$unshrunken_results
             res_sorted <- res[order(res$padj), ]
             out_df <- as.data.frame(res_sorted)
             out_df$geneID <- rownames(out_df) # nolint
@@ -821,7 +842,7 @@ if (is.null(opt$many_contrasts)) {
             }
             title_suffix <- paste0(primary_factor, ": ", lvl, " vs ", ref)
             if (!is.null(opt$plots)) {
-                generate_specific_plots(res, threshold, title_suffix)
+                generate_specific_plots(res, threshold, title_suffix, unshrunken_res, opt$lfc_shrinkage_type)
             }
         }
     }
