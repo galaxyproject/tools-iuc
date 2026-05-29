@@ -40,19 +40,33 @@ jobs:
 
             // 2. Check for unresolved review threads
             const query = `
-              query($owner: String!, $repo: String!, $pull_number: Int!) {
+              query($owner: String!, $repo: String!, $pull_number: Int!, $cursor: String) {
                 repository(owner: $owner, name: $repo) {
                   pullRequest(number: $pull_number) {
-                    reviewThreads(first: 100) {
+                    reviewThreads(first: 100, after: $cursor) {
                       nodes { isResolved }
+                      pageInfo { hasNextPage endCursor }
                     }
                   }
                 }
               }
             `;
-            const graphqlResult = await github.graphql(query, { owner, repo, pull_number });
-            const threads = graphqlResult.repository.pullRequest.reviewThreads.nodes;
-            if (threads.some(t => !t.isResolved)) {
+
+            let cursor = null;
+            let hasUnresolved = false;
+            let hasNextPage = false;
+            do {
+              const result = await github.graphql(query, { owner, repo, pull_number, cursor });
+              const { nodes, pageInfo } = result.repository.pullRequest.reviewThreads;
+              if (nodes.some(t => !t.isResolved)) {
+                hasUnresolved = true;
+                break;
+              }
+              cursor = pageInfo.endCursor;
+              hasNextPage = pageInfo.hasNextPage;
+            } while (hasNextPage);
+
+            if (hasUnresolved) {
               await github.rest.issues.createComment({
                 owner,
                 repo,
