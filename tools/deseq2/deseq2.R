@@ -517,14 +517,13 @@ get_contrast_coefficient_name <- function(dds, contrast_factor, lvl, ref) {
 }
 
 get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, independent_filtering, lfc_shrinkage_type, parallel) {
-    res <- results(
-        dds,
-        contrast = c(contrast_factor, lvl, ref),
-        cooksCutoff = cooks_cutoff,
-        independentFiltering = independent_filtering
-    )
-
     if (lfc_shrinkage_type == "none") {
+        res <- results(
+            dds,
+            contrast = c(contrast_factor, lvl, ref),
+            cooksCutoff = cooks_cutoff,
+            independentFiltering = independent_filtering
+        )
         return(list(results = res, unshrunken_results = NULL))
     }
 
@@ -536,6 +535,12 @@ get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, i
     }
 
     coefficient_name <- get_contrast_coefficient_name(dds, contrast_factor, lvl, ref)
+    res <- results(
+        dds,
+        name = coefficient_name,
+        cooksCutoff = cooks_cutoff,
+        independentFiltering = independent_filtering
+    )
     if (verbose) {
         cat(paste0("Applying DESeq2 lfcShrink type '", lfc_shrinkage_type, "' using coefficient '", coefficient_name, "'\n"))
     }
@@ -546,10 +551,21 @@ get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, i
         type = lfc_shrinkage_type,
         parallel = parallel
     )
-    output_res <- res
-    output_res$log2FoldChange <- shrunk_res$log2FoldChange
-    output_res$lfcSE <- shrunk_res$lfcSE
+    output_res <- shrunk_res
+    if (!("pvalue" %in% names(output_res)) && "pvalue" %in% names(res)) {
+        output_res$pvalue <- res$pvalue
+    }
+    if (!("padj" %in% names(output_res)) && "padj" %in% names(res)) {
+        output_res$padj <- res$padj
+    }
     list(results = output_res, unshrunken_results = res)
+}
+
+get_result_output_columns <- function(lfc_shrinkage_type) {
+    if (lfc_shrinkage_type == "none") {
+        return(c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"))
+    }
+    c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
 }
 
 if (verbose) {
@@ -797,11 +813,12 @@ if (is.null(opt$many_contrasts)) {
     res_sorted <- res[order(res$padj), ]
     out_df <- as.data.frame(res_sorted)
     out_df$geneID <- rownames(out_df) # nolint
-    out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
+    out_df <- out_df[, get_result_output_columns(opt$lfc_shrinkage_type)]
     filename <- opt$outfile
     write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+    threshold_res <- if (!is.null(unshrunken_res)) unshrunken_res else res
     if (independent_filtering) {
-        threshold <- unname(attr(res, "filterThreshold"))
+        threshold <- unname(attr(threshold_res, "filterThreshold"))
     } else {
         threshold <- 0
     }
@@ -832,11 +849,12 @@ if (is.null(opt$many_contrasts)) {
             res_sorted <- res[order(res$padj), ]
             out_df <- as.data.frame(res_sorted)
             out_df$geneID <- rownames(out_df) # nolint
-            out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
+            out_df <- out_df[, get_result_output_columns(opt$lfc_shrinkage_type)]
             filename <- paste0(primary_factor, "_", lvl, "_vs_", ref)
             write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+            threshold_res <- if (!is.null(unshrunken_res)) unshrunken_res else res
             if (independent_filtering) {
-                threshold <- unname(attr(res, "filterThreshold"))
+                threshold <- unname(attr(threshold_res, "filterThreshold"))
             } else {
                 threshold <- 0
             }
