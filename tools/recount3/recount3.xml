@@ -1,11 +1,10 @@
-<tool id="recount3_1" name="Recount3 Compact" version="@TOOL_VERSION@+galaxy0" profile="25.1" license="MIT">
-    <description>Retrieve harmonized gene expression from TCGA and GTEx</description>
+<tool id="recount3" name="Recount3" version="@TOOL_VERSION@+galaxy0" profile="25.1" license="MIT">
+    <description>Retrieve harmonized gene expression data from TCGA and GTEx</description>
     <macros>
         <token name="@TOOL_VERSION@">1.20.0</token>
     </macros>
     <edam_topics>
         <edam_topic>topic_3308</edam_topic>
-        <edam_topic>topic_0622</edam_topic>
     </edam_topics>
     <edam_operations>
         <edam_operation>operation_2422</edam_operation>
@@ -15,7 +14,9 @@
         <xref type="bio.tools">recount</xref>
     </xrefs>
     <requirements>
+        <!-- recount3: main package for downloading data -->
         <requirement type="package" version="1.20.0">bioconductor-recount3</requirement>
+        <!-- recount: needed specifically for getTPM() function which is used for normalization -->
         <requirement type="package" version="1.36.0">bioconductor-recount</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
@@ -35,6 +36,9 @@ Rscript '$recount3_script'
     ]]></command>
     <configfiles>
         <configfile name="recount3_script"><![CDATA[
+## "#raw" is a galaxy cheetah template dirrective that tells galaxy to not interpret
+## anything between these tags as template syntax and treat as a plain text.
+## without "#raw", galaxy would try to interpret R symbols as its own language and break the R script.  
 #raw
 suppressPackageStartupMessages({
     library(recount3)
@@ -52,27 +56,28 @@ out_gene <- args[6]
 normalize <- as.logical(args[7])
 options(timeout = 600)
 
+## writes a data frame to a tab-delimited file with row names and no quotes
 write_tab <- function(x, path) {
     write.table(x, path, sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
 }
 
+
+## returns the first column name in `data` that matches any of the `candidates`,
+## or NULL if no match is found
 first_col <- function(data, candidates) {
     hits <- candidates[candidates %in% colnames(data)]
     if (length(hits)) hits[1] else NULL
 }
 
+## filters a recount3 RSE to tumor, normal, or both sample types based on the `tissue_type` argument
 filter_tcga <- function(rse, tissue_type) {
     if (tissue_type == "both") return(rse)
 
+## TCGA sample type is stored in different columns in different recount3 versions, so we look for multiple candidates
     meta <- as.data.frame(colData(rse))
     type_col <- first_col(meta, c(
-        "tcga.cgc_sample_sample_type",
-        "tcga.gdc_cases.samples.sample_type",
-        "cgc_sample_sample_type",
-        "gdc_cases.samples.sample_type",
-        "sample_type",
-        "sample_type.samples",
-        "tcga_tissue_type"
+        "tcga.cgc_sample_sample_type", ## most common column name for TCGA sample type in recount3
+        "tcga.gdc_cases.samples.sample_type" ## fallback column name for older recount3 versions (e.g. v1.20.0)
     ))
 
     if (is.null(type_col)) {
@@ -91,21 +96,18 @@ filter_tcga <- function(rse, tissue_type) {
 use_tcga_barcodes <- function(rse) {
     meta <- as.data.frame(colData(rse))
     barcode_col <- first_col(meta, c(
-        "tcga.tcga_barcode",
-        "tcga.gdc_cases.samples.portions.analytes.aliquots.submitter_id",
-        "tcga.gdc_cases.samples.submitter_id",
-        "tcga.cgc_file_sample",
+        "tcga.tcga_barcode", ## most common column name for TCGA barcode in recount3
+        "tcga.gdc_cases.samples.submitter_id", ## fallback column name for older recount3 versions (e.g. v1.20.0)
         "tcga.cgc_sample_id",
-        "tcga_barcode",
-        "gdc_cases.samples.portions.analytes.aliquots.submitter_id",
-        "gdc_cases.samples.submitter_id",
-        "cgc_file_sample",
-        "cgc_sample_id"
+        "tcga_barcode"
     ))
 
-    if (is.null(barcode_col)) {
-        cat("WARNING: no TCGA barcode column found; keeping UUID sample names.\n")
+    if (!is.null(barcode_col)) {
+        colnames(rse) <- make.unique(as.character(meta[[barcode_col]]), sep = "_")
+        cat("TCGA sample names set from", barcode_col, "\n")
         return(rse)
+    }   else {
+        cat("WARNING: no TCGA barcode column found; keeping UUID sample names.\n")
     }
 
     barcodes <- as.character(meta[[barcode_col]])
@@ -117,6 +119,29 @@ use_tcga_barcodes <- function(rse) {
 
     colnames(rse) <- make.unique(barcodes, sep = "_")
     cat("TCGA sample names set from", barcode_col, "\n")
+    rse
+}
+
+use_gtex_barcodes <- function(rse) {
+    meta <- as.data.frame(colData(rse))
+    barcode_col <- first_col(meta, c(
+        "external_id",
+        "sra.sample",
+        "gtex.smtsd",
+        "gtex_subjid"
+    ))
+    if (!is.null(barcode_col)) {
+
+        colnames(rse) <- make.unique(
+            as.character(meta[[barcode_col]]),
+            sep = "_"
+        )
+        cat("GTEx sample names set from:", barcode_col, "\n")
+
+    } else {
+
+        cat("WARNING: no GTEx barcode column found; keeping UUID sample names.\n")
+    }
     rse
 }
 
@@ -146,20 +171,13 @@ sample_meta <- as.data.frame(colData(rse))
 gene_annot <- as.data.frame(rowData(rse))
 rownames(sample_meta) <- colnames(rse)
 
-sample_meta$tool_tissue_label <- switch(
-    data_source,
-    ACC = "Adrenal Gland",
-    BRCA = "Breast",
-    COAD = "Colon",
-    KIDNEY = "kidney",
-    LUAD = "Lung",
-    LUSC = "Lung",
-    "UNKNOWN"
-)
-
+## saves the raw integer count matrix to a file
 write_tab(raw_counts, out_raw)
+## saves TPM-normalized counts only if user enabled normalization
 if (normalize) write_tab(as.data.frame(recount::getTPM(rse), check.names = FALSE), out_tpm)
+## saves sample metadata (colData)
 write_tab(sample_meta, out_sample)
+## saves gene annotations (rowData) using GENCODE v29
 write_tab(gene_annot, out_gene)
 cat("Done.\n")
 #end raw
@@ -234,13 +252,13 @@ cat("Done.\n")
             <option value="VAGINA">GTEx - Vagina</option>
         </param>
         <param name="tissue_type" type="select" label="Tissue type (TCGA only; ignored for GTEx)"
-               help="Restrict TCGA samples to tumor, normal, or both. Has no effect on GTEx.">
+               help="Restrict TCGA samples to tumor, adjacent normal, or both. Has no effect on GTEx.">
             <option value="both" selected="true">Both (tumor and normal)</option>
             <option value="tumor">Tumor only</option>
-            <option value="normal">Normal only</option>
+            <option value="normal">Adjacent normal only</option>
         </param>
         <param name="normalize" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false"
-               label="Also output TPM-normalized counts?"
+               label="Output TPM-normalized counts?"
                help="Raw integer counts are always produced. Enable this only when you also need TPM values for WGCNA or visualization."/>
     </inputs>
     <outputs>
