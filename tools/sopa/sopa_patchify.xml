@@ -1,0 +1,150 @@
+<tool id="sopa_patchify" name="SOPA Patchify" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Generate patches for cell segmentation</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @CMD_UNZIP_ZARR@
+
+        mkdir -p output_dir &&
+
+        ## Determine the SpatialData directory name
+        SDATA_DIR=\$(find . -maxdepth 1 -name "*.zarr" -type d | head -n 1) &&
+
+        ## Run patchify
+        sopa patchify
+        #if $patch_type.type == 'image'
+            image
+            --patch-width-pixel $patch_type.patch_width_pixel
+            --patch-overlap-pixel $patch_type.patch_overlap_pixel
+            #if $patch_type.channels
+                #for $channel in str($patch_type.channels).split(',')
+                    --channels '$channel'
+                #end for
+            #end if
+        #else
+            transcripts
+            --patch-width-microns $patch_type.patch_width_microns
+            --patch-overlap-microns $patch_type.patch_overlap_microns
+            #if str($patch_type.prior_shapes_key) != ''
+                --prior-shapes-key '$patch_type.prior_shapes_key'
+            #end if
+            #if str($patch_type.unassigned_value) != ''
+                --unassigned-value '$patch_type.unassigned_value'
+            #end if
+        #end if
+        "\${SDATA_DIR}" &&
+
+        ## Move to output directory
+        mv "\${SDATA_DIR}" output_dir/ &&
+
+        @CMD_ZIP_ZARR@
+    ]]></command>
+    <inputs>
+        <expand macro="input_sdata"/>
+
+        <conditional name="patch_type">
+            <param name="type" type="select" label="Patch type"
+                   help="Choose whether to create patches based on images or transcripts">
+                <option value="image" selected="true">Image-based patches (for staining-based segmentation like Cellpose)</option>
+                <option value="transcripts">Transcript-based patches (for transcript-based segmentation like Baysor)</option>
+            </param>
+            <when value="image">
+                <param name="patch_width_pixel" type="integer" value="1500" min="100"
+                       label="Patch width in pixels"
+                       help="Width of each patch in pixels. Larger patches use more memory but may improve segmentation quality."/>
+                <param name="patch_overlap_pixel" type="integer" value="50" min="0"
+                       label="Patch overlap in pixels"
+                       help="Overlap between adjacent patches in pixels to ensure seamless segmentation at boundaries."/>
+                <param name="channels" type="text" optional="true"
+                       label="Channel names for segmentation (comma-separated)"
+                       help="Optional: Specify which channels to use for segmentation (e.g., 'DAPI,PolyT'). Leave empty to use all channels.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="transcripts">
+                <param name="patch_width_microns" type="float" value="1200.0" min="1.0"
+                       label="Patch width in microns"
+                       help="Width of each patch in microns (physical units)."/>
+                <param name="patch_overlap_microns" type="float" value="50.0" min="0.0"
+                       label="Patch overlap in microns"
+                       help="Overlap between adjacent patches in microns."/>
+                <param name="prior_shapes_key" type="text" optional="true"
+                       label="Prior shapes key (optional)"
+                       help="Optional: Key in SpatialData object containing prior cell segmentation to use as input for transcript-based segmentation (e.g., 'cellpose_boundaries' or 'cell_id').">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="unassigned_value" type="text" optional="true"
+                       label="Unassigned value (optional)"
+                       help="Optional: Value used for unassigned cells in prior segmentation (e.g., 'UNASSIGNED' for Xenium, '-1' for MERSCOPE).">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <expand macro="output_sdata"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_sdata" value="toy_dataset.spatialdata.zip"/>
+            <conditional name="patch_type">
+                <param name="type" value="image"/>
+                <param name="patch_width_pixel" value="1500"/>
+                <param name="patch_overlap_pixel" value="50"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_size value="0" delta="1000000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+SOPA Patchify creates patches (tiles) from spatial omics data to enable efficient cell segmentation. This is a required preprocessing step before running segmentation algorithms like Cellpose or Baysor.
+
+The tool supports two types of patching:
+
+1. **Image-based patches**: For staining-based segmentation methods (e.g., Cellpose) that work on fluorescence images. Patches are defined in pixel coordinates.
+
+2. **Transcript-based patches**: For transcript-based segmentation methods (e.g., Baysor) that work on spatial transcriptomics data. Patches are defined in physical micron coordinates.
+
+**Inputs**
+
+- **SpatialData object**: A zipped .zarr directory containing spatial omics data (output from SpatialData IO tool or previous SOPA tool)
+
+**Parameters**
+
+For image-based patches:
+- **Patch width**: Width of each patch in pixels (default: 1500). Adjust based on cell size and available memory.
+- **Patch overlap**: Overlap between patches in pixels (default: 50). Ensures smooth segmentation at patch boundaries.
+- **Channels**: Optional comma-separated list of channel names to use for segmentation (e.g., 'DAPI,PolyT')
+
+For transcript-based patches:
+- **Patch width**: Width of each patch in microns (default: 1200)
+- **Patch overlap**: Overlap between patches in microns (default: 50)
+- **Prior shapes key**: Optional key in SpatialData containing prior segmentation to guide transcript assignment
+- **Unassigned value**: Value indicating unassigned cells in prior segmentation
+
+**Recommended Parameters by Technology**
+
+- **Xenium**: Image patches with width 2000-3000 pixels, overlap 100 pixels
+- **MERSCOPE**: Transcript patches with width 2000 microns, overlap 100 microns
+- **CosMx**: Image patches with width 1500-2000 pixels, overlap 50 pixels
+- **Visium HD**: Image patches with width 2000 pixels, overlap 100 pixels
+
+**Output**
+
+- Updated SpatialData object with patch metadata, ready for segmentation
+
+**More Information**
+
+For more details, see the `SOPA documentation <https://prism-oncology.github.io/sopa/tutorials/cli_usage/#run-segmentation>`_.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

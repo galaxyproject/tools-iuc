@@ -1,0 +1,262 @@
+<tool id="sopa_segmentation" name="SOPA Segmentation" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Perform cell segmentation on patches</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements">
+        <requirement type="package" version="3.0.11">cellpose</requirement>
+    </expand>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @CMD_UNZIP_ZARR@
+
+        mkdir -p output_dir &&
+
+        ## Determine the SpatialData directory name
+        SDATA_DIR=\$(find . -maxdepth 1 -name "*.zarr" -type d | head -n 1) &&
+
+        ## Run segmentation
+        sopa segmentation
+        #if $method.method_name == 'cellpose'
+            cellpose
+            "\${SDATA_DIR}"
+            #for $channel in str($method.channels).split(',')
+                --channels '$channel'
+            #end for
+            --diameter $method.diameter
+            #if str($method.model_type) != ''
+                --model-type '$method.model_type'
+            #end if
+            #if str($method.pretrained_model) != ''
+                --pretrained-model '$method.pretrained_model'
+            #end if
+            --min-area $method.min_area
+            --flow-threshold $method.flow_threshold
+            --cellprob-threshold $method.cellprob_threshold
+            #if $method.advanced.gaussian_sigma
+                --gaussian-sigma $method.advanced.gaussian_sigma
+            #end if
+            #if $method.advanced.clip_limit
+                --clip-limit $method.advanced.clip_limit
+            #end if
+            #if str($method.advanced.resample) == 'yes'
+                ## resample is True by default, only pass flag to disable it
+            #else
+                --method-kwargs '{"resample": False}'
+            #end if
+        #else if $method.method_name == 'baysor'
+            baysor
+            "\${SDATA_DIR}"
+            #if $method.config_source.source == 'file'
+                --config '$method.config_source.config_file'
+            #else
+                --config '$method.config_source.config_text'
+            #end if
+            #if str($method.prior_shapes_key) != ''
+                --prior-shapes-key '$method.prior_shapes_key'
+            #end if
+        #else if $method.method_name == 'generic'
+            generic-staining
+            "\${SDATA_DIR}"
+            --method-name '$method.method_name_generic'
+            #if str($method.method_kwargs) != ''
+                --method-kwargs '$method.method_kwargs'
+            #end if
+        #end if
+        &&
+
+        ## Move to output directory
+        mv "\${SDATA_DIR}" output_dir/ &&
+
+        @CMD_ZIP_ZARR@
+    ]]></command>
+    <inputs>
+        <expand macro="input_sdata"/>
+
+        <conditional name="method">
+            <param name="method_name" type="select" label="Segmentation method">
+                <option value="cellpose" selected="true">Cellpose (staining-based)</option>
+                <option value="baysor">Baysor (transcript-based)</option>
+                <option value="generic">Generic staining-based method</option>
+            </param>
+            <when value="cellpose">
+                <param name="channels" type="text" value="DAPI" label="Channel names (comma-separated)"
+                       help="Names of channels to use for segmentation (e.g., 'DAPI' or 'DAPI,PolyT')">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field"/>
+                </param>
+                <param name="diameter" type="integer" value="60" min="1"
+                       label="Expected cell diameter (pixels)"
+                       help="Typical cell diameter in pixels. Critical parameter - varies by technology. See help section for recommended values per platform."/>
+                <param name="model_type" type="select" optional="true" label="Cellpose model type">
+                    <option value="">Default (cyto3)</option>
+                    <option value="cyto">cyto - Original cytoplasm model</option>
+                    <option value="cyto2">cyto2 - Cytoplasm model v2</option>
+                    <option value="cyto3" selected="true">cyto3 - Cytoplasm model v3 (recommended)</option>
+                    <option value="nuclei">nuclei - Nucleus segmentation</option>
+                    <option value="tissuenet">tissuenet - Tissue segmentation</option>
+                    <option value="livecell">livecell - Live cell imaging</option>
+                    <option value="cyto2_cp3">cyto2_cp3 - Cellpose 3.0 cytoplasm</option>
+                    <option value="nuclei_cp3">nuclei_cp3 - Cellpose 3.0 nuclei</option>
+                </param>
+                <param name="pretrained_model" type="text" optional="true"
+                       label="Path to custom pretrained model (optional)"
+                       help="Path to a custom Cellpose model file. Leave empty to use a built-in model type.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="min_area" type="integer" value="2000" min="0"
+                       label="Minimum cell area (pixels²)"
+                       help="Filter out segmented cells smaller than this area. Helps remove artifacts."/>
+                <param name="flow_threshold" type="float" value="2.0" min="0"
+                       label="Flow threshold"
+                       help="Cellpose parameter controlling sensitivity (lower = more cells). Recommended: 2.0"/>
+                <param name="cellprob_threshold" type="float" value="-6.0" max="0"
+                       label="Cell probability threshold"
+                       help="Cellpose parameter controlling cell detection (lower = more cells). Recommended: -6.0"/>
+                <section name="advanced" title="Advanced Cellpose Options" expanded="false">
+                    <param name="gaussian_sigma" type="float" optional="true" min="0"
+                           label="Gaussian smoothing sigma (optional)"
+                           help="Apply Gaussian blur to reduce noise in low-quality images. Try 2.0 for pixelated images."/>
+                    <param name="clip_limit" type="float" optional="true" min="0" max="1"
+                           label="CLAHE clip limit (optional)"
+                           help="Contrast enhancement for low-contrast images. Try 0.3 for dim images."/>
+                    <param name="resample" type="select" label="Resample images">
+                        <option value="yes" selected="true">Yes (default, better quality)</option>
+                        <option value="no">No (faster, may reduce quality)</option>
+                    </param>
+                </section>
+            </when>
+            <when value="baysor">
+                <conditional name="config_source">
+                    <param name="source" type="select" label="Baysor configuration source">
+                        <option value="text" selected="true">Enter TOML configuration as text</option>
+                        <option value="file">Upload TOML configuration file</option>
+                    </param>
+                    <when value="text">
+                        <param name="config_text" type="text" area="true"
+                               label="Baysor TOML configuration"
+                               help="Enter Baysor configuration in TOML format. See SOPA documentation for examples.">
+                            <expand macro="sanitize_query"/>
+                            <validator type="empty_field"/>
+                        </param>
+                    </when>
+                    <when value="file">
+                        <param name="config_file" type="data" format="txt,toml"
+                               label="Baysor TOML configuration file"
+                               help="Upload a TOML file containing Baysor configuration parameters."/>
+                    </when>
+                </conditional>
+                <param name="prior_shapes_key" type="text" optional="true"
+                       label="Prior shapes key (optional)"
+                       help="Key in SpatialData containing prior cell segmentation to guide Baysor (e.g., 'cellpose_boundaries').">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="generic">
+                <param name="method_name_generic" type="text" value="stardist_patch"
+                       label="Method name"
+                       help="Name of the segmentation function to use (e.g., 'stardist_patch'). Must be a function from sopa.segmentation.methods.">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field"/>
+                </param>
+                <param name="method_kwargs" type="text" optional="true" area="true"
+                       label="Method keyword arguments (optional)"
+                       help="Optional dictionary of keyword arguments to pass to the segmentation method, in JSON format.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <expand macro="output_sdata"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_sdata" value="toy_dataset_patches.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="cellpose"/>
+                <param name="channels" value="DAPI"/>
+                <param name="diameter" value="35"/>
+                <param name="min_area" value="2000"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_size value="0" delta="1000000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+SOPA Segmentation performs cell segmentation on patched spatial omics data. It supports multiple segmentation methods:
+
+1. **Cellpose**: Deep learning-based segmentation for fluorescence images (most common)
+2. **Baysor**: Transcript-based segmentation for spatial transcriptomics
+3. **Generic staining-based**: Custom segmentation methods (e.g., StarDist)
+
+**Requirements**
+
+- Input must be a patched SpatialData object (output from SOPA Patchify tool)
+- For Cellpose: Image data with at least one channel (e.g., DAPI)
+- For Baysor: Transcript-level data with spatial coordinates
+
+**Cellpose Parameters**
+
+Critical parameters that vary by technology:
+
+**Diameter (pixels)** - Typical cell diameter:
+- Xenium: 50-70 pixels
+- MERSCOPE: Not applicable (use Baysor)
+- CosMx: 40-60 pixels
+- Visium HD: 50-80 pixels
+- MACSima/PhenoCycler: 40-60 pixels
+
+**Min area (pixels²)** - Minimum cell size:
+- General: 2000-5000 pixels²
+- Adjust based on expected cell sizes in your tissue
+
+**Model selection:**
+- **cyto3** (recommended): Latest general-purpose cytoplasm model
+- **nuclei**: For nucleus-only segmentation
+- **Custom model**: Upload your own trained Cellpose model
+
+**Advanced options:**
+- **Gaussian sigma**: Smooth noisy/pixelated images (try 2.0)
+- **CLAHE clip limit**: Enhance contrast in dim images (try 0.3)
+- **Resample**: Disable for faster processing at cost of quality
+
+**Baysor Configuration**
+
+Baysor requires a TOML configuration file with parameters like:
+- `scale`: Typical cell radius in microns (IMPORTANT)
+- `min_molecules_per_cell`: Minimum transcripts per cell
+- `n_clusters`: Number of cell types (optional)
+
+See `SOPA documentation <https://prism-oncology.github.io/sopa/tutorials/cli_usage/#option-2-baysor>`_ for example configurations.
+
+**Performance Notes**
+
+- Segmentation can be time-consuming for large datasets
+- For very large images, consider using smaller patches or reducing patch overlap
+- Cellpose with GPU acceleration is much faster than CPU-only (Galaxy admin configuration)
+
+**Troubleshooting**
+
+**Too few cells detected:**
+- Decrease diameter parameter
+- Lower flow_threshold (e.g., 1.5) and cellprob_threshold (e.g., -8.0)
+- Check min_area isn't too restrictive
+
+**Too many false positives:**
+- Increase diameter parameter
+- Increase flow_threshold and cellprob_threshold
+- Increase min_area to filter small artifacts
+
+**More Information**
+
+See the `SOPA segmentation documentation <https://prism-oncology.github.io/sopa/tutorials/cli_usage/#run-segmentation>`_.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

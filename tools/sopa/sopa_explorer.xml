@@ -1,0 +1,254 @@
+<tool id="sopa_explorer" name="SOPA Xenium Explorer Export" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Export SpatialData to Xenium Explorer format</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @CMD_UNZIP_ZARR@
+
+        ## Determine the SpatialData directory name
+        SDATA_DIR=\$(find . -maxdepth 1 -name "*.zarr" -type d | head -n 1) &&
+
+        ## Run Xenium Explorer conversion
+        sopa explorer write
+        "\${SDATA_DIR}"
+        #if str($mode_options.mode) != 'default'
+            --mode '$mode_options.mode'
+        #end if
+        #if $mode_options.pixel_size
+            --pixel-size $mode_options.pixel_size
+        #end if
+        #if str($mode_options.save_h5ad) == 'no'
+            --no-save-h5ad
+        #end if
+        #if $advanced.ram_threshold_gb
+            --ram-threshold-gb $advanced.ram_threshold_gb
+        #end if
+        #if str($advanced.gene_column) != ''
+            --gene-column '$advanced.gene_column'
+        #end if
+        #if $advanced.polygon_max_vertices
+            --polygon-max-vertices $advanced.polygon_max_vertices
+        #end if
+        &&
+
+        ## Package the explorer directory
+        EXPLORER_DIR=\$(find . -maxdepth 1 -name "*.explorer" -type d | head -n 1) &&
+        zip -r -q explorer_output.zip "\${EXPLORER_DIR}" &&
+
+        ## Copy outputs to expected locations
+        mv explorer_output.zip '$output_explorer' &&
+        if [ -f "\${EXPLORER_DIR}/adata.h5ad" ]; then
+            cp "\${EXPLORER_DIR}/adata.h5ad" '$output_h5ad'
+        fi
+    ]]></command>
+    <inputs>
+        <expand macro="input_sdata"/>
+
+        <section name="mode_options" title="Export Mode Options" expanded="true">
+            <param name="mode" type="select" label="Export mode"
+                   help="Choose what to export: full (all data), image-only (+i), or no-image (-i)">
+                <option value="default" selected="true">Full export (all data)</option>
+                <option value="+i">Image-only (generate image pyramid, skip other data)</option>
+                <option value="-i">No image (skip image pyramid generation)</option>
+            </param>
+            <param name="pixel_size" type="float" optional="true" min="0"
+                   label="Pixel size in microns (optional)"
+                   help="Size of one pixel in microns. Used to set proper scale in Xenium Explorer. If not provided, will be inferred from data."/>
+            <param name="save_h5ad" type="select" label="Save AnnData h5ad file"
+                   help="Whether to export a separate AnnData h5ad file for downstream analysis">
+                <option value="yes" selected="true">Yes - Export AnnData file</option>
+                <option value="no">No - Skip AnnData export</option>
+            </param>
+        </section>
+
+        <section name="advanced" title="Advanced Options" expanded="false">
+            <param name="ram_threshold_gb" type="integer" optional="true" min="1"
+                   label="RAM threshold in GB (optional)"
+                   help="Maximum RAM to use for image processing. Larger values speed up processing but require more memory. Default: 4 GB."/>
+            <param name="gene_column" type="text" optional="true"
+                   label="Gene column name (optional)"
+                   help="Name of the column containing gene names in transcript data. Default: 'gene'.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param name="polygon_max_vertices" type="integer" optional="true" min="3"
+                   label="Maximum polygon vertices (optional)"
+                   help="Simplify cell boundary polygons to this many vertices. Reduces file size. Default: no simplification."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_explorer" format="zip" label="${tool.name} on ${on_string}: Xenium Explorer"/>
+        <data name="output_h5ad" format="h5ad" label="${tool.name} on ${on_string}: AnnData">
+            <filter>mode_options['save_h5ad'] == 'yes'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_sdata" value="toy_dataset_aggregated.spatialdata.zip"/>
+            <section name="mode_options">
+                <param name="mode" value="default"/>
+                <param name="save_h5ad" value="yes"/>
+            </section>
+            <output name="output_explorer">
+                <assert_contents>
+                    <has_size value="0" delta="10000000"/>
+                </assert_contents>
+            </output>
+            <output name="output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs,var"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+SOPA Xenium Explorer Export converts processed SpatialData objects into the format required by 10X Genomics Xenium Explorer, enabling interactive visualization of spatial omics data.
+
+**Important**: The Xenium Explorer is freely available software from 10X Genomics that provides powerful interactive visualization of spatial data. While originally designed for Xenium data, SOPA enables its use with any spatial omics technology (MERSCOPE, CosMx, Visium HD, etc.).
+
+**Requirements**
+
+- Input should be a processed SpatialData object (ideally after aggregation and optional annotation)
+- Best results with data that has been fully processed through the SOPA pipeline
+
+**Export Modes**
+
+Three export strategies for different use cases:
+
+**1. Full export (default)**
+- Exports complete dataset: images, transcripts, cell boundaries, annotations
+- Creates image pyramid for smooth zooming
+- Includes all cell metadata and expression data
+- **Use for**: Final visualization after complete pipeline
+- **Time**: Can be slow for large images (10-60 minutes)
+
+**2. Image-only (+i)**
+- Only generates the image pyramid
+- Skips transcripts, boundaries, and other data
+- **Use for**: Preparing images early in pipeline
+- **Workflow**: Run this after data loading, then export full data after aggregation
+- **Time**: Same as full export for image generation
+- **Advantage**: Can parallelize - generate image once, then quickly add data later
+
+**3. No-image (-i)**
+- Skips image pyramid generation
+- Only exports transcripts, boundaries, cell types, etc.
+- **Use for**: Quick updates after annotation or re-analysis
+- **Requirement**: Must have previously generated images with mode +i
+- **Time**: Very fast (seconds to minutes)
+
+**Recommended Workflow for Large Datasets**
+
+For datasets with large images (>1 GB)::
+
+    1. After data loading: Run with mode +i (image-only)
+    2. Continue with patchify → segment → aggregate → annotate
+    3. After annotation: Run with mode -i (no-image)
+
+This avoids regenerating the time-consuming image pyramid.
+
+**Parameters**
+
+**Pixel size**: Physical size of one pixel in microns
+- Critical for correct scale display in Xenium Explorer
+- Usually auto-detected from data
+- Override if scale appears incorrect in Explorer
+
+**RAM threshold**: Maximum memory for image processing
+- Higher values = faster processing
+- Lower values = more memory-efficient but slower
+- Default: 4 GB (suitable for most datasets)
+- Increase for very large images (e.g., 16 GB for whole-slide imaging)
+
+**Polygon simplification**: Reduce complexity of cell boundaries
+- Simplifies polygons to max N vertices
+- Reduces file size, speeds up rendering
+- Typical: 50-200 vertices (default: no simplification)
+- Use if Xenium Explorer is slow or files are very large
+
+**Outputs**
+
+**1. Xenium Explorer directory (zipped)**
+Contains all files needed by Xenium Explorer:
+- `experiment.xenium`: Metadata file
+- `morphology_*.ome.tif`: Image pyramid for visualization
+- `analysis.zarr.zip`: Cell boundaries and shapes
+- `cell_feature_matrix.zarr.zip`: Gene/channel expression matrix
+- `cells.parquet`: Cell metadata and coordinates
+- Various other support files
+
+**How to use**:
+1. Download and unzip the output
+2. Open Xenium Explorer application
+3. File → Open → Select the .xenium file
+4. Explore your data interactively!
+
+**2. AnnData h5ad file** (optional)
+Standard single-cell format containing:
+- Cell-by-gene/channel expression matrix
+- Cell metadata (coordinates, cell types, etc.)
+- Feature metadata (gene/channel names)
+
+**Use for**:
+- Downstream analysis with Scanpy, Squidpy, Seurat
+- Statistical analysis and visualization
+- Integration with other single-cell datasets
+- Custom analysis workflows
+
+**Xenium Explorer Features**
+
+The Xenium Explorer provides:
+- **Interactive viewing**: Pan, zoom, rotate spatial data
+- **Cell inspection**: Click cells to see expression profiles
+- **Channel overlay**: Toggle fluorescence channels on/off
+- **Cell type coloring**: Visualize cell-type annotations
+- **Gene expression**: Plot expression of any gene spatially
+- **Selection tools**: Select regions of interest
+- **Export**: Save views and selected cells
+- **3D viewing**: For datasets with Z-stacks
+
+**Technology Support**
+
+SOPA can export data from these technologies to Xenium Explorer:
+- ✅ Xenium (native support)
+- ✅ MERSCOPE (Vizgen)
+- ✅ CosMx (Nanostring)
+- ✅ Visium HD (10X Genomics)
+- ✅ MACSima (Miltenyi)
+- ✅ PhenoCycler (Akoya)
+- ✅ Any other platform supported by SpatialData
+
+**License Note**
+
+Xenium Explorer is licensed by 10X Genomics. According to their terms, it is freely available for research use. Check the `10X Genomics website <https://www.10xgenomics.com/support/software/xenium-explorer>`_ for current license terms.
+
+**Troubleshooting**
+
+**Xenium Explorer won't open file:**
+- Ensure you unzipped the output directory
+- Check that experiment.xenium file is present
+- Verify Xenium Explorer is up to date
+
+**Scale is wrong in Explorer:**
+- Manually set pixel_size parameter
+- Check source data for correct metadata
+
+**Very slow loading:**
+- Try polygon simplification (100-200 vertices)
+- Use image-only mode first, then add data
+
+**Out of memory:**
+- Reduce ram_threshold_gb parameter
+- Process in chunks using image-only mode
+
+**More Information**
+
+See the `SOPA Xenium Explorer documentation <https://prism-oncology.github.io/sopa/tutorials/cli_usage/#visualization-xenium-explorer>`_ and the `Xenium Explorer user guide <https://www.10xgenomics.com/support/software/xenium-explorer>`_.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
