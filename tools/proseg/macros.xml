@@ -1,6 +1,7 @@
 <macros>
     <token name="@TOOL_VERSION@">3.1.1</token>
     <token name="@VERSION_SUFFIX@">galaxy0</token>
+    <token name="@PROFILE@">25.0</token>
     <!-- Platform flags -->
     <token name="@PLATFORM_CMD@"><![CDATA[
 #if $input_mode.platform.preset == "xenium"
@@ -17,14 +18,16 @@
     --gene-column '$input_mode.platform.gene_col'
     --x-column '$input_mode.platform.x_col'
     --y-column '$input_mode.platform.y_col'
+#if $input_mode.platform.z_col
     --z-column '$input_mode.platform.z_col'
+#end if
     --cell-id-column '$input_mode.platform.cell_id_col'
     --cell-id-unassigned '$input_mode.platform.unassigned_id'
 #end if
     ]]></token>
     <!-- QV quality filtering -->
     <token name="@QV_CMD@"><![CDATA[
-#if $input_mode.qv.qv_col and $input_mode.qv.min_qv
+#if $input_mode.mode == "table" and $input_mode.qv.qv_col and $input_mode.qv.min_qv
     --qv-column '$input_mode.qv.qv_col'
     --min-qv $input_mode.qv.min_qv
 #end if
@@ -47,10 +50,10 @@
     --cellpose-y-transform $cellpose.y_transform
 #end if
     ]]></token>
-    <!-- SpaceRanger barcode mappings -->
+    <!-- SpaceRanger barcode mappings — only used for VisiumHD -->
     <token name="@SPACERANGER_CMD@"><![CDATA[
-#if $spaceranger_map
-    --spaceranger-barcode-mappings '$spaceranger_map'
+#if $input_mode.mode == "table" and $input_mode.platform.preset == "visiumhd" and $input_mode.platform.spaceranger_map
+    --spaceranger-barcode-mappings '$input_mode.platform.spaceranger_map'
 #end if
     ]]></token>
     <!-- Morphology preset -->
@@ -72,7 +75,7 @@
 --voxel-layers $voxel_layers
 --samples $samples
 --burnin-samples $burnin_samples
---nthreads $nthreads
+--nthreads \${GALAXY_SLOTS:-4}
 $ignore_z
     ]]></token>
     <!-- Advanced model parameters -->
@@ -93,19 +96,19 @@ $advanced.no_diffusion
     <!-- Optional output flags -->
     <token name="@OPTIONAL_OUTPUTS_CMD@"><![CDATA[
 #if $outputs.counts
-    --output-counts counts.mtx.gz
+    --output-counts counts.parquet
 #end if
 #if $outputs.expected
-    --output-expected-counts expected.mtx.gz
+    --output-expected-counts expected.parquet
 #end if
 #if $outputs.cellmeta
-    --output-cell-metadata cellmeta.csv.gz
+    --output-cell-metadata cellmeta.parquet
 #end if
 #if $outputs.txmeta
-    --output-transcript-metadata txmeta.csv.gz
+    --output-transcript-metadata txmeta.parquet
 #end if
 #if $outputs.gene
-    --output-gene-metadata gene.csv.gz
+    --output-gene-metadata gene.parquet
 #end if
 #if $outputs.polygons
     --output-cell-polygons polygons.geojson.gz
@@ -114,8 +117,8 @@ $advanced.no_diffusion
     --output-cell-polygon-layers polygon_layers.geojson.gz
 #end if
     ]]></token>
-    <!-- Platform selector -->
-    <xml name="platform_inputs" token_data_ref="transcripts">
+    <!-- Platform selector for table (CSV/parquet) input - supports manual column mapping -->
+    <xml name="platform_inputs">
         <conditional name="platform">
             <param name="preset" type="select" label="Platform preset" help="Select the spatial transcriptomics platform that generated your data.">
                 <option value="xenium">10x Xenium</option>
@@ -129,32 +132,101 @@ $advanced.no_diffusion
             <when value="cosmx"/>
             <when value="cosmx_micron"/>
             <when value="merscope"/>
-            <when value="visiumhd"/>
+            <when value="visiumhd">
+                <param name="spaceranger_map" type="data" format="parquet" optional="true"
+                    label="SpaceRanger barcode mappings"
+                    help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
+            </when>
             <when value="manual">
-                <param name="gene_col" type="data_column" data_ref="@DATA_REF@" label="Gene column" help="Column containing gene names."/>
-                <param name="x_col" type="data_column" data_ref="@DATA_REF@" label="X coordinate column"/>
-                <param name="y_col" type="data_column" data_ref="@DATA_REF@" label="Y coordinate column"/>
-                <param name="z_col" type="data_column" data_ref="@DATA_REF@" optional="true" label="Z coordinate column" help="Optional. Leave empty and enable 2D mode if z-coordinates are unavailable."/>
-                <param name="cell_id_col" type="data_column" data_ref="@DATA_REF@" label="Cell ID column" help="Column containing preliminary cell assignments from the instrument."/>
-                <param name="unassigned_id" type="text" value="0" label="Unassigned cell ID" help="Value used to mark transcripts not assigned to any cell. Typically 0."/>
+                <param name="gene_col" type="text" value="feature_name"
+                    label="Gene column name"
+                    help="Name of the column containing gene names."/>
+                <param name="x_col" type="text" value="x_location"
+                    label="X coordinate column name"/>
+                <param name="y_col" type="text" value="y_location"
+                    label="Y coordinate column name"/>
+                <param name="z_col" type="text" value="z_location" optional="true"
+                    label="Z coordinate column name"
+                    help="Optional. Leave empty and enable 2D mode if z-coordinates are unavailable."/>
+                <param name="cell_id_col" type="text" value="cell_id"
+                    label="Cell ID column name"
+                    help="Name of the column containing preliminary cell assignments from the instrument."/>
+                <param name="unassigned_id" type="text" value="0"
+                    label="Unassigned cell ID"
+                    help="Value used to mark transcripts not assigned to any cell. Typically 0."/>
+            </when>
+        </conditional>
+    </xml>
+    <!-- Platform selector for AnnData/SpatialData input - no manual column mapping -->
+    <xml name="platform_inputs_no_ref">
+        <conditional name="platform">
+            <param name="preset" type="select" label="Platform preset" help="Select the spatial transcriptomics platform that generated your data.">
+                <option value="xenium">10x Xenium</option>
+                <option value="cosmx">NanoString CosMx (pixel coordinates)</option>
+                <option value="cosmx_micron">NanoString CosMx (micron coordinates)</option>
+                <option value="merscope">Vizgen MERSCOPE / MERFISH</option>
+                <option value="visiumhd">10x Visium HD</option>
+            </param>
+            <when value="xenium"/>
+            <when value="cosmx"/>
+            <when value="cosmx_micron"/>
+            <when value="merscope"/>
+            <when value="visiumhd">
+                <param name="spaceranger_map" type="data" format="parquet" optional="true"
+                    label="SpaceRanger barcode mappings"
+                    help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
             </when>
         </conditional>
     </xml>
     <!-- QV filtering inputs -->
     <xml name="qv_inputs">
         <section name="qv" title="Quality filtering" expanded="false">
-            <param name="min_qv" type="integer" value="20" optional="true" label="Minimum quality value (QV)" help="Transcripts below this QV threshold are excluded. Default 20 recommended for Xenium."/>
+            <param name="min_qv" type="integer" value="20" min="0" max="40" optional="true"
+                label="Minimum quality value (QV)"
+                help="Transcripts below this QV threshold are excluded. Default 20 recommended for Xenium. Range: 0-40."/>
             <param name="qv_col" type="text" optional="true" value="" label="QV column name" help="Name of the column containing per-transcript quality values."/>
         </section>
     </xml>
     <!-- CellPose inputs -->
     <xml name="cellpose_inputs">
         <section name="cellpose" title="CellPose initialisation (optional)" expanded="false">
-            <param name="masks" type="data" format="npy" optional="true" label="CellPose masks (.npy)" help="2D uint32 array where 0 = unassigned and 1..N = cell assignments."/>
-            <param name="probs" type="data" format="npy" optional="true" label="CellPose cell probabilities (.npy)" help="Float32 array of segmentation uncertainty, same dimensions as masks."/>
-            <param name="scale" type="float" optional="true" label="CellPose scale (microns per pixel)" help="Conversion factor from mask pixel coordinates to micron coordinates."/>
-            <param name="x_transform" type="text" optional="true" label="CellPose X affine transform (a b c)" help="Three space-separated floats: x_micron = a*x_pixel + b*y_pixel + c"/>
-            <param name="y_transform" type="text" optional="true" label="CellPose Y affine transform (a b c)" help="Three space-separated floats: y_micron = a*x_pixel + b*y_pixel + c"/>
+            <param name="masks" type="data" format="npy" optional="true"
+                label="CellPose masks (.npy)"
+                help="2D uint32 array where 0 = unassigned and 1..N = cell assignments."/>
+            <param name="probs" type="data" format="npy" optional="true"
+                label="CellPose cell probabilities (.npy)"
+                help="Float32 array of segmentation uncertainty, same dimensions as masks."/>
+            <param name="scale" type="float" optional="true" min="0.001" max="100.0"
+                label="CellPose scale (microns per pixel)"
+                help="Conversion factor from mask pixel coordinates to micron coordinates. Typical range: 0.1-10.0."/>
+            <param name="x_transform" type="text" optional="true"
+                label="CellPose X affine transform (a b c)"
+                help="Three space-separated floats: x_micron = a*x_pixel + b*y_pixel + c">
+                <sanitizer>
+                    <valid initial="string.digits">
+                        <add value=" "/>
+                        <add value="."/>
+                        <add value="-"/>
+                        <add value="e"/>
+                        <add value="E"/>
+                    </valid>
+                </sanitizer>
+                <validator type="regex" message="Must be three space-separated numbers, e.g. 0.2125 0.0 0.0">^-?[\d.eE]+ -?[\d.eE]+ -?[\d.eE]+$</validator>
+            </param>
+            <param name="y_transform" type="text" optional="true"
+                label="CellPose Y affine transform (a b c)"
+                help="Three space-separated floats: y_micron = a*x_pixel + b*y_pixel + c">
+                <sanitizer>
+                    <valid initial="string.digits">
+                        <add value=" "/>
+                        <add value="."/>
+                        <add value="-"/>
+                        <add value="e"/>
+                        <add value="E"/>
+                    </valid>
+                </sanitizer>
+                <validator type="regex" message="Must be three space-separated numbers, e.g. 0.0 0.2125 0.0">^-?[\d.eE]+ -?[\d.eE]+ -?[\d.eE]+$</validator>
+            </param>
         </section>
     </xml>
     <!-- Morphology inputs -->
@@ -168,61 +240,93 @@ $advanced.no_diffusion
             <when value="standard"/>
             <when value="annular"/>
             <when value="custom">
-                <param name="compactness" type="float" value="0.04" min="0.0" label="Cell compactness" help="Smaller values produce more compact (rounder) cells."/>
-                <param name="connectivity" type="boolean" truevalue="--enforce-connectivity" falsevalue="" checked="false" label="Enforce connectivity" help="Prevent cells from being split into disconnected fragments."/>
+                <param name="compactness" type="float" value="0.04" min="0.0" max="10.0"
+                    label="Cell compactness"
+                    help="Smaller values produce more compact (rounder) cells. Range: 0.0-10.0."/>
+                <param name="connectivity" type="boolean" truevalue="--enforce-connectivity" falsevalue="" checked="false"
+                    label="Enforce connectivity"
+                    help="Prevent cells from being split into disconnected fragments."/>
             </when>
         </conditional>
     </xml>
     <!-- Core parameter inputs -->
     <xml name="core_param_inputs">
-        <param name="voxel_size" type="float" value="1.0" min="0.05" label="Voxel size (microns)" help="X/Y voxel size for final sampling. Smaller = finer resolution but more memory."/>
-        <param name="burnin_voxel_size" type="float" value="2.0" min="0.05" label="Burn-in voxel size (microns)" help="Must be an integer multiple of voxel size (e.g. if voxel size is 1.0, use 2.0, 3.0, 4.0 etc.)."/>
-        <param name="voxel_layers" type="integer" value="4" min="1" label="Voxel layers (z-axis)" help="Number of voxel layers along the z-axis for 3D segmentation."/>
-        <param name="samples" type="integer" value="200" min="10" label="Sampling iterations" help="Number of MCMC iterations after burn-in. 200 for testing, 500+ for production."/>
-        <param name="burnin_samples" type="integer" value="200" min="10" label="Burn-in iterations" help="Number of preliminary MCMC iterations at lower resolution."/>
-        <param name="nthreads" type="integer" value="4" min="1" label="CPU threads" help="Number of parallel threads. Default 4 is safe for shared cluster use."/>
-        <param name="ignore_z" type="boolean" truevalue="--ignore-z-coord" falsevalue="" checked="false" label="Treat as 2D" help="Ignore z-coordinates and segment in 2D."/>
+        <param name="voxel_size" type="float" value="1.0" min="0.05" max="10.0"
+            label="Voxel size (microns)"
+            help="X/Y voxel size for final sampling. Smaller = finer resolution but more memory. Typical: 1.0 for Xenium, 0.5 for CosMx."/>
+        <param name="burnin_voxel_size" type="float" value="2.0" min="0.05" max="20.0"
+            label="Burn-in voxel size (microns)"
+            help="Must be an integer multiple of voxel size (e.g. if voxel size is 1.0, use 2.0, 3.0, 4.0 etc.)."/>
+        <param name="voxel_layers" type="integer" value="4" min="1" max="50"
+            label="Voxel layers (z-axis)"
+            help="Number of voxel layers along the z-axis for 3D segmentation."/>
+        <param name="samples" type="integer" value="200" min="10" max="5000"
+            label="Sampling iterations"
+            help="Number of MCMC iterations after burn-in. 200 for testing, 500+ for production."/>
+        <param name="burnin_samples" type="integer" value="200" min="10" max="5000"
+            label="Burn-in iterations"
+            help="Number of preliminary MCMC iterations at lower resolution."/>
+        <param name="ignore_z" type="boolean" truevalue="--ignore-z-coord" falsevalue="" checked="false"
+            label="Treat as 2D"
+            help="Ignore z-coordinates and segment in 2D."/>
     </xml>
     <!-- Advanced inputs -->
     <xml name="advanced_inputs">
         <section name="advanced" title="Advanced model parameters" expanded="false">
-            <param name="morph_steps" type="integer" value="4000" min="100" label="Morphology steps per iteration"/>
-            <param name="ncomponents" type="integer" value="10" min="1" label="Expression mixture components"/>
-            <param name="diffusion_prob" type="float" value="0.2" min="0.0" max="1.0" label="Diffusion probability"/>
-            <param name="nuclear_reassign" type="float" value="0.2" min="0.0" max="1.0" label="Nuclear reassignment probability"/>
-            <param name="recorded_samples" type="integer" value="10" min="1" label="Recorded samples"/>
-            <param name="no_diffusion" type="boolean" truevalue="--no-diffusion" falsevalue="" checked="false" label="Disable diffusion model"/>
-            <param name="diff_sigma_near" type="float" optional="true" label="Diffusion sigma near (microns)" help="Leave empty for ProSeg default (1 micron)."/>
-            <param name="diff_sigma_far" type="float" optional="true" label="Diffusion sigma far (microns)" help="Leave empty for ProSeg default (4 microns)."/>
+            <param name="morph_steps" type="integer" value="4000" min="100" max="100000"
+                label="Morphology steps per iteration"/>
+            <param name="ncomponents" type="integer" value="10" min="1" max="100"
+                label="Expression mixture components"/>
+            <param name="diffusion_prob" type="float" value="0.2" min="0.0" max="1.0"
+                label="Diffusion probability"/>
+            <param name="nuclear_reassign" type="float" value="0.2" min="0.0" max="1.0"
+                label="Nuclear reassignment probability"/>
+            <param name="recorded_samples" type="integer" value="10" min="1" max="500"
+                label="Recorded samples"/>
+            <param name="no_diffusion" type="boolean" truevalue="--no-diffusion" falsevalue="" checked="false"
+                label="Disable diffusion model"/>
+            <param name="diff_sigma_near" type="float" optional="true" min="0.1" max="10.0"
+                label="Diffusion sigma near (microns)"
+                help="Leave empty for ProSeg default (1 micron)."/>
+            <param name="diff_sigma_far" type="float" optional="true" min="0.1" max="20.0"
+                label="Diffusion sigma far (microns)"
+                help="Leave empty for ProSeg default (4 microns)."/>
         </section>
     </xml>
     <!-- Output toggle inputs -->
     <xml name="output_toggle_inputs">
         <section name="outputs" title="Optional outputs" expanded="false">
-            <param name="counts" type="boolean" checked="false" label="Count matrix" help="Cell-by-gene integer count matrix in gzipped Matrix Market format."/>
-            <param name="expected" type="boolean" checked="false" label="Expected count matrix" help="Non-integer expected counts averaged over posterior samples."/>
-            <param name="cellmeta" type="boolean" checked="false" label="Cell metadata" help="Per-cell centroids, volume, and geometry summary."/>
-            <param name="txmeta" type="boolean" checked="false" label="Transcript metadata" help="Per-transcript revised positions and assignment probabilities."/>
-            <param name="gene" type="boolean" checked="false" label="Gene metadata" help="Per-gene summary statistics."/>
-            <param name="polygons" type="boolean" checked="false" label="Cell polygons" help="2D consensus cell boundary polygons in GeoJSON format."/>
-            <param name="polygon_layers" type="boolean" checked="false" label="Cell polygon layers" help="Separate polygon per z-layer preserving 3D segmentation."/>
+            <param name="counts" type="boolean" checked="false" label="Count matrix"
+                help="Cell-by-gene integer count matrix in Apache Parquet format."/>
+            <param name="expected" type="boolean" checked="false" label="Expected count matrix"
+                help="Non-integer expected counts averaged over posterior samples."/>
+            <param name="cellmeta" type="boolean" checked="false" label="Cell metadata"
+                help="Per-cell centroids, volume, and geometry summary."/>
+            <param name="txmeta" type="boolean" checked="false" label="Transcript metadata"
+                help="Per-transcript revised positions and assignment probabilities."/>
+            <param name="gene" type="boolean" checked="false" label="Gene metadata"
+                help="Per-gene summary statistics."/>
+            <param name="polygons" type="boolean" checked="false" label="Cell polygons"
+                help="2D consensus cell boundary polygons in GeoJSON format."/>
+            <param name="polygon_layers" type="boolean" checked="false" label="Cell polygon layers"
+                help="Separate polygon per z-layer preserving 3D segmentation."/>
         </section>
     </xml>
     <!-- Optional data outputs -->
     <xml name="optional_data_outputs">
-        <data name="counts" format="tabular" label="${tool.name} on ${on_string}: Count matrix">
+        <data name="counts" format="parquet" label="${tool.name} on ${on_string}: Count matrix">
             <filter>outputs['counts']</filter>
         </data>
-        <data name="expected" format="tabular" label="${tool.name} on ${on_string}: Expected counts">
+        <data name="expected" format="parquet" label="${tool.name} on ${on_string}: Expected counts">
             <filter>outputs['expected']</filter>
         </data>
-        <data name="cellmeta" format="csv" label="${tool.name} on ${on_string}: Cell metadata">
+        <data name="cellmeta" format="parquet" label="${tool.name} on ${on_string}: Cell metadata">
             <filter>outputs['cellmeta']</filter>
         </data>
-        <data name="txmeta" format="csv" label="${tool.name} on ${on_string}: Transcript metadata">
+        <data name="txmeta" format="parquet" label="${tool.name} on ${on_string}: Transcript metadata">
             <filter>outputs['txmeta']</filter>
         </data>
-        <data name="gene" format="csv" label="${tool.name} on ${on_string}: Gene metadata">
+        <data name="gene" format="parquet" label="${tool.name} on ${on_string}: Gene metadata">
             <filter>outputs['gene']</filter>
         </data>
         <data name="polygons" format="geojson" label="${tool.name} on ${on_string}: Cell polygons">
