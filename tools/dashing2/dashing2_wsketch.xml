@@ -1,0 +1,139 @@
+<tool id="dashing2_wsketch" name="dashing2 wsketch" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>sketch weighted sets of integral identifiers</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        ## wsketch writes several files named after the -o prefix, so we sketch
+        ## into a dedicated directory and discover the results as a collection.
+        mkdir -p wsout &&
+        dashing2 wsketch
+            -p \${GALAXY_SLOTS:-8}
+            -S${sketch_size}
+            $sketch_type
+            #if $weights.mode == 'ids':
+                $id_size
+            #end if
+            #if $weights.mode != 'ids':
+                $weights.weight_type
+            #end if
+            #if $weights.mode == 'csr':
+                $weights.indptr_size
+            #end if
+            -o 'wsout/sketch'
+            #if $weights.mode == 'ids':
+                '$ids'
+            #elif $weights.mode == 'weighted':
+                '$ids' '$weights.weights_file'
+            #else:
+                '$weights.data_file' '$ids' '$weights.indptr_file'
+            #end if
+    ]]></command>
+    <inputs>
+        <param name="ids" type="data" format="binary" label="Identifier / index stream" help="A raw binary stream of integral identifiers (indices). 64-bit by default; enable '32-bit identifiers' below if they are 32-bit. In CSR mode this is the indices array."/>
+        <conditional name="weights">
+            <param name="mode" type="select" label="Weighting" help="How weights are supplied. With identifiers only, every element is sketched with equal weight (SetSketch). With a weight vector, a 1-D weighted MinHash is performed. CSR mode treats a (data, indices, indptr) triple as a sparse matrix and emits one sketch per row.">
+                <option value="ids" selected="true">Identifiers only—equal weight</option>
+                <option value="weighted">Identifiers + weight vector</option>
+                <option value="csr">Sparse matrix (CSR: data, indices, indptr)</option>
+            </param>
+            <when value="ids"/>
+            <when value="weighted">
+                <param name="weights_file" type="data" format="binary" label="Weight vector" help="A raw binary vector of weights, one per identifier. 64-bit double by default; choose a different type below."/>
+                <param name="weight_type" type="select" label="Weight data type" help="Element type of the weight vector.">
+                    <option value="" selected="true">64-bit double (default)</option>
+                    <option value="-f">32-bit float (-f)</option>
+                    <option value="-U">32-bit unsigned (-U)</option>
+                    <option value="-H">16-bit (-H)</option>
+                </param>
+            </when>
+            <when value="csr">
+                <param name="data_file" type="data" format="binary" label="CSR data array" help="The non-zero values of the sparse matrix (the weights), in CSR order."/>
+                <param name="indptr_file" type="data" format="binary" label="CSR indptr array" help="The CSR row-pointer array. 64-bit integers by default."/>
+                <param name="weight_type" type="select" label="Data (weight) type" help="Element type of the CSR data array.">
+                    <option value="" selected="true">64-bit double (default)</option>
+                    <option value="-f">32-bit float (-f)</option>
+                    <option value="-U">32-bit unsigned (-U)</option>
+                    <option value="-H">16-bit (-H)</option>
+                </param>
+                <param argument="-P" name="indptr_size" type="boolean" checked="false" truevalue="-P" falsevalue="" label="32-bit indptr" help="Read the indptr array as 32-bit integers instead of 64-bit."/>
+            </when>
+        </conditional>
+        <param argument="-u" name="id_size" type="boolean" checked="false" truevalue="-u" falsevalue="" label="32-bit identifiers" help="Read the identifier stream as 32-bit integers instead of 64-bit. (Identifiers-only mode.)"/>
+        <param argument="-S" name="sketch_size" type="integer" value="1024" min="1" label="Sketch size" help="Number of registers retained per sketch."/>
+        <param name="sketch_type" type="select" label="Sketching algorithm" help="ProbMinHash treats the input as a discrete probability distribution (default). BagMinHash treats it as a multiset. SetSketch ignores weights and treats it as a set.">
+            <option value="" selected="true">ProbMinHash (default)</option>
+            <option value="-B">BagMinHash (--multiset, -B)</option>
+            <option value="-q">SetSketch (-q)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <collection name="wsketch_output" type="list" label="${tool.name} on ${on_string}">
+            <discover_datasets pattern="__designation__" directory="wsout" format="binary"/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Identifiers-only sketching of a 64-bit id stream -->
+        <test expect_num_outputs="1">
+            <param name="ids" value="ids.u64.bin" ftype="binary"/>
+            <conditional name="weights">
+                <param name="mode" value="ids"/>
+            </conditional>
+            <param name="sketch_size" value="64"/>
+            <param name="sketch_type" value="-q"/>
+            <output_collection name="wsketch_output" type="list">
+                <element name="sketch.sampled.indices.u64">
+                    <assert_contents>
+                        <has_size value="1" delta="100000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+dashing2 wsketch hashes **weighted sets of integral identifiers** directly, without any sequence parsing. It is a specialist tool: its inputs are raw binary streams of integers (and, optionally, weights), not FASTA/FASTQ. For weighted sketching of *sequence* data, use the *dashing2 sketch* tool with the ``--multiset`` or ``--prob`` mode instead.
+
+-----
+
+Input
+*****
+
+One to three raw binary arrays, depending on the weighting mode:
+
+    ===========================  =====================================================
+    **Mode**                     **Arrays (in order)**
+    ---------------------------  -----------------------------------------------------
+    Identifiers only             identifiers (equal weight, SetSketch)
+    Identifiers + weights        identifiers, weight vector
+    Sparse matrix (CSR)          data, indices, indptr (one sketch per row)
+    ===========================  =====================================================
+
+Identifiers and indptr are 64-bit integers by default; weights are 64-bit doubles by default. Each can be switched to a smaller type with the options provided.
+
+-----
+
+Options
+*******
+
+    ===========================  ==========  ===========  ===========================
+    **Option**                   **Flag**    **Default**  **Description**
+    ---------------------------  ----------  -----------  ---------------------------
+    Sketch size                  -S          1024         Registers per sketch
+    Sketching algorithm          -B / -q     ProbMinHash  Weight handling
+    32-bit identifiers           -u          False        Identifier element size
+    Weight data type             -f/-U/-H    double       Weight element size
+    32-bit indptr                -P          False        CSR indptr element size
+    ===========================  ==========  ===========  ===========================
+
+-----
+
+Output
+******
+
+A collection of the binary files written by wsketch (sampled indices, hashes, identifiers and a total-weight summary), named by the suffixes dashing2 assigns. There is no native Galaxy datatype for these, so they are stored as ``binary``.
+
+]]></help>
+    <expand macro="citations" />
+</tool>

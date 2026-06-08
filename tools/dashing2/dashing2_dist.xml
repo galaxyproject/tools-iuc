@@ -1,0 +1,191 @@
+<tool id="dashing2_dist" name="dashing2 dist" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>compare sketches or sequences into a distance/similarity matrix</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        ## Build a file-of-files of symlinks named by element_identifier (see the
+        ## sketch tool for the rationale). Inputs may be raw sequences or sketches
+        ## produced by dashing2 sketch; dashing2 dist detects which and sketches
+        ## raw inputs on the fly using the sketch options below.
+        mkdir -p '@FFILE_DIR@' &&
+        #for $element in $reference_collection:
+            #set $name = re.sub('[^A-Za-z0-9._-]', '_', str($element.element_identifier))
+            ln -s '$element' '@FFILE_DIR@/${name}' &&
+            echo '@FFILE_DIR@/${name}' >> 'ffile.txt' &&
+        #end for
+        #set $use_query = $query.use_query == 'yes'
+        #if $use_query:
+            #for $qelement in $query.query_collection:
+                #set $qname = re.sub('[^A-Za-z0-9._-]', '_', str($qelement.element_identifier))
+                ln -s '$qelement' '@FFILE_DIR@/${qname}' &&
+                echo '@FFILE_DIR@/${qname}' >> 'qfile.txt' &&
+            #end for
+        #end if
+
+        dashing2 dist
+            -p \${GALAXY_SLOTS:-8}
+            -S${sketch_params.sketch_size}
+            $alphabet
+            $sketch_mode
+            #if str($sketch_params.kmer_length) != '':
+                -k${sketch_params.kmer_length}
+            #end if
+            #if str($sketch_params.window_size) != '':
+                --window-size ${sketch_params.window_size}
+            #end if
+            #if str($sketch_params.spacing) != '':
+                --spacing '${sketch_params.spacing}'
+            #end if
+            $sketch_params.no_canon
+            $sketch_params.long_kmers
+            #if str($sketch_params.seed) != '':
+                --seed ${sketch_params.seed}
+            #end if
+            $parse_by_seq
+            $measure
+            #if not $use_query:
+                $result_shape
+            #end if
+            #if $sparse.mode == 'topk':
+                --topk ${sparse.topk}
+            #elif $sparse.mode == 'threshold':
+                --similarity-threshold ${sparse.threshold}
+            #end if
+            $binary_output
+            #if $use_query:
+                -Q 'qfile.txt'
+            #end if
+            --cmpout '$output'
+            -F 'ffile.txt'
+    ]]></command>
+    <inputs>
+        <param name="reference_collection" type="data_collection" collection_type="list" format="@INTYPES@,binary" label="Reference collection" help="A collection of datasets to compare. These may be raw FASTA/FASTQ sequences (sketched on the fly) or sketches produced by the dashing2 sketch tool. Two elements give a single pairwise distance; N elements give an all-pairs matrix."/>
+        <conditional name="query">
+            <param name="use_query" type="select" label="Rectangular query-vs-reference comparison" help="Compare every reference dataset against a separate query collection, producing a rectangular |reference|×|query| matrix instead of an all-pairs matrix.">
+                <option value="no" selected="true">No—all-pairs within the reference set</option>
+                <option value="yes">Yes—supply a query collection</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="query_collection" type="data_collection" collection_type="list" format="@INTYPES@,binary" label="Query collection" help="Datasets forming the query set. Each is compared against every dataset in the reference collection."/>
+            </when>
+        </conditional>
+        <expand macro="comparison_opts"/>
+        <param argument="--parse-by-seq" type="boolean" checked="false" truevalue="--parse-by-seq" falsevalue="" label="Parse each sequence separately" help="Treat every sequence within every raw input file as a separate entity rather than one entity per file. Only relevant when the inputs are raw sequences."/>
+        <expand macro="alphabet_select"/>
+        <expand macro="sketch_mode_select"/>
+        <expand macro="sketch_params"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="binary_output" value="--binary-output" format="binary"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Two-file pairwise distance -->
+        <test expect_num_outputs="1">
+            <param name="reference_collection">
+                <collection type="list">
+                    <element name="hg38" value="chrM_hg38.fa.gz"/>
+                    <element name="mm39" value="chrM_mm39.fa.gz"/>
+                </collection>
+            </param>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="hg38"/>
+                    <has_text text="mm39"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Many-file all-pairs matrix, Poisson distance -->
+        <test expect_num_outputs="1">
+            <param name="reference_collection">
+                <collection type="list">
+                    <element name="hg38" value="chrM_hg38.fa.gz"/>
+                    <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    <element name="subset" value="chrM_subset.fa.gz"/>
+                </collection>
+            </param>
+            <param name="measure" value="--distance"/>
+            <output name="output">
+                <assert_contents>
+                    <has_n_lines n="6" delta="1"/>
+                    <has_text text="subset"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Rectangular query-vs-reference comparison -->
+        <test expect_num_outputs="1">
+            <param name="reference_collection">
+                <collection type="list">
+                    <element name="hg38" value="chrM_hg38.fa.gz"/>
+                    <element name="mm39" value="chrM_mm39.fa.gz"/>
+                </collection>
+            </param>
+            <conditional name="query">
+                <param name="use_query" value="yes"/>
+                <param name="query_collection">
+                    <collection type="list">
+                        <element name="subset" value="chrM_subset.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="measure" value="--containment"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="subset"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+dashing2 dist compares a set of inputs and emits a distance or similarity matrix. It is the comparison half of dashing2: it accepts either raw sequences (which it sketches on the fly) or sketches already produced by the *dashing2 sketch* tool.
+
+This is equivalent to ``dashing2 cmp``. Use the *dashing2 sketch* tool instead when you want to keep the sketches for reuse; use this tool when you only need the matrix.
+
+-----
+
+Input
+*****
+
+A **reference collection** of datasets. Each element may be a raw FASTA/FASTQ sequence or a dashing2 sketch (``binary``); the two can be mixed and dashing2 detects which is which. The element names become the row/column labels.
+
+* **Two elements** yield a single pairwise distance.
+* **N elements** yield an all-pairs matrix.
+* Supplying a **query collection** yields a rectangular reference-vs-query matrix.
+
+When the inputs are raw sequences, the **Sketch construction**, **Sketching mode** and **Sequence alphabet** options control how they are sketched (identical to the *dashing2 sketch* tool); they are ignored for inputs that are already sketches.
+
+-----
+
+Options
+*******
+
+    ===========================  ==========================  ===========  ===========================
+    **Option**                   **Flag**                    **Default**  **Description**
+    ---------------------------  --------------------------  -----------  ---------------------------
+    Comparison measure           --distance / --containment  similarity   Quantity emitted per pair
+    Output shape                 --asymmetric-all-pairs      symmetric    Dense matrix layout
+    Sparse Top-k                 --topk                      off          Nearest-neighbour graph
+    Sparse threshold             --similarity-threshold      off          Thresholded similarity graph
+    Binary output                --binary-output             False        float32 instead of text
+    ===========================  ==========================  ===========  ===========================
+
+See the *dashing2 sketch* tool help for the full list of sketch-construction and sketching-mode parameters, which are shared between the two tools.
+
+-----
+
+Output
+******
+
+A single distance/similarity matrix. The symmetric all-pairs result is an upper-triangular PHYLIP matrix; square and rectangular results are flat tab-separated matrices; Top-k and threshold results are compressed-sparse-row (CSR) text. ``--binary-output`` replaces the text with a float32 binary matrix.
+
+]]></help>
+    <expand macro="citations" />
+</tool>
