@@ -29,64 +29,72 @@
         dashing2 sketch
             -p \${GALAXY_SLOTS:-8}
             -S${sketch_params.sketch_size}
-            #if $input_type.itype == 'bed':
-                --bed $input_type.normalize_intervals
-            #elif $input_type.itype == 'bigwig':
-                --bigwig $input_type.normalize_intervals
-            #elif $input_type.itype == 'leafcutter':
-                --leafcutter
-            #else:
-                $input_type.alphabet
-            #end if
-            $sketch_mode
-            #if str($sketch_params.kmer_length) != '':
-                -k${sketch_params.kmer_length}
-            #end if
-            #if str($sketch_params.window_size) != '':
-                --window-size ${sketch_params.window_size}
-            #end if
-            #if str($sketch_params.spacing) != '':
-                --spacing '${sketch_params.spacing}'
-            #end if
-            $sketch_params.no_canon
-            $sketch_params.long_kmers
-            #if str($sketch_params.seed) != '':
-                --seed ${sketch_params.seed}
-            #end if
-            $parse_by_seq
-            ## The stacked-sketch output (-o) only works for FASTA/FASTQ in this
-            ## dashing2 build; for BED/BigWig/LeafCutter it aborts, so those
-            ## input types produce the comparison matrix only.
             #if $input_type.itype == 'fasta':
-                -o '$sketch_output'
-            #end if
-            #if $compare.enabled == 'yes':
-                $compare.measure
-                #if not $use_query:
-                    $compare.result_shape
+                ## Sequence inputs: alphabet, sketch mode and the k-mer / minimizer
+                ## construction options all apply only to FASTA/FASTQ.
+                $input_type.alphabet
+                $sketch_mode
+                #if str($sketch_params.kmer_length) != '':
+                    -k${sketch_params.kmer_length}
                 #end if
-                #if $compare.sparse.mode == 'topk':
-                    --topk ${compare.sparse.topk}
-                #elif $compare.sparse.mode == 'threshold':
-                    --similarity-threshold ${compare.sparse.threshold}
+                #if str($sketch_params.window_size) != '':
+                    --window-size ${sketch_params.window_size}
                 #end if
-                $compare.binary_output
-                #if $use_query:
-                    -Q 'qfile.txt'
+                #if str($sketch_params.spacing) != '':
+                    --spacing '${sketch_params.spacing}'
                 #end if
-                --cmpout '$distance_output'
-            #elif $input_type.itype != 'fasta':
+                $sketch_params.no_canon
+                $sketch_params.long_kmers
+                #if str($sketch_params.seed) != '':
+                    --seed ${sketch_params.seed}
+                #end if
+                $parse_by_seq
+                ## The stacked-sketch output (-o) and its '.names.txt' sidecar are
+                ## written to the working directory so both can be captured; they
+                ## are what 'dashing2 dist' re-reads in presketched mode. -o only
+                ## works for FASTA/FASTQ here (it aborts in place for BED/BigWig).
+                -o 'sketches.bin'
+                #if $compare.enabled == 'yes':
+                    $compare.measure
+                    #if not $use_query:
+                        $compare.result_shape
+                    #end if
+                    #if $compare.sparse.mode == 'topk':
+                        --topk ${compare.sparse.topk}
+                    #elif $compare.sparse.mode == 'threshold':
+                        --similarity-threshold ${compare.sparse.threshold}
+                    #end if
+                    $compare.binary_output
+                    #if $use_query:
+                        -Q 'qfile.txt'
+                    #end if
+                    --cmpout '$distance_output'
+                #end if
+            #else:
+                ## Feature inputs (BED / BigWig) are weighted-set sketches: no
+                ## k-mer, alphabet or sequence-mode options apply. Interval
+                ## normalization needs a weighted space (set space aborts for BED),
+                ## so we pair it with --multiset. These inputs do not support the
+                ## reusable -o sketch and always emit the comparison matrix.
+                #if $input_type.itype == 'bed':
+                    --bed
+                #else:
+                    --bigwig
+                #end if
+                $input_type.normalize_intervals
+                #if str($input_type.normalize_intervals) != '':
+                    --multiset
+                #end if
                 --cmpout '$distance_output'
             #end if
             -F 'ffile.txt'
     ]]></command>
     <inputs>
         <conditional name="input_type">
-            <param name="itype" type="select" label="Input type" help="The kind of data being sketched. FASTA/FASTQ sequences are the common case. BED, BigWig and LeafCutter inputs are sketched as weighted interval/coverage sets.">
+            <param name="itype" type="select" label="Input type" help="The kind of data being sketched. FASTA/FASTQ sequences are the common case. BED and BigWig inputs are sketched as weighted interval/coverage sets.">
                 <option value="fasta" selected="true">FASTA / FASTQ sequences</option>
                 <option value="bed">BED interval sets</option>
                 <option value="bigwig">BigWig coverage vectors</option>
-                <option value="leafcutter">LeafCutter splicing output</option>
             </param>
             <when value="fasta">
                 <param name="input_collection" type="data_collection" collection_type="list" format="@INTYPES@" label="Sequence collection" help="A collection of FASTA or FASTQ datasets (optionally gzip-compressed). Each dataset becomes one sketch, unless 'Parse each sequence separately' is enabled."/>
@@ -94,21 +102,18 @@
             </when>
             <when value="bed">
                 <param name="input_collection" type="data_collection" collection_type="list" format="bed" label="BED collection" help="A collection of BED datasets. Each dataset is sketched as a set of reference base/contig intervals."/>
-                <param argument="--normalize-intervals" type="boolean" checked="false" truevalue="--normalize-intervals" falsevalue="" label="Normalize intervals" help="Give every interval equal weight instead of weighting by its length."/>
+                <param argument="--normalize-intervals" type="boolean" checked="false" truevalue="--normalize-intervals" falsevalue="" label="Normalize intervals" help="Give every interval equal weight instead of weighting by its length. This enables weighted-multiset (BagMinHash) sketching, which is required for normalization."/>
             </when>
             <when value="bigwig">
                 <param name="input_collection" type="data_collection" collection_type="list" format="bigwig" label="BigWig collection" help="A collection of BigWig datasets, sketched as weighted coverage vectors."/>
-                <param argument="--normalize-intervals" type="boolean" checked="false" truevalue="--normalize-intervals" falsevalue="" label="Normalize intervals" help="Give every interval equal weight instead of weighting by its coverage."/>
-            </when>
-            <when value="leafcutter">
-                <param name="input_collection" type="data_collection" collection_type="list" format="tabular,txt" label="LeafCutter collection" help="A collection of LeafCutter splicing-output datasets, sketched as weighted junction sets."/>
+                <param argument="--normalize-intervals" type="boolean" checked="false" truevalue="--normalize-intervals" falsevalue="" label="Normalize intervals" help="Give every interval equal weight instead of weighting by its coverage. This enables weighted-multiset (BagMinHash) sketching."/>
             </when>
         </conditional>
         <expand macro="sketch_mode_select"/>
         <expand macro="sketch_params"/>
         <param argument="--parse-by-seq" type="boolean" checked="false" truevalue="--parse-by-seq" falsevalue="" label="Parse each sequence separately" help="Treat every sequence within every input file as a separate entity (rather than one sketch per file). Required for protein homology search, edit-distance grouping and per-sequence clustering."/>
         <conditional name="compare">
-            <param name="enabled" type="select" label="Compute distances after sketching" help="When enabled, dashing2 additionally compares the sketches and writes a distance/similarity matrix (the --cmpout step). When disabled, only the stacked sketch file is produced. This toggle applies to FASTA/FASTQ input; BED, BigWig and LeafCutter inputs always produce the distance matrix.">
+            <param name="enabled" type="select" label="Compute distances after sketching" help="When enabled, dashing2 additionally compares the sketches and writes a distance/similarity matrix (the --cmpout step). When disabled, only the stacked sketch file is produced. This toggle applies to FASTA/FASTQ input; BED and BigWig inputs always produce the distance matrix.">
                 <option value="no" selected="true">No—only produce sketches (FASTA/FASTQ)</option>
                 <option value="yes">Yes—also compute a distance/similarity matrix</option>
             </param>
@@ -129,7 +134,10 @@
         </conditional>
     </inputs>
     <outputs>
-        <data name="sketch_output" format="binary" label="${tool.name} on ${on_string}: sketches">
+        <data name="sketch_output" format="binary" from_work_dir="sketches.bin" label="${tool.name} on ${on_string}: sketches">
+            <filter>input_type['itype'] == 'fasta'</filter>
+        </data>
+        <data name="sketch_names" format="tabular" from_work_dir="sketches.bin.names.txt" label="${tool.name} on ${on_string}: sketch names">
             <filter>input_type['itype'] == 'fasta'</filter>
         </data>
         <data name="distance_output" format="tabular" label="${tool.name} on ${on_string}: distances">
@@ -140,8 +148,10 @@
         </data>
     </outputs>
     <tests>
-        <!-- Use 1: all-pairs symmetric similarity over a FASTA collection -->
-        <test expect_num_outputs="2">
+        <!-- Use 1: all-pairs symmetric similarity over a FASTA collection.
+             FASTA + compare emits three datasets: sketches, sketch names and
+             the distance matrix. -->
+        <test expect_num_outputs="3">
             <conditional name="input_type">
                 <param name="itype" value="fasta"/>
                 <param name="input_collection">
@@ -159,15 +169,24 @@
                     <has_size value="100" delta="100000"/>
                 </assert_contents>
             </output>
+            <output name="sketch_names">
+                <assert_contents>
+                    <has_text text="Cardinality"/>
+                    <has_text text="hg38"/>
+                    <has_text text="mm39"/>
+                </assert_contents>
+            </output>
             <output name="distance_output">
                 <assert_contents>
+                    <!-- 2 header comment lines + #Sources + 2 data rows -->
+                    <has_n_lines n="5"/>
                     <has_text text="hg38"/>
                     <has_text text="mm39"/>
                 </assert_contents>
             </output>
         </test>
         <!-- Use 2: top-k nearest-neighbour graph (CSR sparse output) -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <conditional name="input_type">
                 <param name="itype" value="fasta"/>
                 <param name="input_collection">
@@ -186,7 +205,243 @@
             </conditional>
             <output name="distance_output">
                 <assert_contents>
-                    <has_n_lines n="2" delta="1"/>
+                    <has_text text="Neighbor"/>
+                    <has_text text="hg38"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Use 3: similarity-thresholded sparse graph -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="subset" value="chrM_subset.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+                <conditional name="sparse">
+                    <param name="mode" value="threshold"/>
+                    <param name="threshold" value="0.1"/>
+                </conditional>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="hg38"/>
+                    <has_text text="subset"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Exact-mode correctness: chrM_subset is the first 5000 bp of
+             chrM_hg38, so under an exact k-mer set every subset k-mer is in
+             hg38 and containment(subset|hg38) == 1 exactly, regardless of
+             build. The square (asymmetric) layout exposes both directions. -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="subset" value="chrM_subset.fa.gz"/>
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="sketch_mode" value="--set"/>
+            <section name="sketch_params">
+                <param name="kmer_length" value="21"/>
+                <param name="sketch_size" value="512"/>
+            </section>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+                <param name="measure" value="--containment"/>
+                <param name="result_shape" value="--asymmetric-all-pairs"/>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <!-- subset row: containment(subset|subset)=1, containment(subset|hg38)=1 -->
+                    <has_line_matching expression="ffiles/subset\s+1\s+1"/>
+                    <!-- hg38 row: containment(hg38|subset) is the exact ratio 0.3000363 -->
+                    <has_text text="0.3000363"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Exact count-dictionary mode with the union-size measure -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="sketch_mode" value="--countdict"/>
+            <section name="sketch_params">
+                <param name="kmer_length" value="21"/>
+                <param name="sketch_size" value="512"/>
+            </section>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+                <param name="measure" value="--union-size"/>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_text text="hg38"/>
+                    <has_text text="mm39"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Full SetSketch mode with the Mash/Poisson distance measure -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="sketch_mode" value="--full"/>
+            <section name="sketch_params">
+                <param name="kmer_length" value="21"/>
+                <param name="sketch_size" value="512"/>
+            </section>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+                <param name="measure" value="--distance"/>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="fullsetsketch"/>
+                    <has_text text="0.264"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Binary float32 distance output (exercises the change_format path) -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+                <param name="binary_output" value="true"/>
+            </conditional>
+            <output name="distance_output" ftype="binary">
+                <assert_contents>
+                    <has_size value="4" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Use 4 (core): protein homology search with per-sequence parsing.
+             Each record in the protein FASTA becomes its own entity. -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="proteins" value="proteins.fasta"/>
+                    </collection>
+                </param>
+                <param name="alphabet" value="--enable-protein"/>
+            </conditional>
+            <section name="sketch_params">
+                <param name="kmer_length" value="5"/>
+                <param name="sketch_size" value="256"/>
+            </section>
+            <param name="parse_by_seq" value="true"/>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="prot_A"/>
+                    <has_text text="prot_B"/>
+                    <has_text text="prot_C"/>
+                    <has_text text="prot_D"/>
+                    <!-- prot_A and prot_B differ by a single residue -->
+                    <has_text text="0.988"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Rectangular query-vs-reference comparison (subset queried against
+             the hg38/mm39 reference set), exact containment measure -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="sketch_mode" value="--set"/>
+            <section name="sketch_params">
+                <param name="kmer_length" value="21"/>
+                <param name="sketch_size" value="512"/>
+            </section>
+            <conditional name="compare">
+                <param name="enabled" value="yes"/>
+                <param name="measure" value="--containment"/>
+                <conditional name="query">
+                    <param name="use_query" value="yes"/>
+                    <param name="query_collection">
+                        <collection type="list">
+                            <element name="subset" value="chrM_subset.fa.gz"/>
+                        </collection>
+                    </param>
+                </conditional>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="Query"/>
+                    <has_text text="subset"/>
+                    <!-- containment(hg38|subset) exact ratio -->
+                    <has_text text="0.3000363"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Sketch-only (exact k-mer set): no comparison, so only the sketches
+             and sketch-names datasets are produced. -->
+        <test expect_num_outputs="2">
+            <conditional name="input_type">
+                <param name="itype" value="fasta"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="sketch_mode" value="--set"/>
+            <section name="sketch_params">
+                <param name="kmer_length" value="21"/>
+                <param name="sketch_size" value="512"/>
+            </section>
+            <conditional name="compare">
+                <param name="enabled" value="no"/>
+            </conditional>
+            <output name="sketch_output">
+                <assert_contents>
+                    <has_size value="100" delta="100000"/>
+                </assert_contents>
+            </output>
+            <output name="sketch_names">
+                <assert_contents>
+                    <has_text text="Cardinality"/>
+                    <has_text text="hg38"/>
                 </assert_contents>
             </output>
         </test>
@@ -212,8 +467,68 @@
                 </assert_contents>
             </output>
         </test>
-        <!-- Sketch-only (exact k-mer set), with explicit k and sketch size -->
+        <!-- BED intervals with length-normalization. Normalization requires a
+             weighted space, so the wrapper pairs it with BagMinHash (multiset);
+             without that pairing dashing2 aborts in set space. -->
         <test expect_num_outputs="1">
+            <conditional name="input_type">
+                <param name="itype" value="bed"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="bedA" value="intervalsA.bed"/>
+                        <element name="bedB" value="intervalsB.bed"/>
+                    </collection>
+                </param>
+                <param name="normalize_intervals" value="true"/>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="bedA"/>
+                    <has_text text="bedB"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- BigWig coverage vectors, default (distance only) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_type">
+                <param name="itype" value="bigwig"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="covA" value="covA.bw" ftype="bigwig"/>
+                        <element name="covB" value="covB.bw" ftype="bigwig"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="covA"/>
+                    <has_text text="covB"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- BigWig coverage vectors with normalization (weighted multiset) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_type">
+                <param name="itype" value="bigwig"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="covA" value="covA.bw" ftype="bigwig"/>
+                        <element name="covB" value="covB.bw" ftype="bigwig"/>
+                    </collection>
+                </param>
+                <param name="normalize_intervals" value="true"/>
+            </conditional>
+            <output name="distance_output">
+                <assert_contents>
+                    <has_text text="covA"/>
+                    <has_text text="covB"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Minimizer winnowing (window size) combined with a spaced seed.
+             The chosen options are echoed in the matrix header, which lets us
+             assert the flags were plumbed through correctly. -->
+        <test expect_num_outputs="3">
             <conditional name="input_type">
                 <param name="itype" value="fasta"/>
                 <param name="input_collection">
@@ -223,24 +538,25 @@
                     </collection>
                 </param>
             </conditional>
-            <param name="sketch_mode" value="--set"/>
             <section name="sketch_params">
-                <param name="kmer_length" value="21"/>
-                <param name="sketch_size" value="512"/>
+                <param name="kmer_length" value="5"/>
+                <param name="window_size" value="10"/>
+                <param name="spacing" value="0,1,1,0"/>
             </section>
             <conditional name="compare">
-                <param name="enabled" value="no"/>
+                <param name="enabled" value="yes"/>
             </conditional>
-            <output name="sketch_output">
+            <output name="distance_output">
                 <assert_contents>
-                    <has_size value="100" delta="100000"/>
+                    <has_text text="w:10"/>
+                    <has_text text="spacing:0,1,1,0"/>
                 </assert_contents>
             </output>
         </test>
     </tests>
     <help><![CDATA[
 
-dashing2 sketch summarizes a collection of sequences (or BED / BigWig / LeafCutter feature sets) into compact **sketches** and, optionally, compares those sketches to produce a distance or similarity matrix.
+dashing2 sketch summarizes a collection of sequences (or BED / BigWig feature sets) into compact **sketches** and, optionally, compares those sketches to produce a distance or similarity matrix.
 
 A sketch is a small probabilistic representation of the set (or multiset) of k-mers in a dataset. Comparing sketches estimates set similarities such as the Jaccard index orders of magnitude faster than comparing the full sequences, and scales to millions of inputs through locality-sensitive hashing (LSH).
 
@@ -251,7 +567,7 @@ Input
 
 A **dataset collection**. Each element becomes one sketch, unless *Parse each sequence separately* is enabled, in which case each individual sequence becomes its own entity. The element names are carried through to the row/column labels of the distance matrix.
 
-Four input types are supported:
+Three input types are supported:
 
     ============  ==============  ===========================================
     **Type**      **Flag**        **Notes**
@@ -259,7 +575,6 @@ Four input types are supported:
     FASTA/FASTQ   (default)       Nucleotide or protein; gzip accepted
     BED           --bed           Interval sets; optional normalization
     BigWig        --bigwig        Weighted coverage vectors
-    LeafCutter    --leafcutter    Weighted splicing-junction sets
     ============  ==============  ===========================================
 
 -----
@@ -278,7 +593,7 @@ The sketch data structure determines how k-mer multiplicities are handled.
     Exact k-mer count dictionary  --countdict    No           Exact multisets
     ============================  =============  ===========  ====================================
 
-The weighted-sequence sketching modes (BagMinHash / ProbMinHash) are not offered here because they crash in the packaged dashing2 release. For weighted data use the BED / BigWig / LeafCutter input types above, or the *dashing2 wsketch* tool.
+The weighted-sequence sketching modes (BagMinHash / ProbMinHash) are not offered here because they crash in the packaged dashing2 release. For weighted data use the BED / BigWig input types above, or the *dashing2 wsketch* tool.
 
 -----
 
@@ -317,7 +632,7 @@ Use cases
     Top-k nearest-neighbour graph               Comparison + sparse Top-k
     Similarity-thresholded graph                Comparison + sparse threshold
     Protein homology search                     Protein alphabet + parse each sequence
-    Weighted feature comparison                 BED / BigWig / LeafCutter input, or wsketch
+    Weighted feature comparison                 BED / BigWig input, or wsketch
     Exact k-mer KNN with LSH prefilter          --set / --countdict + sparse Top-k
     ==========================================  =================================================
 
@@ -326,9 +641,11 @@ Use cases
 Output
 ******
 
-For FASTA/FASTQ input, a **sketches** dataset (stacked binary sketches, usable as input to *dashing2 dist*) is produced, plus a **distances** dataset when comparison is enabled. There is no native Galaxy datatype for dashing2 sketches, so they are stored as ``binary``.
+For FASTA/FASTQ input, two reusable datasets are produced: a **sketches** dataset (the stacked binary sketches) and a **sketch names** dataset (the ``.names.txt`` sidecar listing each sketch's label and cardinality). A **distances** dataset is added when comparison is enabled. There is no native Galaxy datatype for dashing2 sketches, so the stacked sketch is stored as ``binary``.
 
-BED, BigWig and LeafCutter inputs do not support the reusable sketch output in this dashing2 release, so for those input types only the **distances** dataset is produced (the comparison always runs).
+To re-compare the stacked sketches later without re-reading the sequences, feed **both** the *sketches* and *sketch names* datasets into *dashing2 dist* in its **pre-sketched** input mode. The sketch names dataset is what preserves the original labels in the re-computed matrix. Reuse is meaningful for the SetSketch modes (default one-permutation and ``--full``); the exact ``--set`` / ``--countdict`` modes keep their reusable data elsewhere and the stacked file is not re-comparable for them.
+
+BED and BigWig inputs do not support the reusable sketch output in this dashing2 release, so for those input types only the **distances** dataset is produced (the comparison always runs). When *Normalize intervals* is enabled, those inputs are sketched as weighted multisets (BagMinHash).
 
 ]]></help>
     <expand macro="citations" />

@@ -7,13 +7,27 @@
     <command detect_errors="exit_code"><![CDATA[
         ## wsketch writes several files named after the -o prefix, so we sketch
         ## into a dedicated directory and discover the results as a collection.
+        ## dashing2 memory-maps some input arrays read-write (CSR mode truncates
+        ## them in place), which aborts on the read-only mounted input datasets.
+        ## We therefore stage every input into a fresh writable working file with
+        ## 'cat >' before sketching.
         mkdir -p wsout &&
+        #if $weights.mode == 'ids':
+            cat '$ids' > ids.bin &&
+        #elif $weights.mode == 'weighted':
+            cat '$ids' > ids.bin &&
+            cat '$weights.weights_file' > weights.bin &&
+        #else:
+            cat '$weights.data_file' > data.bin &&
+            cat '$ids' > indices.bin &&
+            cat '$weights.indptr_file' > indptr.bin &&
+        #end if
         dashing2 wsketch
             -p \${GALAXY_SLOTS:-8}
             -S${sketch_size}
             $sketch_type
             #if $weights.mode == 'ids':
-                $id_size
+                $weights.id_size
             #end if
             #if $weights.mode != 'ids':
                 $weights.weight_type
@@ -23,11 +37,11 @@
             #end if
             -o 'wsout/sketch'
             #if $weights.mode == 'ids':
-                '$ids'
+                ids.bin
             #elif $weights.mode == 'weighted':
-                '$ids' '$weights.weights_file'
+                ids.bin weights.bin
             #else:
-                '$weights.data_file' '$ids' '$weights.indptr_file'
+                data.bin indices.bin indptr.bin
             #end if
     ]]></command>
     <inputs>
@@ -38,7 +52,9 @@
                 <option value="weighted">Identifiers + weight vector</option>
                 <option value="csr">Sparse matrix (CSR: data, indices, indptr)</option>
             </param>
-            <when value="ids"/>
+            <when value="ids">
+                <param argument="-u" name="id_size" type="boolean" checked="false" truevalue="-u" falsevalue="" label="32-bit identifiers" help="Read the identifier stream as 32-bit integers instead of 64-bit."/>
+            </when>
             <when value="weighted">
                 <param name="weights_file" type="data" format="binary" label="Weight vector" help="A raw binary vector of weights, one per identifier. 64-bit double by default; choose a different type below."/>
                 <param name="weight_type" type="select" label="Weight data type" help="Element type of the weight vector.">
@@ -60,7 +76,6 @@
                 <param argument="-P" name="indptr_size" type="boolean" checked="false" truevalue="-P" falsevalue="" label="32-bit indptr" help="Read the indptr array as 32-bit integers instead of 64-bit."/>
             </when>
         </conditional>
-        <param argument="-u" name="id_size" type="boolean" checked="false" truevalue="-u" falsevalue="" label="32-bit identifiers" help="Read the identifier stream as 32-bit integers instead of 64-bit. (Identifiers-only mode.)"/>
         <param argument="-S" name="sketch_size" type="integer" value="1024" min="1" label="Sketch size" help="Number of registers retained per sketch."/>
         <param name="sketch_type" type="select" label="Sketching algorithm" help="ProbMinHash treats the input as a discrete probability distribution (default). BagMinHash treats it as a multiset. SetSketch ignores weights and treats it as a set.">
             <option value="" selected="true">ProbMinHash (default)</option>
@@ -74,7 +89,9 @@
         </collection>
     </outputs>
     <tests>
-        <!-- Identifiers-only sketching of a 64-bit id stream -->
+        <!-- Identifiers-only, SetSketch (-q). The 256-element id stream is
+             equal-weighted, so the total weight recorded in the sidecar is
+             exactly 256. -->
         <test expect_num_outputs="1">
             <param name="ids" value="ids.u64.bin" ftype="binary"/>
             <conditional name="weights">
@@ -82,10 +99,97 @@
             </conditional>
             <param name="sketch_size" value="64"/>
             <param name="sketch_type" value="-q"/>
-            <output_collection name="wsketch_output" type="list">
+            <output_collection name="wsketch_output" type="list" count="4">
                 <element name="sketch.sampled.indices.u64">
                     <assert_contents>
                         <has_size value="1" delta="100000"/>
+                    </assert_contents>
+                </element>
+                <element name="sketch.sampled.tw.txt">
+                    <assert_contents>
+                        <has_text text="Total weight: 256"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Identifiers-only, default ProbMinHash -->
+        <test expect_num_outputs="1">
+            <param name="ids" value="ids.u64.bin" ftype="binary"/>
+            <conditional name="weights">
+                <param name="mode" value="ids"/>
+            </conditional>
+            <param name="sketch_size" value="64"/>
+            <output_collection name="wsketch_output" type="list" count="4">
+                <element name="sketch.sampled.tw.txt">
+                    <assert_contents>
+                        <has_text text="Total weight: 256"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Identifiers-only, BagMinHash (-B) -->
+        <test expect_num_outputs="1">
+            <param name="ids" value="ids.u64.bin" ftype="binary"/>
+            <conditional name="weights">
+                <param name="mode" value="ids"/>
+            </conditional>
+            <param name="sketch_size" value="64"/>
+            <param name="sketch_type" value="-B"/>
+            <output_collection name="wsketch_output" type="list" count="4">
+                <element name="sketch.sampled.tw.txt">
+                    <assert_contents>
+                        <has_text text="Total weight: 256"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Weighted mode: identifiers plus a float64 weight vector. The weight
+             values sum to 766, which the sidecar reports as the total weight. -->
+        <test expect_num_outputs="1">
+            <param name="ids" value="ids.u64.bin" ftype="binary"/>
+            <conditional name="weights">
+                <param name="mode" value="weighted"/>
+                <param name="weights_file" value="weights.f64.bin" ftype="binary"/>
+            </conditional>
+            <param name="sketch_size" value="64"/>
+            <output_collection name="wsketch_output" type="list" count="4">
+                <element name="sketch.sampled.tw.txt">
+                    <assert_contents>
+                        <has_text text="Total weight: 766"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Sparse-matrix (CSR) mode: a (data, indices, indptr) triple with four
+             rows produces one stacked sketch per row plus an info sidecar. -->
+        <test expect_num_outputs="1">
+            <param name="ids" value="csr_indices.u64.bin" ftype="binary"/>
+            <conditional name="weights">
+                <param name="mode" value="csr"/>
+                <param name="data_file" value="csr_data.f64.bin" ftype="binary"/>
+                <param name="indptr_file" value="csr_indptr.u64.bin" ftype="binary"/>
+            </conditional>
+            <param name="sketch_size" value="64"/>
+            <output_collection name="wsketch_output" type="list" count="4">
+                <element name="sketch.sampled.info.txt">
+                    <assert_contents>
+                        <has_size value="1" delta="100000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- 32-bit identifier stream (-u) at a larger sketch size -->
+        <test expect_num_outputs="1">
+            <param name="ids" value="ids.u32.bin" ftype="binary"/>
+            <conditional name="weights">
+                <param name="mode" value="ids"/>
+                <param name="id_size" value="true"/>
+            </conditional>
+            <param name="sketch_size" value="128"/>
+            <output_collection name="wsketch_output" type="list" count="4">
+                <element name="sketch.sampled.tw.txt">
+                    <assert_contents>
+                        <has_text text="Total weight: 8"/>
                     </assert_contents>
                 </element>
             </output_collection>
@@ -93,7 +197,7 @@
     </tests>
     <help><![CDATA[
 
-dashing2 wsketch hashes **weighted sets of integral identifiers** directly, without any sequence parsing. It is a specialist tool: its inputs are raw binary streams of integers (and, optionally, weights), not FASTA/FASTQ. For weighted sketching of *sequence* data, use the *dashing2 sketch* tool with the ``--multiset`` or ``--prob`` mode instead.
+dashing2 wsketch hashes **weighted sets of integral identifiers** directly, without any sequence parsing. It is a specialist tool: its inputs are raw binary streams of integers (and, optionally, weights), not FASTA/FASTQ. For weighted sketching of feature data, use the *dashing2 sketch* tool's BED or BigWig input types (which sketch weighted interval/coverage sets); weighted sketching of raw *sequence* data is not available in the packaged dashing2 release because those modes crash.
 
 -----
 
