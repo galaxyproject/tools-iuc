@@ -1,8 +1,9 @@
-<tool id="chopper" name="Chopper" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="23.2">
+<tool id="chopper" name="Chopper" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Filtering and trimming of long reads.</description>
     <macros>
         <token name="@TOOL_VERSION@">0.13.0</token>
         <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.1</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">chopper</requirement>
@@ -10,8 +11,8 @@
     <version_command>chopper --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
  chopper
-
  --input $input
+ --threads "${GALAXY_SLOTS:-1}"
 
  #if $contam
     --contam $contam    
@@ -33,20 +34,29 @@
     --maxlength $option_params.maxlength.value
  #end if
 
- #if $option_params.headcrop
-    --headcrop $option_params.headcrop.value
- #end if
-
- #if $option_params.tailcrop
-    --tailcrop $option_params.tailcrop.value
- #end if
-
  #if $option_params.mingc
     --mingc $option_params.mingc.value
  #end if
 
  #if $option_params.maxgc
     --maxgc $option_params.maxgc.value
+ #end if
+
+ ##trimming
+ #set $ta = $trim_approach.trim_approach
+ #if str($ta) != ""
+    --trim-approach $ta
+    #if $ta == "fixed-crop"
+        --headcrop ${str($trim_approach.headcrop)}
+        --tailcrop ${str($trim_approach.tailcrop)}
+    #else if $ta == "trim-by-quality"
+        --cutoff ${str($trim_approach.cutoff)}
+    #else if $ta == "best-read-segment"
+        --cutoff ${str($trim_approach.cutoff)}
+    #else if $ta == "split-by-low-quality"
+        --cutoff ${str($trim_approach.cutoff)}
+        --split-window ${str($trim_approach.split_window)}
+    #end if
  #end if
 
  ##output capture
@@ -71,12 +81,33 @@
             <param argument="--maxqual" type="integer" label="Maximal quality score" value="60" min="0" max="60" help="Sets a maximum Phred average quality score."/>
             <param argument="--minlength" type="integer" label="Sets a minimum read length" value="1" min="1"  help="Minimal length of read to keep."  optional="True"/>
             <param argument="--maxlength" type="integer" label="Sets a maximum read length" help="Maximal length of read to keep" optional="True"/>
-            <param argument="--headcrop" type="integer" optional="True" label="Headcrop" value="0" min="0" help="Trim N nucleotides from the start of a read."/>
-            <param argument="--tailcrop" type="integer" optional="True" label="Tailcrop" value="0" min="0" help="Trim N nucleotides from the end of a read."/>
             <param argument="--mingc" type="float" optional="True" label="Minimum GC content" value="0.0" min="0.0" max="1.0" help="Sets a minimum GC content for reads to keep."/>
             <param argument="--maxgc" type="float" optional="True" label="Maximum GC content" value="1.0" min="0.0" max="1.0" help="Sets a maximum GC content for reads to keep."/>
-            <param argument="--trim" type="integer" label="Q-score cutoff to trim read ends" value="0" min="0" max="60" help="Takes a quality score and will trim the ends of the reads if they are below the specified cut-off (window-size = 1)."/>
         </section>
+        <conditional name="trim_approach">
+            <param argument="--trim-approach" type="select" label="Trimming approach" help="Trimming is applied after quality/length filtering. Leave as 'No trimming' to disable.">
+                <option value="" selected="true">No trimming</option>
+                <option value="fixed-crop">Fixed crop (remove a fixed number of bases from read ends)</option>
+                <option value="trim-by-quality">Trim by quality (trim low-quality bases from both ends)</option>
+                <option value="best-read-segment">Best read segment (keep the highest-quality segment of each read)</option>
+                <option value="split-by-low-quality">Split by low quality (split reads at low-quality stretches)</option>
+            </param>
+            <when value=""/>
+            <when value="fixed-crop">
+                <param argument="--headcrop" type="integer" value="0" min="0" label="Head crop" help="Trim this many nucleotides from the start of each read."/>
+                <param argument="--tailcrop" type="integer" value="0" min="0" label="Tail crop" help="Trim this many nucleotides from the end of each read."/>
+            </when>
+            <when value="trim-by-quality">
+                <param argument="--cutoff" type="integer" value="10" min="0" max="60" label="Quality cutoff (Q-score)" help="Bases below this Phred quality at the read ends are trimmed until a base meets the cutoff."/>
+            </when>
+            <when value="best-read-segment">
+                <param argument="--cutoff" type="integer" value="10" min="0" max="60" label="Quality cutoff (Q-score)" help="Minimum per-base Phred quality used to extract the highest-quality segment of each read."/>
+            </when>
+            <when value="split-by-low-quality">
+                <param argument="--cutoff" type="integer" value="10" min="0" max="60" label="Quality cutoff (Q-score)" help="Stretches of bases below this Phred quality are treated as low-quality split points."/>
+                <param argument="--split-window" type="integer" value="1" min="1" label="Split window" help="Minimum number of consecutive sub-cutoff bases required to split a read. New in chopper 0.13.0."/>
+            </when>
+        </conditional>
         <section name="output_params" title="Output Parameters" expanded="False">
             <param argument="--inverse" type="boolean" checked="false" truevalue="--inverse" falsevalue="" label="Output the opposite of the normal results" help="Reverse the output results (aka, the 'failed reads')"/>
         </section>
@@ -156,14 +187,76 @@
                 <has_text text="Kept 2 reads out of 3 reads"/>
             </assert_stderr>
         </test>
+        <!-- 6) fixed-crop trimming -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="fastqsanger" value="wrapping_as_sanger.fastqsanger"/>
+            <conditional name="trim_approach">
+                <param name="trim_approach" value="fixed-crop"/>
+                <param name="headcrop" value="10"/>
+                <param name="tailcrop" value="5"/>
+            </conditional>
+            <output name="fq_filt" ftype="fastqsanger">
+                <assert_contents>
+                    <has_text text="@SRR014849.50939"/>
+                    <!-- original 5' end of .50939 (GAAATTTCAG...) removed by the 10 bp headcrop -->
+                    <not_has_text text="GAAATTTCAGGGCCACC"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kept 3 reads out of 3 reads"/>
+            </assert_stderr>
+        </test>
+        <!-- 7) trim-by-quality -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="fastqsanger" value="wrapping_as_sanger.fastqsanger"/>
+            <conditional name="trim_approach">
+                <param name="trim_approach" value="trim-by-quality"/>
+                <param name="cutoff" value="10"/>
+            </conditional>
+            <output name="fq_filt" ftype="fastqsanger">
+                <assert_contents>
+                    <has_text text="@SRR014849"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kept 3 reads out of 3 reads"/>
+            </assert_stderr>
+        </test>
+        <!-- 8) split-by-low-quality new split-window feature -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="fastqsanger" value="wrapping_as_sanger.fastqsanger"/>
+            <conditional name="trim_approach">
+                <param name="trim_approach" value="split-by-low-quality"/>
+                <param name="cutoff" value="10"/>
+                <param name="split_window" value="3"/>
+            </conditional>
+            <output name="fq_filt" ftype="fastqsanger">
+                <assert_contents>
+                    <has_text text="@SRR014849"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <!-- 3 input reads split into 4 output segments -->
+                <has_text text="Kept 4 reads out of 3 reads"/>
+            </assert_stderr>
+        </test>
     </tests>
     <help><![CDATA[
 **Chopper**
 
 Rust implementation of NanoFilt+NanoLyse, both originally written in Python. This tool, intended for long read sequencing such as PacBio or ONT, filters and trims a fastq file.
-Filtering is done on average read quality and minimal or maximal read length, and applying a headcrop (start of read) and tailcrop (end of read) while printing the reads passing the filter.
+Filtering is done on average read quality, minimal or maximal read length, and GC content, while printing the reads passing the filter.
 
-Compared to the Python implementation the scope is to deliver the same results, almost the same functionality, at much faster execution times. At the moment this tool does not support filtering using a sequencing_summary file. 
+**Trimming**
+
+Trimming is opt-in via the *Trimming approach* selector and is applied after the filtering steps. Choose one of:
+
+- **Fixed crop** (``--trim-approach fixed-crop``): remove a fixed number of bases from the start (``--headcrop``) and/or end (``--tailcrop``) of each read.
+- **Trim by quality** (``--trim-approach trim-by-quality``): trim low-quality bases from both ends until a base with quality ≥ the ``--cutoff`` Q-score is reached.
+- **Best read segment** (``--trim-approach best-read-segment``): keep only the highest-quality segment of each read, based on ``--cutoff``.
+- **Split by low quality** (``--trim-approach split-by-low-quality``): split reads at low-quality stretches and output the high-quality parts. A read is only split once a run of consecutive sub-``--cutoff`` bases reaches the ``--split-window`` length (default 1); shorter dips are tolerated and kept inside the segment, while leading and trailing low-quality bases are still trimmed.
+
+Compared to the Python implementation the scope is to deliver the same results, almost the same functionality, at much faster execution times. At the moment this tool does not support filtering using a sequencing_summary file.
 
 **More Information** 
 
