@@ -1,0 +1,147 @@
+name: Auto-Label Ready for Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-and-label:
+    if: |
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, 'please review')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Check PR Status and Apply Label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.issue.number;
+
+            // 1. Fetch PR details
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            if (pr.draft) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `⏸️ This PR is still a draft. Please mark it as ready for review before requesting a review.`
+              });
+              console.log("PR is a draft. Skipping.");
+              return;
+            }
+
+            // 2. Check for unresolved review threads
+            const query = `
+              query($owner: String!, $repo: String!, $pull_number: Int!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pull_number) {
+                    reviewThreads(first: 100, after: $cursor) {
+                      nodes { isResolved }
+                      pageInfo { hasNextPage endCursor }
+                    }
+                  }
+                }
+              }
+            `;
+
+            let cursor = null;
+            let hasUnresolved = false;
+            let hasNextPage = false;
+            do {
+              const result = await github.graphql(query, { owner, repo, pull_number, cursor });
+              const { nodes, pageInfo } = result.repository.pullRequest.reviewThreads;
+              if (nodes.some(t => !t.isResolved)) {
+                hasUnresolved = true;
+                break;
+              }
+              cursor = pageInfo.endCursor;
+              hasNextPage = pageInfo.hasNextPage;
+            } while (hasNextPage);
+
+            if (hasUnresolved) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `💬 There are unresolved review comments on this PR. Please resolve them before requesting a review.`
+              });
+              console.log("Unresolved review comments exist. Skipping.");
+              return;
+            }
+
+            // 3. Check CI - exclude this workflow's own run
+            const { data: checkRunsData } = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: pr.head.sha,
+              per_page: 100,
+            });
+
+            const relevant = checkRunsData.check_runs.filter(r =>
+              r.name !== context.workflow
+            );
+
+            // No check runs yet → not ready
+            if (relevant.length === 0) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `⏳ No CI checks have reported for this PR yet. Please wait for CI to run and then try again.`
+              });
+              console.log("No check runs found. Skipping.");
+              return;
+            }
+
+            // Any check still running → not ready
+            const hasIncomplete = relevant.some(r => r.status !== 'completed');
+            if (hasIncomplete) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `⏳ Some CI checks are still running. Please wait for them to complete before requesting a review.`
+              });
+              console.log("Some CI checks are still running. Skipping.");
+              return;
+            }
+
+            // Any check failed → report and stop
+            const failing = relevant.filter(r =>
+              r.conclusion !== 'success' &&
+              r.conclusion !== 'skipped' &&
+              r.conclusion !== 'neutral'
+            );
+            if (failing.length > 0) {
+              const lines = failing
+                .map(r => `- **${r.name}**: ${r.conclusion} → [view](${r.html_url})`)
+                .join('\n');
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `❌ Please check the CI errors before requesting a review.\n\nFailing checks:\n\n${lines}\n\n[View full CI summary](https://github.com/${owner}/${repo}/pull/${pull_number}/checks)`
+              });
+              return;
+            }
+
+            // 4. All good - add the label
+            console.log("All checks passed. Adding 'ready-for-review' label.");
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pull_number,
+              labels: ['ready-for-review']
+            });
