@@ -20,6 +20,7 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Check PR Status and Apply Label
+        id: check-pr
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.app-token.outputs.token }}
@@ -145,3 +146,61 @@ jobs:
               issue_number: pull_number,
               labels: ['ready-for-review']
             });
+            core.setOutput('labeled', 'true');
+
+      - name: Add PR to Project Board
+        if: steps.check-pr.outputs.labeled == 'true'
+        id: add-to-project
+        uses: actions/add-to-project@v2
+        with:
+          project-url: https://github.com/orgs/galaxyproject/projects/81
+          github-token: ${{ steps.app-token.outputs.token }}
+
+      - name: Set Project Status to "Needs Review"
+        if: steps.add-to-project.outputs.itemId
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const projectItemId = '${{ steps.add-to-project.outputs.itemId }}';
+
+            const { organization } = await github.graphql(`
+              query($org: String!, $number: Int!) {
+                organization(login: $org) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first: 20) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options { id name }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { org: 'galaxyproject', number: 81 });
+
+            const project = organization.projectV2;
+            const statusField = project.fields.nodes.find(f => f.name === 'Status');
+            const option = statusField.options.find(o => o.name === 'Needs Review');
+
+            await github.graphql(`
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId
+                  itemId: $itemId
+                  fieldId: $fieldId
+                  value: { singleSelectOptionId: $optionId }
+                }) { projectV2Item { id } }
+              }
+            `, {
+              projectId: project.id,
+              itemId: projectItemId,
+              fieldId: statusField.id,
+              optionId: option.id
+            });
+
+            console.log('PR moved to "Needs Review".');
