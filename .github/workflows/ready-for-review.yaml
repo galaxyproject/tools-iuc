@@ -148,22 +148,16 @@ jobs:
             });
             core.setOutput('labeled', 'true');
 
-      - name: Add PR to Project Board
+      - name: Move PR to "Needs Review" on Project Board
         if: steps.check-pr.outputs.labeled == 'true'
-        id: add-to-project
-        uses: actions/add-to-project@v2
-        with:
-          project-url: https://github.com/orgs/galaxyproject/projects/81
-          github-token: ${{ steps.app-token.outputs.token }}
-
-      - name: Set Project Status to "Needs Review"
-        if: steps.add-to-project.outputs.itemId
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const projectItemId = '${{ steps.add-to-project.outputs.itemId }}';
+            const org = 'galaxyproject';
+            const projectNumber = 81;
 
+            // Get project metadata
             const { organization } = await github.graphql(`
               query($org: String!, $number: Int!) {
                 organization(login: $org) {
@@ -181,12 +175,33 @@ jobs:
                   }
                 }
               }
-            `, { org: 'galaxyproject', number: 81 });
+            `, { org, number: projectNumber });
 
             const project = organization.projectV2;
             const statusField = project.fields.nodes.find(f => f.name === 'Status');
             const option = statusField.options.find(o => o.name === 'Needs Review');
 
+            // Find the PR's item ID on the project board
+            const prNodeId = context.payload.issue.node_id;
+            const { node } = await github.graphql(`
+              query($id: ID!) {
+                node(id: $id) {
+                  ... on PullRequest {
+                    projectItems(first: 10) {
+                      nodes {
+                        id
+                        project { id }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { id: prNodeId });
+
+            const item = node.projectItems.nodes.find(i => i.project.id === project.id);
+            if (!item) { console.log('PR not found on project board'); return; }
+
+            // Update status
             await github.graphql(`
               mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
                 updateProjectV2ItemFieldValue(input: {
@@ -198,7 +213,7 @@ jobs:
               }
             `, {
               projectId: project.id,
-              itemId: projectItemId,
+              itemId: item.id,
               fieldId: statusField.id,
               optionId: option.id
             });
