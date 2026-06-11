@@ -13,86 +13,105 @@
 
         mkdir -p output_dir &&
 
-        ## Run segmentation
-        sopa segmentation
-        #if $method.method_name == 'cellpose'
-            cellpose
-            input/spatialdata.zarr
-            --diameter $method.diameter
-            #for $channel in str($method.channels).split(',')
-                --channels '$channel'
-            #end for
-            --flow-threshold $method.flow_threshold
-            --cellprob-threshold $method.cellprob_threshold
-            --model-type '$method.model_type'
-            #if $method.pretrained_model
-                --pretrained-model '$method.pretrained_model'
-            #end if
-            --min-area $method.min_area
-            @CMD_IMG_PREPROCESSING@
-
-        #else if $method.method_name == 'stardist'
-            stardist
-            input/spatialdata.zarr
-            --model-type '$method.model_type'
-            #if $method.local_model
-                --local-model '$method.local_model'
-            #end if
-            --prob-thresh $method.prob_thresh
-            --nms-thresh $method.nms_thresh
-            #if str($method.channels) != ''
-                --channels '$method.channels'
-            #end if
-            --min-area $method.min_area
-            @CMD_IMG_PREPROCESSING@
-
-        #else if $method.method_name == 'comseg'
-            comseg
-            input/spatialdata.zarr
-            --min-area $method.min_area
-
-        #else if $method.method_name == 'baysor'
-            baysor
-            input/spatialdata.zarr
-            --min-area $method.min_area
-            #if $method.scale
-                --scale $method.scale
-            #end if
-
-        #else if $method.method_name == 'proseg'
-            proseg
-            input/spatialdata.zarr
-            $method.infer_presets
-            #if str($method.prior_shapes_key) != ''
-                --prior-shapes-key '$method.prior_shapes_key'
-            #end if
-            #if str($method.bins_key) != ''
-                --bins-key '$method.bins_key'
-            #end if
-
-        #else if $method.method_name == 'tissue'
-            tissue
-            input/spatialdata.zarr
-            #if str($method.image_key) != ''
-                --image-key '$method.image_key'
-            #end if
-            --level $method.level
-            --mode '$method.mode'
-            --kwargs {
-                "expand_radius_ratio": $method.expand_radius_ratio,
-                #if str($method.channel) != ''
-                    "channel": '$method.channel',
+        _run_seg() {
+            PATCH_FLAG="\${1:+--patch-index \$1}"
+            sopa segmentation
+            #if $method.method_name == 'cellpose'
+                cellpose
+                input/spatialdata.zarr
+                --diameter $method.diameter
+                #for $channel in str($method.channels).split(',')
+                    --channels '$channel'
+                #end for
+                --flow-threshold $method.flow_threshold
+                --cellprob-threshold $method.cellprob_threshold
+                --model-type '$method.model_type'
+                #if $method.pretrained_model
+                    --pretrained-model '$method.pretrained_model'
                 #end if
-                "clip_parameters": [$method.clip_parameters],
-                "blur_kernel_size": $method.blur_kernel_size,
-                "open_kernel_size": $method.open_kernel_size,
-                "close_kernel_size": $method.close_kernel_size,
-                "drop_threshold": $method.drop_threshold,
-                "allow_holes": $method.allow_holes
-            }
+                --min-area $method.min_area
+                @CMD_IMG_PREPROCESSING@
 
-        #end if
-        &&
+            #else if $method.method_name == 'stardist'
+                stardist
+                input/spatialdata.zarr
+                --model-type '$method.model_type'
+                #if $method.local_model
+                    --local-model '$method.local_model'
+                #end if
+                --prob-thresh $method.prob_thresh
+                --nms-thresh $method.nms_thresh
+                #if str($method.channels) != ''
+                    --channels '$method.channels'
+                #end if
+                --min-area $method.min_area
+                @CMD_IMG_PREPROCESSING@
+
+            #else if $method.method_name == 'comseg'
+                comseg
+                input/spatialdata.zarr
+                --min-area $method.min_area
+
+            #else if $method.method_name == 'baysor'
+                baysor
+                input/spatialdata.zarr
+                --min-area $method.min_area
+                #if $method.scale
+                    --scale $method.scale
+                #end if
+
+            #else if $method.method_name == 'proseg'
+                proseg
+                input/spatialdata.zarr
+                $method.infer_presets
+                #if str($method.prior_shapes_key) != ''
+                    --prior-shapes-key '$method.prior_shapes_key'
+                #end if
+                #if str($method.bins_key) != ''
+                    --bins-key '$method.bins_key'
+                #end if
+
+            #else if $method.method_name == 'tissue'
+                tissue
+                input/spatialdata.zarr
+                #if str($method.image_key) != ''
+                    --image-key '$method.image_key'
+                #end if
+                --level $method.level
+                --mode '$method.mode'
+                --kwargs {
+                    "expand_radius_ratio": $method.expand_radius_ratio,
+                    #if str($method.channel) != ''
+                        "channel": '$method.channel',
+                    #end if
+                    "clip_parameters": [$method.clip_parameters],
+                    "blur_kernel_size": $method.blur_kernel_size,
+                    "open_kernel_size": $method.open_kernel_size,
+                    "close_kernel_size": $method.close_kernel_size,
+                    "drop_threshold": $method.drop_threshold,
+                    "allow_holes": $method.allow_holes
+                }
+
+            #end if
+            \$PATCH_FLAG
+        } &&
+
+        #if $method.method_name == 'proseg' or $method.method_name == 'tissue'
+            echo "Running segmentation (no patch support)" &&
+            _run_seg
+        #else
+            NUM_PATCHES=$(python -c "import spatialdata as sd; s = sd.read_zarr('input/spatialdata.zarr'); print(s.shapes['image_patches'].shape[0] if 'image_patches' in s.shapes else '')") &&
+            if [ -n "\$NUM_PATCHES" ]; then
+                echo "Found \$NUM_PATCHES patches, running per-patch segmentation" &&
+                for PATCH_IDX in \$(seq 0 \$((NUM_PATCHES - 1))); do
+                    echo "Processing patch \$PATCH_IDX/\$((NUM_PATCHES - 1))" &&
+                    _run_seg \$PATCH_IDX &&
+                done
+            else
+                echo "No patches found, running segmentation on whole data" &&
+                _run_seg
+            fi
+        #end if &&
 
         ## Move to output directory
         mv "input/spatialdata.zarr" output_dir/ &&
