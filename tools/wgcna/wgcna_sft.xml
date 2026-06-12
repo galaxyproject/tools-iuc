@@ -1,0 +1,156 @@
+<tool id="wgcna_softpower" name="WGCNA: Soft-Thresholding Power" version="1.0.0" profile="21.09">
+    <description>Estimate the soft-thresholding power for WGCNA network construction</description>
+    <requirements>
+        <requirement type="package" version="1.72">bioconductor-wgcna</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir -p plots &&
+    Rscript '$softpower_script'
+]]></command>
+    <configfiles>
+        <configfile name="softpower_script"><![CDATA[
+
+library(WGCNA)
+
+options(stringsAsFactors = FALSE)
+enableWGCNAThreads()
+
+## Galaxy inputs
+counts_file <- "$counts_file"
+network_type <- "$network_type"
+variance_quantile <- $variance_quantile
+## because both are declared with from_work_dir
+output_plot <- "softpower_plot.txt"
+output_conif <- "plots/softpower_config.png"
+## Load counts
+counts <- read.delim(
+    counts_file,
+    check.names = FALSE,
+    row.names = 1
+)
+cat("Counts loaded:", nrow(counts), "genes x", ncol(counts), "samples\n")
+
+## ── Prepare expression matrix ────────────────────────────────────────────────
+expr_data        <- as.matrix(log2(counts + 1))
+mode(expr_data)  <- "numeric"
+
+missing_values <- sum(is.na(expr_data))
+if (missing_values > 0) {
+    expr_data <- expr_data[complete.cases(expr_data), ]
+    cat("Removed", missing_values, "missing values.\n")
+}
+
+gene_variances     <- apply(expr_data, 1, var)
+variance_threshold <- quantile(gene_variances, variance_quantile, na.rm = TRUE)
+filtered_expr_data <- expr_data[gene_variances > variance_threshold, ]
+
+datExpr <- t(filtered_expr_data)
+
+## ── Soft-thresholding ────────────────────────────────────────────────────────
+powers <- c(seq(1, 10, by = 1), seq(12, 20, by = 2))
+sft    <- pickSoftThreshold(datExpr, powerVector = powers,
+                             networkType = network_type, verbose = 3)
+
+## ── Plot ─────────────────────────────────────────────────────────────────────
+png(output_plot, width = 1200, height = 600, res = 100)
+par(mfrow = c(1, 2))
+
+plot(sft[["fitIndices"]][, 1],
+     -sign(sft[["fitIndices"]][, 3]) * sft[["fitIndices"]][, 2],
+     type = "n",
+     xlab = "Soft Threshold (power)",
+     ylab = "Scale Free Topology Model Fit, signed R^2",
+     main = "Scale Independence")
+text(sft[["fitIndices"]][, 1],
+     -sign(sft[["fitIndices"]][, 3]) * sft[["fitIndices"]][, 2],
+     labels = sft[["fitIndices"]][, 1], cex = 0.9, col = "red")
+abline(h = 0.85, col = "blue", lty = 2)
+
+plot(sft[["fitIndices"]][, 1], sft[["fitIndices"]][, 5],
+     type = "n",
+     xlab = "Soft Threshold (power)",
+     ylab = "Mean Connectivity",
+     main = "Mean Connectivity")
+text(sft[["fitIndices"]][, 1], sft[["fitIndices"]][, 5],
+     labels = sft[["fitIndices"]][, 1], cex = 0.9, col = "red")
+
+par(mfrow = c(1, 1))
+dev.off()
+cat("Soft-thresholding plot written to:", output_plot, "\n")
+
+## ── Determine power ──────────────────────────────────────────────────────────
+soft_power <- sft[["powerEstimate"]] ## 4
+if (is.na(soft_power)) {
+    soft_power <- 6
+    cat("No suitable power found. Defaulting to power =", soft_power, "\n") ## ignored
+} else {
+    cat("Chosen soft-thresholding power:", soft_power, "\n") ##4
+}
+
+## ── Write softpower config ───────────────────────────────────────────────────
+writeLines(
+    c(
+        paste0("soft_power = ", soft_power),
+        paste0("network_type = ", network_type),
+        paste0("variance_quantile = ", variance_quantile)
+    ),
+    output_config
+)
+
+cat("softpower_config written to:", output_config, "\n")
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="counts_file" type="data" format="tabular" label="Raw counts matrix (TSV)" help="Genes as rows, samples as columns. First column is gene IDs."/>
+        <param name="network_type" type="select" label="Network type">
+            <option value="signed" selected="true">Signed</option>
+            <option value="unsigned">Unsigned</option>
+            <option value="signed hybrid">Signed hybrid</option>
+        </param>
+        <param name="variance_quantile" type="float" value="0.4" min="0" max="1" label="Variance filter quantile" help="Genes below this variance percentile are removed (default 0.4, bottom 40%)."/>
+    </inputs>
+    <outputs>
+        <data name="softpower_config" format="txt" label="${tool.name}: Soft-thresholding config" from_work_dir="softpower_config.txt"/>
+        <data name="softpower_plot" format="png" label="${tool.name}: Soft-thresholding plot" from_work_dir="plots/soft_thresholding.png"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="counts_file" value="normalized_counts.tsv"/>
+            <param name="network_type" value="signed"/>
+            <param name="variance_quantile" value="0.4"/>
+            <!-- Check config contains expected keys -->
+            <output name="softpower_config">
+                <assert_contents>
+                    <has_text text="soft_power"/>
+                    <has_text text="network_type"/>
+                    <has_text text="variance_quantile"/>
+                </assert_contents>
+            </output>
+            <!-- Check plot is a plausible PNG size (not empty, not corrupted) -->
+            <output name="softpower_plot" ftype="png">
+                <assert_contents>
+                    <has_size value="50000" delta="45000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**WGCNA Soft-Thresholding Power Estimation**
+
+Runs ``pickSoftThreshold`` from the WGCNA package to estimate the optimal
+soft-thresholding power for scale-free network construction.
+
+**Inputs**
+
+- *Raw counts matrix* - TSV with genes as rows and samples as columns.
+- *Network type* - Signed networks preserve sign of correlations (recommended for RNA-seq).
+- *Variance quantile* - Filters low-variance genes. 0.4 removes the bottom 40%.
+
+**Outputs**
+- *Soft-thresholding config* - Plain-text file with the chosen power value. Feed this into the **WGCNA: Full Pipeline** tool.
+- *Soft-thresholding plot* - Two-panel diagnostic (scale-free R² and mean connectivity vs. power).
+]]></help>
+    <citations>
+        <citation type="doi">10.1186/1471-2105-9-559</citation>
+    </citations>
+</tool>
