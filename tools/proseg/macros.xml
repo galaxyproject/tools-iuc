@@ -20,9 +20,17 @@
     --y-column '$input_mode.platform.y_col'
 #if $input_mode.platform.z_col
     --z-column '$input_mode.platform.z_col'
+#else
+    --ignore-z-coord
 #end if
     --cell-id-column '$input_mode.platform.cell_id_col'
     --cell-id-unassigned '$input_mode.platform.unassigned_id'
+#if $input_mode.platform.fov_col
+    --fov-column '$input_mode.platform.fov_col'
+#end if
+#if $input_mode.platform.transcript_id_col
+    --transcript-id-column '$input_mode.platform.transcript_id_col'
+#end if
 #end if
     ]]></token>
     <!-- QV quality filtering -->
@@ -77,6 +85,7 @@
 --burnin-samples $burnin_samples
 --nthreads \${GALAXY_SLOTS:-4}
 $ignore_z
+$use_cell_init
     ]]></token>
     <!-- Advanced model parameters -->
     <token name="@ADVANCED_CMD@"><![CDATA[
@@ -96,19 +105,19 @@ $advanced.no_diffusion
     <!-- Optional output flags -->
     <token name="@OPTIONAL_OUTPUTS_CMD@"><![CDATA[
 #if $outputs.counts
-    --output-counts counts.parquet
+    --output-counts '$counts' --output-counts-fmt parquet
 #end if
 #if $outputs.expected
-    --output-expected-counts expected.parquet
+    --output-expected-counts '$expected' --output-expected-counts-fmt parquet
 #end if
 #if $outputs.cellmeta
-    --output-cell-metadata cellmeta.parquet
+    --output-cell-metadata '$cellmeta' --output-cell-metadata-fmt parquet
 #end if
 #if $outputs.txmeta
-    --output-transcript-metadata txmeta.parquet
+    --output-transcript-metadata '$txmeta' --output-transcript-metadata-fmt parquet
 #end if
 #if $outputs.gene
-    --output-gene-metadata gene.parquet
+    --output-gene-metadata '$gene' --output-gene-metadata-fmt parquet
 #end if
 #if $outputs.polygons
     --output-cell-polygons polygons.geojson.gz
@@ -154,27 +163,12 @@ $advanced.no_diffusion
                 <param name="unassigned_id" type="text" value="0"
                     label="Unassigned cell ID"
                     help="Value used to mark transcripts not assigned to any cell. Typically 0."/>
-            </when>
-        </conditional>
-    </xml>
-    <!-- Platform selector for AnnData/SpatialData input - no manual column mapping -->
-    <xml name="platform_inputs_no_ref">
-        <conditional name="platform">
-            <param name="preset" type="select" label="Platform preset" help="Select the spatial transcriptomics platform that generated your data.">
-                <option value="xenium">10x Xenium</option>
-                <option value="cosmx">NanoString CosMx (pixel coordinates)</option>
-                <option value="cosmx_micron">NanoString CosMx (micron coordinates)</option>
-                <option value="merscope">Vizgen MERSCOPE / MERFISH</option>
-                <option value="visiumhd">10x Visium HD</option>
-            </param>
-            <when value="xenium"/>
-            <when value="cosmx"/>
-            <when value="cosmx_micron"/>
-            <when value="merscope"/>
-            <when value="visiumhd">
-                <param name="spaceranger_map" type="data" format="parquet" optional="true"
-                    label="SpaceRanger barcode mappings"
-                    help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
+                <param name="fov_col" type="text" optional="true" value=""
+                    label="Field of view column name"
+                    help="Name of the column containing the field of view identifier. Optional."/>
+                <param name="transcript_id_col" type="text" optional="true" value=""
+                    label="Transcript ID column name"
+                    help="Name of the column containing transcript IDs. Optional."/>
             </when>
         </conditional>
     </xml>
@@ -211,7 +205,7 @@ $advanced.no_diffusion
                         <add value="E"/>
                     </valid>
                 </sanitizer>
-                <validator type="regex" message="Must be three space-separated numbers, e.g. 0.2125 0.0 0.0">^-?[\d.eE]+ -?[\d.eE]+ -?[\d.eE]+$</validator>
+                <validator type="regex" message="Must be three space-separated numbers, e.g. 0.2125 0.0 0.0">^-?[\d]+\.?[\d]*([eE][+-]?[\d]+)? -?[\d]+\.?[\d]*([eE][+-]?[\d]+)? -?[\d]+\.?[\d]*([eE][+-]?[\d]+)?$</validator>
             </param>
             <param name="y_transform" type="text" optional="true"
                 label="CellPose Y affine transform (a b c)"
@@ -225,7 +219,7 @@ $advanced.no_diffusion
                         <add value="E"/>
                     </valid>
                 </sanitizer>
-                <validator type="regex" message="Must be three space-separated numbers, e.g. 0.0 0.2125 0.0">^-?[\d.eE]+ -?[\d.eE]+ -?[\d.eE]+$</validator>
+                <validator type="regex" message="Must be three space-separated numbers, e.g. 0.0 0.2125 0.0">^-?[\d]+\.?[\d]*([eE][+-]?[\d]+)? -?[\d]+\.?[\d]*([eE][+-]?[\d]+)? -?[\d]+\.?[\d]*([eE][+-]?[\d]+)?$</validator>
             </param>
         </section>
     </xml>
@@ -251,24 +245,27 @@ $advanced.no_diffusion
     </xml>
     <!-- Core parameter inputs -->
     <xml name="core_param_inputs">
-        <param name="voxel_size" type="float" value="1.0" min="0.05" max="10.0"
+        <param name="voxel_size" type="float" value="1.0" min="0.01"
             label="Voxel size (microns)"
             help="X/Y voxel size for final sampling. Smaller = finer resolution but more memory. Typical: 1.0 for Xenium, 0.5 for CosMx."/>
-        <param name="burnin_voxel_size" type="float" value="2.0" min="0.05" max="20.0"
+        <param name="burnin_voxel_size" type="float" value="2.0" min="0.01"
             label="Burn-in voxel size (microns)"
             help="Must be an integer multiple of voxel size (e.g. if voxel size is 1.0, use 2.0, 3.0, 4.0 etc.)."/>
-        <param name="voxel_layers" type="integer" value="4" min="1" max="50"
+        <param name="voxel_layers" type="integer" value="4" min="1"
             label="Voxel layers (z-axis)"
             help="Number of voxel layers along the z-axis for 3D segmentation."/>
-        <param name="samples" type="integer" value="200" min="10" max="5000"
+        <param name="samples" type="integer" value="200" min="10"
             label="Sampling iterations"
             help="Number of MCMC iterations after burn-in. 200 for testing, 500+ for production."/>
-        <param name="burnin_samples" type="integer" value="200" min="10" max="5000"
+        <param name="burnin_samples" type="integer" value="200" min="10"
             label="Burn-in iterations"
             help="Number of preliminary MCMC iterations at lower resolution."/>
         <param name="ignore_z" type="boolean" truevalue="--ignore-z-coord" falsevalue="" checked="false"
             label="Treat as 2D"
             help="Ignore z-coordinates and segment in 2D."/>
+        <param name="use_cell_init" type="boolean" truevalue="--use-cell-initialization" falsevalue="" checked="false"
+            label="Use cell initialization"
+            help="Initialize with cell assignments rather than nucleus assignments."/>
     </xml>
     <!-- Advanced inputs -->
     <xml name="advanced_inputs">
