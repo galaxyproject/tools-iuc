@@ -98,6 +98,8 @@
             \$PATCH_FLAG;
         } &&
 
+        export -f _run_seg &&
+
         #if $method.method_name == 'proseg' or $method.method_name == 'tissue'
             echo "Running segmentation (no patch support)" &&
             _run_seg &&
@@ -105,16 +107,19 @@
             NUM_PATCHES=\$(python -c "import spatialdata as sd; s = sd.read_zarr('input/spatialdata.zarr'); print(s.shapes['image_patches'].shape[0] if 'image_patches' in s.shapes else (s.shapes['transcripts_patches'].shape[0] if 'transcripts_patches' in s.shapes else ''))") &&
             if [ -n "\$NUM_PATCHES" ]; then
                 echo "Found \$NUM_PATCHES patches, running per-patch segmentation" &&
-                for PATCH_IDX in \$(seq 0 \$((NUM_PATCHES - 1))); do
-                    echo "Processing patch \$PATCH_IDX/\$((NUM_PATCHES - 1))" &&
-                    ## in the for loop, if the segmentation fails on one patch, it doesn't show up and the data is saved with the successfully segmented patches. The || ensures to catch the error.
-                    _run_seg \$PATCH_IDX || { echo "Segmentation failed on patch \$PATCH_IDX" >&2; exit 1; };
-                done;
+                seq 0 \$((NUM_PATCHES - 1)) | parallel -j \${GALAXY_SLOTS:-4} --halt now,fail=1 "
+                    echo "[\$(date +'%H:%M:%S')] Starting patch {}/\$((NUM_PATCHES - 1))";
+
+                    _run_seg {} || {
+                        echo 'Segmentation failed on patch {}' >&2;
+                        exit 1;
+                    }
+                ";
             else
                 echo "No patches found, running segmentation on whole data" &&
                 _run_seg;
-            fi;
-        #end if &&
+            fi &&
+        #end if
 
         ## Move to output directory
         mv "input/spatialdata.zarr" output_dir/ &&
