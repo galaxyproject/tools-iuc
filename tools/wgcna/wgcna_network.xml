@@ -2,9 +2,6 @@
     <description>Weighted Gene Co-expression Network Analysis</description>
     <requirements>
         <requirement type="package" version="1.74">r-wgcna</requirement>
-        <requirement type="package" version="4.0.3">r-ggplot2</requirement>
-        <requirement type="package" version="1.4.5">r-reshape2</requirement>
-        <requirement type="package" version="1.0.13">r-pheatmap</requirement>
         <requirement type="package" version="2.3.1">r-igraph</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
@@ -12,30 +9,26 @@
         Rscript '$wgcna_script'
     ]]></command>
     <configfiles>
-        <!-- runtime config -->
-        <configfile name="config_txt" filename="config.txt"><![CDATA[ ## tells galaxy to create a filename named config.txt at runtime
-counts_file=$counts_file ## writes the selected counts dataset path into config
-metadata_file=$metadata_file ## writes the metadata file path into config
-soft_power=$soft_power ## writes the user-selected soft-threshold power
-network_type=$network_type ## writes the selected network type (signed, unsigned, etc...)
-tom_type=$tom_type ## write the selected TOM type
-min_module_size=$min_module_size ## writes the module minimum size parameter
-merge_cut_height=$merge_cut_height ## writes the module merge threshold
-variance_quantile=$variance_quantile ## writes the percentile used for variance filtering
-do_variance_filter=$do_variance_filter ## writes user toggle (true/false) for vaiance filtering
-do_gsg=$do_gsg ## writes user toggle for goodSampleGenes filtering
-trait_columns=$trait_columns ## writes comma-separated trait coloumn names entered by the user
+        <configfile name="config_txt" filename="config.txt"><![CDATA[
+counts_file = $counts_file
+metadata_file = $metadata_file
+soft_power = $soft_power
+network_type = $network_type
+tom_type = $tom_type
+min_module_size = $min_module_size
+merge_cut_height = $merge_cut_height
+log_transform = $log_transform
+filter_by_variance = $filter_by_variance
+variance_quantile = $variance_quantile
+run_sample_gene_qc = $run_sample_gene_qc
+trait_columns = $trait_columns
 ]]></configfile>
         <configfile name="wgcna_script" filename="wgcna_script.R"><![CDATA[
 ## wgcna_script.R  -- embedded via <configfile>
 library(WGCNA)
-library(ggplot2)
-library(reshape2)
-library(pheatmap)
 library(igraph)
 
 options(stringsAsFactors = FALSE)
-enableWGCNAThreads()
 allowWGCNAThreads()
 
 ## ── Read config ──────────────────────────────────────────────────────────────
@@ -50,38 +43,36 @@ network_type      <- cfg_list[["network_type"]]
 tom_type          <- cfg_list[["tom_type"]]
 min_module_size   <- as.integer(cfg_list[["min_module_size"]])
 merge_cut_height  <- as.numeric(cfg_list[["merge_cut_height"]])
+log_transform     <- cfg_list[["log_transform"]] == "true"
+filter_by_variance <- cfg_list[["filter_by_variance"]] == "true"
 variance_quantile <- as.numeric(cfg_list[["variance_quantile"]])
-do_variance_filter <- tolower(cfg_list[["do_variance_filter"]]) %in% c("true","t","1","yes") ## will get a string value from config and will check whether the value is one of the accepted "true" tokens
-do_gsg             <- tolower(cfg_list[["do_gsg"]]) %in% c("true","t","1","yes") 
-trait_columns_raw  <- cfg_list[["trait_columns"]] ## will read the raw user text for the traits
+run_sample_gene_qc <- cfg_list[["run_sample_gene_qc"]] == "true"
+trait_columns     <- trimws(strsplit(cfg_list[["trait_columns"]], ",")[[1]])
+trait_columns     <- trait_columns[nzchar(trait_columns)]
 
-###ask if needed!
-trait_columns <- character(0) ## will initialize an empty character vector as default and will have a safe fallback incase no traits are provided
-if (!is.null(trait_columns_raw) && nzchar(trimws(trait_columns_raw))) { ## will proceed if and only if the string exists and is not just balnk space. trimws() will remove trailing whitespaces and nzchar() will check the non-empty string
-    trait_columns <- trimws(strsplit(trait_columns_raw, ",")[[1]])  ## will split the comma-separated text into vector elements
-    trait_columns <- trait_columns[nzchar(trait_columns)] ## will remove empty enteries or trailing commas
+if (length(trait_columns) == 0) {
+    stop("At least one numeric trait column must be provided.")
 }
+
+dir.create("plots",   showWarnings = FALSE)
+dir.create("results", showWarnings = FALSE)
 
 cat("Config loaded. Starting WGCNA analysis...\n")
 
 ## ── STEP 1: Load data ────────────────────────────────────────────────────────
 counts <- read.delim(counts_file, check.names = FALSE, row.names = 1)
-meta   <- read.delim(metadata_file, check.names = FALSE, row.names = 1)
+meta   <- read.delim(metadata_file, check.names = FALSE)
 meta   <- meta[, colnames(meta) != "", drop = FALSE]
-
-gene_df <- data.frame(
-    gene_id       = rownames(counts),
-    gene_id_clean = sub("\\..*", "", rownames(counts)),
-    stringsAsFactors = FALSE
-)
-write.table(gene_df, "results/gene_data.tsv",
-            sep = "\t", quote = FALSE, row.names = FALSE)
 
 cat("Data loaded:", nrow(counts), "genes x", ncol(counts), "samples\n")
 
 ## ── STEP 2: Prepare expression matrix ───────────────────────────────────────
-expr_data       <- as.matrix(log2(counts + 1))
+expr_data <- as.matrix(counts)
 mode(expr_data) <- "numeric"
+
+if (log_transform) {
+    expr_data <- log2(expr_data + 1)
+}
 
 missing_values <- sum(is.na(expr_data))
 if (missing_values > 0) {
@@ -89,26 +80,29 @@ if (missing_values > 0) {
     cat("Removed rows with missing values. New dimensions:", dim(expr_data), "\n")
 }
 
-gene_variances     <- apply(expr_data, 1, var, na.rm = TRUE)
+gene_variances     <- apply(expr_data, 1, var)
+filtered_expr_data <- expr_data
+
+if (filter_by_variance) {
+    variance_threshold <- quantile(gene_variances, variance_quantile, na.rm = TRUE)
+    cat("Variance threshold (", variance_quantile * 100, "th percentile):",
+        variance_threshold, "\n")
+    filtered_expr_data <- expr_data[gene_variances > variance_threshold, ]
+} else {
+    variance_threshold <- NA_real_
+    cat("Variance filtering disabled by user.\n")
+}
+cat("Genes after variance filtering:", nrow(filtered_expr_data), "\n")
 
 png("plots/01_gene_variance_distribution.png", width = 800, height = 600, res = 100)
-hist(log10(gene_variances), breaks = 50, ## plot a histogram of log10 variances. log sclae will help us visualize biased variance distributions
+hist(log10(gene_variances), breaks = 50,
      main = "Log10 Variance Distribution of Genes",
      xlab = "Log10(Variance)", col = "lightblue", border = "black")
-abline(v = log10(quantile(gene_variances, variance_quantile, na.rm = TRUE)), col = "red", lwd = 2, lty = 2)
+if (!is.na(variance_threshold)) {
+    abline(v = log10(variance_threshold), col = "red", lwd = 2, lty = 2)
+}
 dev.off()
 
-if (do_variance_filter) { ## it is used to only filter genes if the user enables it
-    variance_threshold <- quantile(gene_variances, variance_quantile, na.rm = TRUE) ##will compute the numeric cutoff
-    filtered_expr_data <- expr_data[gene_variances > variance_threshold, , drop = FALSE] ## will keep genes above the threshold and remove low-vaiance genes
-    cat("User permitted variance filtering.\n")
-    cat("Variance threshold (", variance_quantile * 100, "th percentile): ",
-        variance_threshold, "\n", sep = "")
-    cat("Genes after variance filtering:", nrow(filtered_expr_data), "\n")
-} else { ## if disabled, keeps all genes and logs that choice
-    filtered_expr_data <- expr_data
-    cat("Variance filtering disabled by user. Using all genes.\n")
-}
 datExpr <- t(filtered_expr_data)
 
 sampleTree <- hclust(dist(datExpr), method = "average")
@@ -125,7 +119,7 @@ png("plots/03_expression_data_distribution.png", width = 1200, height = 600, res
 par(mfrow = c(1, 2))
 hist(as.numeric(datExpr), breaks = 100,
      main = "Distribution of Expression Values",
-     sub  = "Log2-transformed counts",
+     sub  = ifelse(log_transform, "Log2-transformed counts", "Input counts"),
      xlab = "Expression Value", col = "lightblue", border = "white")
 set.seed(123)
 sel_genes <- sample(seq_len(ncol(datExpr)), min(20, ncol(datExpr)))
@@ -137,46 +131,69 @@ par(mfrow = c(1, 1))
 dev.off()
 
 ## ── STEP 3: Prepare trait data ───────────────────────────────────────────────
+if (ncol(meta) < 2) {
+    stop("Trait data must include sample names in the first column and at least one trait column.")
+}
+sample_column <- colnames(meta)[1]
+if (anyDuplicated(meta[[sample_column]]) > 0) {
+    stop("Duplicate sample names found in the first column of the trait data.")
+}
+rownames(meta) <- meta[[sample_column]]
+
 sample_ids <- rownames(datExpr)
-meta       <- meta[sample_ids, , drop = FALSE]
+missing_samples <- setdiff(sample_ids, rownames(meta))
+if (length(missing_samples) > 0) {
+    stop("Trait data is missing sample(s) from the count matrix: ",
+         paste(missing_samples, collapse = ", "))
+}
+meta <- meta[sample_ids, , drop = FALSE]
 
-if (length(trait_columns) == 0) {
-    stop("No trait columns provided. Please provide comma-separated metadata trait columns.")
+missing_traits <- setdiff(trait_columns, colnames(meta))
+if (length(missing_traits) > 0) {
+    stop("Trait column(s) not found in trait data: ",
+         paste(missing_traits, collapse = ", "))
 }
 
-trait_list <- list()
+trait_data <- meta[, trait_columns, drop = FALSE]
 for (col in trait_columns) {
-    if (col %in% colnames(meta)) {
-        trait_list[[col]] <- suppressWarnings(as.numeric(meta[[col]]))
-    } else {
-        warning("Trait column not found in metadata, skipping: ", col)
+    original_values <- trait_data[[col]]
+    numeric_values <- suppressWarnings(as.numeric(original_values))
+    invalid_values <- is.na(numeric_values) &
+        !is.na(original_values) &
+        nzchar(trimws(as.character(original_values)))
+    if (any(invalid_values)) {
+        stop("Trait column '", col,
+             "' contains non-numeric values. Provide cleaned numeric trait data.")
     }
+    if (all(is.na(numeric_values))) {
+        stop("Trait column '", col, "' contains no numeric values.")
+    }
+    trait_data[[col]] <- numeric_values
 }
 
-if (length(trait_list) == 0) {
-    stop("None of the requested trait columns were found in metadata.")
-}
+rownames(trait_data) <- sample_ids
 
-trait_data <- as.data.frame(trait_list, stringsAsFactors = FALSE) ## will convert a listg of trait vectors into a proper data frame
-rownames(trait_data) <- sample_ids ## assign sample IDs as row names so traits align with the expression samples.
 cat("Trait data prepared:", ncol(trait_data), "trait(s)\n")
+print(head(trait_data))
 
 ## ── STEP 4: Network construction ────────────────────────────────────────────
-if (do_gsg) { ## runs QC filtering only if user enabled it
-    gsg <- goodSamplesGenes(datExpr, verbose = 3) ## wgcna function checks for any problematic samples/genes. will retun logical flags and summary info
-    if (!gsg[["allOK"]]) { ## if not everything is clean then filtering is required
-        datExpr <- datExpr[gsg[["goodSamples"]], gsg[["goodGenes"]], drop = FALSE] ## will keep only valid samples and genes. will remove the problematic ones!
-        cat("goodSamplesGenes filtering applied.\n")
-    } else { ## if no issues found then the original data and log will be kept
-        cat("goodSamplesGenes: all samples/genes OK.\n")
+if (run_sample_gene_qc) {
+    gsg <- goodSamplesGenes(datExpr, verbose = 3)
+    if (!gsg[["allOK"]]) {
+        datExpr <- datExpr[gsg[["goodSamples"]], gsg[["goodGenes"]]]
+        trait_data <- trait_data[rownames(datExpr), , drop = FALSE]
     }
-} else { ## if stopped by the user...nothing happens here!
-    cat("goodSamplesGenes filtering skipped by user.\n")
+} else {
+    cat("WGCNA goodSamplesGenes filtering disabled by user.\n")
 }
 
-## realign traits after optional gsg filtering
-trait_data <- trait_data[rownames(datExpr), , drop = FALSE]
+cat("After goodSamplesGenes:", ncol(datExpr), "genes,", nrow(datExpr), "samples\n")
+if (ncol(datExpr) < min_module_size) {
+    stop("Too few genes (", ncol(datExpr),
+         ") remain after QC for min_module_size=", min_module_size)
+}
 
+set.seed(12345)
 net <- blockwiseModules(
     datExpr,
     power             = soft_power,
@@ -211,8 +228,7 @@ dev.off()
 
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
-module_eigengenes <- orderMEs(module_eigengenes)
-ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs") 
+ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs")
 ME_diss <- 1 - ME_cor
 ME_tree <- hclust(as.dist(ME_diss), method = "average")
 
@@ -225,7 +241,15 @@ dev.off()
 trait_data_aligned <- trait_data[rownames(module_eigengenes), , drop = FALSE]
 module_trait_cor   <- cor(module_eigengenes, trait_data_aligned,
                            use = "pairwise.complete.obs")
-nSamples           <- nrow(module_eigengenes)
+
+if (is.null(rownames(module_trait_cor))) {
+    rownames(module_trait_cor) <- colnames(module_eigengenes)
+}
+if (is.null(colnames(module_trait_cor))) {
+    colnames(module_trait_cor) <- colnames(trait_data_aligned)
+}
+
+nSamples           <- nrow(datExpr)
 module_trait_pval  <- corPvalueStudent(module_trait_cor, nSamples)
 
 text_matrix     <- paste0(signif(module_trait_cor, 2),
@@ -265,13 +289,9 @@ nSamples          <- nrow(datExpr)
 gene_significance      <- cor(datExpr, trait_data_aligned[[trait_of_interest]],
                                use = "pairwise.complete.obs")
 gene_significance_pval <- corPvalueStudent(as.numeric(gene_significance), nSamples)
+gene_significance      <- as.numeric(gene_significance)
 names(gene_significance)      <- colnames(datExpr)
 names(gene_significance_pval) <- colnames(datExpr)
-
-
-module_trait_cor <- cor(module_eigengenes, trait_data, use = "pairwise.complete.obs")
-if (is.null(rownames(module_trait_cor))) rownames(module_trait_cor) <- colnames(module_eigengenes)
-if (is.null(colnames(module_trait_cor))) colnames(module_trait_cor) <- colnames(trait_data_aligned)
 
 trait_vec            <- abs(module_trait_cor[, trait_of_interest, drop = TRUE])
 best_idx             <- which.max(trait_vec)
@@ -286,19 +306,20 @@ if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
 
 cat("Most relevant module:", most_relevant_module, "->", module_name, "\n")
 
-if (is.null(names(module_colors))) names(module_colors) <- colnames(datExpr)
+names(module_colors) <- colnames(datExpr)
 module_genes <- names(module_colors)[module_colors == module_name]
 cat("Genes in module", module_name, ":", length(module_genes), "\n")
-
-gene_module_membership <- cor(
-    datExpr[, module_genes, drop = FALSE],
-    module_eigengenes[, most_relevant_module, drop = TRUE],
-    use = "pairwise.complete.obs"
-)
 
 if (length(module_genes) == 0) {
   stop("No genes found in module ", module_name, ". Check if module_colors was created correctly.")
 }
+
+## Module membership (MM)
+gene_module_membership <- cor(
+  datExpr[, module_genes, drop = FALSE],
+  module_eigengenes[, most_relevant_module, drop = TRUE],
+  use = "pairwise.complete.obs"
+)
 
 module_gene_info <- data.frame(
     Gene             = module_genes,
@@ -341,11 +362,7 @@ hub_info <- data.frame(
 )
 hub_info <- hub_info[order(-hub_info[["Connectivity"]]), ]
 
-hub_info_annotated <- merge(hub_info, gene_df,
-                             by.x = "Gene", by.y = "gene_id", all.x = TRUE)
-hub_info_annotated <- hub_info_annotated[order(-hub_info_annotated[["Connectivity"]]), ]
-
-write.table(hub_info_annotated,
+write.table(hub_info,
     file = paste0("results/hub_genes_", module_name,
                   "_", trait_of_interest, ".tsv"),
     sep = "\t", quote = FALSE, row.names = FALSE)
@@ -369,8 +386,8 @@ dev.off()
 gene_var  <- apply(datExpr, 2, var, na.rm = TRUE)
 n_top     <- min(1000, length(gene_var))
 top_genes <- names(sort(gene_var, decreasing = TRUE))[1:n_top]
-###
-cat("Calculating TOM for top", n_top, "variable genes...\n") 
+
+cat("Calculating TOM for top", n_top, "variable genes...\n")
 
 adj_subset <- adjacency(datExpr[, top_genes, drop = FALSE],
                          power = soft_power, type = network_type)
@@ -437,15 +454,16 @@ module_ids_me    <- sub("^ME", "", me_names)
 module_colors_me <- module_ids_me
 numeric_me       <- suppressWarnings(!is.na(as.numeric(module_ids_me)))
 module_colors_me[numeric_me] <- labels2colors(as.numeric(module_ids_me[numeric_me]))
+names(module_colors_me) <- me_names
 
 if (sum(me_adj) > 0) {
     me_network <- graph_from_adjacency_matrix(me_adj, mode = "undirected",
                                                diag = FALSE)
-    vertex_colors <- module_colors_me
+    vertex_colors <- module_colors_me[vertex_attr(me_network, "name")]
     vertex_colors[is.na(vertex_colors)] <- "grey"
     vertex_attr(me_network, "color") <- vertex_colors
     module_sizes_table <- table(module_colors)
-    module_sizes_net   <- module_sizes_table[module_colors_me]
+    module_sizes_net   <- module_sizes_table[vertex_colors]
     module_sizes_net[is.na(module_sizes_net)] <- 10
     node_sizes_me <- log10(as.numeric(module_sizes_net) + 1) * 10 + 10
 
@@ -454,10 +472,10 @@ if (sum(me_adj) > 0) {
     set.seed(123)
     plot(me_network,
          vertex.size        = node_sizes_me,
-         vertex.label       = module_colors_me,
+         vertex.label       = vertex_colors,
          vertex.label.cex   = 0.7,
          vertex.label.color = "black",
-         vertex.color       = vertex_colors,
+         vertex.color       = module_colors_me,
          vertex.frame.color = "black",
          edge.width         = 2.5,
          edge.color         = "gray40",
@@ -465,7 +483,7 @@ if (sum(me_adj) > 0) {
          main = paste0("Module Eigengene Network\n(|correlation| > ",
                        cor_thresh, ", p < 0.05)"))
     dev.off()
-}else { ###
+} else {
   cat("No significant module-module edges after thresholding.\n")
 }
 
@@ -475,13 +493,31 @@ colnames(me_cor_labeled) <- module_colors_me
 
 png("plots/16_module_eigengene_correlation_heatmap.png",
     width = 1200, height = 1200, res = 100)
-pheatmap(me_cor_labeled,
-    color = colorRampPalette(c("blue", "white", "red"))(50),
-    breaks = seq(-1, 1, length.out = 51),
-    clustering_distance_rows = "correlation",
-    clustering_distance_cols = "correlation",
-    main = "Module Eigengene Correlation Heatmap",
-    fontsize = 8)
+if (nrow(me_cor_labeled) > 1) {
+    heatmap(
+        me_cor_labeled,
+        col = colorRampPalette(c("blue", "white", "red"))(50),
+        scale = "none",
+        symm = TRUE,
+        margins = c(8, 8),
+        main = "Module Eigengene Correlation Heatmap"
+    )
+} else {
+    par(mar = c(5, 5, 4, 2))
+    image(
+        x = 1,
+        y = 1,
+        z = matrix(me_cor_labeled[1, 1], nrow = 1),
+        col = colorRampPalette(c("blue", "white", "red"))(50),
+        zlim = c(-1, 1),
+        axes = FALSE,
+        main = "Module Eigengene Correlation Heatmap",
+        xlab = "",
+        ylab = ""
+    )
+    axis(1, at = 1, labels = colnames(me_cor_labeled), las = 2)
+    axis(2, at = 1, labels = rownames(me_cor_labeled), las = 2)
+}
 dev.off()
 
 cat("\nWGCNA pipeline complete.\n")
@@ -490,9 +526,9 @@ cat("Results written to: results/\n")
 ]]></configfile>
     </configfiles>
     <inputs>
-        <param name="counts_file" type="data" format="tabular" label="Raw counts matrix (TSV)" help="Genes as rows, samples as columns. First column must be gene IDs."/>
-        <param name="metadata_file" type="data" format="tabular" label="Sample metadata (TSV)" help="First column must contain sample IDs matching count matrix column names."/>
-        <param name="soft_power" type="integer" value="6" min="1" max="30" label="Soft-thresholding power" help="Use the value output by the 'WGCNA: Soft-Thresholding Power' tool, or enter manually."/>
+        <param name="counts_file" type="data" format="tabular" label="Counts matrix" help="Genes as rows, samples as columns. First column must be gene IDs."/>
+        <param name="metadata_file" type="data" format="tabular" label="Sample metadata" help="First column should be sample name. Additional selected trait columns must be cleaned numeric values."/>
+        <param name="soft_power" type="integer" value="6" min="1" max="30" label="Soft-thresholding power" help="Use the value output by the 'WGCNA: Soft-Thresholding Power' tool."/>
         <param name="network_type" type="select" label="Network type">
             <option value="signed" selected="true">Signed</option>
             <option value="unsigned">Unsigned</option>
@@ -502,12 +538,13 @@ cat("Results written to: results/\n")
             <option value="signed" selected="true">Signed</option>
             <option value="unsigned">Unsigned</option>
         </param>
-        <param name="min_module_size" type="integer" value="30" min="5" max="500" label="Minimum module size" help="Minimum number of genes required to form a module."/>
+        <param name="min_module_size" type="integer" value="30" min="5" max="500" label="Minimum number of genes required to form a module."/>
         <param name="merge_cut_height" type="float" value="0.25" min="0" max="1" label="Module merge cut height" help="Modules with eigengene correlation above (1 - this value) will be merged."/>
-        <param name="variance_quantile" type="float" value="0.4" min="0" max="1" label="Variance filter quantile" help="Genes below this variance percentile are removed before analysis."/>
-        <param name="trait_columns" type="text" label="Trait columns (comma-separated)" help="Provide metadata column names to use as numeric traits (already cleaned by user). Example: age,status"/>
-        <param name="do_variance_filter" type="boolean" checked="true" label="Filter low-variance genes?" help="If checked, genes below the chosen variance quantile are removed before network construction."/>
-        <param name="do_gsg" type="boolean" checked="true" label="Run goodSamplesGenes quality filtering?" help="If checked, WGCNA removes problematic samples/genes based on missingness/quality."/>
+        <param name="log_transform" type="boolean" checked="true" truevalue="true" falsevalue="false" label="Log2-transform counts" help="Apply log2(count + 1) before network construction."/>
+        <param name="filter_by_variance" type="boolean" checked="true" truevalue="true" falsevalue="false" label="Filter low-variance genes" help="Remove genes below the selected variance quantile before analysis."/>
+        <param name="variance_quantile" type="float" value="0.4" min="0" max="1" label="Variance filter quantile" help="Used only when low-variance gene filtering is enabled."/>
+        <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="true" falsevalue="false" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
+        <param name="trait_columns" type="text" value="age_at_diagnosis" label="Metadata trait columns (comma-separated)" help="Numeric column names from the metadata file to use as traits for module-trait association."/>
     </inputs>
     <outputs>
         <data name="plot_variance" format="png" label="Plot: gene variance distribution" from_work_dir="plots/01_gene_variance_distribution.png"/>
@@ -519,7 +556,6 @@ cat("Results written to: results/\n")
         <data name="plot_mm_gs" format="png" label="Plot: module membership vs gene significance" from_work_dir="plots/08_gene_significance_vs_module_membership.png"/>
         <data name="plot_coexpr_net" format="png" label="Plot: co-expression network" from_work_dir="plots/14_coexpression_network.png"/>
         <data name="plot_me_heatmap" format="png" label="Plot: module eigengene correlation heatmap" from_work_dir="plots/16_module_eigengene_correlation_heatmap.png"/>
-        <data name="gene_data" format="tabular" label="Gene annotation table" from_work_dir="results/gene_data.tsv"/>
         <collection name="module_gene_tables" type="list" label="Module gene info tables">
             <discover_datasets pattern="module_gene_info_(?P&lt;name&gt;.+)\.tsv" directory="results" format="tabular"/>
         </collection>
@@ -537,9 +573,10 @@ cat("Results written to: results/\n")
             <param name="tom_type" value="signed"/>
             <param name="min_module_size" value="10"/>
             <param name="merge_cut_height" value="0.25"/>
-            <param name="do_variance_filter" value="true"/>
+            <param name="log_transform" value="true"/>
+            <param name="filter_by_variance" value="true"/>
             <param name="variance_quantile" value="0.4"/>
-            <param name="do_gsg" value="true"/>
+            <param name="run_sample_gene_qc" value="true"/>
             <param name="trait_columns" value="age_at_diagnosis"/>
             <!-- OUTPUT DATA -->
             <output name="plot_variance" file="expected/01_gene_variance_distribution.png" compare="sim_size"/>
@@ -557,15 +594,19 @@ cat("Results written to: results/\n")
 
 Runs the complete Weighted Gene Co-expression Network Analysis (WGCNA) workflow:
 
-1. **Data loading and QC** — log2-transforms counts, filters low-variance genes, clusters samples.
+1. **Data loading and QC** — optionally log2-transforms counts, filters low-variance genes, clusters samples.
 2. **Network construction** — ``blockwiseModules`` builds the signed co-expression network.
 3. **Module eigengenes** — computes and clusters module eigengenes.
-4. **Module-trait association** — correlates eigengenes with clinical traits; produces a labeled heatmap.
+4. **Module-trait association** — correlates eigengenes with user-provided numeric traits; produces a labeled heatmap.
 5. **Gene significance and module membership** — ranks genes in the most trait-relevant module.
 6. **Hub gene detection** — ranks genes by intramodular connectivity.
 7. **Network visualizations** — co-expression network and module eigengene network plots.
 
 **Tip:** Run **WGCNA: Soft-Thresholding Power** first and use its output power value here.
+
+The sample metadata table must be cleaned before running this tool. The first
+column is treated as the sample name and must match the count matrix column
+names. Trait columns selected for association must be numeric.
     ]]></help>
     <citations>
         <citation type="doi">10.1186/1471-2105-9-559</citation>
