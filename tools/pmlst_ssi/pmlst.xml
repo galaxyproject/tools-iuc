@@ -1,0 +1,481 @@
+<tool id="pmlst_ssi" name="pMLST-SSI" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>plasmid multi-locus sequence typing</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creator" />
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+mkdir -p output_dir tmp_dir &&
+#if $input.input_type == "single" and $input.sequence.is_of_type('fasta.gz'):
+    gunzip -c '$input.sequence' > input_contigs.fa &&
+#end if
+pmlst
+#if $input.input_type == "single"
+    #if $input.sequence.is_of_type('fasta.gz')
+        -i input_contigs.fa
+    #else
+        -i '$input.sequence'
+    #end if
+    #if $input.sequence.is_of_type('fasta', 'fasta.gz')
+        -mp blastn
+    #else
+        -mp kma
+    #end if
+#else
+    -i '$input.read_pairs.forward' '$input.read_pairs.reverse'
+    -mp kma
+#end if
+-o output_dir
+-t tmp_dir
+#if $target.target_mode == "scheme":
+    #if "all" in $target.schemes:
+        -s all
+    #else
+        -s '${",".join($target.schemes)}'
+    #end if
+#else
+    -pf '$target.pf_results'
+#end if
+-p '$database.fields.path'
+-c '$coverage'
+-id '$identity'
+#if $output_files.primary_output == "simple_output":
+-so
+#end if
+#if $output_files.output_selection and ("result_tsv" in $output_files.output_selection or "result_txt" in $output_files.output_selection or "hit_fasta" in $output_files.output_selection or "allele_fasta" in $output_files.output_selection):
+-x
+#end if
+> '$log_file' 2>&1
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="input_type" type="select" label="Sequence input">
+                <option value="single" selected="true">Single dataset</option>
+                <option value="paired">Paired FASTQ collection</option>
+            </param>
+            <when value="single">
+                <param name="sequence" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" label="Sequence dataset"/>
+            </when>
+            <when value="paired">
+                <param name="read_pairs" type="data_collection" collection_type="paired" format="fastqsanger,fastqsanger.gz" label="Paired FASTQ collection"/>
+            </when>
+        </conditional>
+        <param name="database" type="select" label="pMLST database">
+            <options from_data_table="pmlst_db">
+                <filter type="sort_by" column="3" reverse_sort_order="true"/>
+                <validator type="no_options" message="No pMLST database is available. Run the pMLST database data manager first."/>
+            </options>
+        </param>
+        <conditional name="target">
+            <param name="target_mode" type="select" label="Typing target">
+                <option value="scheme" selected="true">pMLST scheme</option>
+                <option value="plasmidfinder">PlasmidFinder results</option>
+            </param>
+            <when value="scheme">
+                <param name="schemes" type="select" multiple="true" optional="false" label="Schemes" help="Select all or one or more concrete schemes. If all is selected with other schemes, all is used.">
+                    <option value="all" selected="true">All schemes</option>
+                    <option value="incac">incac</option>
+                    <option value="incf">incf</option>
+                    <option value="inchi1">inchi1</option>
+                    <option value="inchi2">inchi2</option>
+                    <option value="inci1">inci1</option>
+                    <option value="incn">incn</option>
+                    <option value="pbssb1-family">pbssb1-family</option>
+                    <option value="shigella">shigella</option>
+                </param>
+            </when>
+            <when value="plasmidfinder">
+                <param name="pf_results" type="data" format="tabular" label="PlasmidFinder results"/>
+            </when>
+        </conditional>
+        <param name="coverage" type="float" min="0" max="1" value="0.6" label="Minimum coverage"/>
+        <param name="identity" type="float" min="0" max="1" value="0.95" label="Minimum identity"/>
+        <section name="output_files" title="Output files" expanded="true">
+            <param name="primary_output" type="select" label="Primary result">
+                <option value="simple_output" selected="true">Simple output table</option>
+                <option value="json_result">JSON result</option>
+            </param>
+            <param name="output_selection" type="select" display="checkboxes" multiple="true" label="Optional extended outputs">
+                <option value="result_tsv">Allele profile table</option>
+                <option value="result_txt">Text report</option>
+                <option value="hit_fasta">Matched input sequences</option>
+                <option value="allele_fasta">Matched pMLST allele sequences</option>
+                <option value="logfile">Tool log</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="simple_file" format="tabular" from_work_dir="output_dir/simple_output.tsv" label="${tool.name} on ${on_string}: simple_output.tsv">
+            <filter>output_files["primary_output"] == "simple_output"</filter>
+        </data>
+        <data name="json_file" format="json" from_work_dir="output_dir/data.json" label="${tool.name} on ${on_string}: data.json">
+            <filter>output_files["primary_output"] == "json_result"</filter>
+        </data>
+        <collection name="result_tables" type="list" label="${tool.name} on ${on_string}: allele profile tables">
+            <filter>output_files["output_selection"] and "result_tsv" in output_files["output_selection"]</filter>
+            <discover_datasets directory="output_dir" pattern="(?P&lt;designation&gt;.*results_tab)\.tsv" ext="tabular"/>
+        </collection>
+        <collection name="text_reports" type="list" label="${tool.name} on ${on_string}: text reports">
+            <filter>output_files["output_selection"] and "result_txt" in output_files["output_selection"]</filter>
+            <discover_datasets directory="output_dir" pattern="(?P&lt;designation&gt;.*results)\.txt" ext="txt"/>
+        </collection>
+        <collection name="hit_fastas" type="list" label="${tool.name} on ${on_string}: matched input sequences">
+            <filter>output_files["output_selection"] and "hit_fasta" in output_files["output_selection"]</filter>
+            <discover_datasets directory="output_dir" pattern="(?P&lt;designation&gt;.*Hit_in_genome_seq)\.fsa" ext="fasta"/>
+        </collection>
+        <collection name="allele_fastas" type="list" label="${tool.name} on ${on_string}: matched pMLST allele sequences">
+            <filter>output_files["output_selection"] and "allele_fasta" in output_files["output_selection"]</filter>
+            <discover_datasets directory="output_dir" pattern="(?P&lt;designation&gt;.*pMLST_allele_seq)\.fsa" ext="fasta"/>
+        </collection>
+        <data name="log_file" format="txt" label="${tool.name} on ${on_string}: log">
+            <filter>output_files["output_selection"] and "logfile" in output_files["output_selection"]</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <output name="simple_file" file="expected/simple_output.tsv" ftype="tabular"/>
+            <assert_command>
+                <has_text text="-s all"/>
+                <has_text text="-mp blastn"/>
+                <has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;sequence_type&quot;: &quot;[F3:A3:B3]&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                    <has_text text="&quot;FII&quot;"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="-mp blastn"/>
+                <not_has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="simple_output"/>
+                <param name="output_selection" value="result_tsv"/>
+            </section>
+            <output name="simple_file" file="expected/simple_output.tsv" ftype="tabular"/>
+            <output_collection name="result_tables" type="list" count="1">
+                <element name="results_tab" file="expected/results_tab.tsv" ftype="tabular"/>
+            </output_collection>
+            <assert_command>
+                <has_text text="-so"/>
+                <has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+                <param name="output_selection" value="result_tsv"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;sequence_type&quot;: &quot;[F3:A3:B3]&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                </assert_contents>
+            </output>
+            <output_collection name="result_tables" type="list" count="1">
+                <element name="results_tab" file="expected/results_tab.tsv" ftype="tabular"/>
+            </output_collection>
+            <assert_command>
+                <has_text text="-x"/>
+                <not_has_text text="-so"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="simple_output"/>
+                <param name="output_selection" value="logfile"/>
+            </section>
+            <output name="simple_file" file="expected/simple_output.tsv" ftype="tabular"/>
+            <output name="log_file">
+                <assert_contents>
+                    <has_text text="pMLST summary"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="5">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+                <param name="output_selection" value="result_tsv,result_txt,hit_fasta,allele_fasta"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;sequence_type&quot;: &quot;[F3:A3:B3]&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                    <has_text text="&quot;FII&quot;"/>
+                </assert_contents>
+            </output>
+            <output_collection name="result_tables" type="list" count="1">
+                <element name="results_tab" file="expected/results_tab.tsv" ftype="tabular"/>
+            </output_collection>
+            <output_collection name="text_reports" type="list" count="1">
+                <element name="results" file="expected/results.txt" ftype="txt"/>
+            </output_collection>
+            <output_collection name="hit_fastas" type="list" count="1">
+                <element name="Hit_in_genome_seq" file="expected/Hit_in_genome_seq.fsa" ftype="fasta"/>
+            </output_collection>
+            <output_collection name="allele_fastas" type="list" count="1">
+                <element name="pMLST_allele_seq" file="expected/pMLST_allele_seq.fsa" ftype="fasta"/>
+            </output_collection>
+            <assert_command>
+                <has_text text="-x"/>
+                <not_has_text text="-so"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;sequence_type&quot;: &quot;[F3:A3:B3]&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                    <has_text text="&quot;FII&quot;"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="gunzip -c"/>
+                <has_text text="input_contigs.fa"/>
+                <has_text text="-mp blastn"/>
+                <not_has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf,incn"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+                <param name="output_selection" value="result_tsv"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incn&quot;"/>
+                </assert_contents>
+            </output>
+            <output_collection name="result_tables" type="list" count="2">
+                <element name="incf_results_tab" file="expected/incf_results_tab.tsv" ftype="tabular"/>
+                <element name="incn_results_tab" file="expected/incn_results_tab.tsv" ftype="tabular"/>
+            </output_collection>
+            <assert_command>
+                <has_text text="-s 'incf,incn'"/>
+                <has_text text="-x"/>
+                <not_has_text text="-so"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="all,incf"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+                <param name="output_selection" value="result_tsv"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incn&quot;"/>
+                </assert_contents>
+            </output>
+            <output_collection name="result_tables" type="list" count="2">
+                <element name="incf_results_tab" file="expected/incf_results_tab.tsv" ftype="tabular"/>
+                <element name="incn_results_tab" file="expected/incn_results_tab.tsv" ftype="tabular"/>
+            </output_collection>
+            <assert_command>
+                <has_text text="-s all"/>
+                <has_text text="-x"/>
+                <not_has_text text="-so"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test.fsa"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="plasmidfinder"/>
+                <param name="pf_results" value="plasmidfinder_results.tsv" ftype="tabular"/>
+            </conditional>
+            <section name="output_files">
+                <param name="primary_output" value="json_result"/>
+                <param name="output_selection" value="result_tsv"/>
+            </section>
+            <output name="json_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;sequence_type&quot;: &quot;[F3:A3:B3]&quot;"/>
+                    <has_text text="&quot;scheme&quot;: &quot;incf&quot;"/>
+                </assert_contents>
+            </output>
+            <output_collection name="result_tables" type="list" count="1">
+                <element name="results_tab" file="expected/results_tab.tsv" ftype="tabular"/>
+            </output_collection>
+            <assert_command>
+                <has_text text="-pf"/>
+                <has_text text="-x"/>
+                <not_has_text text="-so"/>
+            </assert_command>
+        </test>
+        <test expect_failure="true">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test_reads.fastq" ftype="fastqsanger"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <assert_command>
+                <has_text text="-mp kma"/>
+                <has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_failure="true">
+            <conditional name="input">
+                <param name="input_type" value="single"/>
+                <param name="sequence" value="test_reads.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <assert_command>
+                <has_text text="-mp kma"/>
+                <has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+        <test expect_failure="true">
+            <conditional name="input">
+                <param name="input_type" value="paired"/>
+                <param name="read_pairs">
+                    <collection type="paired">
+                        <element name="forward" value="test_reads_R1.fastq" ftype="fastqsanger"/>
+                        <element name="reverse" value="test_reads_R2.fastq" ftype="fastqsanger"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="database" value="pmlst_2024-01-31"/>
+            <conditional name="target">
+                <param name="target_mode" value="scheme"/>
+                <param name="schemes" value="incf"/>
+            </conditional>
+            <assert_command>
+                <has_text text="-mp kma"/>
+                <has_text text="-so"/>
+                <not_has_text text="-x"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+pMLST performs plasmid multi-locus sequence typing against a pMLST database.
+For assembled contigs it runs BLAST; for FASTQ reads it runs KMA.
+It can type selected schemes directly or use PlasmidFinder tabular results to
+choose matching pMLST schemes.
+
+**Database**
+
+Install the pMLST database with the pMLST_SSI database data manager before running
+this tool.
+
+**Outputs**
+
+The primary result is either the simple summary table or the structured JSON
+result. Optional extended tabular, text, and FASTA outputs are collected as
+lists so single-scheme and multi-scheme runs are handled consistently.
+    ]]></help>
+    <expand macro="citations" />
+</tool>
