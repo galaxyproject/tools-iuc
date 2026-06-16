@@ -1,0 +1,702 @@
+<tool id="vg_giraffe" name="vg giraffe" version="@TOOL_VERSION_GIRAFFE@+galaxy@VERSION_SUFFIX_GIRAFFE@" profile="26.0">
+    <description>is a fast haplotype-aware read mapper</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION_GIRAFFE@">vg</requirement>
+        <requirement type="package" version="1.23.1">samtools</requirement>
+    </requirements>
+    <command detect_errors="aggressive"><![CDATA[
+        set -o pipefail;
+
+        ## Copy to avoid issues in HPC clusters when multiple processes access the same dist file.
+        ## https://github.com/vgteam/vg/wiki/Giraffe-best-practices#distance-index-zipcodes-file-and-minimizer-index
+        #if $indexes.distance:
+            cp '$indexes.distance' graph.dist &&
+        #end if
+
+        ## echo headers for tsv output for improved user experience
+        #if $format_cond.output_format == 'TSV':
+            echo -e 'Read Name\tReference Name\tOffset\tMapping Quality\tScore' >> '$output' &&
+        #end if
+
+        ## Run main command
+        vg giraffe
+            
+            ## Print additional progress information to stderr for troubleshooting or reporting issues
+            --progress 
+
+            ## Reference Graph
+            #if $reference.index_type == 'gbz':
+                --gbz-name '$reference.input_gbz'
+            #elif $reference.index_type == 'xg':
+                --xg-name '$reference.input_xg'
+                --gbwt-name '$reference.input_gbwt'
+            #elif $reference.index_type == 'gg':
+                --graph-name '$reference.input_gg'
+                --gbwt-name '$reference.input_gbwt'
+            #end if
+
+            ## Indexes
+            #if $indexes.minimizer:
+                --minimizer-name '$indexes.minimizer'
+            #end if
+            #if $indexes.distance:
+                --dist-name graph.dist
+            #end if
+            #if $indexes.zipcode:
+                --zipcode-name '$indexes.zipcode'
+            #end if
+
+            ## Preset
+            --parameter-preset '$preset'
+
+            ## Input Reads
+            #if $reads.reads_type == 'single':
+                -f '$reads.input_fastq'
+                $reads.interleaved
+                $reads.comments_as_tags
+            #elif $reads.reads_type == 'paired':
+                -f '$reads.input_fastq1' 
+                -f '$reads.input_fastq2'
+                $reads.comments_as_tags
+            #elif $reads.reads_type == 'gam':
+                -G '$reads.input_gam'
+                $reads.interleaved
+            #end if
+        
+            ## Output Options
+            --output-format '$format_cond.output_format'
+            #if $format_cond.output_format in ['SAM', 'BAM', 'CRAM']:
+                #if $format_cond.input_xg and $reference.index_type != 'xg':
+                    --xg-name '$format_cond.input_xg'
+                #end if
+                #if $format_cond.ref_name:
+                    --ref-name '$format_cond.ref_name'
+                #end if
+                #if $format_cond.ref_paths:
+                    --ref-paths '$format_cond.ref_paths'
+                #end if
+                $format_cond.add_graph_aln
+            #elif $format_cond.output_format in ['GAM', 'GAF', 'JSON']:
+                $format_cond.named_coordinates
+                #if $format_cond.output_format != 'GAF':
+                    $format_cond.set_refpos 
+                #end if
+            #elif $format_cond.output_format == 'TSV':
+                $format_cond.set_refpos
+            #end if
+
+            #if $format_cond.output_format in ['GAM', 'JSON', 'SAM', 'BAM', 'CRAM']:
+                #if $format_cond.sample:
+                    --sample '$format_cond.sample'
+                #end if
+                #if $format_cond.read_group:
+                    --read-group '$format_cond.read_group'
+                #end if
+            #end if
+
+            ## Advanced Options
+            $advanced.rec_mode
+            #if $advanced.rescue_algorithm != 'dozeu':
+                --rescue-algorithm '$advanced.rescue_algorithm'
+            #end if
+            #if $advanced.fragment_length_cond.fragment_length_settings == 'manual':
+                --fragment-mean $advanced.fragment_length_cond.fragment_mean
+                --fragment-stdev $advanced.fragment_length_cond.fragment_stdev
+            #end if
+
+            ### Program Options
+            #if $advanced.program_options_args:
+                #for $arg in str($advanced.program_options_args).split(','):
+                    #set $arg = $arg.strip()
+                    #if $arg:
+                        #if '=' in $arg:
+                            #set $key = $arg.split('=', 1)[0].strip()
+                            #set $val = $arg.split('=', 1)[1].strip()
+                            #if $key and $val:
+                                $key '$val'
+                            #end if
+                        #else:
+                            $arg
+                        #end if
+                    #end if
+                #end for
+            #end if
+
+            #if $format_cond.output_format in ['BAM', 'CRAM']:
+                ## Sort the BAM/CRAM file by coordinates so the job in Galaxy does not fail 
+                | samtools sort -O '$format_cond.output_format' 
+            #end if
+            
+            >> '$output'
+    ]]></command>
+    <inputs>
+        <conditional name="reference">
+            <param name="index_type" type="select" label="Graph to Map Against">
+                <option value="gbz" selected="true">GBZ Graph (default) (--gbz-name)</option>
+                <option value="xg">XG Graph (--xg-name)</option>
+                <option value="gg">GBWTGraph (--graph-name)</option>
+            </param>
+            <when value="gbz">
+                <param name="input_gbz" argument="--gbz-name" type="data" format="vg.gbz,binary" label="GBZ Graph" help="Map to this GBZ graph"/>
+            </when>
+            <when value="xg">
+                <param name="input_xg" argument="--xg-name" type="data" format="xg" label="XG Graph" help="Map to this XG Graph"/>
+                <expand macro="param_input_gbwt"/>
+            </when>
+            <when value="gg">
+                <param name="input_gg" argument="--graph-name" type="data" format="vg.gg,binary" label="GBWTGraph" help="Map to this GBWTGraph"/>
+                <expand macro="param_input_gbwt"/>
+            </when>
+        </conditional>
+        <section name="indexes" title="Graph Index Files" expanded="false" help="Providing according index files that are compatible with the input graph will speed up analysis. If omitted, vg giraffe will automatically try to generate them on the fly before mapping">
+            <param name="minimizer" argument="--minimizer-name" type="data" format="vg.min,binary" optional="true" label="Minimizer Index" help="Provide to speed up finding matches (seeds) between reads and the graph"/>
+            <param name="distance" argument="--dist-name" type="data" format="vg.dist,binary" optional="true" label="Distance Index" help="Provide to quickly cluster seeds"/>
+            <param name="zipcode" argument="--zipcode-name" type="data" format="vg.zip,binary" optional="true" label="Zipcode Index" help="Provide for distance hints to speed up chaining, especially for long reads"/>
+        </section>
+        <param name="preset" type="select" label="Parameter Preset" help="Set computational parameters (--parameter-preset)">
+            <option value="default" selected="true">Default</option>
+            <option value="fast">Fast</option>
+            <option value="hifi">PacBio HiFi</option>
+            <option value="r10">ONT R10</option>
+            <option value="chaining-sr">Short reads with chaining</option>
+            <option value="srold">Old short reads preset</option>
+        </param>
+        <conditional name="reads">
+            <param name="reads_type" type="select" label="Input Reads">
+                <option value="single" selected="true">Read and align a FASTQ/FASTA file (one file) (-f)</option>
+                <option value="paired">Read and align paired-end FASTQ/FASTA files (two files) (-f)</option>
+                <option value="gam">Read and realign a GAM file (-G)</option>
+            </param>
+            <when value="single">
+                <param name="input_fastq" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" label="Reads"/>
+                <expand macro="param_interleaved"/>
+                <expand macro="param_comments_as_tags"/>
+            </when>
+            <when value="paired">
+                <param name="input_fastq1" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" label="Forward Reads"/>
+                <param name="input_fastq2" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" label="Reverse Reads"/>
+                <expand macro="param_comments_as_tags"/>
+            </when>
+            <when value="gam">
+                <param name="input_gam" type="data" format="gam,binary" label="GAM Alignments"/>
+                <expand macro="param_interleaved"/>
+            </when>
+        </conditional>
+        <conditional name="format_cond">
+            <param name="output_format" type="select" label="Output Format">
+                <option value="GAM" selected="true">GAM</option>
+                <option value="GAF">GAF</option>
+                <option value="SAM">SAM</option>
+                <option value="BAM">BAM</option>
+                <option value="CRAM">CRAM</option>
+                <option value="JSON">JSON</option>
+                <option value="TSV">TSV</option>
+            </param>
+            <when value="GAM">
+                <expand macro="param_named_coordinates"/>
+                <expand macro="param_set_refpos"/>
+                <expand macro="param_sample"/>
+                <expand macro="param_read_group"/>
+            </when>
+            <when value="GAF">
+                <expand macro="param_named_coordinates"/>
+            </when>
+            <when value="JSON">
+                <expand macro="param_named_coordinates"/>
+                <expand macro="param_set_refpos"/>
+                <expand macro="param_sample"/>
+                <expand macro="param_read_group"/>
+            </when>
+            <when value="TSV">
+                <expand macro="param_set_refpos"/>
+            </when>
+            <when value="SAM">
+                <expand macro="param_input_xg_for_htslib"/>
+                <expand macro="param_ref_name"/>
+                <expand macro="param_ref_paths"/>
+                <expand macro="param_add_graph_aln"/>
+                <expand macro="param_sample"/>
+                <expand macro="param_read_group"/>
+            </when>
+             <when value="BAM">
+                <expand macro="param_input_xg_for_htslib"/>
+                <expand macro="param_ref_name"/>
+                <expand macro="param_ref_paths"/>
+                <expand macro="param_add_graph_aln"/>
+                <expand macro="param_sample"/>
+                <expand macro="param_read_group"/>
+             </when>
+             <when value="CRAM">
+                <expand macro="param_input_xg_for_htslib"/>
+                <expand macro="param_ref_name"/>
+                <expand macro="param_ref_paths"/>
+                <expand macro="param_add_graph_aln"/>
+                <expand macro="param_sample"/>
+                <expand macro="param_read_group"/>
+            </when>
+        </conditional>
+        <!-- Advanced Options -->
+        <section name="advanced" title="Advanced Options" expanded="false" help=" ">
+            <param argument="--rec-mode" type="boolean" truevalue="--rec-mode" falsevalue="" checked="false" label="Recombination-Aware Mode" help="Mode for long reads. It helps keep alignments on a single, consistent haplotype path and avoids jumping between similar sequences"/>
+            <param argument="--rescue-algorithm" type="select" label="Rescue Algorithm" help="For paired-end reads. If one read maps but its partner doesn't, this algorithm will try to find a location for the unmapped read near its mapped partner">
+                <option value="dozeu" selected="true">dozeu (default)</option>
+                <option value="none">none</option>
+                <option value="gssw">gssw</option>
+            </param>
+            <conditional name="fragment_length_cond">
+                <param name="fragment_length_settings" type="select" label="Fragment Length Distribution (Paired-End)" help="Control the distance between input read pairs. Automatically detect the fragment length distribution or manually force a specific one. This option has no effect for single-end reads">
+                    <option value="auto" selected="true">Automatic (default)</option>
+                    <option value="manual">Set Mean and Standard Deviation</option>
+                </param>
+                <when value="auto"/>
+                <when value="manual">
+                    <param argument="--fragment-mean" type="float" value="0" min="0" label="Fragment Mean" help="Force fragment length distribution to have this mean"/>
+                    <param argument="--fragment-stdev" type="float" value="0" min="0" label="Fragment Standard Deviation" help="Force fragment length distribution to have this standard deviation"/>
+                </when>
+            </conditional>
+            <param name="program_options_args" type="text" optional="true" label="program_options args" help="Add additional arguments to vg giraffe. Comma-separated option_name=option_value. If the option_name is a boolean, then the option_value is not needed. Example: --mismatch=4,--match=1,--log-reads. See the Help section below for a link to the full list of options.">
+                <validator type="regex" message="Options must be formatted as key or key=value and separated by commas.">^[^,=]+(=[^,]+)?(,[^,=]+(=[^,]+)?)*$</validator>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="vg.gam" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="format_cond.output_format" value="GAF" format="vg.gaf"/>
+                <when input="format_cond.output_format" value="SAM" format="sam"/>
+                <when input="format_cond.output_format" value="BAM" format="bam"/>
+                <when input="format_cond.output_format" value="CRAM" format="cram"/>
+                <when input="format_cond.output_format" value="JSON" format="json"/>
+                <when input="format_cond.output_format" value="TSV" format="tabular"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: Mapping to a GBZ graph and a single read. Output in GAM -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="single"/>
+                <param name="input_fastq" value="giraffe/reads_1.fastq.gz"/>
+            </conditional>
+            <output name="output" ftype="vg.gam">
+                <assert_contents>
+                    <has_size min="270000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: Mapping to a GBWT graph and a single read. Output in GAM -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gg"/>
+                <param name="input_gg" value="giraffe/graph.gg"/>
+                <param name="input_gbwt" value="giraffe/graph.gbwt"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="single"/>
+                <param name="input_fastq" value="giraffe/reads_1.fastq.gz"/>
+            </conditional>
+            <output name="output" ftype="vg.gam">
+                <assert_contents>
+                    <has_size min="270000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: Mapping to a XG graph and a single read. Output in GAM -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="xg"/>
+                <param name="input_xg" value="giraffe/graph.xg"/>
+                <param name="input_gbwt" value="giraffe/graph.gbwt"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="single"/>
+                <param name="input_fastq" value="giraffe/reads_1.fastq.gz"/>
+            </conditional>
+            <output name="output" ftype="vg.gam">
+                <assert_contents>
+                    <has_size min="270000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: Mapping to a GBZ graph and a paired read. Output in GAF -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="GAF"/>
+            </conditional>
+            <output name="output" ftype="vg.gaf">
+                <assert_contents>
+                    <has_size min="1100000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: Mapping to a GBZ graph and a paired read. Output in JSON -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="JSON"/>
+            </conditional>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_text text="{&quot;annotation&quot;:" n="4000"/>
+                    <has_text text="refpos" negate="true"/>
+                    <has_text text="sample_name" negate="true"/>
+                    <has_text text="read_group" negate="true"/>
+                    <has_text text="8af8856b4bda81f1_"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: Mapping to a GBZ graph and a paired read (interleaved fasta file). Ouput in JSON -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="single"/>
+                <param name="input_fastq" value="giraffe/reads_interleaved.fastq.gz"/>
+                <param name="interleaved" value="true"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="JSON"/>
+            </conditional>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_text text="{&quot;annotation&quot;:" n="4000"/>
+                    <has_text text="refpos" negate="true"/>
+                    <has_text text="sample_name" negate="true"/>
+                    <has_text text="read_group" negate="true"/>
+                    <has_text text="8af8856b4bda81f1_"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: Mapping to a GBZ graph and a paired read. Output in JSON with ref-pos, sample and read-group set -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="JSON"/>
+                <param name="set_refpos" value="true"/>
+                <param name="sample" value="mysample"/>
+                <param name="read_group" value="groupy"/>
+            </conditional>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_text text="{&quot;annotation&quot;:" n="4000"/>
+                    <has_text text="&quot;refpos&quot;:"/>
+                    <has_text text="&quot;sample_name&quot;: &quot;mysample&quot;"/>
+                    <has_text text="&quot;read_group&quot;: &quot;groupy&quot;"/>
+                    <has_text text="8af8856b4bda81f1_"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: Mapping to a GBZ graph and a paired read. Ouput in TSV -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+             <conditional name="format_cond">
+                <param name="output_format" value="TSV"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_line line="8af8856b4bda81f1_&#009;&#009;0&#009;60&#009;160" n="2"/>
+                    <has_text text="chr1" negate="true"/>
+                    <has_n_lines n="4001"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 9: Mapping to a GBZ graph and a paired read. Ouput in TSV with ref-pos set -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="TSV"/>
+                <param name="set_refpos" value="true"/>
+            </conditional>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_line line="8af8856b4bda81f1_&#009;chr1&#009;1782&#009;60&#009;160" n="1"/>
+                    <has_line line="8af8856b4bda81f1_&#009;chr1&#009;1515&#009;60&#009;160" n="1"/>
+                    <has_n_lines n="4001"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 10: Mapping to a GBZ graph and a paired read. Ouput in SAM without XG graph -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="SAM"/>
+            </conditional>
+            <output name="output" ftype="sam">
+                <assert_contents>
+                    <has_line line="@HD&#009;VN:1.5&#009;SO:unknown" n="1"/>
+                    <has_text text="@SQ&#009;SN:chr1" n="1"/>
+                    <has_text text="@SQ&#009;SN:chr2" n="1"/>
+                    <has_line line="@PG&#009;ID:0&#009;PN:vg" n="1"/>
+                    <has_text text="8af8856b4bda81f1_&#009;83&#009;chr1&#009;1663&#009;60&#009;150M&#009;=&#009;1516&#009;-297"/>
+                    <has_text text="1020e3d0e69ad810_&#009;83&#009;chr2&#009;3674&#009;60&#009;150M&#009;=&#009;3540&#009;-284"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 11: Mapping to a GBZ graph and a paired read. Ouput in SAM with XG graph. This is just for testing as our gbz graph is fast enough and would not require a XG graph -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="SAM"/>
+                <param name="input_xg" value="giraffe/graph.xg"/>
+            </conditional>
+            <output name="output" ftype="sam">
+                <assert_contents>
+                    <has_line line="@HD&#009;VN:1.5&#009;SO:unknown" n="1"/>
+                    <has_text text="@SQ&#009;SN:chr1" n="1"/>
+                    <has_text text="@SQ&#009;SN:chr2" n="1"/>
+                    <has_line line="@PG&#009;ID:0&#009;PN:vg" n="1"/>
+                    <has_text text="8af8856b4bda81f1_&#009;83&#009;chr1&#009;1663&#009;60&#009;150M&#009;=&#009;1516&#009;-297"/>
+                    <has_text text="1020e3d0e69ad810_&#009;83&#009;chr2&#009;3674&#009;60&#009;150M&#009;=&#009;3540&#009;-284"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 12: Mapping to a GBZ graph and a paired read. Ouput in SAM without XG graph with ref_paths (for default ref_assembly), sample, read-group and graph alignments set -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="SAM"/>
+                <param name="ref_paths" value="giraffe/paths.txt"/>
+                <param name="sample" value="mysample"/>
+                <param name="read_group" value="groupy"/>
+                <param name="add_graph_aln" value="true"/>
+            </conditional>
+            <output name="output" ftype="sam">
+                <assert_contents>
+                    <has_line line="@HD&#009;VN:1.5&#009;SO:unknown" n="1"/>
+                    <has_text text="@SQ&#009;SN:chr1" negate="true"/>
+                    <has_text text="@SQ&#009;SN:chr2" n="1"/>
+                    <has_line line="@RG&#009;ID:groupy&#009;SM:mysample" n="1"/>
+                    <has_line line="@PG&#009;ID:0&#009;PN:vg" n="1"/>
+                    <has_text text="8af8856b4bda81f1_&#009;77&#009;*&#009;0&#009;0&#009;*&#009;*&#009;0&#009;-1"/>
+                    <has_text text="1020e3d0e69ad810_&#009;83&#009;chr2&#009;3674&#009;60&#009;150M&#009;=&#009;3540&#009;-284"/>
+                    <has_text text="&#009;GR:Z::"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 13: Mapping to a GBZ graph and a paired read. Ouput in BAM without XG graph -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="BAM"/>
+            </conditional>
+            <output name="output" ftype="bam">
+                <assert_contents>
+                    <has_size min="113000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 14: Mapping to a GBZ graph and a paired read. Ouput in CRAM without XG graph -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="CRAM"/>
+            </conditional>
+            <output name="output" ftype="cram">
+                <assert_contents>
+                    <has_size min="36000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 15: Mapping to a GBZ graph and a paired read. Ouput in JSON with custom params -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/graph.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="paired"/>
+                <param name="input_fastq1" value="giraffe/reads_1.fastq.gz"/>
+                <param name="input_fastq2" value="giraffe/reads_2.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="JSON"/>
+            </conditional>
+            <conditional name="advanced">
+                <param name="program_options_args" value="--track-correctness,--track-position"/>
+            </conditional>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_text text="{&quot;annotation&quot;:" n="4000"/>
+                    <has_text text="refpos" negate="true"/>
+                    <has_text text="sample_name" negate="true"/>
+                    <has_text text="read_group" negate="true"/>
+                    <has_text text="param_hit-cap"/>
+                    <has_text text="correct-minimizer-coverage"/>
+                    <has_text text="8af8856b4bda81f1_"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 16: Mapping to a custom GBZ graph to test for coordinate names. Ouput in JSON -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/components_walks.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="single"/>
+                <param name="input_fastq" value="giraffe/components_reads_1.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="JSON"/>
+                <param name="named_coordinates" value="true"/>
+            </conditional>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_text text="{&quot;annotation&quot;:" n="1"/>
+                    <has_text text="cats"/>
+                    <has_text text="dogs"/>
+                    <has_text text="goldfish"/>
+                    <has_text text="read_cats_to_sparrows"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 17: Mapping to a custom GBZ graph with mutiple references to test for ref-name. Ouput in SAM -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="index_type" value="gbz"/>
+                <param name="input_gbz" value="giraffe/components_walks.gbz"/>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_type" value="single"/>
+                <param name="input_fastq" value="giraffe/components_reads_1.fastq.gz"/>
+            </conditional>
+            <conditional name="format_cond">
+                <param name="output_format" value="SAM"/>
+                <param name="ref_name" value="reference_a"/>
+            </conditional>
+            <output name="output" ftype="sam">
+                <assert_contents>
+                    <has_line line="@HD&#009;VN:1.5&#009;SO:unknown" n="1"/>
+                    <has_text text="@SQ&#009;SN:reference_a#"/>
+                    <has_text text="@SQ&#009;SN:reference_b#" negate="true"/>
+                    <has_text text="read_cats_to_sparrows&#009;0&#009;reference_a#1#A"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+vg giraffe is a fast, haplotype-aware read mapper to map reads to thousands of genomes embedded in a pangenome reference graph at a speed comparable to that of standard methods mapping to a single reference genome.
+It supports short-read mapping and based on the configuration also long-read mapping. 
+
+**Inputs**
+
+* Graph: It is recommended to provide a GBZ format graph. Alternatively, an XG graph or an GBWTGraph along with a GBWT index can be used.
+* Reads: Accepts Single-end, Paired-end, or Interleaved FASTQ/FASTA. It can also read and realign an existing GAM alignment file.
+
+**Outputs**
+
+* Graph Alignments: Output in the formats GAM, GAF, JSON, or TSV that describe alignments as paths through nodes in the graph.
+* Linear Alignments: For output in the formats SAM, BAM, and CRAM, vg giraffe will surject the graph-based alignments onto the nearest linear reference paths embedded in the graph. **Note:** Older GBZ/GBWT graphs might not contain reference paths, which are required for surjection (e.g., if they were created with a vg version older than 1.37.0). Additionally, surjecting can sometimes cause poor performance. To avoid missing reference paths and performance issues, it is recommended to provide a compatible XG graph alongside the input graph in the output options.
+
+-----
+
+**Read More**
+
+* Mapping short reads: https://github.com/vgteam/vg/wiki/Mapping-short-reads-with-Giraffe
+* Mapping long reads: https://github.com/vgteam/vg/wiki/Mapping-long-reads-with-Giraffe
+* Best practices: https://github.com/vgteam/vg/wiki/Giraffe-best-practices
+* General vg Wiki: https://github.com/vgteam/vg/wiki/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/nbt.4227</citation>
+        <citation type="doi">10.1126/science.abg8871</citation>
+        <citation type="doi">10.1101/2025.09.29.678807</citation>
+        <citation type="doi">10.1101/2023.12.13.571553</citation>
+        <citation type="doi">10.1093/bioinformatics/btac656</citation>
+    </citations>
+    <creator>
+        <person givenName="Niklas" familyName="Mayle" url="https://github.com/Maed0x"/>
+        <person givenName="Saim" familyName="Momin" url="https://github.com/SaimMomin12"/>
+        <organization name="Galaxy Europe" url="https://galaxyproject.org/eu/"/>
+    </creator>
+</tool>
