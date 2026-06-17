@@ -1,15 +1,16 @@
+import os
 import argparse
 import copy
 import itertools
 import warnings
-import os
+
 
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from imblearn.over_sampling import SMOTE, RandomOverSampler
+from imblearn.over_sampling import RandomOverSampler,SMOTE 
 from imblearn.pipeline import Pipeline
 from imblearn.under_sampling import NearMiss, RandomUnderSampler
 from lightgbm import LGBMClassifier
@@ -19,46 +20,47 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.datasets import load_iris
 from sklearn.decomposition import PCA
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
-from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.feature_selection import (
+    f_classif,
     SelectFromModel,
     SelectKBest,
-    VarianceThreshold,
-    f_classif,
+    VarianceThreshold
 )
+from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.metrics import (
     auc,
-    matthews_corrcoef,
-    precision_recall_fscore_support,
-    roc_auc_score,
-    roc_curve,
-    precision_recall_curve,
     f1_score,
+    matthews_corrcoef,
+    precision_recall_curve,
+    precision_recall_fscore_support,
     precision_score,
     recall_score,
-)  
-    
+    roc_auc_score,
+    roc_curve,
+)
+
 from sklearn.model_selection import (
+    cross_val_predict,
+    cross_val_score,
     GridSearchCV,
     KFold,
     StratifiedKFold,
-    cross_val_predict,
-    cross_val_score,
     train_test_split,
 )
+
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.preprocessing import LabelBinarizer, LabelEncoder, label_binarize, StandardScaler
+from sklearn.preprocessing import label_binarize, LabelBinarizer, LabelEncoder, StandardScaler
+
 from sklearn.svm import SVC
 
-#from tabpfn import TabPFNClassifier
+# from tabpfn import TabPFNClassifier
 # from tabpfn_extensions.post_hoc_ensembles.sklearn_interface import AutoTabPFNClassifier
-from xgboost import XGBClassifier
+
 from itertools import combinations
+from xgboost import XGBClassifier
 
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-
 
 def split_classes(X, y):
     return {
@@ -83,7 +85,7 @@ def ovo_and_ova_multiclass_auc(X, y, base_clf, p_grid, random_state, model_name)
     ####################
     print("Performing One vs Rest classification")
 
-    #checking grid search enabled or not 
+    # checking grid search enabled or not
     if p_grid is not None:
         ovr_clf = GridSearchCV(
             estimator=OneVsRestClassifier(base_clf),
@@ -93,61 +95,59 @@ def ovo_and_ova_multiclass_auc(X, y, base_clf, p_grid, random_state, model_name)
         )
     else:
         ovr_clf = OneVsRestClassifier(base_clf)
-   
-    
-    y_score = cross_val_predict(ovr_clf, X, y_encoded, cv=outer_cv, method="predict_proba") 
-    y_pred = np.argmax(y_score, axis=1) 
-    
-    # Per-class metrics for OvR 
-    per_class_precision = [] 
-    per_class_recall = [] 
-    per_class_f1 = [] 
+
+    y_score = cross_val_predict(ovr_clf, X, y_encoded, cv=outer_cv, method="predict_proba")
+    y_pred = np.argmax(y_score, axis=1)
+
+    # Per-class metrics for OvR
+    per_class_precision = []
+    per_class_recall = []
+    per_class_f1 = []
     per_class_mcc = []
 
-    for idx, cls in enumerate(class_names): 
-        y_bin = (y_encoded == idx).astype(int) 
-        cls_score = y_score[:, idx] 
-        
-        # Ensure minority class is positive 
-        if np.sum(y_bin) > np.sum(1 - y_bin): 
-            y_bin = 1 - y_bin 
-            cls_score = 1 - cls_score 
-            
-        y_pred_bin = (y_pred == idx).astype(int) 
-        precision, recall, f1, _ = precision_recall_fscore_support(y_bin, y_pred_bin, average="binary") 
-        mcc = matthews_corrcoef(y_bin, y_pred_bin) 
-        prec_curve, rec_curve, _ = precision_recall_curve(y_bin, cls_score) 
-        pr_auc_val = auc(rec_curve, prec_curve) 
-        roc_auc_val = roc_auc_score(y_bin, cls_score) 
-        
-        results[f"{cls} vs Rest - Precision"] = precision 
-        results[f"{cls} vs Rest - Recall"] = recall 
-        results[f"{cls} vs Rest - F1"] = f1 
-        results[f"{cls} vs Rest - MCC"] = mcc 
-        results[f"{cls} vs Rest - PR AUC"] = pr_auc_val 
-        results[f"{cls} vs Rest - ROC AUC"] = roc_auc_val 
-        
-        per_class_precision.append(precision) 
-        per_class_recall.append(recall) 
-        per_class_f1.append(f1) 
-        per_class_mcc.append(mcc) 
-    
-    # Macro metrics OvR 
+    for idx, cls in enumerate(class_names):
+        y_bin = (y_encoded == idx).astype(int)
+        cls_score = y_score[:, idx]
 
-    macro_ovr_auc = np.mean([results[f"{cls} vs Rest - ROC AUC"] for cls in class_names]) 
-    macro_ovr_precision = np.mean(per_class_precision) 
-    macro_ovr_recall = np.mean(per_class_recall) 
-    macro_ovr_f1 = np.mean(per_class_f1) 
+        # Ensure minority class is positive
+        if np.sum(y_bin) > np.sum(1 - y_bin):
+            y_bin = 1 - y_bin
+            cls_score = 1 - cls_score
+
+        y_pred_bin = (y_pred == idx).astype(int)
+        precision, recall, f1, _ = precision_recall_fscore_support(y_bin, y_pred_bin, average="binary")
+        mcc = matthews_corrcoef(y_bin, y_pred_bin)
+        prec_curve, rec_curve, _ = precision_recall_curve(y_bin, cls_score)
+        pr_auc_val = auc(rec_curve, prec_curve)
+        roc_auc_val = roc_auc_score(y_bin, cls_score)
+
+        results[f"{cls} vs Rest - Precision"] = precision
+        results[f"{cls} vs Rest - Recall"] = recall
+        results[f"{cls} vs Rest - F1"] = f1
+        results[f"{cls} vs Rest - MCC"] = mcc
+        results[f"{cls} vs Rest - PR AUC"] = pr_auc_val
+        results[f"{cls} vs Rest - ROC AUC"] = roc_auc_val
+
+        per_class_precision.append(precision)
+        per_class_recall.append(recall)
+        per_class_f1.append(f1)
+        per_class_mcc.append(mcc)
+
+    # Macro metrics OvR
+
+    macro_ovr_auc = np.mean([results[f"{cls} vs Rest - ROC AUC"] for cls in class_names])
+    macro_ovr_precision = np.mean(per_class_precision)
+    macro_ovr_recall = np.mean(per_class_recall)
+    macro_ovr_f1 = np.mean(per_class_f1)
     macro_ovr_mcc = np.mean(per_class_mcc)
     macro_ovr_pr_auc = np.mean([results[f"{cls} vs Rest - PR AUC"] for cls in class_names])
 
-    
     results["OvR Macro ROC AUC"] = macro_ovr_auc
     results["OvR Macro Precision"] = macro_ovr_precision
     results["OvR Macro Recall"] = macro_ovr_recall
-    results["OvR Macro F1"] = macro_ovr_f1 
+    results["OvR Macro F1"] = macro_ovr_f1
     results["OvR Macro MCC"] =  macro_ovr_mcc
-    results["OvR Macro PR AUC"] = macro_ovr_pr_auc 
+    results["OvR Macro PR AUC"] = macro_ovr_pr_auc
 
     '''
     print(f"Macro ROC AUC (OvR): {macro_ovr_auc:.4f}")
@@ -157,9 +157,7 @@ def ovo_and_ova_multiclass_auc(X, y, base_clf, p_grid, random_state, model_name)
     print(f"Macro MCC (OvR): {macro_ovr_mcc:.4f}")
     print(f"Macro PR AUC (OvR): {macro_ovr_pr_auc:.4f}")  '''
 
-    
-
-    #avoiding  meaningless computation as OvO metrics won’t make sense with TabPFN
+    # avoiding  meaningless computation as OvO metrics won’t make sense with TabPFN
     if model_name == "tabpfn":
         print("Skipping One-vs-One metrics for TabPFN")
     else:
@@ -168,13 +166,13 @@ def ovo_and_ova_multiclass_auc(X, y, base_clf, p_grid, random_state, model_name)
         # One-vs-One Classification
         ####################
         print("Performing One vs One classification")
-    
-        ovo_auc = {} 
-        ovo_precision = {} 
-        ovo_recall = {} 
-        ovo_f1 = {} 
-        ovo_mcc = {} 
-        
+
+        ovo_auc = {}
+        ovo_precision = {}
+        ovo_recall = {}
+        ovo_f1 = {}
+        ovo_mcc = {}
+
         for c1, c2 in combinations(range(len(class_names)), 2): 
             mask = np.isin(y_encoded, [c1, c2]) 
             X_pair, y_pair = X[mask], y_encoded[mask] 
@@ -307,7 +305,7 @@ def repeat_clf(n_seeds, ks, X, y, label, model, sampling_strategy, use_grid=Fals
             if model == "rf":
                 ml_model = rf
                 ml_model_grid = {
-                    "estimator__classification__n_estimators":[100, 300, 500],  # Number of trees in the forest
+                    "estimator__classification__n_estimators": [100, 300, 500],  # Number of trees in the forest
                     "estimator__classification__max_depth": [None, 10, 20, 30],  # tree depth
                     "estimator__classification__max_features": ["sqrt", "log2"],  # Feature selection strategy
                     "estimator__classification__criterion": ["entropy"],  # Split criterion
@@ -363,10 +361,10 @@ def repeat_clf(n_seeds, ks, X, y, label, model, sampling_strategy, use_grid=Fals
             # Run the classification with the sampling strategy
             if use_grid:
                 results, plot_data = ovo_and_ova_multiclass_auc(
-                    X, y, pipeline, ml_model_grid, random_state=seed ,  model_name=model
+                    X, y, pipeline, ml_model_grid, random_state=seed,  model_name=model
                 )
             else:
-                results , plot_data = ovo_and_ova_multiclass_auc(
+                results, plot_data = ovo_and_ova_multiclass_auc(
                     X, y, pipeline, None, random_state=seed,  model_name=model
                 )
                        
@@ -678,10 +676,10 @@ def main():
       
     
     seed_results = run_classification(X, y, ks, args.n_seeds,args.output, args.label,args.model, args.sampling_strategy, args.grid_search)
-    #plot_bar(result_path,args.ks)
-    #plot_all_modes(result_path)
+    # plot_bar(result_path,args.ks)
+    # plot_all_modes(result_path)
     
-    #diagnostic plot 
+    # diagnostic plot 
     first_seed = list(seed_results.keys())[0]
     first_k = list(seed_results[first_seed].keys())[0]
     plot_data = seed_results[first_seed][first_k]["plot_data"]
