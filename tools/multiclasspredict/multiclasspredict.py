@@ -1,5 +1,5 @@
-import os
 import argparse
+import os
 import copy
 import itertools
 import warnings
@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from imblearn.over_sampling import RandomOverSampler,SMOTE 
+from imblearn.over_sampling import RandomOverSampler, SMOTE
 from imblearn.pipeline import Pipeline
 from imblearn.under_sampling import NearMiss, RandomUnderSampler
 from lightgbm import LGBMClassifier
@@ -26,7 +26,6 @@ from sklearn.feature_selection import (
     SelectKBest,
     VarianceThreshold
 )
-from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.metrics import (
     auc,
     f1_score,
@@ -38,6 +37,7 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+from sklearn.model_selection import RepeatedStratifiedKFold
 
 from sklearn.model_selection import (
     cross_val_predict,
@@ -51,16 +51,17 @@ from sklearn.model_selection import (
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import label_binarize, LabelBinarizer, LabelEncoder, StandardScaler
 
+from itertools import combinations
 from sklearn.svm import SVC
 
 # from tabpfn import TabPFNClassifier
 # from tabpfn_extensions.post_hoc_ensembles.sklearn_interface import AutoTabPFNClassifier
 
-from itertools import combinations
 from xgboost import XGBClassifier
 
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+
 
 def split_classes(X, y):
     return {
@@ -256,7 +257,6 @@ def ovo_and_ova_multiclass_auc(X, y, base_clf, p_grid, random_state, model_name)
         results["OvO Macro MCC"] = macro_ovo_mcc
         results["OvO Macro PR AUC"] =  macro_ovo_pr_auc
     
-    
         ''' 
         print(f"Macro ROC AUC (OvO): {macro_ovo_auc:.4f}")
         print(f"Macro Precision (OvO): {macro_ovo_precision:.4f}")
@@ -317,17 +317,17 @@ def repeat_clf(n_seeds, ks, X, y, label, model, sampling_strategy, use_grid=Fals
                 )
                 ml_model_grid = {
                     "estimator__classification__n_estimators": [100, 300, 500], 
-                    "estimator__classification__gamma": [0, 0.1, 0.3], # min loss reduction
+                    "estimator__classification__gamma": [0, 0.1, 0.3],  # min loss reduction
                     "estimator__classification__max_depth": [3, 5, 7], 
-                    "estimator__classification__learning_rate": [0.01, 0.05, 0.1], # step size
+                    "estimator__classification__learning_rate": [0.01, 0.05, 0.1], #  step size
                 }
             elif model == "etc":
                 ml_model = ExtraTreesClassifier(random_state=seed)
                 ml_model_grid = {
                     "estimator__classification__n_estimators": [100, 300, 500],
-                    "estimator__classification__max_depth": [None, 10, 20],       # tree depth
-                    "estimator__classification__max_features": ["sqrt", "log2"],  # features per split
-                    "estimator__classification__min_samples_leaf": [1, 2, 4],     # min leaf samples
+                    "estimator__classification__max_depth": [None, 10, 20],       #  tree depth
+                    "estimator__classification__max_features": ["sqrt", "log2"],  #  features per split
+                    "estimator__classification__min_samples_leaf": [1, 2, 4],     #  min leaf samples
                     
                 }
             elif model == "lgbm":
@@ -361,14 +361,13 @@ def repeat_clf(n_seeds, ks, X, y, label, model, sampling_strategy, use_grid=Fals
             # Run the classification with the sampling strategy
             if use_grid:
                 results, plot_data = ovo_and_ova_multiclass_auc(
-                    X, y, pipeline, ml_model_grid, random_state=seed,  model_name=model
+                    X, y, pipeline, ml_model_grid, random_state=seed, model_name=model
                 )
             else:
                 results, plot_data = ovo_and_ova_multiclass_auc(
-                    X, y, pipeline, None, random_state=seed,  model_name=model
+                    X, y, pipeline, None, random_state=seed, model_name=model
                 )
                        
-
             # print(results)
 
             ks_results[k] = {
@@ -378,7 +377,6 @@ def repeat_clf(n_seeds, ks, X, y, label, model, sampling_strategy, use_grid=Fals
                 "Model": model,
                 "Sampling_Strategy": sampling_strategy,
             }
-
 
         seed_results[seed] = copy.copy(ks_results)
 
@@ -406,7 +404,7 @@ def store_results(seed_results, output):
             result = result_info["results"]
             model = result_info["Model"]
             sampling_strategy = result_info["Sampling_Strategy"]
-            label=result_info["Label"]
+            label = result_info["Label"]
                         
             # Determine Class and Type
            
@@ -470,7 +468,7 @@ def store_results(seed_results, output):
     print(df)
 
 
-def run_classification(X, y, ks, n_seeds,output, label,model, sampling_strategy,use_grid=False):
+def run_classification(X, y, ks, n_seeds,output, label, model, sampling_strategy, use_grid=False):
 
     '''# Ensure ks does not exceed the number of columns in X
     max_features = len(X.columns)
@@ -478,20 +476,17 @@ def run_classification(X, y, ks, n_seeds,output, label,model, sampling_strategy,
     if max_features not in ks:
         ks.append(max_features)'''
 
-    seed_results = repeat_clf(n_seeds, ks, X, y, label,model, sampling_strategy, use_grid=use_grid)
+    seed_results = repeat_clf(n_seeds, ks, X, y, label, model, sampling_strategy, use_grid=use_grid)
     store_results(seed_results, output)
     
     return seed_results
-
-
-
 
         
 def plot_pairwise_diagnostics(plot_data, diagnostic_plot):
 
     n_pairs = len(plot_data)
 
-    fig, axes = plt.subplots(n_pairs, 3, figsize=(18, 4*n_pairs))
+    fig, axes = plt.subplots(n_pairs, 3, figsize = (18, 4*n_pairs))
 
     if n_pairs == 1:
         axes = np.array([axes])
@@ -501,7 +496,7 @@ def plot_pairwise_diagnostics(plot_data, diagnostic_plot):
         class_b = item["class_b"]
         y_true = item["y_true"]
         y_prob = item["y_prob"]
-        pair_name = item["pair_name"]
+        #pair_name = item["pair_name"]
 
         ax_roc, ax_pr, ax_hist = ax_row
 
@@ -584,7 +579,6 @@ def plot_model_performance_by_features(result_file, plot_per_feature):
 
             df_plot = df[(df["Features (k)"] == feature) & (df["Type"] == t)]
 
-            
             df_melt = df_plot.melt(
                 id_vars=["Class"],
                 value_vars=metrics,
@@ -629,9 +623,6 @@ def plot_model_performance_by_features(result_file, plot_per_feature):
     fig.savefig(plot_per_feature, format="png", bbox_inches="tight")
     plt.close(fig)
 
-            
-           
-      
 
 def main():
     parser = argparse.ArgumentParser(description="Run Classification Model")
@@ -648,8 +639,6 @@ def main():
     parser.add_argument("--diagnostic_plot", type=str, required=True)
     parser.add_argument("--plot_per_feature", type=str, required=True)
     args = parser.parse_args()
-    
-    
     
     # reading str file paths
     X = pd.read_csv(args.X, sep="\t")
@@ -674,8 +663,7 @@ def main():
     # flattening y into 1D array
     y = y.values.ravel()
       
-    
-    seed_results = run_classification(X, y, ks, args.n_seeds,args.output, args.label,args.model, args.sampling_strategy, args.grid_search)
+    seed_results = run_classification(X, y, ks, args.n_seeds, args.output, args.label, args.model, args.sampling_strategy, args.grid_search)
     # plot_bar(result_path,args.ks)
     # plot_all_modes(result_path)
     
@@ -684,16 +672,10 @@ def main():
     first_k = list(seed_results[first_seed].keys())[0]
     plot_data = seed_results[first_seed][first_k]["plot_data"]
     plot_pairwise_diagnostics(plot_data, args.diagnostic_plot)
-   
 
     # performance plot per feature 
     plot_model_performance_by_features(args.output, args.plot_per_feature)
     
     
-
-
-    
 if __name__ == "__main__":
     main()
-
- 
