@@ -654,8 +654,8 @@ def main():
     
     
     # reading str file paths
-    X = pd.read_csv(args.X, sep="\t",index_col=0)
-    y = pd.read_csv(args.y, sep="\t",index_col=0)
+    X = pd.read_csv(args.X, sep="\t")
+    y = pd.read_csv(args.y, sep="\t")
     
     # keep only numeric columns for sampling strategies
     X = X.select_dtypes(include=[np.number])
