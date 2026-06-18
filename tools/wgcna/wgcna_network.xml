@@ -8,6 +8,7 @@
         mkdir -p plots results &&
         Rscript '$wgcna_script'
     ]]></command>
+
     <configfiles>
         <configfile name="config_txt" filename="config.txt"><![CDATA[
 counts_file = $counts_file
@@ -23,8 +24,8 @@ variance_quantile = $variance_quantile
 run_sample_gene_qc = $run_sample_gene_qc
 trait_columns = $trait_columns
 ]]></configfile>
+
         <configfile name="wgcna_script" filename="wgcna_script.R"><![CDATA[
-## wgcna_script.R  -- embedded via <configfile>
 library(WGCNA)
 library(igraph)
 
@@ -32,35 +33,33 @@ options(stringsAsFactors = FALSE)
 allowWGCNAThreads()
 
 ## ── Read config ──────────────────────────────────────────────────────────────
-cfg      <- read.delim("config.txt", header = FALSE, sep = "=",
-                       strip.white = TRUE, stringsAsFactors = FALSE)
+cfg <- read.delim("config.txt", header = FALSE, sep = "=",
+                  strip.white = TRUE, stringsAsFactors = FALSE)
 cfg_list <- setNames(trimws(cfg[, 2]), trimws(cfg[, 1]))
 
-counts_file       <- cfg_list[["counts_file"]]
-metadata_file     <- cfg_list[["metadata_file"]]
-soft_power        <- as.integer(cfg_list[["soft_power"]])
-network_type      <- cfg_list[["network_type"]]
-tom_type          <- cfg_list[["tom_type"]]
-min_module_size   <- as.integer(cfg_list[["min_module_size"]])
-merge_cut_height  <- as.numeric(cfg_list[["merge_cut_height"]])
-log_transform     <- cfg_list[["log_transform"]] == "true"
-filter_by_variance <- cfg_list[["filter_by_variance"]] == "true"
-variance_quantile <- as.numeric(cfg_list[["variance_quantile"]])
-run_sample_gene_qc <- cfg_list[["run_sample_gene_qc"]] == "true"
-trait_columns     <- trimws(strsplit(cfg_list[["trait_columns"]], ",")[[1]])
-trait_columns     <- trait_columns[nzchar(trait_columns)]
+counts_file         <- cfg_list[["counts_file"]]
+metadata_file       <- cfg_list[["metadata_file"]]
+soft_power          <- as.integer(cfg_list[["soft_power"]])
+network_type        <- cfg_list[["network_type"]]
+tom_type            <- cfg_list[["tom_type"]]
+min_module_size     <- as.integer(cfg_list[["min_module_size"]])
+merge_cut_height    <- as.numeric(cfg_list[["merge_cut_height"]])
+log_transform       <- cfg_list[["log_transform"]] == "true"
+filter_by_variance  <- cfg_list[["filter_by_variance"]] == "true"
+variance_quantile   <- as.numeric(cfg_list[["variance_quantile"]])
+run_sample_gene_qc  <- cfg_list[["run_sample_gene_qc"]] == "true"
+trait_columns       <- trimws(strsplit(cfg_list[["trait_columns"]], ",")[[1]])
+trait_columns       <- trait_columns[nzchar(trait_columns)]
 
 if (length(trait_columns) == 0) {
     stop("At least one numeric trait column must be provided.")
 }
-
 
 cat("Config loaded. Starting WGCNA analysis...\n")
 
 ## ── STEP 1: Load data ────────────────────────────────────────────────────────
 counts <- read.delim(counts_file, check.names = FALSE, row.names = 1)
 meta   <- read.delim(metadata_file, check.names = FALSE)
-meta   <- meta[, colnames(meta) != "", drop = FALSE]
 
 cat("Data loaded:", nrow(counts), "genes x", ncol(counts), "samples\n")
 
@@ -72,36 +71,58 @@ if (log_transform) {
     expr_data <- log2(expr_data + 1)
 }
 
-missing_values <- sum(is.na(expr_data))
-if (missing_values > 0) {
-    expr_data <- expr_data[complete.cases(expr_data), ]
+if (any(is.na(expr_data))) {
+    expr_data <- expr_data[complete.cases(expr_data), , drop = FALSE]
     cat("Removed rows with missing values. New dimensions:", dim(expr_data), "\n")
 }
 
-gene_variances     <- apply(expr_data, 1, var)
+gene_variances <- apply(expr_data, 1, var, na.rm = TRUE)
+gene_variances[!is.finite(gene_variances)] <- NA_real_
+
 filtered_expr_data <- expr_data
+variance_threshold <- NA_real_
 
 if (filter_by_variance) {
-    variance_threshold <- quantile(gene_variances, variance_quantile, na.rm = TRUE)
-    cat("Variance threshold (", variance_quantile * 100, "th percentile):",
-        variance_threshold, "\n")
-    filtered_expr_data <- expr_data[gene_variances > variance_threshold, ]
+    valid_var <- gene_variances[is.finite(gene_variances)]
+    if (length(valid_var) == 0) {
+        warning("No finite variances found; skipping variance filtering.")
+    } else {
+        variance_threshold <- quantile(valid_var, variance_quantile, na.rm = TRUE)
+        filtered_expr_data <- expr_data[gene_variances > variance_threshold, , drop = FALSE]
+
+        if (nrow(filtered_expr_data) == 0) {
+            warning("Variance filter removed all genes; using unfiltered expression matrix.")
+            filtered_expr_data <- expr_data
+        } else {
+            cat("Variance threshold (", variance_quantile * 100, "th percentile): ",
+                variance_threshold, "\n", sep = "")
+        }
+    }
 } else {
-    variance_threshold <- NA_real_
     cat("Variance filtering disabled by user.\n")
 }
+
 cat("Genes after variance filtering:", nrow(filtered_expr_data), "\n")
 
 png("plots/01_gene_variance_distribution.png", width = 800, height = 600, res = 100)
-hist(log10(gene_variances), breaks = 50,
-     main = "Log10 Variance Distribution of Genes",
-     xlab = "Log10(Variance)", col = "lightblue", border = "black")
-if (!is.na(variance_threshold)) {
-    abline(v = log10(variance_threshold), col = "red", lwd = 2, lty = 2)
+var_plot <- gene_variances[is.finite(gene_variances) & gene_variances > 0]
+if (length(var_plot) > 1) {
+    hist(log10(var_plot), breaks = 50,
+         main = "Log10 Variance Distribution of Genes",
+         xlab = "Log10(Variance)", col = "lightblue", border = "black")
+    if (is.finite(variance_threshold) && variance_threshold > 0) {
+        abline(v = log10(variance_threshold), col = "red", lwd = 2, lty = 2)
+    }
+} else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient variance values for histogram")
 }
 dev.off()
 
 datExpr <- t(filtered_expr_data)
+
+if (nrow(datExpr) < 2) stop("Too few samples after filtering.")
+if (ncol(datExpr) < 2) stop("Too few genes after filtering.")
 
 sampleTree <- hclust(dist(datExpr), method = "average")
 png("plots/02_sample_clustering.png", width = 1200, height = 600, res = 100)
@@ -133,42 +154,39 @@ if (ncol(meta) < 2) {
     stop("Trait data must include sample names in the first column and at least one trait column.")
 }
 sample_column <- colnames(meta)[1]
+
 if (anyDuplicated(meta[[sample_column]]) > 0) {
-    stop("Duplicate sample names found in the first column of the trait data.")
+    stop("Duplicate sample names found in first column of metadata.")
 }
-rownames(meta) <- meta[[sample_column]]
+rownames(meta) <- as.character(meta[[sample_column]])
 
 sample_ids <- rownames(datExpr)
 missing_samples <- setdiff(sample_ids, rownames(meta))
 if (length(missing_samples) > 0) {
-    stop("Trait data is missing sample(s) from the count matrix: ",
-         paste(missing_samples, collapse = ", "))
+    stop("Trait data missing sample(s): ", paste(missing_samples, collapse = ", "))
 }
 meta <- meta[sample_ids, , drop = FALSE]
 
 missing_traits <- setdiff(trait_columns, colnames(meta))
 if (length(missing_traits) > 0) {
-    stop("Trait column(s) not found in trait data: ",
-         paste(missing_traits, collapse = ", "))
+    stop("Trait column(s) not found: ", paste(missing_traits, collapse = ", "))
 }
 
 trait_data <- meta[, trait_columns, drop = FALSE]
 for (col in trait_columns) {
     original_values <- trait_data[[col]]
     numeric_values <- suppressWarnings(as.numeric(original_values))
-    invalid_values <- is.na(numeric_values) &
-        !is.na(original_values) &
-        nzchar(trimws(as.character(original_values)))
-    if (any(invalid_values)) {
-        stop("Trait column '", col,
-             "' contains non-numeric values. Provide cleaned numeric trait data.")
+    bad <- is.na(numeric_values) &
+           !is.na(original_values) &
+           nzchar(trimws(as.character(original_values)))
+    if (any(bad)) {
+        stop("Trait column '", col, "' contains non-numeric values.")
     }
     if (all(is.na(numeric_values))) {
         stop("Trait column '", col, "' contains no numeric values.")
     }
     trait_data[[col]] <- numeric_values
 }
-
 rownames(trait_data) <- sample_ids
 
 cat("Trait data prepared:", ncol(trait_data), "trait(s)\n")
@@ -178,7 +196,7 @@ print(head(trait_data))
 if (run_sample_gene_qc) {
     gsg <- goodSamplesGenes(datExpr, verbose = 3)
     if (!gsg[["allOK"]]) {
-        datExpr <- datExpr[gsg[["goodSamples"]], gsg[["goodGenes"]]]
+        datExpr <- datExpr[gsg[["goodSamples"]], gsg[["goodGenes"]], drop = FALSE]
         trait_data <- trait_data[rownames(datExpr), , drop = FALSE]
     }
 } else {
@@ -187,8 +205,7 @@ if (run_sample_gene_qc) {
 
 cat("After goodSamplesGenes:", ncol(datExpr), "genes,", nrow(datExpr), "samples\n")
 if (ncol(datExpr) < min_module_size) {
-    stop("Too few genes (", ncol(datExpr),
-         ") remain after QC for min_module_size=", min_module_size)
+    stop("Too few genes (", ncol(datExpr), ") for min_module_size=", min_module_size)
 }
 
 set.seed(12345)
@@ -207,7 +224,9 @@ net <- blockwiseModules(
     verbose           = 3
 )
 
-module_colors      <- labels2colors(net[["colors"]])
+module_colors <- labels2colors(net[["colors"]])
+names(module_colors) <- colnames(datExpr)
+
 module_gene_counts <- table(module_colors)
 cat("Modules identified (excluding grey):",
     sum(names(module_gene_counts) != "grey"), "\n")
@@ -226,7 +245,7 @@ dev.off()
 
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
-ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs")
+ME_cor <- cor(module_eigengenes, use = "pairwise.complete.obs")
 ME_diss <- 1 - ME_cor
 ME_tree <- hclust(as.dist(ME_diss), method = "average")
 
@@ -237,21 +256,15 @@ dev.off()
 
 ## ── STEP 6: Module-trait associations ───────────────────────────────────────
 trait_data_aligned <- trait_data[rownames(module_eigengenes), , drop = FALSE]
-module_trait_cor   <- cor(module_eigengenes, trait_data_aligned,
-                           use = "pairwise.complete.obs")
+module_trait_cor <- cor(module_eigengenes, trait_data_aligned, use = "pairwise.complete.obs")
 
-if (is.null(rownames(module_trait_cor))) {
-    rownames(module_trait_cor) <- colnames(module_eigengenes)
-}
-if (is.null(colnames(module_trait_cor))) {
-    colnames(module_trait_cor) <- colnames(trait_data_aligned)
-}
+if (is.null(rownames(module_trait_cor))) rownames(module_trait_cor) <- colnames(module_eigengenes)
+if (is.null(colnames(module_trait_cor))) colnames(module_trait_cor) <- colnames(trait_data_aligned)
 
-nSamples           <- nrow(datExpr)
-module_trait_pval  <- corPvalueStudent(module_trait_cor, nSamples)
+nSamples <- nrow(datExpr)
+module_trait_pval <- corPvalueStudent(module_trait_cor, nSamples)
 
-text_matrix     <- paste0(signif(module_trait_cor, 2),
-                           "\n(", signif(module_trait_pval, 1), ")")
+text_matrix <- paste0(signif(module_trait_cor, 2), "\n(", signif(module_trait_pval, 1), ")")
 dim(text_matrix) <- dim(module_trait_cor)
 
 png("plots/07_module_trait_heatmap.png", width = 1200, height = 800, res = 120)
@@ -271,30 +284,33 @@ labeledHeatmap(
 )
 dev.off()
 
-## ── STEP 7: Gene significance and module membership ──────────────────────────
+## ── STEP 7: GS/MM ───────────────────────────────────────────────────────────
 trait_of_interest <- colnames(trait_data_aligned)[1]
 
-common_samples    <- Reduce(intersect, list(
+common_samples <- Reduce(intersect, list(
     rownames(datExpr),
     rownames(trait_data_aligned),
     rownames(module_eigengenes)
 ))
-datExpr           <- datExpr[common_samples, , drop = FALSE]
+datExpr <- datExpr[common_samples, , drop = FALSE]
 trait_data_aligned <- trait_data_aligned[common_samples, , drop = FALSE]
 module_eigengenes <- module_eigengenes[common_samples, , drop = FALSE]
-nSamples          <- nrow(datExpr)
+nSamples <- nrow(datExpr)
 
-gene_significance      <- cor(datExpr, trait_data_aligned[[trait_of_interest]],
-                               use = "pairwise.complete.obs")
+gene_significance <- cor(datExpr, trait_data_aligned[[trait_of_interest]], use = "pairwise.complete.obs")
 gene_significance_pval <- corPvalueStudent(as.numeric(gene_significance), nSamples)
-gene_significance      <- as.numeric(gene_significance)
-names(gene_significance)      <- colnames(datExpr)
+gene_significance <- as.numeric(gene_significance)
+names(gene_significance) <- colnames(datExpr)
 names(gene_significance_pval) <- colnames(datExpr)
 
-trait_vec            <- abs(module_trait_cor[, trait_of_interest, drop = TRUE])
-best_idx             <- which.max(trait_vec)
-most_relevant_module <- rownames(module_trait_cor)[best_idx]
-module_id_clean      <- sub("^ME", "", most_relevant_module)
+module_trait_cor_sub <- cor(module_eigengenes, trait_data_aligned, use = "pairwise.complete.obs")
+if (is.null(rownames(module_trait_cor_sub))) rownames(module_trait_cor_sub) <- colnames(module_eigengenes)
+if (is.null(colnames(module_trait_cor_sub))) colnames(module_trait_cor_sub) <- colnames(trait_data_aligned)
+
+trait_vec <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
+best_idx <- which.max(trait_vec)
+most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
+module_id_clean <- sub("^ME", "", most_relevant_module)
 
 if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
     module_name <- labels2colors(as.numeric(module_id_clean))
@@ -304,19 +320,14 @@ if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
 
 cat("Most relevant module:", most_relevant_module, "->", module_name, "\n")
 
-names(module_colors) <- colnames(datExpr)
 module_genes <- names(module_colors)[module_colors == module_name]
 cat("Genes in module", module_name, ":", length(module_genes), "\n")
+if (length(module_genes) == 0) stop("No genes found in selected module.")
 
-if (length(module_genes) == 0) {
-  stop("No genes found in module ", module_name, ". Check if module_colors was created correctly.")
-}
-
-## Module membership (MM)
 gene_module_membership <- cor(
-  datExpr[, module_genes, drop = FALSE],
-  module_eigengenes[, most_relevant_module, drop = TRUE],
-  use = "pairwise.complete.obs"
+    datExpr[, module_genes, drop = FALSE],
+    module_eigengenes[, most_relevant_module, drop = TRUE],
+    use = "pairwise.complete.obs"
 )
 
 module_gene_info <- data.frame(
@@ -329,8 +340,7 @@ module_gene_info <- data.frame(
 )
 module_gene_info <- module_gene_info[order(-abs(module_gene_info[["ModuleMembership"]])), ]
 
-png("plots/08_gene_significance_vs_module_membership.png",
-    width = 1000, height = 700, res = 120)
+png("plots/08_gene_significance_vs_module_membership.png", width = 1000, height = 700, res = 120)
 plot(abs(module_gene_info[["ModuleMembership"]]),
      abs(module_gene_info[["GeneSignificance"]]),
      xlab = paste("Module Membership in", module_name, "module"),
@@ -342,14 +352,12 @@ abline(lm(abs(GeneSignificance) ~ abs(ModuleMembership), data = module_gene_info
 dev.off()
 
 write.table(module_gene_info,
-    file = paste0("results/module_gene_info_", module_name,
-                  "_", trait_of_interest, ".tsv"),
+    file = paste0("results/module_gene_info_", module_name, "_", trait_of_interest, ".tsv"),
     sep = "\t", quote = FALSE, row.names = FALSE)
 
 ## ── STEP 8: Hub genes ────────────────────────────────────────────────────────
-adjacency_matrix <- adjacency(datExpr[, module_genes, drop = FALSE],
-                               power = soft_power, type = network_type)
-connectivity     <- colSums(adjacency_matrix) - 1
+adjacency_matrix <- adjacency(datExpr[, module_genes, drop = FALSE], power = soft_power, type = network_type)
+connectivity <- colSums(adjacency_matrix) - 1
 
 hub_info <- data.frame(
     Gene             = module_genes,
@@ -361,34 +369,27 @@ hub_info <- data.frame(
 hub_info <- hub_info[order(-hub_info[["Connectivity"]]), ]
 
 write.table(hub_info,
-    file = paste0("results/hub_genes_", module_name,
-                  "_", trait_of_interest, ".tsv"),
+    file = paste0("results/hub_genes_", module_name, "_", trait_of_interest, ".tsv"),
     sep = "\t", quote = FALSE, row.names = FALSE)
 
-is_top10 <- hub_info[["Connectivity"]] >
-    quantile(hub_info[["Connectivity"]], 0.9, na.rm = TRUE)
+is_top10 <- hub_info[["Connectivity"]] > quantile(hub_info[["Connectivity"]], 0.9, na.rm = TRUE)
 
-png(paste0("plots/09_hub_genes_", module_name, "_", trait_of_interest, ".png"),
-    width = 800, height = 600, res = 120)
+png(paste0("plots/09_hub_genes_", module_name, "_", trait_of_interest, ".png"), width = 800, height = 600, res = 120)
 plot(hub_info[["ModuleMembership"]], hub_info[["Connectivity"]],
-     xlab = "Module Membership (MM)",
-     ylab = "Connectivity (Intramodular)",
+     xlab = "Module Membership (MM)", ylab = "Connectivity (Intramodular)",
      main = paste("Hub Gene Identification in", module_name, "module"),
      pch = 20, col = ifelse(is_top10, "red", "black"))
-legend("topright",
-       legend = c("Top 10% connected", "Other genes"),
+legend("topright", legend = c("Top 10% connected", "Other genes"),
        col = c("red", "black"), pch = 20, bty = "n")
 dev.off()
 
 ## ── STEP 9: Co-expression network visualization ──────────────────────────────
-gene_var  <- apply(datExpr, 2, var, na.rm = TRUE)
-n_top     <- min(1000, length(gene_var))
+gene_var <- apply(datExpr, 2, var, na.rm = TRUE)
+n_top <- min(1000, length(gene_var))
 top_genes <- names(sort(gene_var, decreasing = TRUE))[1:n_top]
-
 cat("Calculating TOM for top", n_top, "variable genes...\n")
 
-adj_subset <- adjacency(datExpr[, top_genes, drop = FALSE],
-                         power = soft_power, type = network_type)
+adj_subset <- adjacency(datExpr[, top_genes, drop = FALSE], power = soft_power, type = network_type)
 tom_subset <- TOMsimilarity(adj_subset)
 colnames(tom_subset) <- top_genes
 rownames(tom_subset) <- top_genes
@@ -398,26 +399,24 @@ adj_thresh <- tom_subset
 adj_thresh[adj_thresh < tom_thresh] <- 0
 diag(adj_thresh) <- 0
 
-network_graph  <- graph_from_adjacency_matrix(adj_thresh, mode = "undirected",
-                                               weighted = TRUE, diag = FALSE)
+network_graph <- graph_from_adjacency_matrix(adj_thresh, mode = "undirected", weighted = TRUE, diag = FALSE)
 gene_color_map <- setNames(module_colors, colnames(datExpr))
-node_colors    <- gene_color_map[top_genes]
+node_colors <- gene_color_map[top_genes]
 node_colors[is.na(node_colors)] <- "grey"
-node_sizes     <- log10(degree(network_graph) + 1) * 3 + 3
+node_sizes <- log10(degree(network_graph) + 1) * 3 + 3
 
 png("plots/14_coexpression_network.png", width = 1200, height = 1200, res = 100)
 par(mar = c(1, 1, 3, 1))
 set.seed(123)
 plot(network_graph,
-     vertex.size        = node_sizes,
-     vertex.label       = NA,
-     vertex.color       = node_colors,
+     vertex.size = node_sizes,
+     vertex.label = NA,
+     vertex.color = node_colors,
      vertex.frame.color = NA,
-     edge.width         = 0.4,
-     edge.color         = "gray80",
-     layout             = layout_with_fr(network_graph),
-     main = paste0("Co-expression Network\n(Top ", n_top,
-                   " Variable Genes, Top 5% Connections)"))
+     edge.width = 0.4,
+     edge.color = "gray80",
+     layout = layout_with_fr(network_graph),
+     main = paste0("Co-expression Network\n(Top ", n_top, " Variable Genes, Top 5% Connections)"))
 unique_colors <- unique(node_colors[node_colors != "grey"])
 if (length(unique_colors) <= 10) {
     legend("topright", legend = unique_colors,
@@ -428,15 +427,14 @@ dev.off()
 
 ## ── STEP 10: Module eigengene network ────────────────────────────────────────
 me_correlation <- cor(module_eigengenes, use = "pairwise.complete.obs")
-me_pvalue      <- corPvalueStudent(me_correlation, nSamples)
+me_pvalue <- corPvalueStudent(me_correlation, nSamples)
 
-cor_thresh  <- 0.5
-me_adj      <- (abs(me_correlation) > cor_thresh) & (me_pvalue < 0.05)
+cor_thresh <- 0.5
+me_adj <- (abs(me_correlation) > cor_thresh) & (me_pvalue < 0.05)
 diag(me_adj) <- FALSE
 
 n_edges <- sum(me_adj) / 2
-cat("\nNumber of module pairs with |correlation| >", cor_thresh,
-    "and p < 0.05:", n_edges, "\n")
+cat("\nNumber of module pairs with |correlation| >", cor_thresh, "and p < 0.05:", n_edges, "\n")
 
 if (n_edges == 0) {
   cat("\nNo edges at |r| > 0.5; trying |r| > 0.3...\n")
@@ -447,21 +445,21 @@ if (n_edges == 0) {
   cat("Edges at |r| > 0.3:", n_edges, "\n")
 }
 
-me_names         <- colnames(module_eigengenes)
-module_ids_me    <- sub("^ME", "", me_names)
+me_names <- colnames(module_eigengenes)
+module_ids_me <- sub("^ME", "", me_names)
 module_colors_me <- module_ids_me
-numeric_me       <- suppressWarnings(!is.na(as.numeric(module_ids_me)))
+numeric_me <- suppressWarnings(!is.na(as.numeric(module_ids_me)))
 module_colors_me[numeric_me] <- labels2colors(as.numeric(module_ids_me[numeric_me]))
 names(module_colors_me) <- me_names
 
 if (sum(me_adj) > 0) {
-    me_network <- graph_from_adjacency_matrix(me_adj, mode = "undirected",
-                                               diag = FALSE)
+    me_network <- graph_from_adjacency_matrix(me_adj, mode = "undirected", diag = FALSE)
     vertex_colors <- module_colors_me[vertex_attr(me_network, "name")]
     vertex_colors[is.na(vertex_colors)] <- "grey"
     vertex_attr(me_network, "color") <- vertex_colors
+
     module_sizes_table <- table(module_colors)
-    module_sizes_net   <- module_sizes_table[vertex_colors]
+    module_sizes_net <- module_sizes_table[vertex_colors]
     module_sizes_net[is.na(module_sizes_net)] <- 10
     node_sizes_me <- log10(as.numeric(module_sizes_net) + 1) * 10 + 10
 
@@ -469,17 +467,16 @@ if (sum(me_adj) > 0) {
     par(mar = c(1, 1, 3, 1))
     set.seed(123)
     plot(me_network,
-         vertex.size        = node_sizes_me,
-         vertex.label       = vertex_colors,
-         vertex.label.cex   = 0.7,
+         vertex.size = node_sizes_me,
+         vertex.label = vertex_colors,
+         vertex.label.cex = 0.7,
          vertex.label.color = "black",
-         vertex.color       = module_colors_me,
+         vertex.color = vertex_colors,
          vertex.frame.color = "black",
-         edge.width         = 2.5,
-         edge.color         = "gray40",
-         layout             = layout_with_fr(me_network),
-         main = paste0("Module Eigengene Network\n(|correlation| > ",
-                       cor_thresh, ", p < 0.05)"))
+         edge.width = 2.5,
+         edge.color = "gray40",
+         layout = layout_with_fr(me_network),
+         main = paste0("Module Eigengene Network\n(|correlation| > ", cor_thresh, ", p < 0.05)"))
     dev.off()
 } else {
   cat("No significant module-module edges after thresholding.\n")
@@ -489,30 +486,21 @@ me_cor_labeled <- me_correlation
 rownames(me_cor_labeled) <- module_colors_me
 colnames(me_cor_labeled) <- module_colors_me
 
-png("plots/16_module_eigengene_correlation_heatmap.png",
-    width = 1200, height = 1200, res = 100)
+png("plots/16_module_eigengene_correlation_heatmap.png", width = 1200, height = 1200, res = 100)
 if (nrow(me_cor_labeled) > 1) {
-    heatmap(
-        me_cor_labeled,
-        col = colorRampPalette(c("blue", "white", "red"))(50),
-        scale = "none",
-        symm = TRUE,
-        margins = c(8, 8),
-        main = "Module Eigengene Correlation Heatmap"
-    )
+    heatmap(me_cor_labeled,
+            col = colorRampPalette(c("blue", "white", "red"))(50),
+            scale = "none",
+            symm = TRUE,
+            margins = c(8, 8),
+            main = "Module Eigengene Correlation Heatmap")
 } else {
     par(mar = c(5, 5, 4, 2))
-    image(
-        x = 1,
-        y = 1,
-        z = matrix(me_cor_labeled[1, 1], nrow = 1),
-        col = colorRampPalette(c("blue", "white", "red"))(50),
-        zlim = c(-1, 1),
-        axes = FALSE,
-        main = "Module Eigengene Correlation Heatmap",
-        xlab = "",
-        ylab = ""
-    )
+    image(x = 1, y = 1, z = matrix(me_cor_labeled[1,1], nrow = 1),
+          col = colorRampPalette(c("blue", "white", "red"))(50),
+          zlim = c(-1, 1),
+          axes = FALSE,
+          main = "Module Eigengene Correlation Heatmap")
     axis(1, at = 1, labels = colnames(me_cor_labeled), las = 2)
     axis(2, at = 1, labels = rownames(me_cor_labeled), las = 2)
 }
@@ -523,6 +511,7 @@ cat("Plots written to: plots/\n")
 cat("Results written to: results/\n")
 ]]></configfile>
     </configfiles>
+
     <inputs>
         <param name="counts_file" type="data" format="tabular" label="Counts matrix" help="Genes as rows, samples as columns. First column must be gene IDs."/>
         <param name="metadata_file" type="data" format="tabular" label="Sample metadata" help="First column should be sample name. Additional selected trait columns must be cleaned numeric values."/>
@@ -542,6 +531,7 @@ cat("Results written to: results/\n")
         <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="true" falsevalue="false" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
         <param name="trait_columns" type="text" value="age_at_diagnosis" label="Metadata trait columns (comma-separated)" help="Numeric column names from the metadata file to use as traits for module-trait association."/>
     </inputs>
+
     <outputs>
         <data name="plot_variance" format="png" label="Plot: gene variance distribution" from_work_dir="plots/01_gene_variance_distribution.png"/>
         <data name="plot_sample_clust" format="png" label="Plot: sample clustering" from_work_dir="plots/02_sample_clustering.png"/>
@@ -552,6 +542,7 @@ cat("Results written to: results/\n")
         <data name="plot_mm_gs" format="png" label="Plot: module membership vs gene significance" from_work_dir="plots/08_gene_significance_vs_module_membership.png"/>
         <data name="plot_coexpr_net" format="png" label="Plot: co-expression network" from_work_dir="plots/14_coexpression_network.png"/>
         <data name="plot_me_heatmap" format="png" label="Plot: module eigengene correlation heatmap" from_work_dir="plots/16_module_eigengene_correlation_heatmap.png"/>
+
         <collection name="module_gene_tables" type="list" label="Module gene info tables">
             <discover_datasets pattern="module_gene_info_(?P&lt;name&gt;.+)\.tsv" directory="results" format="tabular"/>
         </collection>
@@ -559,9 +550,9 @@ cat("Results written to: results/\n")
             <discover_datasets pattern="hub_genes_(?P&lt;name&gt;.+)\.tsv" directory="results" format="tabular"/>
         </collection>
     </outputs>
+
     <tests>
         <test>
-            <!-- INPUTS -->
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="soft_power" value="6"/>
@@ -574,9 +565,11 @@ cat("Results written to: results/\n")
             <param name="variance_quantile" value="0.4"/>
             <param name="run_sample_gene_qc" value="true"/>
             <param name="trait_columns" value="age_at_diagnosis"/>
-            <!-- OUTPUT DATA -->
+
             <output name="plot_variance" file="expected/01_gene_variance_distribution.png" compare="sim_size"/>
             <output name="plot_sample_clust" file="expected/02_sample_clustering.png" compare="sim_size"/>
+
+            <!-- keep these only if deterministic in your test dataset -->
             <output_collection name="hub_gene_tables" type="list">
                 <element name="firebrick4_age_at_diagnosis" file="expected/hub_genes_firebrick4_age_at_diagnosis.tsv"/>
             </output_collection>
@@ -585,24 +578,23 @@ cat("Results written to: results/\n")
             </output_collection>
         </test>
     </tests>
+
     <help><![CDATA[
 **WGCNA Full Pipeline**
 
 Runs the complete Weighted Gene Co-expression Network Analysis (WGCNA) workflow:
+1. Data loading and QC (optional log2 transform and variance filtering)
+2. Module detection with blockwiseModules
+3. Module eigengene analysis
+4. Module-trait correlation analysis
+5. Gene significance/module membership analysis
+6. Hub-gene ranking
+7. Co-expression and eigengene network visualization
 
-1. **Data loading and QC** — optionally log2-transforms counts, filters low-variance genes, clusters samples.
-2. **Network construction** — ``blockwiseModules`` builds the signed co-expression network.
-3. **Module eigengenes** — computes and clusters module eigengenes.
-4. **Module-trait association** — correlates eigengenes with user-provided numeric traits; produces a labeled heatmap.
-5. **Gene significance and module membership** — ranks genes in the most trait-relevant module.
-6. **Hub gene detection** — ranks genes by intramodular connectivity.
-7. **Network visualizations** — co-expression network and module eigengene network plots.
-
-**Tip:** Run **WGCNA: Soft-Thresholding Power** first and use its output power value here.
-
-The sample metadata table must be cleaned before running this tool. The first
-column is treated as the sample name and must match the count matrix column
-names. Trait columns selected for association must be numeric.
+The sample metadata table must be cleaned before running this tool:
+- first column = sample names matching count matrix columns
+- selected trait columns must be numeric
     ]]></help>
+
     <expand macro="wgcna_citations"/>
 </tool>
