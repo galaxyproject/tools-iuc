@@ -1,6 +1,6 @@
 <tool id="wgcna_softpower" name="WGCNA: Soft-Thresholding Power" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Estimate the soft-thresholding power for WGCNA network construction</description>
-        <macros>
+    <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="wgcna_softpower_requirements"/>
@@ -24,7 +24,6 @@
 library(WGCNA)
 
 options(stringsAsFactors = FALSE)
-enableWGCNAThreads()
 
 ## Read configuration
 cfg <- read.delim(
@@ -47,15 +46,14 @@ output_plot          <- cfg_list[["softpower_plot"]]
 output_config        <- cfg_list[["softpower_config"]]
 output_fit_indices   <- cfg_list[["softpower_fit_indices"]]
 
-## Load counts
+## Load count matrix
 counts <- read.delim(
     counts_file,
     check.names = FALSE,
     row.names = 1
 )
-cat("Counts loaded:", nrow(counts), "genes x", ncol(counts), "samples\n")
 
-## ── Prepare expression matrix ────────────────────────────────────────────────
+## Prepare expression matrix
 expr_data <- as.matrix(counts)
 mode(expr_data) <- "numeric"
 
@@ -64,60 +62,99 @@ if (log_transform) {
     expr_data <- log2(expr_data + 1)
 }
 
-missing_values <- sum(is.na(expr_data))
-if (missing_values > 0) {
+## Remove missing values if present
+if (any(is.na(expr_data))) {
     expr_data <- expr_data[complete.cases(expr_data), ]
-    cat("Removed", missing_values, "missing values.\n")
 }
 
-gene_variances     <- apply(expr_data, 1, var)
-variance_threshold <- quantile(gene_variances, variance_quantile, na.rm = TRUE)
-filtered_expr_data <- expr_data[gene_variances > variance_threshold, ]
+## Filter by variance if requested
+if (filter_by_variance) {
+    gene_variances <- apply(expr_data, 1, var)
+    variance_threshold <- quantile(
+        gene_variances,
+        variance_quantile,
+        na.rm = TRUE
+    )
+    filtered_expr_data <- expr_data[
+        gene_variances > variance_threshold,
+        ,
+        drop = FALSE
+    ]
+} else {
+    filtered_expr_data <- expr_data
+}
 
 datExpr <- t(filtered_expr_data)
 
-## ── Soft-thresholding ────────────────────────────────────────────────────────
-powers <- c(seq(1, 10, by = 1), seq(12, 20, by = 2))
-sft    <- pickSoftThreshold(datExpr, powerVector = powers,
-                             networkType = network_type, verbose = 3)
+## Enable multithreading when available
+try(enableWGCNAThreads(), silent = TRUE)
 
-## ── Plot ─────────────────────────────────────────────────────────────────────
+## Candidate powers
+powers <- c(seq(1, 10, by = 1), seq(12, 20, by = 2))
+
+## Pick soft-thresholding power
+sft <- pickSoftThreshold(
+    datExpr,
+    powerVector = powers,
+    networkType = network_type,
+    corFnc = get(corFnc),
+    verbose = 3
+)
+
+## Generate plot
 png(output_plot, width = 1200, height = 600, res = 100)
+
 par(mfrow = c(1, 2))
 
-plot(sft[["fitIndices"]][, 1],
-     -sign(sft[["fitIndices"]][, 3]) * sft[["fitIndices"]][, 2],
-     type = "n",
-     xlab = "Soft Threshold (power)",
-     ylab = "Scale Free Topology Model Fit, signed R^2",
-     main = "Scale Independence")
-text(sft[["fitIndices"]][, 1],
-     -sign(sft[["fitIndices"]][, 3]) * sft[["fitIndices"]][, 2],
-     labels = sft[["fitIndices"]][, 1], cex = 0.9, col = "red")
+plot(
+    sft\$fitIndices[, 1],
+    -sign(sft\$fitIndices[, 3]) * sft\$fitIndices[, 2],
+    type = "n",
+    xlab = "Soft Threshold (power)",
+    ylab = "Scale Free Topology Model Fit, signed R^2",
+    main = "Scale Independence"
+)
+
+text(
+    sft\$fitIndices[, 1],
+    -sign(sft\$fitIndices[, 3]) * sft\$fitIndices[, 2],
+    labels = sft\$fitIndices[, 1],
+    cex = 0.9,
+    col = "red"
+)
+
 abline(h = 0.85, col = "blue", lty = 2)
 
-plot(sft[["fitIndices"]][, 1], sft[["fitIndices"]][, 5],
-     type = "n",
-     xlab = "Soft Threshold (power)",
-     ylab = "Mean Connectivity",
-     main = "Mean Connectivity")
-text(sft[["fitIndices"]][, 1], sft[["fitIndices"]][, 5],
-     labels = sft[["fitIndices"]][, 1], cex = 0.9, col = "red")
+plot(
+    sft\$fitIndices[, 1],
+    sft\$fitIndices[, 5],
+    type = "n",
+    xlab = "Soft Threshold (power)",
+    ylab = "Mean Connectivity",
+    main = "Mean Connectivity"
+)
 
-par(mfrow = c(1, 1))
+text(
+    sft\$fitIndices[, 1],
+    sft\$fitIndices[, 5],
+    labels = sft\$fitIndices[, 1],
+    cex = 0.9,
+    col = "red"
+)
+
 dev.off()
-cat("Soft-thresholding plot written to:", output_plot, "\n")
 
-## ── Determine power ──────────────────────────────────────────────────────────
-soft_power <- sft[["powerEstimate"]] 
+## Determine selected power
+soft_power <- sft\$powerEstimate
+
 if (is.na(soft_power)) {
     soft_power <- 6
-    cat("No suitable power found. Defaulting to power =", soft_power, "\n")
+    cat("No suitable power found. Defaulting to power = 6. This is a safe default value when no power achieves R-squared >= 0.85.\n")
 } else {
     cat("Chosen soft-thresholding power:", soft_power, "\n")
 }
 
-## ── Write softpower config ───────────────────────────────────────────────────
+## Write configuration file
 writeLines(
     c(
         paste0("soft_power = ", soft_power),
