@@ -25,14 +25,20 @@ content needed by the current tests.
     ```sh
     rm test-db/AMR.LIB.h3*
     rm test-db/AMR_CDS.fa*
+    rm test-db/AMR_DNA-Enterococcus_faecalis.fa.not
+    rm test-db/AMR_DNA-Enterococcus_faecalis.fa.ntf
+    rm test-db/AMR_DNA-Enterococcus_faecalis.fa.nto
     rm test-db/AMR_DNA-Enterococcus_faecium.fa*
     rm test-db/AMR_DNA-Enterococcus_faecium.tsv
+    rm test-db/AMRProt.fa.ptf
+    rm test-db/AMRProt.fa.pto
     ```
 
-The final database keeps `AMR.LIB`, `AMRProt.fa` and the `AMRProt.fa` BLAST
-index files because protein searches still need them. The `AMR.LIB.h3*` HMM
-index files are omitted because the tests pass with the reduced plain
-`AMR.LIB`. The `Enterococcus_faecalis` mutation FASTA and BLAST index files are
-kept because the mutation-output tests exercise that path. The
+The final database keeps `AMR.LIB`, `AMRProt.fa` and the required `AMRProt.fa`
+BLAST index files because protein searches still need them. The `AMR.LIB.h3*`
+HMM index files are omitted because the tests pass with the reduced plain
+`AMR.LIB`. The `Enterococcus_faecalis` mutation FASTA and required BLAST index
+files are kept because the mutation-output tests exercise that path. Optional
+BLAST sidecar files that are not needed by the tests are omitted. The
 `Enterococcus_faecium` FASTA, BLAST index and mutation metadata files are
 omitted because no current test uses faecium mutation search.
