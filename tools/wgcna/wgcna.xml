@@ -1,0 +1,814 @@
+<tool id="wgcna" name="WGCNA" version="1.72.5+galaxy0" profile="25.1" license="MIT">
+    <description>Weighted Gene Co-expression Network Analysis</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.72.5</token>
+    </macros>
+    <edam_topics> ## not correct
+        <edam_topic>topic_3308</edam_topic>
+        <edam_topic>topic_0203</edam_topic>
+        <edam_topic>topic_3170</edam_topic>
+    </edam_topics>
+    <edam_operations> ## not correct
+        <edam_operation>operation_3766</edam_operation>
+        <edam_operation>operation_2437</edam_operation>
+        <edam_operation>operation_3463</edam_operation>
+    </edam_operations>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">r-wgcna</requirement>
+        <requirement type="package" version="4.3.1">r-base</requirement>
+        <requirement type="package" version="1.12.0">bioconductor-deseq2</requirement> ## don't know if required 
+        <requirement type="package" version="1.2.3">r-dplyr</requirement> ## don't know if required
+        <requirement type="package" version="3.4.0">r-ggplot2</requirement> ## don't know if required
+        <requirement type="package" version="1.3.4">r-reshape2</requirement>  ## don't know if required
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+Rscript '$wgcna_script'
+    '$input_mode.mode'
+## galaxy fills in the actual file paths as arguments when the tool is run, based on the user's input and the selected mode.
+## The R script will parse these arguments to determine which input files to read and how to process them according to the
+## chosen WGCNA workflow.
+    ## ---- Option 1: Pre-normalized user matrix ----
+    #if $input_mode.mode == "1"
+        '$input_mode.expression_matrix'
+        'NULL'
+        'NULL'
+        'NULL'
+        '$input_mode.sample_col'
+        'NULL'
+        '$input_mode.trait_file'
+        '$input_mode.trait_col'
+    #end if
+
+    ## ---- Option 2: Raw counts + DESeq2 VST normalization ----
+    #if $input_mode.mode == "2"
+        '$input_mode.raw_counts'
+        '$input_mode.coldata'
+        '$input_mode.condition_col'
+        'NULL'
+        '$input_mode.sample_col'
+        'NULL'
+        '$input_mode.trait_file'
+        '$input_mode.trait_col'
+    #end if
+
+    ## ---- Option 3: Multiple datasets (consensus WGCNA) ----
+    #if $input_mode.mode == "3"
+        '$input_mode.expression_matrix_1'
+        '$input_mode.expression_matrix_2'
+        'NULL'
+        'NULL'
+        '$input_mode.sample_col'
+        'NULL'
+        '$input_mode.trait_file'
+        '$input_mode.trait_col'
+    #end if
+
+    ## ---- Option 4: Recount3 direct integration (TPM + sample annotation) ----
+    #if $input_mode.mode == "4"
+        '$input_mode.tpm_matrix'
+        'NULL'
+        'NULL'
+        '$input_mode.sample_annotation'
+        '$input_mode.sample_id_col'
+        '$input_mode.trait_col'
+        'NULL'
+        '$input_mode.trait_col'
+    #end if
+
+    ## ---- Shared WGCNA parameters ----
+    '$params.soft_power'
+    '$params.min_module_size'
+    '$params.var_genes_pct'
+    '$params.merge_cut_height'
+    '$params.network_type'
+    '$params.cor_type'
+
+    ## ---- Outputs ----
+    '$module_membership'
+    '$hub_genes'
+    '$module_trait_correlation'
+    '$network_edges'
+    #if $advanced.export_plots
+        '$soft_power_plot'
+        '$dendrogram_plot'
+        '$heatmap_plot'
+    #else
+        'NULL'
+        'NULL'
+        'NULL'
+    #end if
+    ]]></command>
+
+    <configfiles>
+        <configfile name="wgcna_script"><![CDATA[
+#raw
+suppressPackageStartupMessages({
+    library(WGCNA)
+    library(DESeq2)
+    library(dplyr)
+    library(ggplot2)
+    library(reshape2)
+})
+
+options(stringsAsFactors = FALSE)
+enableWGCNAThreads()
+
+args <- commandArgs(trailingOnly = TRUE)
+
+## Parse arguments
+mode              <- args[1]
+input_a           <- args[2]   # primary expression matrix / raw counts / tpm
+input_b           <- args[3]   # secondary matrix (consensus) / coldata (DESeq2) / NULL
+input_c           <- args[4]   # condition col (DESeq2) / NULL
+input_d           <- args[5]   # sample annotation (recount3) / NULL
+sample_col        <- args[6]   # sample ID column
+trait_col_or_auto <- args[7]   # trait column / recount3 trait col
+trait_file        <- args[8]   # external trait file / NULL
+trait_col         <- args[9]   # trait column in external file
+
+soft_power_arg    <- as.integer(args[10])
+min_module_size   <- as.integer(args[11])
+var_genes_pct     <- as.numeric(args[12])
+merge_cut_height  <- as.numeric(args[13])
+network_type      <- args[14]
+cor_type          <- args[15]
+
+out_membership    <- args[16]
+out_hub           <- args[17]
+out_trait_cor     <- args[18]
+out_edges         <- args[19]
+out_soft_plot     <- args[20]
+out_dendro_plot   <- args[21]
+out_heatmap_plot  <- args[22]
+
+## ============================================================
+## Helper functions
+## ============================================================
+
+write_tab <- function(x, path) {
+    write.table(x, path, sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+}
+
+filter_var_genes <- function(mat, pct) {
+    vars <- apply(mat, 1, var)
+    top_n <- max(1, round(nrow(mat) * pct))
+    mat[order(vars, decreasing = TRUE)[1:top_n], ]
+}
+
+pick_soft_power <- function(datExpr, network_type) {
+    powers <- c(1:10, seq(12, 20, by = 2))
+    sft <- pickSoftThreshold(datExpr, powerVector = powers,
+                             networkType = network_type, verbose = 0)
+    best <- sft$powerEstimate
+    if (is.na(best)) {
+        warning("Auto soft power selection failed; defaulting to 6.")
+        best <- 6
+    }
+    cat("Soft-thresholding power selected:", best, "\n")
+    best
+}
+
+
+## ============================================================
+## Mode 3: Two datasets -> Consensus WGCNA
+## Expects: two pre-normalized expression matrices (genes x samples)
+## ============================================================
+
+if (mode == "3") {
+    cat("Mode 3: Consensus WGCNA across two datasets\n")
+    expr1 <- t(as.matrix(read.delim(input_a, row.names = 1, check.names = FALSE)))
+    expr2 <- t(as.matrix(read.delim(input_b, row.names = 1, check.names = FALSE)))
+
+    ## Align genes
+    common_genes <- intersect(colnames(expr1), colnames(expr2))
+    if (length(common_genes) == 0) stop("No common genes between the two datasets.")
+    expr1 <- expr1[, common_genes, drop = FALSE]
+    expr2 <- expr2[, common_genes, drop = FALSE]
+
+    multiExpr <- list(
+        Set1 = list(data = expr1),
+        Set2 = list(data = expr2)
+    )
+
+    ## Filter variable genes per dataset
+    top_n <- max(1, round(length(common_genes) * var_genes_pct))
+    vars1 <- apply(expr1, 2, var)
+    vars2 <- apply(expr2, 2, var)
+    top_genes <- intersect(
+        names(sort(vars1, decreasing = TRUE))[1:top_n],
+        names(sort(vars2, decreasing = TRUE))[1:top_n]
+    )
+    if (length(top_genes) == 0) stop("No overlapping variable genes for consensus WGCNA.")
+    multiExpr[[1]]$data <- expr1[, top_genes, drop = FALSE]
+    multiExpr[[2]]$data <- expr2[, top_genes, drop = FALSE]
+
+    ## Consensus soft power
+    if (soft_power_arg == 0) {
+        powers <- c(1:10, seq(12, 20, by = 2))
+        sft <- consensusSoftThresholdPower(multiExpr, powerVector = powers,
+                                           networkType = network_type, verbose = 0)
+        soft_power <- sft$powerEstimate
+        if (is.na(soft_power)) soft_power <- 6
+    } else {
+        soft_power <- soft_power_arg
+    }
+    cat("Consensus soft power:", soft_power, "\n")
+
+    ## Consensus module detection
+    net <- blockwiseConsensusModules(
+        multiExpr,
+        power             = soft_power,
+        minModuleSize     = min_module_size,
+        mergeCutHeight    = merge_cut_height,
+        networkType       = network_type,
+        TOMType           = "unsigned",
+        numericLabels     = FALSE,
+        saveTOMs          = FALSE,
+        verbose           = 0
+    )
+
+    ## Use dataset 1 as reference for downstream outputs
+    datExpr   <- multiExpr[[1]]$data
+    moduleColors <- labels2colors(net$moduleLabels[, 1])
+    MEs       <- net$multiMEs[[1]]$data
+
+    if (trait_file != "NULL") {
+        traits    <- read.delim(trait_file, row.names = 1, check.names = FALSE)
+        traitData <- traits[rownames(datExpr), , drop = FALSE]
+    } else {
+        traitData <- NULL
+    }
+
+    ## Skip shared network block; write outputs directly
+    mm <- moduleColors
+    hub_list <- chooseTopHubInEachModule(datExpr, mm, power = soft_power, type = network_type)
+
+    membership_df <- data.frame(
+        Gene   = colnames(datExpr),
+        Module = mm,
+        stringsAsFactors = FALSE
+    )
+    write_tab(membership_df, out_membership)
+    write_tab(data.frame(Module = names(hub_list), HubGene = hub_list), out_hub)
+
+    if (!is.null(traitData)) {
+        cor_mat  <- cor(MEs, traitData, use = "pairwise.complete.obs")
+        write_tab(as.data.frame(cor_mat), out_trait_cor)
+    } else {
+        write_tab(data.frame(Note = "No trait data provided"), out_trait_cor)
+    }
+
+    adj <- adjacency(datExpr, power = soft_power, type = network_type)
+    edges <- melt(adj)
+    colnames(edges) <- c("Gene1", "Gene2", "Weight")
+    edges <- edges[edges$Weight > 0.1 & as.character(edges$Gene1) < as.character(edges$Gene2), ]
+    write_tab(edges, out_edges)
+    cat("Consensus WGCNA complete.\n")
+    quit(status = 0)
+}
+
+## ============================================================
+## Mode 4: Recount3 direct integration
+## Expects: TPM matrix (genes x samples) + sample annotation tabular
+## ============================================================
+
+if (mode == "4") {
+    cat("Mode 4: Recount3 direct integration (TPM + sample annotation)\n")
+    tpm    <- read.delim(input_a, row.names = 1, check.names = FALSE)
+    annot  <- read.delim(input_d, row.names = 1, check.names = FALSE)
+
+    sample_id_col <- sample_col
+    tpm_trait_col <- trait_col_or_auto   # maps to recount3 'tool_tissue_label' or user-defined
+
+    ## Match samples using sample_id_col from annotation
+    if (sample_id_col != "NULL" && sample_id_col %in% colnames(annot)) {
+        annot_ids <- as.character(annot[[sample_id_col]])
+    } else {
+        annot_ids <- rownames(annot)
+    }
+    common <- intersect(colnames(tpm), annot_ids)
+    if (length(common) == 0) stop("No common samples between TPM matrix and sample annotation.")
+    tpm   <- tpm[, match(common, colnames(tpm)), drop = FALSE]
+    annot <- annot[match(common, annot_ids), , drop = FALSE]
+
+    datExpr <- t(as.matrix(tpm))
+
+    ## Build numeric trait from annotation column
+    if (tpm_trait_col != "NULL" && tpm_trait_col %in% colnames(annot)) {
+        trait_vals <- as.numeric(as.factor(annot[[tpm_trait_col]]))
+        traitData  <- data.frame(trait_vals, row.names = rownames(datExpr))
+        colnames(traitData) <- tpm_trait_col
+    } else {
+        warning("Trait column '", tpm_trait_col, "' not found in annotation; skipping trait correlation.")
+        traitData <- NULL
+    }
+}
+
+## ============================================================
+## Shared WGCNA pipeline (Modes 1, 2, 4)
+## ============================================================
+
+## Filter variable genes
+if (mode != "3") {
+    cat("Filtering to top", var_genes_pct * 100, "% variable genes\n")
+    datExpr <- t(filter_var_genes(t(datExpr), var_genes_pct))
+    datExpr <- t(datExpr)  # back to samples x genes
+}
+
+## Goodness check
+gsg <- goodSamplesGenes(datExpr, verbose = 0)
+if (!gsg$allOK) {
+    cat("Removing", sum(!gsg$goodGenes), "bad genes and",
+        sum(!gsg$goodSamples), "bad samples\n")
+    datExpr <- datExpr[gsg$goodSamples, gsg$goodGenes]
+}
+
+## Soft-thresholding power
+if (soft_power_arg == 0) {
+    soft_power <- pick_soft_power(datExpr, network_type)
+} else {
+    soft_power <- soft_power_arg
+}
+
+## Soft power diagnostic plot
+if (out_soft_plot != "NULL") {
+    powers <- c(1:10, seq(12, 20, by = 2))
+    sft    <- pickSoftThreshold(datExpr, powerVector = powers,
+                                networkType = network_type, verbose = 0)
+    png(out_soft_plot, width = 900, height = 450)
+    par(mfrow = c(1, 2))
+    plot(sft$fitIndices[, 1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],
+         xlab = "Soft Threshold (power)",
+         ylab = "Scale Free Topology Model Fit, signed R^2",
+         main = "Scale independence", type = "n")
+    text(sft$fitIndices[, 1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],
+         labels = powers, col = "red")
+    abline(h = 0.90, col = "red")
+    plot(sft$fitIndices[, 1], sft$fitIndices[, 5],
+         xlab = "Soft Threshold (power)",
+         ylab = "Mean Connectivity",
+         main = "Mean connectivity", type = "n")
+    text(sft$fitIndices[, 1], sft$fitIndices[, 5], labels = powers, col = "red")
+    dev.off()
+}
+
+## Network construction & module detection
+cat("Building network with power =", soft_power, "\n")
+net <- blockwiseModules(
+    datExpr,
+    power             = soft_power,
+    networkType       = network_type,
+    TOMType           = "unsigned",
+    minModuleSize     = min_module_size,
+    mergeCutHeight    = merge_cut_height,
+    numericLabels     = FALSE,
+    pamRespectsDendro = FALSE,
+    saveTOMs          = FALSE,
+    verbose           = 0,
+    corType           = cor_type
+)
+
+moduleColors <- net$colors
+MEs          <- net$MEs
+
+## Dendrogram plot
+if (out_dendro_plot != "NULL") {
+    png(out_dendro_plot, width = 1200, height = 600)
+    plotDendroAndColors(
+        net$dendrograms[[1]],
+        moduleColors[net$blockGenes[[1]]],
+        "Module colors",
+        dendroLabels = FALSE,
+        hang = 0.03,
+        addGuide = TRUE,
+        guideHang = 0.05,
+        main = "Gene dendrogram and module colors"
+    )
+    dev.off()
+}
+
+## Module membership
+membership_df <- data.frame(
+    Gene   = colnames(datExpr),
+    Module = moduleColors,
+    stringsAsFactors = FALSE
+)
+write_tab(membership_df, out_membership)
+cat("Module membership written:", nrow(membership_df), "genes\n")
+
+## Hub genes (one per module)
+hub_list <- chooseTopHubInEachModule(datExpr, moduleColors, power = soft_power, type = network_type)
+hub_df   <- data.frame(Module = names(hub_list), HubGene = as.character(hub_list),
+                        stringsAsFactors = FALSE)
+write_tab(hub_df, out_hub)
+cat("Hub genes written:", nrow(hub_df), "modules\n")
+
+## Module-trait correlation
+if (!is.null(traitData)) {
+    traitData_aligned <- traitData[rownames(datExpr), , drop = FALSE]
+    cor_mat  <- cor(MEs, traitData_aligned, use = "pairwise.complete.obs")
+    pval_mat <- corPvalueStudent(cor_mat, nrow(datExpr))
+    write_tab(as.data.frame(cor_mat),  out_trait_cor)
+
+    ## Heatmap plot
+    if (out_heatmap_plot != "NULL") {
+        png(out_heatmap_plot, width = max(600, ncol(cor_mat) * 80),
+            height = max(600, nrow(cor_mat) * 30))
+        labeledHeatmap(
+            Matrix        = cor_mat,
+            xLabels       = colnames(traitData_aligned),
+            yLabels       = rownames(cor_mat),
+            ySymbols      = rownames(cor_mat),
+            colorMatrix   = numbers2colors(cor_mat, signed = TRUE),
+            colors        = greenWhiteRed(50),
+            textMatrix    = paste0(signif(cor_mat, 2), "\n(",
+                                   signif(pval_mat, 1), ")"),
+            setStdMargins = FALSE,
+            cex.text      = 0.5,
+            zlim          = c(-1, 1),
+            main          = "Module-trait relationships"
+        )
+        dev.off()
+    }
+} else {
+    write_tab(data.frame(Note = "No trait data provided for correlation"), out_trait_cor)
+}
+
+## Network edge list (adjacency > 0.1, upper triangle only)
+cat("Computing adjacency for edge list...\n")
+adj   <- adjacency(datExpr, power = soft_power, type = network_type)
+edges <- melt(adj)
+colnames(edges) <- c("Gene1", "Gene2", "Weight")
+edges <- edges[
+    edges$Weight > 0.1 &
+    as.character(edges$Gene1) < as.character(edges$Gene2),
+]
+write_tab(edges, out_edges)
+cat("Network edges written:", nrow(edges), "edges\n")
+
+cat("WGCNA complete.\n")
+#end raw
+        ]]></configfile>
+    </configfiles>
+
+    <inputs>
+        <!-- ============================================================
+             Input mode selector
+             ============================================================ -->
+        <conditional name="input_mode">
+            <param name="mode" type="select"
+                   label="Input mode"
+                   help="Choose how you want to supply expression data to WGCNA.">
+                <option value="1">Option 1 — Pre-normalized expression matrix (user upload)</option>
+                <option value="2">Option 2 — Raw counts with DESeq2 VST normalization</option>
+                <option value="3">Option 3 — Two datasets for Consensus WGCNA</option>
+                <option value="4" selected="true">Option 4 — Recount3 direct integration (TPM + sample annotation)</option>
+            </param>
+            <when value="1">
+                <param name="expression_matrix" type="data" format="tabular"
+                       label="Expression matrix (genes × samples)"
+                       help="Tab-separated file. Rows = genes, columns = samples. First column must be gene IDs. Values should already be normalized (e.g. log2-CPM, VST, RPKM)."/>
+                <param name="sample_col" type="text" value="NULL"
+                       label="Sample ID column in trait file (leave NULL if row names match)"
+                       help="If your trait file has a column for sample IDs, enter its name. Otherwise row names are used to match samples."/>
+                <param name="trait_file" type="data" format="tabular" optional="true"
+                       label="Trait/phenotype table (optional)"
+                       help="Tab-separated file mapping samples to numeric traits. Rows = samples, columns = traits. Used for module-trait correlation heatmap."/>
+                <param name="trait_col" type="text" value="NULL"
+                       label="Trait column to highlight (optional)"
+                       help="Name of a specific column in the trait file to use for correlation. Leave NULL to use all columns."/>
+            </when>
+            <when value="2">
+                <param name="raw_counts" type="data" format="tabular"
+                       label="Raw count matrix (genes × samples)"
+                       help="Tab-separated integer count matrix. Rows = genes, columns = samples. First column must be gene IDs. Do NOT pre-normalize — this tool will apply DESeq2 VST internally."/>
+                <param name="coldata" type="data" format="tabular"
+                       label="Sample metadata / coldata (samples × variables)"
+                       help="Tab-separated file. Rows = samples (must match column names of count matrix), columns = metadata variables. First column must be sample IDs."/>
+                <param name="condition_col" type="text" value="condition"
+                       label="Condition column name in coldata"
+                       help="Name of the column in coldata to use as the DESeq2 design factor (e.g. 'condition', 'group', 'tissue'). This column is also used as the default trait."/>
+                <param name="sample_col" type="text" value="NULL"
+                       label="Sample ID column in coldata (leave NULL if row names match)"
+                       help="Column in coldata that holds sample IDs matching the count matrix column names. Leave NULL if row names already match."/>
+                <param name="trait_file" type="data" format="tabular" optional="true"
+                       label="Additional trait/phenotype table (optional)"
+                       help="Tab-separated file with extra numeric traits for module-trait correlation. Rows = samples, columns = traits. If not provided, the condition column from coldata is used as the trait."/>
+                <param name="trait_col" type="text" value="NULL"
+                       label="Trait column to highlight (optional)"
+                       help="Specific trait column to use. Leave NULL to use the condition column."/>
+            </when>
+            <when value="3">
+                <param name="expression_matrix_1" type="data" format="tabular"
+                       label="Expression matrix — Dataset 1 (genes × samples)"
+                       help="First pre-normalized expression matrix (rows = genes, columns = samples). Will be used as the reference dataset for output tables and plots."/>
+                <param name="expression_matrix_2" type="data" format="tabular"
+                       label="Expression matrix — Dataset 2 (genes × samples)"
+                       help="Second pre-normalized expression matrix. Must share gene IDs with Dataset 1. Only genes present in both datasets will be used."/>
+                <param name="sample_col" type="text" value="NULL"
+                       label="Sample ID column in trait file (leave NULL if row names match)"
+                       help="Used if a trait file is also provided to match sample rows."/>
+                <param name="trait_file" type="data" format="tabular" optional="true"
+                       label="Trait/phenotype table for Dataset 1 (optional)"
+                       help="Tab-separated file mapping Dataset 1 samples to numeric traits. Module-trait correlation is computed for Dataset 1 only."/>
+                <param name="trait_col" type="text" value="NULL"
+                       label="Trait column to highlight (optional)"
+                       help="Name of a specific trait column in the trait file."/>
+            </when>
+
+            <when value="4">
+                <param name="tpm_matrix" type="data" format="tabular"
+                       label="TPM-normalized expression matrix (from Recount3 Compact)"
+                       help="Connect the 'TPM-normalized counts' output of the Recount3 Compact tool. Rows = genes (ENSEMBL IDs), columns = samples (TCGA barcodes or GTEx IDs)."/>
+                <param name="sample_annotation" type="data" format="tabular"
+                       label="Sample annotation (from Recount3 Compact)"
+                       help="Connect the 'Sample annotation' output of the Recount3 Compact tool. Rows = samples, columns = metadata fields."/>
+                <param name="sample_id_col" type="text" value="external_id"
+                       label="Sample ID column in annotation"
+                       help="Column in the sample annotation that matches the column names of the TPM matrix. Recount3 typically uses 'external_id'. For TCGA data, the TPM matrix columns are already TCGA barcodes so row names can be used (set to NULL)."/>
+                <param name="trait_col" type="text" value="tool_tissue_label"
+                       label="Trait column for module-trait correlation"
+                       help="Column from the sample annotation to use as the biological trait. Recount3 Compact always writes 'tool_tissue_label'. For TCGA data you may also use fields such as 'tcga.cgc_sample_sample_type' (tumor vs normal). The column is converted to a numeric factor internally."/>
+            </when>
+        </conditional>
+        <section name="params" title="Network parameters" expanded="true">
+            <param name="soft_power" type="integer" value="0" min="0" max="30"
+                   label="Soft-thresholding power (0 = auto-detect)"
+                   help="Power β for the adjacency function. Set to 0 to auto-select using scale-free topology R² ≥ 0.90 (recommended). Values 6–12 are typical for unsigned networks; 12–20 for signed networks."/>
+            <param name="min_module_size" type="integer" value="30" min="5" max="500"
+                   label="Minimum module size"
+                   help="Minimum number of genes required to form a co-expression module. WGCNA default is 30. Use smaller values (10–20) for small datasets."/>
+            <param name="var_genes_pct" type="float" value="0.25" min="0.05" max="1.0"
+                   label="Top variable genes fraction"
+                   help="Fraction of most-variable genes to retain before network construction. 0.25 = top 25% by variance. Reducing this speeds up computation and reduces noise. Set to 1.0 to use all genes (slow for large datasets)."/>
+            <param name="merge_cut_height" type="float" value="0.25" min="0.0" max="1.0"
+                   label="Module merging cut height"
+                   help="Dissimilarity threshold for merging similar modules. Modules whose eigengene correlation exceeds (1 - cut height) are merged. Default 0.25 means modules with correlation > 0.75 are merged."/>
+            <param name="network_type" type="select" label="Network type">
+                <option value="unsigned" selected="true">Unsigned — considers absolute correlation</option>
+                <option value="signed">Signed — preserves correlation sign (positive/negative)</option>
+                <option value="signed hybrid">Signed hybrid — signed but treats negative correlations as zero</option>
+            </param>
+            <param name="cor_type" type="select" label="Correlation method">
+                <option value="pearson" selected="true">Pearson — standard, faster</option>
+                <option value="bicor">Bicor — robust biweight midcorrelation (recommended for outlier-prone data)</option>
+            </param>
+        </section>
+
+        <section name="advanced" title="Output and plot options" expanded="false">
+            <param name="export_plots" type="boolean" truevalue="TRUE" falsevalue="FALSE"
+                   checked="true"
+                   label="Export diagnostic plots"
+                   help="Generate soft-power selection plot, gene dendrogram with module colors, and module-trait correlation heatmap as PNG files."/>
+            <param name="edge_weight_cutoff" type="float" value="0.1" min="0.0" max="1.0"
+                   label="Minimum edge weight for network export"
+                   help="Only adjacency values above this threshold are written to the edge list. Increasing this reduces file size."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="module_membership" format="tabular"
+              label="WGCNA module membership — ${input_mode.mode}"/>
+
+        <data name="hub_genes" format="tabular"
+              label="WGCNA hub genes — ${input_mode.mode}"/>
+
+        <data name="module_trait_correlation" format="tabular"
+              label="WGCNA module-trait correlation — ${input_mode.mode}"/>
+
+        <data name="network_edges" format="tabular"
+              label="WGCNA network edge list — ${input_mode.mode}"/>
+
+        <data name="soft_power_plot" format="png"
+              label="WGCNA soft power plot — ${input_mode.mode}">
+            <filter>advanced['export_plots']</filter>
+        </data>
+
+        <data name="dendrogram_plot" format="png"
+              label="WGCNA dendrogram — ${input_mode.mode}">
+            <filter>advanced['export_plots']</filter>
+        </data>
+
+        <data name="heatmap_plot" format="png"
+              label="WGCNA module-trait heatmap — ${input_mode.mode}">
+            <filter>advanced['export_plots']</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <!-- Test Option 1: pre-normalized matrix, no trait file -->
+        <test expect_num_outputs="4">
+            <conditional name="input_mode">
+                <param name="mode" value="1"/>
+                <param name="expression_matrix" value="test_expr_normalized.tabular"/>
+                <param name="sample_col" value="NULL"/>
+                <param name="trait_col" value="NULL"/>
+            </conditional>
+            <section name="params">
+                <param name="soft_power" value="6"/>
+                <param name="min_module_size" value="10"/>
+                <param name="var_genes_pct" value="0.5"/>
+                <param name="merge_cut_height" value="0.25"/>
+                <param name="network_type" value="unsigned"/>
+                <param name="cor_type" value="pearson"/>
+            </section>
+            <section name="advanced">
+                <param name="export_plots" value="FALSE"/>
+            </section>
+            <output name="module_membership">
+                <assert_contents>
+                    <has_text text="Module"/>
+                    <has_text text="Gene"/>
+                </assert_contents>
+            </output>
+            <output name="hub_genes">
+                <assert_contents>
+                    <has_text text="HubGene"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- Test Option 2: raw counts + DESeq2 VST -->
+        <test expect_num_outputs="4">
+            <conditional name="input_mode">
+                <param name="mode" value="2"/>
+                <param name="raw_counts" value="test_raw_counts.tabular"/>
+                <param name="coldata" value="test_coldata.tabular"/>
+                <param name="condition_col" value="condition"/>
+                <param name="sample_col" value="NULL"/>
+                <param name="trait_col" value="NULL"/>
+            </conditional>
+            <section name="params">
+                <param name="soft_power" value="6"/>
+                <param name="min_module_size" value="10"/>
+                <param name="var_genes_pct" value="0.5"/>
+                <param name="merge_cut_height" value="0.25"/>
+                <param name="network_type" value="unsigned"/>
+                <param name="cor_type" value="pearson"/>
+            </section>
+            <section name="advanced">
+                <param name="export_plots" value="FALSE"/>
+            </section>
+            <output name="module_membership">
+                <assert_contents>
+                    <has_text text="Module"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- Test Option 3: consensus WGCNA across two datasets -->
+        <test expect_num_outputs="4">
+            <conditional name="input_mode">
+                <param name="mode" value="3"/>
+                <param name="expression_matrix_1" value="test_expr_dataset1.tabular"/>
+                <param name="expression_matrix_2" value="test_expr_dataset2.tabular"/>
+                <param name="sample_col" value="NULL"/>
+                <param name="trait_col" value="NULL"/>
+            </conditional>
+            <section name="params">
+                <param name="soft_power" value="6"/>
+                <param name="min_module_size" value="10"/>
+                <param name="var_genes_pct" value="0.5"/>
+                <param name="merge_cut_height" value="0.25"/>
+                <param name="network_type" value="unsigned"/>
+                <param name="cor_type" value="pearson"/>
+            </section>
+            <section name="advanced">
+                <param name="export_plots" value="FALSE"/>
+            </section>
+            <output name="module_membership">
+                <assert_contents>
+                    <has_text text="Module"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- Test Option 4: Recount3 direct integration -->
+        <test expect_num_outputs="4">
+            <conditional name="input_mode">
+                <param name="mode" value="4"/>
+                <param name="tpm_matrix" value="test_tpm.tabular"/>
+                <param name="sample_annotation" value="test_sample_annotation.tabular"/>
+                <param name="sample_id_col" value="external_id"/>
+                <param name="trait_col" value="tool_tissue_label"/>
+            </conditional>
+            <section name="params">
+                <param name="soft_power" value="6"/>
+                <param name="min_module_size" value="10"/>
+                <param name="var_genes_pct" value="0.5"/>
+                <param name="merge_cut_height" value="0.25"/>
+                <param name="network_type" value="unsigned"/>
+                <param name="cor_type" value="pearson"/>
+            </section>
+            <section name="advanced">
+                <param name="export_plots" value="FALSE"/>
+            </section>
+            <output name="module_membership">
+                <assert_contents>
+                    <has_text text="Module"/>
+                    <has_text text="Gene"/>
+                </assert_contents>
+            </output>
+            <output name="hub_genes">
+                <assert_contents>
+                    <has_text text="HubGene"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+WGCNA — Weighted Gene Co-expression Network Analysis
+=====================================================
+
+Constructs a gene co-expression network from RNA-seq expression data,
+detects gene modules, and correlates modules with biological traits.
+
+Input Modes
+===========
+
+**Option 1 — Pre-normalized matrix**
+    Supply your own log2-CPM, VST, RPKM, or TPM matrix directly.
+    Rows = genes, columns = samples. An optional trait table can be
+    provided to generate module-trait correlations.
+
+**Option 2 — Raw counts + DESeq2 VST normalization**
+    Supply raw integer counts and a sample metadata (coldata) table.
+    DESeq2 variance-stabilizing transformation (VST) is applied
+    internally before WGCNA. Recommended for count data from STAR,
+    featureCounts, HTSEQ, or Salmon.
+
+**Option 3 — Two datasets (Consensus WGCNA)**
+    Supply two independent pre-normalized expression matrices.
+    Finds gene modules that are reproducible across both datasets.
+    Only genes present in both datasets are used. Dataset 1 is used
+    as the reference for output tables and plots.
+
+**Option 4 — Recount3 direct integration**
+    Designed to chain directly after the **Recount3 Compact** tool
+    in a Galaxy workflow. Connect:
+
+    - ``TPM-normalized counts`` → TPM expression matrix input
+    - ``Sample annotation``    → sample annotation input
+
+    The column ``tool_tissue_label`` written by Recount3 Compact is
+    used as the default trait. For TCGA data you can also specify
+    ``tcga.cgc_sample_sample_type`` to correlate modules with
+    tumor vs. normal status.
+
+Network Parameters
+==================
+
+Soft-thresholding power
+    Controls the stringency of the adjacency function. Set to 0
+    for automatic selection (recommended). The tool picks the lowest
+    power at which the network approximates scale-free topology
+    (R² ≥ 0.90).
+
+Minimum module size
+    Minimum genes per module. Default 30 follows the WGCNA authors'
+    recommendation. Use 10–20 for small datasets.
+
+Variable genes fraction
+    Fraction of highest-variance genes to retain. Reduces noise and
+    speeds up network construction. 0.25 (top 25%) is the default.
+
+Outputs
+=======
+
+Module membership table
+    Gene-to-module assignments. One row per gene.
+
+Hub genes
+    The most connected gene within each module. One row per module.
+
+Module-trait correlation table
+    Pearson correlation between module eigengenes and numeric traits.
+
+Network edge list
+    Tab-separated list of gene pairs with adjacency weight > threshold.
+    Suitable for import into Cytoscape or igraph.
+
+Soft power plot *(optional)*
+    Scale-free topology fit and mean connectivity vs. power.
+    Use this to verify or adjust the soft-thresholding power.
+
+Dendrogram plot *(optional)*
+    Gene clustering dendrogram with module color bars.
+
+Module-trait heatmap *(optional)*
+    Heatmap of module eigengene vs. trait correlations with p-values.
+
+Notes
+=====
+
+- Do **not** use raw counts as input for Option 1, 3, or 4.
+- TPM values from Recount3 are appropriate for WGCNA but should not
+  be used for differential expression tools such as DESeq2 or edgeR.
+- Consensus WGCNA (Option 3) is slower than standard WGCNA because
+  it must construct networks for both datasets simultaneously.
+    ]]></help>
+
+    <citations>
+        <citation type="doi">10.1186/1471-2105-9-559</citation>
+        <citation type="doi">10.1093/bioinformatics/btm563</citation>
+    </citations>
+</tool>
