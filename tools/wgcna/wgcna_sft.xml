@@ -6,17 +6,6 @@
     <expand macro="wgcna_softpower_requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         mkdir -p plots &&
-
-        echo "counts_file = $counts_file"                   > config.txt &&
-        echo "network_type = $network_type"                 >> config.txt &&
-        echo "corFnc = $corFnc"                             >> config.txt &&
-        echo "log_transform = $log_transform"               >> config.txt &&
-        echo "filter_by_variance = $filter_by_variance"     >> config.txt &&
-        echo "variance_quantile = $variance_quantile"       >> config.txt &&
-        echo "softpower_plot = plots/soft_thresholding.png" >> config.txt &&
-        echo "softpower_config = softpower_config.txt"      >> config.txt &&
-        echo "softpower_fit_indices = softpower_fit_indices.tsv" >> config.txt &&
-
         Rscript '$softpower_script'
     ]]></command>
     <configfiles>
@@ -25,26 +14,16 @@ library(WGCNA)
 
 options(stringsAsFactors = FALSE)
 
-## Read configuration
-cfg <- read.delim(
-    "config.txt",
-    header = FALSE,
-    sep = "=",
-    strip.white = TRUE,
-    stringsAsFactors = FALSE
-)
-
-cfg_list <- setNames(trimws(cfg[, 2]), trimws(cfg[, 1]))
-
-counts_file         <- cfg_list[["counts_file"]]
-network_type        <- trimws(cfg_list[["network_type"]])
-corFnc              <- trimws(cfg_list[["corFnc"]])
-log_transform        <- cfg_list[["log_transform"]] == "true"
-filter_by_variance    <- cfg_list[["filter_by_variance"]] == "true"
-variance_quantile   <- as.numeric(cfg_list[["variance_quantile"]])
-output_plot          <- cfg_list[["softpower_plot"]]
-output_config        <- cfg_list[["softpower_config"]]
-output_fit_indices   <- cfg_list[["softpower_fit_indices"]]
+counts_file = "$counts_file"
+network_type = "$network_type"
+corFnc = "$corFnc"
+log_transform = $log_transform
+filter_by_variance = $filter_by_variance
+variance_quantile = as.numeric($variance_quantile)
+RsquaredCut = as.numeric($RsquaredCut)
+softpower_plot = "plots/soft_thresholding.png"
+softpower_config = "softpower_config.txt"
+softpower_fit_indices = "softpower_fit_indices.tsv"
 
 ## Load count matrix
 counts <- read.delim(
@@ -96,8 +75,9 @@ powers <- c(seq(1, 10, by = 1), seq(12, 20, by = 2))
 sft <- pickSoftThreshold(
     datExpr,
     powerVector = powers,
+    RsquaredCut = RsquaredCut,
     networkType = network_type,
-    corFnc = get(corFnc),
+    corFnc = corFnc,
     verbose = 3
 )
 
@@ -145,11 +125,30 @@ text(
 dev.off()
 
 ## Determine selected power
-soft_power <- sft\$powerEstimate
+soft_power <- sft\$powerEstimate ## then let user do r
+
+
+## based on WGCNA FAQ https://github.com/edo98811/WGCNA_official_documentation/blob/main/faq.html
+get_soft_power <- function(n_samples, network_type = "signed") {
+    network_type <- tolower(network_type)
+
+    if (network_type == "signed") {
+        if (n_samples < 20)       power <- 18
+        else if (n_samples <= 30) power <- 16
+        else if (n_samples <= 40) power <- 14
+        else                      power <- 12
+    } else {  # unsigned or signed hybrid
+        if (n_samples < 20)       power <- 9
+        else if (n_samples <= 30) power <- 8
+        else if (n_samples <= 40) power <- 7
+        else                      power <- 6
+    }
+    return(power)
+}
 
 if (is.na(soft_power)) {
-    soft_power <- 6
-    cat("No suitable power found. Defaulting to power = 6. This is a safe default value when no power achieves R-squared >= 0.85.\n")
+    soft_power <- get_soft_power(n_samples=nrow(datExpr),network_type=network_type)
+    cat("No suitable power found. Using power based on WGCNA author's recommndation")
 } else {
     cat("Chosen soft-thresholding power:", soft_power, "\n")
 }
@@ -181,24 +180,21 @@ cat("Fit indices table written to:", output_fit_indices, "\n")
         <param name="counts_file" type="data" format="tabular" label="Counts matrix" help="Genes as rows and samples as columns. First column contains gene identifiers."/>
         <expand macro="network_type_param"/>
         <param name="corFnc" type="select" label="Correlation function">
-            <option value="cor" selected="true">Pearson correlation (cor)</option>
+            <option value="pearson" selected="true">Pearson correlation (cor)</option>
             <option value="bicor">Biweight midcorrelation (bicor)</option>
         </param>
+        <param name="RsquaredCut" type="float" value="0.85" min="0" max="1" label="Rsquared threshold to select the power" help="The lowest power for which the scale free topology fit exceeds this value will be selected"/>
         <expand macro="filter_variance_params"/>
     </inputs>
     <outputs>
-        <data name="softpower_config" format="txt" label="Soft-thresholding config" from_work_dir="softpower_config.txt"/>
-        <data name="softpower_fit_indices" format="tabular" label="Soft-thresholding fit indices" from_work_dir="softpower_fit_indices.tsv"/>
-        <data name="softpower_plot" format="png" label="Soft-thresholding plot" from_work_dir="plots/soft_thresholding.png"/>
+        <data name="softpower_config" format="txt" from_work_dir="softpower_config.txt" label="${tool.name} on ${on_string} - Soft-thresholding config"/>
+        <data name="softpower_fit_indices" format="tabular" from_work_dir="softpower_fit_indices.tsv" label="${tool.name} on ${on_string} - Soft-thresholding fit indices"/>
+        <data name="softpower_plot" format="png" from_work_dir="plots/soft_thresholding.png" label="${tool.name} on ${on_string} - Soft-thresholding plot"/>
     </outputs>
     <tests>
         <test expect_num_outputs="3">
             <param name="counts_file" value="test_counts.tsv" ftype="tabular"/>
             <param name="network_type" value="signed"/>
-            <param name="corFnc" value="cor"/>
-            <param name="log_transform" value="true"/>
-            <param name="filter_by_variance" value="true"/>
-            <param name="variance_quantile" value="0.4"/>
             <output name="softpower_config">
                 <assert_contents>
                     <has_text text="soft_power"/>
@@ -215,7 +211,8 @@ cat("Fit indices table written to:", output_fit_indices, "\n")
             </output>
             <output name="softpower_plot">
                 <assert_contents>
-                    <has_size min="100"/>
+                    <has_image_channels channels="3"/>
+                    <has_image_height height="600"/>
                 </assert_contents>
             </output>
         </test>
