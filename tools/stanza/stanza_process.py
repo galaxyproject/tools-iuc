@@ -11,6 +11,7 @@ License: MIT
 
 import argparse
 import json
+import os
 import sys
 
 try:
@@ -91,15 +92,7 @@ def format_json(doc, annotator):
 
         output["sentences"].append(sent_data)
 
-    json_result = json.dumps(output, indent=2, ensure_ascii=False)
-    # Debug output for troubleshooting JSON assertions
-    print(f"DEBUG: JSON length: {len(json_result)} chars", file=sys.stderr)
-    try:
-        test_parse = json.loads(json_result)
-        print(f"DEBUG: JSON valid, first token = {test_parse['sentences'][0]['tokens'][0]['text']}", file=sys.stderr)
-    except Exception as e:
-        print(f"DEBUG: JSON parse error: {e}", file=sys.stderr)
-    return json_result
+    return json.dumps(output, indent=2, ensure_ascii=False)
 
 
 def format_conll(doc):
@@ -192,42 +185,45 @@ def main():
     parser.add_argument("--format", choices=["json", "conll", "conllu", "text"],
                         default="json", help="Output format")
     parser.add_argument("--annotators", required=True, help="Annotation type")
+    parser.add_argument("--download", action="store_true",
+                        help="Download the required models on the fly before processing. "
+                             "Intended for testing; production models are installed via the data manager.")
 
     args = parser.parse_args()
 
     processors = PROCESSOR_MAP.get(args.annotators, "tokenize")
 
+    # In download mode, fetch only the models needed for the selected processors into
+    # a writable directory in the job working area. This keeps tests self-contained
+    # without bundling model files or relying on data-manager-installed models.
+    model_dir = args.model_dir
+    if args.download:
+        model_dir = os.path.join(os.getcwd(), "stanza_resources")
+        try:
+            stanza.download(
+                lang=args.lang,
+                model_dir=model_dir,
+                processors=processors,
+                package='default_fast',
+                verbose=False,
+            )
+        except Exception as e:
+            print(f"Error downloading Stanza model: {e}", file=sys.stderr)
+            sys.exit(1)
+
     # Load Stanza pipeline using default_fast package (nocharlm) for lower memory usage
     try:
         nlp = stanza.Pipeline(
             lang=args.lang,
-            dir=args.model_dir,
+            dir=model_dir,
             processors=processors,
             package='default_fast',
             download_method=None,
             use_gpu=False,
         )
     except Exception as e:
-        # For testing: if models are missing, try to fall back to default location
-        # or generate a mock result for CI/testing environments
-        if "No such file or directory" in str(e) or "FileNotFoundError" in str(e):
-            print(f"Warning: Model directory {args.model_dir} not found, attempting fallback", file=sys.stderr)
-            try:
-                # Try loading from default location (useful in conda environments)
-                nlp = stanza.Pipeline(
-                    lang=args.lang,
-                    processors=processors,
-                    package='default_fast',
-                    download_method=None,
-                    use_gpu=False,
-                )
-            except Exception as e2:
-                print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
-                print(f"Fallback also failed: {e2}", file=sys.stderr)
-                sys.exit(1)
-        else:
-            print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
-            sys.exit(1)
+        print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Read input text
     try:

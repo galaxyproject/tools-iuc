@@ -9,14 +9,14 @@ This Galaxy tool provides access to Stanza, Stanford's neural natural language p
 - **Multiple annotators**: Tokenization, POS tagging, NER, parsing, sentiment, and constituency parsing
 - **Universal Dependencies**: Standardized annotations following Universal Dependencies v2.12
 - **Multiple output formats**: JSON, CoNLL, CoNLL-U, and human-readable text
-- **Dockerized execution**: CPU-optimized PyTorch models in container environment
+- **Conda integration**: CPU-optimized PyTorch models via conda packages
 - **Data manager integration**: Language models downloaded and managed separately
 
 ## Requirements
 
 - **Data Manager**: Language models must be installed via the Stanza Language Models data manager
-- **Docker**: Uses the `ksuderman/stanza-nlp:1.11.1` Docker image with CPU-optimized PyTorch
-- **Memory**: Uses default_fast models for efficient memory usage in containers
+- **Python**: Python 3.12 with Stanza 1.12.0 and transformers 4.47.1 packages
+- **Memory**: Uses default_fast models for efficient memory usage
 
 ## Annotation Types
 
@@ -122,7 +122,7 @@ Human-readable output with statistics and formatted annotations.
 
 - **Memory efficient**: Uses default_fast models without character-level modeling
 - **CPU-optimized**: PyTorch configured for CPU-only execution
-- **Container isolation**: Runs in Docker for consistent environment
+- **Conda environment**: Runs with conda dependency resolution for consistent package versions
 - **Model caching**: Downloaded models persist across runs
 
 ## Citation
@@ -136,10 +136,26 @@ In Proceedings of the 58th Annual Meeting of the Association for Computational
 Linguistics: System Demonstrations, 2020.
 ```
 
+## Testing
+
+### CI Testing
+The tool tests exercise real tokenization without bundling any model files:
+- A hidden `download_models` parameter (enabled only in the tests) downloads the
+  small `tokenize` and `mwt` models (~1 MB total) on the fly
+- Only the models needed for the selected processors are fetched, so tests stay fast
+- No large model files are committed to the repository, avoiding CI timeouts
+
+### Production Usage
+In production the `download_models` parameter stays off and language models are
+installed via the data manager:
+1. Use Admin → Local Data → "Stanza Language Models"
+2. Download required language models from HuggingFace
+3. Models will be cached for subsequent runs
+
 ## Version History
 
-- **1.11.1+galaxy4**: Latest release with enhanced output formatting and CPU optimization
-- **1.11.1+galaxy3**: Previous stable release
-- **1.11.1+galaxy2**: Early release
+- **1.12.0+galaxy0**: Current release with updated Stanza version and lightweight testing
+- **1.11.1+galaxy4**: Previous release with enhanced output formatting and CPU optimization
+- **1.11.1+galaxy3**: Earlier stable release
+- **1.11.1+galaxy2**: Earlier release
 - **1.11.1+galaxy1**: Beta release
-- **1.11.1+galaxy0**: Initial release
