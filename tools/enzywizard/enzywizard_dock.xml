@@ -5,57 +5,86 @@
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">enzywizard-dock</requirement>
-        <requirement type="package">unzip</requirement>
+        <requirement type="package" version="6.0">unzip</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        ln -s '$input_path' input.cif && mkdir -p substrate_dir && unzip -q '$substrate_zip' -d substrate_dir &&
+        exec 3>&1 4>&2;
+        exec > enzywizard.log 2>&1;
+
+        MSMS_EXE=\$(command -v msms || command -v msms.x86_64Linux2.2.6.1 || true);
+        if [ -n "\$MSMS_EXE" ]; then mkdir -p "\$HOME"; echo "set pyvol_msms_exe, \$MSMS_EXE" > "\$HOME/.pymolrc"; fi;
+
+        #set $input_name = $input_path.element_identifier
+        ln -s '$input_path' '$input_name' &&
+        mkdir -p substrate_dir_raw substrate_dir &&
+        unzip -q '$substrate_zip' -d substrate_dir_raw &&
+        find substrate_dir_raw -type f \( -iname '*.sdf' \) -exec cp -L {} substrate_dir/ \; &&
         enzywizard-dock
-        -i input.cif
+        -i '$input_name'
         -s '$substrate_names'
         -d substrate_dir
         -o ./
-        --max_docking_attempt_num '$max_docking_attempt_num'
-        $no_early_stop
-        --exhaustiveness '$exhaustiveness'
+        --max_docking_attempt_num '$advanced.max_docking_attempt_num'
+        $advanced.no_early_stop
+        --exhaustiveness '$advanced.exhaustiveness'
         --cpu "\${GALAXY_SLOTS:-1}"
-        --min_rad '$min_rad'
-        --max_rad '$max_rad'
-        --min_volume '$min_volume'
-        #if $catalytic_residue:
-        --catalytic_residue '$catalytic_residue'
+        --min_rad '$advanced.min_rad'
+        --max_rad '$advanced.max_rad'
+        --min_volume '$advanced.min_volume'
+        #if $advanced.catalytic_residue:
+        --catalytic_residue '$advanced.catalytic_residue'
         #end if
-        #if $catalytic_site_coord:
-        --catalytic_site_coord '$catalytic_site_coord'
+        #if $advanced.catalytic_site_coord:
+        --catalytic_site_coord '$advanced.catalytic_site_coord'
         #end if
-        #if $box_size:
-        --box_size '$box_size'
+        #if $advanced.box_size:
+        --box_size '$advanced.box_size'
         #end if
+        ;
+        status=\$?;
+        echo "---- files in Galaxy job working directory ----" >&4;
+        find . -maxdepth 4 -type f | sort >&4;
+        if [ "\$status" -ne 0 ]; then cat enzywizard.log >&4; exit "\$status"; fi;
+        if ! find . -maxdepth 2 -type f \( -name 'dock_report*.json' -o -name 'docked*.cif' -o -name 'docked*.pdb' -o -name 'docked*.sdf' \) | grep -q .; then echo "No EnzyWizard Dock output files were produced." >&4; cat enzywizard.log >&4; [ -f log.txt ] && cat log.txt >&4; exit 1; fi;
+
     ]]></command>
     <inputs>
         <expand macro="protein_input"/>
-        <param name="substrate_names" type="text" label="Substrate names" help="Substrate names separated by ';'."/>
-        <expand macro="zip_input_dir" name="substrate_zip" label="Substrate directory (zip)" help="Zip archive containing substrate SDF files." optional="false"/>
-        <param name="max_docking_attempt_num" type="integer" value="20" min="1" label="Maximum docking attempts"/>
-        <param name="no_early_stop" type="boolean" truevalue="--no_early_stop" falsevalue="" label="Disable early stop"/>
-        <param name="exhaustiveness" type="integer" value="16" min="1" label="Exhaustiveness"/>
-        <expand macro="pocket_params"/>
-        <param name="catalytic_residue" type="text" optional="true" label="Catalytic residue"/>
-        <param name="catalytic_site_coord" type="text" optional="true" label="Catalytic site coordinate"/>
-        <param name="box_size" type="text" optional="true" label="Box size"/>
+        <expand macro="substrate_names"/>
+        <expand macro="zip_input_dir" name="substrate_zip" label="Substrate directory (zip)" help="Zip archive containing substrate SDF files."/>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param name="max_docking_attempt_num" type="integer" value="20" min="1" label="Maximum docking attempts"/>
+            <param name="no_early_stop" type="boolean" truevalue="--no_early_stop" falsevalue="" label="Disable early stop"/>
+            <param name="exhaustiveness" type="integer" value="8" min="1" label="Exhaustiveness"/>
+            <expand macro="pocket_params"/>
+            <param name="catalytic_residue" type="text" optional="true" label="Catalytic residue"/>
+            <param name="catalytic_site_coord" type="text" optional="true" label="Catalytic site coordinate"/>
+            <param name="box_size" type="text" optional="true" label="Box size"/>
+            <expand macro="show_log_param"/>
+        </section>
     </inputs>
     <outputs>
-        <expand macro="output_collection" name="output_files" label="${tool.name} outputs"/>
+        <expand macro="output_collection" name="output_files" label="${tool.name} outputs" pattern="(?P&lt;designation&gt;(?:dock.*\.json|docked.*\.(?:cif|pdb|sdf)))"/>
+    
+        <expand macro="log_output"/>
     </outputs>
     <tests>
         <test expect_num_outputs="1">
             <param name="input_path" value="cleaned_3GP6.cif"/>
-            <param name="substrate_names" value="glucose;fructose"/>
+            <param name="substrate_names" value="glucose"/>
             <param name="substrate_zip" value="substrate_dir.zip"/>
-            <output_collection name="output_files" type="list" min="1"/>
+            <section name="advanced">
+                <param name="catalytic_residue" value="121"/>
+                <param name="box_size" value="20,20,20"/>
+                <param name="max_docking_attempt_num" value="1"/>
+                <param name="exhaustiveness" value="1"/>
+            </section>
+            <output_collection name="output_files" type="list" count="4"/>
         </test>
     </tests>
     <help><![CDATA[
 Perform molecular docking of one or multiple substrates with a cleaned protein structure. Directory inputs are represented as zip datasets and unpacked explicitly inside this wrapper command in the Galaxy job working directory. Outputs are exposed as discovered dataset collections.
     ]]></help>
+    <expand macro="citations" repo_name="enzywizard-dock"/>
     <expand macro="creator"/>
 </tool>
