@@ -10,7 +10,6 @@ import sys
 from load_db import create_table
 from query_db import describe_tables, get_connection, run_query
 
-
 """
 JSON config:
 { tables : [
@@ -119,7 +118,8 @@ def __main__():
                         _create_table(ti, table)
                 if 'sql_stmts' in tdef:
                     for si, stmt in enumerate(tdef['sql_stmts']):
-                        rowcount = run_query(get_connection(options.sqlitedb), stmt, None)
+                        rowcount = run_query(
+                            get_connection(options.sqlitedb), stmt, None)
                         if options.debug:
                             print('\nDB modification: %s  \nrowcount: %s' %
                                   (stmt, rowcount), file=sys.stderr)
