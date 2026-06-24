@@ -1,0 +1,206 @@
+<tool id="pangenie" name="PanGenie" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="22.05">
+    <description>genotype variants using haplotype panels</description>
+    <macros>
+        <token name="@TOOL_VERSION@">4.2.1</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">pangenie</requirement>
+    </requirements>
+    <version_command><![CDATA[PanGenie -h 2>&1 | head -n 3]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #set $reads_path = 'reads_input'
+        #if $reads.is_of_type("fastq.gz", "fastqsanger.gz", "fasta.gz")
+            gzip -dc '$reads' > '$reads_path' &&
+        #else
+            ln -s '$reads' '$reads_path' &&
+        #end if
+        #if $panel_source.source_selector == "reference"
+            #set $reference_path = 'reference.fa'
+            #if $panel_source.reference.is_of_type("fasta.gz")
+                gzip -dc '$panel_source.reference' > '$reference_path' &&
+            #else
+                ln -s '$panel_source.reference' '$reference_path' &&
+            #end if
+            #set $variants_path = 'variants.vcf'
+            #if $panel_source.variants.is_of_type("vcf_bgzip", "vcf.gz")
+                gzip -dc '$panel_source.variants' > '$variants_path' &&
+            #else
+                ln -s '$panel_source.variants' '$variants_path' &&
+            #end if
+        #else
+            mkdir panel_index &&
+            tar -xf '$panel_source.index_archive' -C panel_index &&
+        #end if
+        #set $output_prefix = 'galaxy_output'
+        PanGenie
+        #if $panel_source.source_selector == "index"
+            -f 'panel_index/${panel_source.index_prefix}'
+        #else
+            -r '$reference_path'
+            -v '$variants_path'
+            #if str($panel_source.kmer_size)
+                -k $panel_source.kmer_size
+            #end if
+        #end if
+        -i '$reads_path'
+        -o '$output_prefix'
+        -s '$sample_name'
+        -j "\${GALAXY_SLOTS:-1}"
+        -t "\${GALAXY_SLOTS:-1}"
+        -g
+        #if $advanced.run_phasing
+            -p
+        #end if
+        #if $advanced.count_all_kmers
+            -c
+        #end if
+        #if $advanced.allow_missing_unique
+            -u
+        #end if
+        #if $advanced.sample_panel
+            -d
+        #end if
+        #if str($advanced.hash_size)
+            -e $advanced.hash_size
+        #end if
+        #if str($advanced.sampling_effective)
+            -b $advanced.sampling_effective
+        #end if
+        #if str($advanced.penalty)
+            -y $advanced.penalty
+        #end if
+        #if $advanced.sampling_strategy.sampling_selector == "subset"
+            -a $advanced.sampling_strategy.subset_size
+        #elif $advanced.sampling_strategy.sampling_selector == "reduce"
+            -x $advanced.sampling_strategy.panel_size
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="reads" argument="-i" type="data" format="fastqsanger,fastqsanger.gz,fastq,fastq.gz,fasta,fasta.gz" label="Sequencing reads" help="Provide uncompressed FASTA/FASTQ reads. If compressed inputs are supplied they will be decompressed automatically." />
+        <conditional name="panel_source">
+            <param name="source_selector" type="select" label="Variant panel source">
+                <option value="reference" selected="true">Reference + variants VCF</option>
+                <option value="index">Archive from PanGenie-index</option>
+            </param>
+            <when value="reference">
+                <param name="reference" argument="-r" type="data" format="fasta,fasta.gz" label="Reference genome (uncompressed FASTA preferred)" />
+                <param name="variants" argument="-v" type="data" format="vcf,vcf_bgzip" label="Graph VCF with haplotype panel" />
+                <param name="kmer_size" argument="-k" type="integer" optional="true" min="1" label="k-mer size (-k)" help="Overrides the default k-mer size (31) when running without a precomputed index." />
+            </when>
+            <when value="index">
+                <param name="index_archive" type="data" format="tar" label="PanGenie-index archive (tar/tar.gz)" help="Tar archive containing the files created by PanGenie-index for a specific prefix." />
+                <param name="index_prefix" argument="-f" type="text" label="Index prefix" help="Prefix used with PanGenie-index -o option (without directory).">
+                    <validator type="regex" message="Use only letters, numbers, underscores, dots or hyphens.">^[A-Za-z0-9._-]+$</validator>
+                </param>
+            </when>
+        </conditional>
+        <param name="sample_name" argument="-s" type="text" label="Sample name (-s)" value="sample" />
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param name="run_phasing" argument="-p" type="boolean" label="Run phasing (-p)" help="Enable Viterbi phasing and produce an additional phasing VCF." />
+            <param name="count_all_kmers" argument="-c" type="boolean" label="Count all read k-mers (-c)" />
+            <param name="allow_missing_unique" argument="-u" type="boolean" label="Emit ./. for variants lacking unique k-mers (-u)" />
+            <param name="sample_panel" argument="-d" type="boolean" label="Output sampled panel VCF (-d)" />
+            <param name="hash_size" argument="-e" type="integer" optional="true" min="1" label="Hash size for jellyfish (-e)" />
+            <param name="sampling_effective" argument="-b" type="float" optional="true" min="0.0" label="Effective population size for sampling (-b)" />
+            <param name="penalty" argument="-y" type="integer" optional="true" min="0" label="Penalty for already selected alleles (-y)" />
+            <conditional name="sampling_strategy">
+                <param name="sampling_selector" type="select" label="Sampling strategy">
+                    <option value="none" selected="true">No sampling parameters</option>
+                    <option value="subset">Sample subsets of haplotype paths (-a)</option>
+                    <option value="reduce">Reduce panel size (-x)</option>
+                </param>
+                <when value="subset">
+                    <param name="subset_size" argument="-a" type="integer" min="1" label="Subset size to sample (-a)" />
+                </when>
+                <when value="reduce">
+                    <param name="panel_size" argument="-x" type="integer" min="1" label="Target panel size (-x)" />
+                </when>
+                <when value="none" />
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="genotyping_vcf" format="vcf" from_work_dir="galaxy_output_genotyping.vcf" label="Genotypes (galaxy_output_genotyping.vcf)" />
+        <data name="phasing_vcf" format="vcf" from_work_dir="galaxy_output_phasing.vcf" label="Phasing (galaxy_output_phasing.vcf)">
+            <filter>advanced.run_phasing == "true"</filter>
+        </data>
+        <data name="sampled_panel_vcf" format="vcf" from_work_dir="galaxy_output_panel.vcf" label="Sampled panel (galaxy_output_panel.vcf)">
+            <filter>advanced.sample_panel == "true"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="reads" value="test-reads.fa.gz" />
+            <conditional name="panel_source">
+                <param name="source_selector" value="reference" />
+                <param name="reference" value="test-reference.fa" />
+                <param name="variants" value="test-variants.vcf" />
+            </conditional>
+            <section name="advanced">
+                <param name="hash_size" value="1000000" />
+            </section>
+            <output name="genotyping_vcf" file="test_genotyping_basic.vcf" />
+        </test>
+        <test expect_num_outputs="3">
+            <param name="reads" value="test-reads.fa" />
+            <conditional name="panel_source">
+                <param name="source_selector" value="reference" />
+                <param name="reference" value="test-reference.fa" />
+                <param name="variants" value="test-variants.vcf" />
+            </conditional>
+            <section name="advanced">
+                <param name="run_phasing" value="true" />
+                <param name="hash_size" value="1000000" />
+                <conditional name="sampling_strategy">
+                    <param name="sampling_selector" value="none" />
+                </conditional>
+            </section>
+            <output name="genotyping_vcf" file="test_genotyping_phasing.vcf" />
+            <output name="phasing_vcf" file="test_phasing.vcf" />
+        </test>
+        <test expect_num_outputs="3">
+            <param name="reads" value="test-reads.fa" />
+            <conditional name="panel_source">
+                <param name="source_selector" value="reference" />
+                <param name="reference" value="test-reference.fa" />
+                <param name="variants" value="test-variants.vcf" />
+            </conditional>
+            <section name="advanced">
+                <param name="hash_size" value="1000000" />
+                <param name="sample_panel" value="true" />
+                <conditional name="sampling_strategy">
+                    <param name="sampling_selector" value="subset" />
+                    <param name="subset_size" value="10" />
+                </conditional>
+            </section>
+            <output name="genotyping_vcf" file="test_genotyping_panel.vcf" />
+            <output name="sampled_panel_vcf" file="test_panel.vcf" />
+        </test>
+    </tests>
+    <help><![CDATA[
+PanGenie genotypes variants represented in a fully phased, multi-sample pangenome VCF by combining read k-mer counts with haplotype paths observed in the panel.
+
+The tool can either consume a reference FASTA and panel VCF directly or reuse files generated by **PanGenie-index**. When running without an index, the command first performs the preprocessing steps in-memory.
+
+**Inputs**
+
+* Reads: uncompressed FASTA/FASTQ. If compressed data are supplied they are decompressed automatically.
+* Variant panel:
+  * Reference + VCF — provide the haplotype-resolved reference genome and the corresponding graph VCF. Both must be uncompressed inside the job working directory; Galaxy will decompress `.gz` files automatically for this wrapper.
+  * Index archive — tarball with the files created by `PanGenie-index -o <prefix>`. Supply the same prefix so PanGenie can locate the serialized objects.
+
+**Outputs**
+
+* `<prefix>_genotyping.vcf` — VCF containing the genotyped variants for the sample.
+* `<prefix>_phasing.vcf` — optional VCF with phased haplotype paths (enabled with *Run phasing*).
+* `<prefix>_panel.vcf` — optional sampled panel VCF (enabled with *Output sampled panel*).
+
+PanGenie requires uncompressed FASTA/FASTQ/VCF inputs. This wrapper transparently creates temporary uncompressed copies when compressed datasets are provided.
+
+For multi-sample projects, run PanGenie-index once, archive its outputs, and reuse them here via the *Index* mode to save runtime and memory.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41588-022-01043-w</citation>
+    </citations>
+</tool>
