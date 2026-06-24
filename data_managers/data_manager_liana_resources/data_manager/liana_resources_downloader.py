@@ -187,7 +187,7 @@ class LianaResourcesDownloader:
 
     # Resource groupings for selective download
     RESOURCE_GROUPS = {
-        'ligand_receptor_all': None,  # All L-R databases
+        'ligand_receptor_all': None,  # all L-R databases discovered by show_resources()
         'ligand_receptor_consensus': ['consensus'],
         'ligand_receptor_main': ['consensus', 'cellphonedb', 'cellchatdb'],
         'ligand_receptor_single_cell': [
@@ -195,8 +195,8 @@ class LianaResourcesDownloader:
         ],
         'orthologs_all': list(ORTHOLOG_RESOURCES_METADATA.keys()),
         'orthologs_common': ['hcop_human_mouse', 'hcop_human_rat'],
-        'metalinks_all': list(METALINKS_RESOURCES_METADATA.keys()),
-        'all': None,  # All resources of all types
+        'metalinks_bundle_all': list(METALINKS_RESOURCES_METADATA.keys()),
+        'all': None,  # all resources of all types
     }
 
     def __init__(self, output_json):
@@ -262,12 +262,9 @@ class LianaResourcesDownloader:
             log.info(f"Downloading metalinks: {resource_id}...")
             df = li.resource.get_metalinks(
                 biospecimen_location=biospecimen_location,
-                source=source,
-                hmdb=True,
-                uniprot=True
+                source=source
             )
 
-            # Save as TSV
             output_path = Path(resource_id) / f"{resource_id}.tsv"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(output_path, sep='\t', index=False)
@@ -279,7 +276,7 @@ class LianaResourcesDownloader:
             log.error(f"Error downloading metalinks {resource_id}: {e}")
             raise
 
-    def create_data_table_entry(self, resource_id, df, output_path):
+    def create_data_table_entry(self, resource_id, output_path):
         """Create a Galaxy data table entry for a resource."""
         metadata = self.ALL_RESOURCES_METADATA.get(
             resource_id,
@@ -290,11 +287,13 @@ class LianaResourcesDownloader:
             }
         )
 
+        output_path = Path(output_path)
+
         return {
             'value': resource_id,
             'name': metadata['name'],
             'description': metadata['description'],
-            'path': output_path,
+            'path': str(output_path.parent),
             'type': metadata.get('type', 'unknown')
         }
 
@@ -303,22 +302,21 @@ class LianaResourcesDownloader:
         if resource_select in self.RESOURCE_GROUPS:
             group = self.RESOURCE_GROUPS[resource_select]
             if group is None:
-                # Special cases: all database types
                 if resource_select == 'all':
                     all_lr = self.get_available_lr_resources()
-                    all_resources = all_lr + list(self.ORTHOLOG_RESOURCES_METADATA.keys()) + list(self.METALINKS_RESOURCES_METADATA.keys())
-                    return all_resources
-                else:
-                    return []
-            else:
-                return group
-        else:
-            # Single resource
-            if resource_select in self.ALL_RESOURCES_METADATA:
-                return [resource_select]
-            else:
-                raise ValueError(f"Resource '{resource_select}' not found. "
-                                 f"Available groups: {', '.join(self.RESOURCE_GROUPS.keys())}")
+                    return all_lr + list(self.ORTHOLOG_RESOURCES_METADATA.keys()) + list(self.METALINKS_RESOURCES_METADATA.keys())
+                if resource_select == 'ligand_receptor_all':
+                    return self.get_available_lr_resources()
+                return []
+            return group
+
+        if resource_select in self.ALL_RESOURCES_METADATA:
+            return [resource_select]
+
+        raise ValueError(
+            f"Resource '{resource_select}' not found. "
+            f"Available groups: {', '.join(self.RESOURCE_GROUPS.keys())}"
+        )
 
     def download_resource(self, resource_id):
         """Download a single resource (detects type and calls appropriate method)."""
@@ -351,7 +349,7 @@ class LianaResourcesDownloader:
         for resource_id in resources_to_download:
             try:
                 df, output_path = self.download_resource(resource_id)
-                entry = self.create_data_table_entry(resource_id, df, output_path)
+                entry = self.create_data_table_entry(resource_id, output_path)
                 self.entries.append(entry)
 
             except Exception as e:
@@ -392,35 +390,31 @@ def parse_arguments():
         description='Download LIANA resources (L-R databases, orthologs, metalinks) for Galaxy',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
-LIGAND-RECEPTOR RESOURCES:
-  all                   - All 17 L-R databases (~100 MB)
-  consensus             - Consensus only (~2 MB) - FASTEST
-  main                  - Consensus + CellPhoneDB + CellChat
-  single_cell           - 4 databases optimized for single-cell data
+        Available --resource values:
 
-ORTHOLOG RESOURCES (HCOP):
-  orthologs_all         - All species mappings (human-mouse, human-rat, etc.)
-  orthologs_common      - Human-Mouse and Human-Rat only (RECOMMENDED)
+        LIGAND-RECEPTOR RESOURCE GROUPS:
+        ligand_receptor_consensus     - Consensus only
+        ligand_receptor_main          - Consensus + CellPhoneDB + CellChat
+        ligand_receptor_single_cell   - Consensus + CellPhoneDB + CellChat + ConnectomeDB2020
+        ligand_receptor_all           - All available LIANA ligand-receptor resources
 
-METALINKS RESOURCES:
-  metalinks_all         - All metabolite-protein interactions
-  metalinks_blood       - Blood biospecimens only
-  metalinks_plasma      - Plasma biospecimens only
-  metalinks_urine       - Urine biospecimens only
+        ORTHOLOG RESOURCE GROUPS:
+        orthologs_common              - Human-Mouse + Human-Rat
+        orthologs_all                 - Human-Mouse + Human-Rat + Human-Chicken + Human-Zebrafish
 
-ALL:
-  all                   - All resources of all types (LARGEST, ~200 MB)
+        METALINKS RESOURCE GROUPS:
+        metalinks_blood               - Blood biospecimens only
+        metalinks_plasma              - Plasma biospecimens only
+        metalinks_all                 - All biospecimens only
+        metalinks_bundle_all          - All predefined Metalinks presets
 
-Examples:
-  # Download all L-R databases
-  python liana_resources_downloader.py --resource all --output output.json
+        ALL RESOURCES:
+        all                           - All ligand-receptor, ortholog, and Metalinks resources
 
-  # Download consensus L-R + common orthologs
-  python liana_resources_downloader.py --resource consensus --output output.json
-  python liana_resources_downloader.py --resource orthologs_common --output orthologs.json
-
-  # Download metalinks
-  python liana_resources_downloader.py --resource metalinks_all --output metalinks.json
+        Examples:
+        python liana_resources_downloader.py --resource ligand_receptor_consensus --output output.json
+        python liana_resources_downloader.py --resource orthologs_common --output orthologs.json
+        python liana_resources_downloader.py --resource metalinks_all --output metalinks.json
         '''
     )
 
