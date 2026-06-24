@@ -4,7 +4,7 @@ Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
 
-__version__ = "0.9.2"
+__version__ = "1.2.5"
 
 import csv
 import math
@@ -50,62 +50,79 @@ class Utils:
             nrows=filedict["nrows"],
             skipfooter=filedict["skipfooter"],
             skip_blank_lines=filedict["skip_blank_lines"],
-            sep='\t'
+            sep="\t",
         )
         # Fix whitespace issues in index or column names
-        data.columns = [col.strip() if type(col) is str else col
-                        for col in data.columns]
-        data.index = [row.strip() if type(row) is str else row
-                      for row in data.index]
+        data.columns = [
+            col.strip() if type(col) is str else col for col in data.columns
+        ]
+        data.index = [row.strip() if type(row) is str else row for row in data.index]
         return data
 
     @staticmethod
     def rangemaker(tab):
-        # e.g. "1:3,2:-2" specifies "1,2,3,2,1,0,-1,-2" to give [0,1,2,1,0,-1,-2]
-        # Positive indices are decremented by 1 to reference 0-base numbering
-        # Negative indices are unaltered, so that -1 refers to the last column
+        """
+        Converts 1-based positive indices to 0-based indices.
+        Negative indices are preserved to support Pandas-style reverse indexing.
+
+        This is designed to prepare column or row index lists for use with `pandas.DataFrame.iloc`.
+
+        Parameters:
+            tab (str): A string specifying individual indices or ranges using 1-based indexing.
+                    Ranges use ":" (e.g., "1:3"), and multiple entries are comma-separated.
+
+        Returns:
+            list[int]: A list of 0-based indices, suitable for use in df.iloc[:, result] or df.iloc[result, :].
+
+        Rules:
+            - Positive indices are 1-based and converted to 0-based (1 → 0, 2 → 1, etc.).
+            - Negative indices are left unchanged (e.g., -1, -2), compatible with Pandas.
+            - 0 is not allowed and will raise an error.
+            - Ranges (e.g., "3:1", "1:-3") are inclusive and can be ascending or descending.
+            - Repeated indices are allowed and preserved.
+
+        Examples:
+            "1:3"       → [0, 1, 2]
+            "3:1"       → [2, 1, 0]
+            "2:-2"      → [1, 0, -1, -2]
+            "-3:-1"     → [-3, -2, -1]
+            "2"         → [1]
+            "1,1,3:1"   → [0, 0, 2, 1, 0]
+            "1:-3"      → [0, -1, -2, -3]
+            "1,1,1,-5:-1" → [0, 0, 0, -5, -4, -3, -2, -1]
+                        # Select column 1 three times and the last 5 columns
+        """
         out = []
-        err_mess = None
-        for ranges in tab.split(","):
-            nums = ranges.split(":")
-            if len(nums) == 1:
-                numb = int(nums[0])
-                # Positive numbers get decremented.
-                # i.e. column "3" refers to index 2
-                #      column "-1" still refers to index -1
-                if numb != 0:
-                    out.append(numb if (numb < 0) else (numb - 1))
+        for part in tab.split(","):
+            nums = part.split(":")
+
+            try:
+                if len(nums) == 1:
+                    i = int(nums[0])
+                    if i == 0:
+                        raise ValueError(
+                            "Index 0 is not allowed (use 1-based indexing)."
+                        )
+                    out.append(i - 1 if i > 0 else i)
+
+                elif len(nums) == 2:
+                    left, right = map(int, nums)
+                    if left == 0 or right == 0:
+                        raise ValueError(
+                            "Index 0 is not allowed (use 1-based indexing)."
+                        )
+
+                    # Convert only positive numbers to 0-based
+                    left = left - 1 if left > 0 else left
+                    right = right - 1 if right > 0 else right
+
+                    step = 1 if right >= left else -1
+                    out.extend(range(left, right + step, step))
+
                 else:
-                    err_mess = "Please do not use 0 as an index"
-            elif len(nums) == 2:
-                left, right = map(int, nums)
-                if 0 in (left, right):
-                    err_mess = "Please do not use 0 as an index"
-                elif left < right:
-                    if left > 0:  # and right > 0 too
-                        # 1:3 to 0,1,2
-                        out.extend(range(left - 1, right))
-                    elif right < 0:  # and left < 0 too
-                        # -3:-1 to -3,-2,-1
-                        out.extend(range(left, right + 1))
-                    elif left < 0 and right > 0:
-                        # -2:2 to -2,-1,0,1
-                        out.extend(range(left, 0))
-                        out.extend(range(0, right))
-                elif right < left:
-                    if right > 0:  # and left > 0
-                        # 3:1 to 2,1,0
-                        out.extend(range(left - 1, right - 2, -1))
-                    elif left < 0:  # and right < 0
-                        # -1:-3 to -1,-2,-3
-                        out.extend(range(left, right - 1, -1))
-                    elif right < 0 and left > 0:
-                        # 2:-2 to 1,0,-1,-2
-                        out.extend(range(left - 1, right - 1, -1))
-                else:
-                    err_mess = "%s should not be equal or contain a zero" % nums
-            if err_mess:
-                print(err_mess)
+                    raise ValueError(f"Invalid range syntax: '{part}'")
+            except ValueError as e:
+                print(f"Error: {e}")
                 return None
         return out
 
@@ -147,11 +164,13 @@ if user_mode == "single":
         nodupes_row = not params["select_rows_unique"]
 
         if nodupes_col:
-            cols_specified = [x for i, x in enumerate(cols_specified)
-                              if x not in cols_specified[:i]]
+            cols_specified = [
+                x for i, x in enumerate(cols_specified) if x not in cols_specified[:i]
+            ]
         if nodupes_row:
-            rows_specified = [x for i, x in enumerate(rows_specified)
-                              if x not in rows_specified[:i]]
+            rows_specified = [
+                x for i, x in enumerate(rows_specified) if x not in rows_specified[:i]
+            ]
 
         out_table = data.iloc[rows_specified, cols_specified]
 
@@ -168,9 +187,7 @@ if user_mode == "single":
             summary_op = Utils.getVectorPandaOp(operation)
             axis_summary = summary_op(data, axis=axis)
             # Perform vector comparison
-            compare_op = Utils.getTwoValuePandaOp(
-                compare_operation, axis_summary
-            )
+            compare_op = Utils.getTwoValuePandaOp(compare_operation, axis_summary)
             axis_bool = compare_op(axis_summary, value)
 
         elif mode == "element":
@@ -203,7 +220,7 @@ if user_mode == "single":
                     """Dummy Function"""
                     return vec
 
-                ss = Safety(custom_func, ['vec'], 'pd.Series')
+                ss = Safety(custom_func, ["vec"], "pd.Series")
                 fun_string = ss.generateFunction()
                 exec(fun_string)  # SUPER DUPER SAFE...
 
@@ -267,23 +284,15 @@ if user_mode == "single":
             replacement_val = params["element_replace"]
             out_table = data.mask(
                 bool_mat,
-                data.where(bool_mat).applymap(
-                    lambda x: replacement_val.format(elem=x)
-                )
+                data.where(bool_mat).applymap(lambda x: replacement_val.format(elem=x)),
             )
         elif mode == "modify":
             mod_op = Utils.getOneValueMathOp(params["element_modify_op"])
-            out_table = data.mask(
-                bool_mat, data.where(bool_mat).applymap(mod_op)
-            )
+            out_table = data.mask(bool_mat, data.where(bool_mat).applymap(mod_op))
         elif mode == "scale":
-            scale_op = Utils.getTwoValuePandaOp(
-                params["element_scale_op"], data
-            )
+            scale_op = Utils.getTwoValuePandaOp(params["element_scale_op"], data)
             scale_value = params["element_scale_value"]
-            out_table = data.mask(
-                bool_mat, scale_op(data.where(bool_mat), scale_value)
-            )
+            out_table = data.mask(bool_mat, scale_op(data.where(bool_mat), scale_value))
         elif mode == "custom":
             element_customop = params["element_customop"]
 
@@ -291,13 +300,11 @@ if user_mode == "single":
                 """Dummy Function"""
                 return elem
 
-            ss = Safety(element_customop, ['elem'])
+            ss = Safety(element_customop, ["elem"])
             fun_string = ss.generateFunction()
             exec(fun_string)  # SUPER DUPER SAFE...
 
-            out_table = data.mask(
-                bool_mat, data.where(bool_mat).applymap(fun)
-            )
+            out_table = data.mask(bool_mat, data.where(bool_mat).applymap(fun))
         else:
             print("No such element mode!", mode)
             exit(-1)
@@ -324,8 +331,10 @@ if user_mode == "single":
                 )
             else:
                 out_table = data.pivot_table(
-                    index=pivot_index, columns=pivot_column, values=pivot_values,
-                    aggfunc=pivot_aggfunc
+                    index=pivot_index,
+                    columns=pivot_column,
+                    values=pivot_values,
+                    aggfunc=pivot_aggfunc,
                 )
 
         elif general_mode == "custom":
@@ -335,7 +344,7 @@ if user_mode == "single":
                 """Dummy Function"""
                 return tableau
 
-            ss = Safety(custom_func, ['table'], 'pd.DataFrame')
+            ss = Safety(custom_func, ["table"], "pd.DataFrame")
             fun_string = ss.generateFunction()
             exec(fun_string)  # SUPER DUPER SAFE...
 
@@ -371,7 +380,7 @@ elif user_mode == "multiple":
         table_names_real.append("table[" + str(x) + "]")
 
     custom_op = params["fulltable_customop"]
-    ss = Safety(custom_op, table_names, 'pd.DataFrame')
+    ss = Safety(custom_op, table_names, "pd.DataFrame")
     fun_string = ss.generateFunction()
     # Change the argument to table
     fun_string = fun_string.replace("fun(table1):", "fun():")
@@ -388,17 +397,17 @@ else:
     exit(-1)
 
 if not isinstance(out_table, (pd.DataFrame, pd.Series)):
-    print('The specified operation did not result in a table to return.')
+    print("The specified operation did not result in a table to return.")
     raise RuntimeError(
-        'The operation did not generate a pd.DataFrame or pd.Series to return.'
+        "The operation did not generate a pd.DataFrame or pd.Series to return."
     )
 out_parameters = {
     "sep": "\t",
     "float_format": "%%.%df" % pd.options.display.precision,
     "header": uc.Default["out_headers_col"],
-    "index": uc.Default["out_headers_row"]
+    "index": uc.Default["out_headers_row"],
 }
-if user_mode_single not in ('matrixapply', None):
+if user_mode_single not in ("matrixapply", None):
     out_parameters["quoting"] = csv.QUOTE_NONE
 
 out_table.to_csv(uc.Default["outtable"], **out_parameters)
