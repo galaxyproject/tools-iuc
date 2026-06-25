@@ -33,7 +33,7 @@ for f in "${wt_files[@]}"; do curl -fsSL "$base/wt_input/$f" -o "mut_integrate_w
 for f in "${mut_files[@]}"; do curl -fsSL "$base/mut_input/$f" -o "mut_integrate_mut_input/$f"; done
 rm -f wt_input.zip mut_input.zip
 find mut_integrate_wt_input mut_integrate_mut_input -type f -name 'mut_clean_report*.json' -delete
-(cd mut_integrate_wt_input && zip -q -r ../wt_input.zip .)
-(cd mut_integrate_mut_input && zip -q -r ../mut_input.zip .)
+(cd mut_integrate_wt_input && zip -q -r ../wt_input_1.zip .)
+(cd mut_integrate_mut_input && zip -q -r ../mut_input_1.zip .)
 rm -rf mut_integrate_wt_input mut_integrate_mut_input
 echo "Rebuilt wt_input.zip and mut_input.zip for enzywizard_mut_integrate."
