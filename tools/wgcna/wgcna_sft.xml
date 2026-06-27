@@ -1,0 +1,269 @@
+<tool id="wgcna_softpower" name="WGCNA: Soft-Thresholding Power" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Estimate the soft-thresholding power for WGCNA network construction</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="wgcna_softpower_requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir -p plots &&
+        Rscript '$softpower_script'
+    ]]></command>
+    <configfiles>
+        <configfile name="softpower_script" filename="softpower_script.R"><![CDATA[
+library(WGCNA)
+
+options(stringsAsFactors = FALSE)
+
+counts_file        <- "$counts_file"
+network_type       <- "$network_type"
+corFnc             <- "$corFnc"
+log_transform      <- $log_transform
+filter_by_variance <- $filter_by_variance
+variance_quantile  <- as.numeric($variance_quantile)
+RsquaredCut        <- as.numeric($RsquaredCut)
+
+## Load count matrix
+counts <- read.delim(
+    counts_file,
+    check.names = FALSE,
+    row.names = 1
+)
+
+## Prepare expression matrix
+expr_data <- as.matrix(counts)
+mode(expr_data) <- "numeric"
+
+## Log-transform if requested
+if (log_transform) {
+    expr_data <- log2(expr_data + 1)
+}
+
+## Remove missing values if present
+if (any(is.na(expr_data))) {
+    expr_data <- expr_data[complete.cases(expr_data), ]
+}
+
+## Filter by variance if requested
+if (filter_by_variance) {
+    gene_variances <- apply(expr_data, 1, var)
+    variance_threshold <- quantile(
+        gene_variances,
+        variance_quantile,
+        na.rm = TRUE
+    )
+    filtered_expr_data <- expr_data[
+        gene_variances > variance_threshold,
+        ,
+        drop = FALSE
+    ]
+} else {
+    filtered_expr_data <- expr_data
+}
+
+datExpr <- t(filtered_expr_data)
+
+## Enable multithreading when available
+try(enableWGCNAThreads(), silent = TRUE)
+
+## Candidate powers
+powers <- c(seq(1, 10, by = 1), seq(12, 20, by = 2))
+
+## Pick soft-thresholding power
+sft <- pickSoftThreshold(
+    datExpr,
+    powerVector = powers,
+    RsquaredCut = RsquaredCut,
+    networkType = network_type,
+    corFnc = corFnc,
+    verbose = 3
+)
+
+## Generate plot
+png("plots/soft_thresholding.png", width = 1200, height = 600, res = 100)
+par(mfrow = c(1, 2))
+
+plot(
+    sft\$fitIndices[, 1],
+    -sign(sft\$fitIndices[, 3]) * sft\$fitIndices[, 2],
+    type = "n",
+    xlab = "Soft Threshold (power)",
+    ylab = "Scale Free Topology Model Fit, signed R^2",
+    main = "Scale Independence"
+)
+
+text(
+    sft\$fitIndices[, 1],
+    -sign(sft\$fitIndices[, 3]) * sft\$fitIndices[, 2],
+    labels = sft\$fitIndices[, 1],
+    cex = 0.9,
+    col = "red"
+)
+
+abline(h = RsquaredCut, col = "blue", lty = 2)
+plot(
+    sft\$fitIndices[, 1],
+    sft\$fitIndices[, 5],
+    type = "n",
+    xlab = "Soft Threshold (power)",
+    ylab = "Mean Connectivity",
+    main = "Mean Connectivity"
+)
+
+text(
+    sft\$fitIndices[, 1],
+    sft\$fitIndices[, 5],
+    labels = sft\$fitIndices[, 1],
+    cex = 0.9,
+    col = "red"
+)
+
+dev.off()
+
+## Determine selected power
+soft_power <- sft\$powerEstimate ## then let user do r
+
+
+## based on WGCNA FAQ https://github.com/edo98811/WGCNA_official_documentation/blob/main/faq.html
+get_soft_power <- function(n_samples, network_type = "signed") {
+    network_type <- tolower(network_type)
+
+    if (network_type == "signed") {
+        if (n_samples < 20)       power <- 18
+        else if (n_samples <= 30) power <- 16
+        else if (n_samples <= 40) power <- 14
+        else                      power <- 12
+    } else {  # unsigned or signed hybrid
+        if (n_samples < 20)       power <- 9
+        else if (n_samples <= 30) power <- 8
+        else if (n_samples <= 40) power <- 7
+        else                      power <- 6
+    }
+    return(power)
+}
+
+if (is.na(soft_power)) {
+    soft_power <- get_soft_power(n_samples=nrow(datExpr),network_type=network_type)
+    cat("No suitable power found. Using power based on WGCNA author's recommndation")
+} else {
+    cat("Chosen soft-thresholding power:", soft_power, "\n")
+}
+
+## Write configuration file
+writeLines(
+    c(
+        paste0("soft_power = ", soft_power),
+        paste0("network_type = ", network_type),
+        paste0("variance_quantile = ", variance_quantile)
+    ),
+    "softpower_config.txt"
+)
+
+## Write full fit indices table
+write.table(
+    sft\$fitIndices,
+    file      = "softpower_fit_indices.tsv",
+    sep       = "\t",
+    quote     = FALSE,
+    row.names = FALSE
+)
+
+cat("Selected soft power:", soft_power, "\n")
+cat("Fit indices written to: softpower_fit_indices.tsv\n")
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="counts_file" type="data" format="tabular" label="Counts matrix" help="Genes as rows and samples as columns. First column contains gene identifiers."/>
+        <expand macro="network_type_param"/>
+        <param name="corFnc" type="select" label="Correlation function">
+            <option value="cor" selected="true">Pearson correlation (cor)</option>
+            <option value="bicor">Biweight midcorrelation (bicor)</option>
+        </param>
+        <param name="RsquaredCut" type="float" value="0.85" min="0" max="1" label="Rsquared threshold to select the power" help="The lowest power for which the scale free topology fit exceeds this value will be selected"/>
+        <expand macro="filter_variance_params"/>
+    </inputs>
+    <outputs>
+        <data name="softpower_config" format="txt" from_work_dir="softpower_config.txt" label="${tool.name} on ${on_string} - Soft-thresholding config"/>
+        <data name="softpower_fit_indices" format="tabular" from_work_dir="softpower_fit_indices.tsv" label="${tool.name} on ${on_string} - Soft-thresholding fit indices"/>
+        <data name="softpower_plot" format="png" from_work_dir="plots/soft_thresholding.png" label="${tool.name} on ${on_string} - Soft-thresholding plot"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="counts_file" value="test_counts.tsv" ftype="tabular"/>
+            <param name="network_type" value="signed"/>
+            <!-- CHANGE: corFnc value updated to "cor" to match fixed option value -->
+            <param name="corFnc" value="cor"/>
+            <param name="RsquaredCut" value="0.85"/>
+            <param name="log_transform" value="true"/>
+            <param name="filter_by_variance" value="true"/>
+            <param name="variance_quantile" value="0.4"/>
+            <output name="softpower_config">
+                <assert_contents>
+                    <has_text text="soft_power"/>
+                    <has_text text="network_type = signed"/>
+                    <has_text text="variance_quantile = 0.4"/>
+                    <has_text_matching expression="soft_power = \d+"/>
+                </assert_contents>
+            </output>
+            <output name="softpower_fit_indices">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_n_columns n="7"/>
+                </assert_contents>
+            </output>
+            <output name="softpower_plot">
+                <assert_contents>
+                    <has_image_channels channels="3"/>
+                    <has_image_height height="600"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**WGCNA Soft-Thresholding Power Estimation**
+
+Runs ``pickSoftThreshold`` from the WGCNA package to estimate an appropriate
+soft-thresholding power for weighted gene co-expression network construction.
+
+**Inputs**
+
+- **Counts matrix**
+  TSV file with genes as rows and samples as columns.
+
+- **Network type**
+  Choice of unsigned (default), signed, or signed hybrid network.
+
+- **Correlation function**
+  Choice of Pearson correlation (default, cor) or biweight midcorrelation (bicor,
+  more robust to outliers).
+
+- **Log2-transform counts**
+  Apply log2(count + 1) before network construction (recommended for RNA-seq data,
+  enabled by default).
+
+- **Filter low-variance genes**
+  Remove low-variance genes before analysis (enabled by default). Low variance
+  genes contribute less to the co-expression network and can be removed to
+  improve computational efficiency.
+
+- **Variance filter quantile**
+  Genes below this variance percentile are removed (default 0.4, bottom 40%).
+  Used only when filtering is enabled. This threshold is a reasonable default
+  for typical gene expression datasets, removing genes that are not highly
+  variable across samples.
+
+**Outputs**
+
+- **Soft-thresholding config**
+  Configuration file containing the selected soft-thresholding power, network
+  type, and variance quantile. If no power achieves an R-squared >= 0.85, the
+  tool uses a default value of 6, which is a safe and commonly used default.
+
+- **Soft-thresholding fit indices**
+  Table with all fit indices calculated for each candidate power.
+
+- **Soft-thresholding plot**
+  Diagnostic plot showing scale-free topology fit (signed R-squared vs power)
+  and mean connectivity vs power.
+    ]]></help>
+    <expand macro="wgcna_citations"/>
+</tool>
