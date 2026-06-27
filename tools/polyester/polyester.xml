@@ -1,0 +1,1092 @@
+<tool id="polyester" name="Polyester" version="@TOOL_VERSION@+galaxy0" profile="20.01">
+    <description>Simulate RNA-seq data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="3.8.5">python</requirement>
+        <requirement type="package" version="4.0.3">r-base</requirement>
+    </expand>
+    <command detect_errors="exit_code"><![CDATA[
+#if $annotation_type.annotation_type_select == 'gtf+fasta':
+    @GENOME_FASTA@
+    mkdir reference_fastas/ &&
+    cat '$split_fasta' &&
+    echo " " && 
+    python '$split_fasta' &&
+#else:
+    @TRANSCRIPTOME_FASTA@
+#end if
+cat '$script' &&
+Rscript '$script'
+#set $counter = 1
+#if $simulation_type.simulation_type_select == 'simulate_experiment':
+    #for $i, $group in enumerate($simulation_type.num_reps_repeat):
+        #for $j in range(int($group.replicates))
+            #set $current_prefix = 'sample_%02d' % ($counter)
+            #set $new_prefix = 'group%02d_rep%02d' % ($i + 1, $j + 1)
+            #if $paired == 'FALSE':
+                #if $gzip == 'FALSE':
+                    && mv '${current_prefix}.fasta' '${new_prefix}.fasta'
+                #else:
+                    && mv '${current_prefix}.fasta.gz' '${new_prefix}.fasta.gz'
+                #end if
+            #else:
+                #if $gzip == 'FALSE':
+                    && mv '${current_prefix}_1.fasta' '${new_prefix}_1.fasta'
+                    && mv '${current_prefix}_2.fasta' '${new_prefix}_2.fasta'
+                #else:
+                    && mv '${current_prefix}_1.fasta.gz' '${new_prefix}_1.fasta.gz'
+                    && mv '${current_prefix}_2.fasta.gz' '${new_prefix}_2.fasta.gz'
+                #end if
+            #end if
+            #set $counter = $counter + 1
+        #end for
+    #end for
+    && cp '$json' galaxy.json
+#elif $paired and $gzip:
+    && for f in *_1.fasta.gz; do mv "\$f" "`basename \$f _1.fasta.gz`_forward.fasta.gz"; done && 
+    for f in *_2.fasta.gz; do mv "\$f" "`basename \$f _2.fasta.gz`_reverse.fasta.gz"; done
+#elif $paired and not $gzip:
+    && for f in *_1.fasta; do mv "\$f" "`basename \$f _1.fasta`_forward.fasta"; done && 
+    for f in *_2.fasta; do mv "\$f" "`basename \$f _2.fasta`_reverse.fasta"; done
+#end if
+    ]]></command>
+    <configfiles>
+        <configfile name="split_fasta"><![CDATA[
+@SPLIT_FASTA@
+]]></configfile>
+
+        <configfile name="script"><![CDATA[
+@R_INIT@
+
+library(polyester)
+library(Biostrings)
+
+#if $annotation_type.annotation_type_select == 'fasta':
+    fasta <- 'txome.fa'
+    seqpath <- NULL
+    gtf <- NULL
+    fasta_file <- readDNAStringSet(fasta)
+#end if
+#if $annotation_type.annotation_type_select == 'gtf+fasta':
+    fasta <- NULL 
+    seqpath <- 'reference_fastas/'
+    gtf <- '${annotation_type.input_gtf}'
+    exononly <- ${annotation_type.exononly}
+    idfield <- '${annotation_type.idfield}'
+    attrsep <- '${annotation_type.attrsep}'
+    fasta_file <- seq_gtf(gtf,
+                          seqpath,
+                          exononly = exononly,
+                          idfield = idfield,
+                          attrsep = attrsep)
+#end if
+
+#if $simulation_type.simulation_type_select == 'simulate_experiment':
+num_reps = c(
+    #for $i, $group in enumerate($simulation_type.num_reps_repeat):
+        #if $i != len($simulation_type.num_reps_repeat) - 1:
+            $group.replicates,
+        #else:
+            $group.replicates
+        #end if
+    #end for
+)
+
+    #if $simulation_type.reads_per_transcript.reads_per_transcript_select == 'integer':
+        reads_per_transcript <- matrix(rep(${simulation_type.reads_per_transcript.reads_per_transcript}, length(fasta_file)), ncol=1)
+        meanmodel <- FALSE
+    #elif $simulation_type.reads_per_transcript.reads_per_transcript_select == 'integer_vec':
+        #if $simulation_type.reads_per_transcript.reads_per_transcript.is_of_type('tabular'):
+            reads_per_transcript <- as.matrix(read.delim('${simulation_type.reads_per_transcript.reads_per_transcript}', header=FALSE))
+        #elif $simulation_type.reads_per_transcript.reads_per_transcript.is_of_type('csv'):
+            reads_per_transcript <- as.matrix(read.csv('${simulation_type.reads_per_transcript.reads_per_transcript}', header=FALSE))
+        #end if
+    #elif $simulation_type.reads_per_transcript.reads_per_transcript_select == 'meanmodel':
+        reads_per_transcript <- NULL
+        meanmodel <- TRUE
+    #end if
+
+    #if $simulation_type.size_conditional.size_conditional_select == 'default':
+        size <- NULL
+    #elif $simulation_type.size_conditional.size_conditional_select == 'integer':
+        size <- ${simulation_type.size_conditional.size}
+    #elif $simulation_type.size_conditional.size_conditional_select == 'vectorfile':
+        #if $simulation_type.size_conditional.size.is_of_type('tabular'):
+            size <- as.matrix(read.delim('${simulation_type.size_conditional.size}', header=FALSE))
+        #elif $simulation_type.size_conditional.size.is_of_type('csv'):
+            size <- as.matrix(read.csv('${simulation_type.size_conditional.size}', header=FALSE))
+        #end if
+    #elif $simulation_type.size_conditional.size_conditional_select == 'matrixfile':
+        #if $simulation_type.size_conditional.size.is_of_type('tabular'):
+            size <- as.matrix(read.delim('${simulation_type.size_conditional.size}', header=FALSE))
+        #elif $simulation_type.size_conditional.size.is_of_type('csv'):
+            size <- as.matrix(read.csv('${simulation_type.size_conditional.size}', header=FALSE))
+        #end if
+    #end if
+
+    #if $simulation_type.fold_changes.is_of_type('tabular'):
+        fold_changes <- as.matrix(read.delim('${simulation_type.fold_changes}', header=FALSE))
+    #elif $simulation_type.fold_changes.is_of_type('csv'):
+        fold_changes <- as.matrix(read.csv('${simulation_type.fold_changes}', header=FALSE))
+    #end if
+
+#elif $simulation_type.simulation_type_select == 'simulate_experiment_countmat':
+    #if $simulation_type.readmat.is_of_type('tabular'):
+        readmat <- as.matrix(read.delim('${simulation_type.readmat}', header=FALSE))
+    #elif $simulation_type.readmat.is_of_type('csv'):
+        readmat <- as.matrix(read.csv('${simulation_type.readmat}', header=FALSE))
+    #end if
+#elif $simulation_type.simulation_type_select == 'simulate_experiment_empirical':
+    #if $simulation_type.fpkmMat.is_of_type('tabular'):
+        temp <- read.delim('${simulation_type.fpkmMat}', header=FALSE, row.names = 1)
+    #elif $simulation_type.readmat.is_of_type('csv'):
+        temp <- read.csv('${simulation_type.fpkmMat}', header=FALSE, row.names = 1)
+    #end if
+    colclasses <- c('character', rep(NA, length(temp)))
+
+    #if $simulation_type.fpkmMat.is_of_type('tabular'):
+        fpkmMat <- as.matrix(read.delim('${simulation_type.fpkmMat}', header=FALSE, row.names = 1, colClasses = colclasses))
+    #elif $simulation_type.readmat.is_of_type('csv'):
+        fpkmMat <- as.matrix(read.csv('${simulation_type.fpkmMat}', header=FALSE, row.names = 1, colClasses = colclasses))
+    #end if
+
+    mean_rps <- ${simulation_type.mean_rps}
+
+    decut <- ${simulation_type.decut}
+
+    #if $simulation_type.grouplabels.is_of_type('tabular'):
+        grouplabels <- as.matrix(read.delim('${simulation_type.grouplabels}', header=FALSE))
+    #elif $simulation_type.grouplabels.is_of_type('csv'):
+        grouplabels <- as.matrix(read.csv('${simulation_type.grouplabels}', header=FALSE))
+    #end if
+#end if
+
+
+paired <- ${paired}
+
+reportCoverage <- ${report_coverage}
+
+readlen <- ${readlen}
+
+#if $lib_sizes
+    #if $lib_sizes.is_of_type('tabular'):
+        lib_sizes <- as.vector(t(read.delim('${lib_sizes}', header=FALSE)))
+    #elif $lib_sizes.is_of_type('csv'):
+        lib_sizes <- as.vector(t(read.csv('${lib_sizes}', header=FALSE)))
+    #end if
+#end if
+
+#if $distr_conditional.distr == 'normal-integer':
+    distr <- 'normal'
+    fraglen <- ${distr_conditional.fraglen}
+    fragsd <- ${distr_conditional.fragsd}
+#elif $distr_conditional.distr == 'normal-vector':
+    distr <- 'normal'
+    #if $distr_conditional.fraglen.is_of_type('tabular'):
+        fraglen <- as.matrix(read.delim('${distr_conditional.fraglen}', header=FALSE))
+    #elif $distr_conditional.fraglen.is_of_type('csv'):
+        fraglen <- as.matrix(read.csv('${distr_conditional.fraglen}', header=FALSE))
+    #end if
+    #if $distr_conditional.fragsd.is_of_type('tabular'):
+        fragsd <- as.matrix(read.delim('${distr_conditional.fragsd}', header=FALSE))
+    #elif $distr_conditional.fragsd.is_of_type('csv'):
+        fragsd <- as.matrix(read.csv('${distr_conditional.fragsd}', header=FALSE))
+    #end if
+#elif $distr_conditional.distr == 'empirical':
+    distr <- '$distr_conditional.distr'
+#end if
+
+#if $error_model_conditional.error_model_select == "uniform":
+    error_rate <- ${error_model_conditional.error_rate}
+#end if
+error_model <- '${error_model_conditional.error_model_select}'
+
+bias <- '${bias}'
+
+#set $gc_bias_len = len($gc_biases)
+#if $gc_bias_len > 0:
+    assert('GC bias lengths not equal to sum of replicates, please fix this', ${gc_bias_len} == sum(num_reps))
+    gcbias <- c(
+#for $i, $gcbias in enumerate(gc_biases):
+    #if $i != $gc_bias_len - 1
+        ${gcbias.gcbias},
+    #else:
+        ${gcbias.gcbias}
+    #end if
+#end for
+)
+#end if
+
+#if $frag_GC_bias:
+    #if $frag_GC_bias.is_of_type('tabular'):
+        frag_GC_bias <- as.matrix(read.delim('${frag_GC_bias}', header=FALSE))
+    #elif $frag_GC_bias.is_of_type('csv'):
+        frag_GC_bias <- as.matrix(read.csv('${frag_GC_bias}', header=FALSE))
+    #end if
+#end if
+
+strand_specific <- ${strand_specific}
+
+write_info = ${write_info}
+
+#if $transcriptid:
+    #if $transcriptid.is_of_type('tabular'):
+        transcriptid <- as.matrix(read.delim('${transcriptid}', header=FALSE))
+    #elif $transcriptid.is_of_type('csv'):
+        transcriptid <- as.matrix(read.csv('${transcriptid}', header=FALSE))
+    #end if
+#end if 
+
+gzip <- ${gzip}
+seed <- ${seed}
+
+#if $simulation_type.simulation_type_select == 'simulate_experiment':
+simulate_experiment(num_reps = num_reps,
+                    reads_per_transcript = reads_per_transcript,
+                    size = size,
+                    fold_changes=fold_changes,
+    #if $simulation_type.reads_per_transcript.reads_per_transcript_select == 'meanmodel':
+                    meanmodel = meanmodel,
+    #end if
+#elif $simulation_type.simulation_type_select == 'simulate_experiment_countmat':
+simulate_experiment_countmat(readmat = readmat,
+#elif $simulation_type.simulation_type_select == 'simulate_experiment_empirical':
+simulate_experiment_empirical(bg = NULL,
+                              fpkmMat = fpkmMat,
+                              mean_rps = mean_rps,
+                              grouplabels = grouplabels,
+                              decut = decut,
+#end if
+                    fasta = fasta,
+                    gtf = gtf,
+                    seqpath = seqpath,
+#if $annotation_type.annotation_type_select == 'gtf+fasta':
+                    exononly = exononly,
+                    idfield = idfield,
+                    attrsep = attrsep,
+#end if
+                    paired = paired,
+                    reportCoverage = reportCoverage,
+                    readlen = readlen,
+#if $lib_sizes:
+                    lib_sizes = lib_sizes,
+#end if
+                    distr = distr,
+#if $distr_conditional.distr == 'normal-integer' or $distr_conditional.distr == 'normal-vector':
+                    fraglen = fraglen,
+                    fragsd = fragsd,
+#end if
+                    error_model = error_model,
+#if $error_model_conditional.error_model_select == "uniform":
+                    error_rate = error_rate,
+#end if
+                    bias = bias,
+#if $gc_bias_len > 0:
+                    gcbias = gcbias,
+#end if
+#if $frag_GC_bias:
+                    frag_GC_bias = frag_GC_bias,
+#end if
+                    strand_specific = strand_specific,
+                    write_info = write_info,
+#if $transcriptid:
+                    transcriptid = transcriptid,
+#end if
+                    gzip = gzip,
+                    seed = seed
+                    )
+#if $write_info == 'TRUE' and $simulation_type.simulation_type_select == 'simulate_experiment':
+load(file = 'sim_counts_matrix.rda')
+write.csv(counts_matrix, '${counts_matrix}')
+#end if
+
+]]></configfile>
+
+    <configfile name="json"><![CDATA[#slurp
+#if $simulation_type.simulation_type_select == 'simulate_experiment':
+{
+#if $paired == 'FALSE':
+#if $gzip == 'TRUE':
+    "list_output_gzip": {
+#else:
+    "list_output": {
+#end if
+        "elements": [
+#for $i, $group in enumerate($simulation_type.num_reps_repeat):
+#set $group_name = "group%02d" % ($i + 1)
+            {"name" : "${group_name}", "elements": [
+#for $j in range(int($group.replicates)):
+#set $rep_name = "rep%02d" % ($j + 1)
+                {"name": "${rep_name}",
+                "type": "new_primary_dataset",
+#if $gzip == 'TRUE':
+                "filename": "${group_name}_${rep_name}.fasta.gz"
+#else:
+                "filename": "${group_name}_${rep_name}.fasta"
+#end if
+#if $j != int($group.replicates) - 1:
+                },
+#else:
+                }
+#end if
+#end for
+#if $i != len($simulation_type.num_reps_repeat) - 1:
+            ]},
+#else:
+            ]}
+#end if
+#end for
+        ]}
+#else:
+#if $gzip == 'TRUE':
+    "paired_output_gzip": {
+#else:
+    "paired_output": {
+#end if
+        "elements": [
+#for $i, $group in enumerate($simulation_type.num_reps_repeat):
+#set $group_name = "group%02d" % ($i + 1)
+            {"name" : "${group_name}", "elements": [
+#for $j in range(int($group.replicates)):
+#set $rep_name = "rep%02d" % ($j + 1)
+                {"name": "${rep_name}", "elements": [
+                    {"name": "forward",
+                     "type": "new_primary_dataset",
+#if $gzip == 'TRUE':
+                     "filename": "${group_name}_${rep_name}_1.fasta.gz"},
+#else:
+                     "filename": "${group_name}_${rep_name}_1.fasta"},
+#end if
+                    {"name": "reverse",
+                     "type": "new_primary_dataset",
+#if $gzip == 'TRUE':
+                     "filename": "${group_name}_${rep_name}_2.fasta.gz"}
+#else:
+                     "filename": "${group_name}_${rep_name}_2.fasta"}
+#end if
+
+#if $j != int($group.replicates) - 1:
+                ]},
+#else:
+                ]}
+#end if
+#end for
+#if $i != len($simulation_type.num_reps_repeat) - 1:
+            ]},
+#else:
+            ]}
+#end if
+#end for
+        ]}
+#end if
+}
+#end if
+]]></configfile>
+</configfiles>
+    <inputs>
+        <param name="gzip" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Compress output FASTAs?"/>
+        <conditional name="annotation_type">
+            <param name="annotation_type_select" type="select" label="How will you provide reference transcripts to simulate reads from?">
+                <help><![CDATA[
+Transcripts FASTA File requires a single FASTA with the reference transcriptomes to be simulated; GTF +
+ Genome FASTA File requires a reference genome and a GTF file in that reference genome specifying transcripts to simulate
+                ]]></help>
+                <option value="fasta">Transcripts FASTA File</option>
+                <option value="gtf+fasta">GTF + Genome FASTA File</option>
+            </param>
+            <when value="fasta">
+                <expand macro="reference_transcriptome"/>
+            </when>
+            <when value="gtf+fasta">
+                <param name="input_gtf" type="data" format="gtf" label="GTF file containing transcript structures from which reads should be simulated"/>
+                <expand macro="reference_genome"/>
+                <param name="exononly" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Only create transcript sequences from the features labeled exon in gtf?"/>
+                <param name="idfield" type="text" value="transcript_id" label="Name of the field identifying transcripts in the GTF"/>
+                <param name="attrsep" type="text" value="; " label="Delimeter for separating attributes in attributes column of the GTF" help='Default = "; "'>
+                    <sanitizer invalid_char=""> <!-- TODO - maybe replace this with a select since galaxy won't be happy with misformed gtfs anyway?-->
+                        <valid initial="none">
+                            <add value=";"/>
+                            <add value=" "/>
+                            <add value=","/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+        </conditional>
+        <conditional name="simulation_type">
+            <param name="simulation_type_select" type="select">
+                <option value="simulate_experiment">Create FASTA files containing RNA-seq reads simulated from provided transcripts, number of replicates, reads per transcript, and fold changes</option>
+                <option value="simulate_experiment_countmat">Create FASTA files for containing RNA-seq reads simulated from provided transcripts, and count matrix</option>
+                <option value="simulate_experiment_empirical">Create FASTA files representing reads from a two-group experiment, where abundances and differential expression are estimated from a real data set</option>
+            </param>
+            <when value="simulate_experiment">
+                <repeat name="num_reps_repeat" title="Sequencing Groups" min="1" default="2"
+help="How many biological replicates should be in each group? The number of repeats of Sequencing Groups determines the number of experimental groups, while the replicate number provided determines the number of biological replicates simulated for that group.">
+                    <param name="replicates" type="integer" min="1" value="10" label="Number of replicates for this group"/>
+                </repeat>
+                <conditional name="reads_per_transcript">
+                    <param name="reads_per_transcript_select" type="select" label="How to specify baseline mean number of reads per transcript">
+                        <option value="integer" selected="true">Select fixed integer value for all transcripts</option>
+                        <option value="integer_vec">Provide vector file to specify a reads_per_transcript for each transcript</option>
+                        <option value="meanmodel">Draw baseline mean numbers from a model based on transcript length. WARNING - RESULTS IN NON-DETERMINISTIC BEHAVIOUR</option>
+                    </param>
+                    <when value="integer">
+                        <param name="reads_per_transcript" type="integer" value="300" label="Number of reads simulated from each transcript"/>
+                    </when>
+                    <when value="meanmodel"/>
+                    <when value="integer_vec">
+                        <param name="reads_per_transcript" type="data" format="csv,tabular" label="CSV or tabular file of baseline number of reads to be simulated from each transcript in FASTA"
+                            help="Number of lines in the file must exactly equal the number of transcripts in the FASTA file. This file should not have a header."/>
+                    </when>
+                </conditional>
+                <conditional name="size_conditional">
+                    <param name="size_conditional_select" type="select" label="How to set the negative binomial size parameter for number of reads drawn per transcript">
+                        <option value="default" selected="true">Use default of reads_per_transcript times fold_changes divided by 3</option>
+                        <option value="integer">Select integer value for all transcripts and groups</option>
+                        <option value="vectorfile">Provide vector file for size parameter per transcript</option>
+                        <option value="matrixfile">Provide matrix file for size parameter per transcript per group</option>
+                    </param>
+                    <when value="default"/>
+                    <when value="integer">
+                        <param name="size" type="integer" value="300" label="Negative binomial size parameter for all transcripts and groups"/>
+                    </when>
+                    <when value="vectorfile">
+                        <param name="size" type="data" format="csv,tabular" label="CSV or tabular file of size parameters to be used for each transcript in FASTA"
+                            help="Number of lines in the file must exactly equal the number of transcripts in the FASTA file. This file should not have a header."/>
+                    </when>
+                    <when value="matrixfile">
+                        <param name="size" type="data" format="csv,tabular" label="CSV or tabular file of size parameters to be used for each trascript in FASTA and group in 'Sequencing Groups'">
+                            <help><![CDATA[
+Number of lines in the file must exactly equal the number of transcripts in the FASTA file.
+Number of columns in file should exactly match the number of groups in 'Sequencing Groups'.
+This file should not have a header.
+]]>                         </help>
+                        </param>
+                    </when>
+                </conditional>
+                <param name="fold_changes" type="data" format="tabular,csv" label="CSV or tabular file of matrix specifying multiplicative fold changes between groups.">
+                    <help><![CDATA[
+In real data sets, lowly-expressed transcripts often show high fold changes between groups, so this can be kept in mind when setting fold_changes and reads_per_transcript.
+This argument must have the same number of columns as there are groups as specified by num_reps, and must have the same number of rows as there are transcripts in fasta.
+A fold change of X in matrix entry i,j means that for replicate j, the baseline mean number of reads (reads_per_transcript[i]) will be multiplied by X.
+Note that the multiplication happens before the negative binomial value (for the number of reads that *actually will* be drawn from transcript i, for replicate j) is drawn.
+This argument is ignored if length(num_reps) is 1 (meaning you only have 1 group in your simulation). This file should not have a header.
+]]>                 </help>
+                </param>
+            </when>
+            <when value="simulate_experiment_countmat">
+                <param name="readmat" type="data" format="tabular,csv" label="CSV or tabular file of matrix with rows representing transcripts and columns representing samples"
+                    help="Entry i,j specifies how many reads to simulate from transcript i for sample j. This file should not have a header."/>
+            </when>
+            <when value="simulate_experiment_empirical">
+                <!-- Technically can provide Ballgown object instead of fpkmMat, but I don't think that's doable without providing Rdata as an input -->
+                <param name="fpkmMat" type="data" format="tabular,csv" label="FPKM Matrix - CSV or tabular file containing abundances (in FPKM) estimated from a real data set."
+                    help="MUST have row names identifying transcripts. The number of columns is the number of samples that will be simulated." />
+                <param name="mean_rps" type="integer" value="5000000" min="1" label="Number of reads per sample to use in converting FPKM to counts"
+                    help="Should be somewhat close to the number of reads per sample in the experiment that generated the estimated FPKMs"/>
+                <param name="grouplabels" type="data" format="tabular,csv" label="CSV or tabular file indicating the group lables for each replicate in the experiment"
+                    help="Number of lines in the file should equal the number of columns in the FPKM matrix. Must be convertible to a factor with exactly two levels. This file should not have a header"/>
+                <param name="decut" type="float" value="1.5" min="1" label="Differential expression cutoff"
+                    help="A transcript will be recorded as truly differentially expressed if its fold change between the two groups is more extreme than this number, in either direction."/>
+            </when>
+        </conditional>
+        <param name="paired" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Output Paired-End reads?" help="If no, Single-end reads will be simulated"/>
+        <param name="report_coverage" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Write out coverage information?"
+            help="Note - setting this to yes slows excecution significantly"/>
+        <param name="readlen" type="integer" min="1" value="100" label="Length of output simulated reads"/>
+        <param name="lib_sizes" type="data" format="tabular,csv" optional="true" label="CSV or tabular file of library size factors for the biological replicates.">
+            <help><![CDATA[
+Number of lines in file should be equal to total number of replicates in the experiment, i.e. sum('Sequencing Groups').
+For each replicate, once the number of reads to simulate from each transcript for that replicate is known,
+all read numbers across all transcripts from that replicate are multiplied by the corresponding entry in this file
+]]>         </help>
+        </param>
+        <conditional name="distr_conditional">
+            <param name="distr" type="select" label="Distribution from which to draw RNA fragment lengths">
+                <option value="normal-integer" selected="true">Draw fragment lengths from normal distribution; specify single mean and standard deviation</option>
+                <option value="normal-vector">Draw fragment lengths from normal distribution; specify one mean and one standard devation for each sample</option>
+                <option value="empirical">Draw fragment lengths from a precomputed empirical distribution</option>
+                <!-- <option value="custom">Custom</option> --> <!-- TODO - come back to this? Not easy to do-->
+            </param>
+            <when value="normal-integer">
+                <param name="fraglen" type="float" value="250.0" min="1" label="Mean of fragment lengths"/>
+                <param name="fragsd" type="float" value="25.0" min="0" label="Standard deviation of fragment lengths"/>
+            </when>
+            <when value="normal-vector">
+                <param name="fraglen" type="data" format="tabular,csv" label="CSV or tabular file specifying mean of fragment lengths for each sample"
+                    help="Number of lines in file should be equal to number of samples in the experiment, i.e. sum(Sequencing Groups). This file should not have a header."/>
+                <param name="fragsd" type="data" format="tabular,csv" label="CSV or tabular file specifying standard deviation of fragment lengths for each sample"
+                    help="Number of lines in file should be equal to number of samples in the experiment, i.e. sum(Sequencing Groups). This file should not have a header."/> 
+            </when>
+            <when value="empirical"/>
+            <!-- <when value="custom">
+            </when> --> <!-- TODO - come back to this? Not easy to do-->
+        </conditional>
+        <conditional name="error_model_conditional">
+            <param name="error_model_select" type="select" label="The error model to use for this experiment">
+                <option value="uniform" selected="true">Distribute errors uniformily across reads. (Allows you to manually set error rate)</option>
+                <option value="illumina4">Empirical error model for Illumina4 platforms</option>
+                <option value="illumina5">Empirical error model for Illumina5 platforms</option>
+                <!-- <option value="custom">Custom</option> --> <!-- TODO - Add add_platform_error tool to support this?, probably would involve adding new datatype -->
+            </param>
+            <when value="uniform">
+                <param name="error_rate" type="float" value="0.005" min="0" max="1" label="Overall probability of making a sequencing error at any given nucleotide"/>
+            </when>
+            <when value="illumina4"/>
+            <when value="illumina5"/>
+        </conditional>
+        <param name="bias" type="select" label="Fragmentation bias type to use">
+            <option value="none" selected="true">None</option>
+            <option value="rnaf">Empirical RNA fragmentation biases</option>
+            <option value="cdnaf">Empirical cDNA fragmentation biases</option>
+        </param>
+        <!-- TODO - Add conditional that allows you to automatically set GC bias for every sample all at once -->
+        <!-- TODO - add conditional that allows you to use csv to set prepackaged GC bias options as a file -->
+        <repeat title="Per sample GC bias model" name="gc_biases" min="0" default="0"
+            help="Leave empty to use default, otherwise length of set GC biases must exactly equal the total number of samples being simulated i.e. sum(Sequencing Groups)">
+            <!-- TODO - come back and add option to add custom loess models later -->
+            <param name="gcbias" type="select" label="GC bias model to use for this sample">
+                <option value="0">No GC Bias</option>
+                <option value="1">Empirically derived GC bias from GEUVADIS HapMap Sample NA06985</option>
+                <option value="2">Empirically derived GC bias from GEUVADIS HapMap Sample NA12144</option>
+                <option value="3">Empirically derived GC bias from GEUVADIS HapMap Sample NA12776</option>
+                <option value="4">Empirically derived GC bias from GEUVADIS HapMap Sample NA18858</option>
+                <option value="5">Empirically derived GC bias from GEUVADIS HapMap Sample NA20542</option>
+                <option value="6">Empirically derived GC bias from GEUVADIS HapMap Sample NA20772</option>
+                <option value="7">Empirically derived GC bias from GEUVADIS HapMap Sample NA20815</option>
+            </param>
+        </repeat>
+        <param name="frag_GC_bias" type="data" optional="true" format="csv,tabular" label="CSV or tabular file specifying as a matrix the probabilities that a fragment will appear in the output given it's GC context">
+            <help><![CDATA[
+Leave empty to use defaults. If provided, this file should have exactly 101 rows, and sum(Sequencing Groups) columns.
+The first row corresponds to a fragment with GC content of 0 percent, the second row 1 percent, the third row 2 percent, etc.,
+and the last row 100 percent. The columns correspond to different probabilites for each sample.
+Probabilities should be specified in a range of [0,1]. Internally, a coin flip (a Bernoulli trial) determines if each fragment is kept,
+depending on its GC content. Note that the final library size will depend on the elements of the matrix, and it might make sense to
+scale up the library size of the samples with low probabilites in the matrix in the range of the transcriptome GC content distribution.
+Note that the count_matrix written to outdir contains the counts before applying fragment GC bias. This file should not have a header.
+]]>
+            </help>
+        </param>
+        <param name="strand_specific" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Simulate reads with strand-specific simulation?">
+            <help><![CDATA[
+If set to yes, 1st read will correspond to forward strand, 2nd read to reverse with respect to transcript sequence.
+If set to no, fragments are generated with equal probability from both strands of the transcript sequence
+]]>         </help>
+        </param>
+        <param name="write_info" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Output simulation information?">
+            <help><![CDATA[
+By default, transcript fold changes and expression status, replicate library sizes
+and group identifiers, and an R data object of the counts matrix (before application of fragment GC bias) are output
+]]>         </help>
+        </param>
+        <param name="seed" type="integer" value="42" label="RNG Seed for reproducibility"/>
+        <param name="transcriptid" type="data" optional="true" format="csv,tabular" label="CSV or tabular file specifying the transcript IDs to be written to sim_info.txt and used as transcript identifiers in output FASTA files">
+            <help><![CDATA[
+Leave empty to use default of names(readDNAStringSet(fasta)).
+This option is useful if the default names are very long or contain special characters.
+This file should contain exactly one id per transcript in FASTA file.
+This file should not have a header.
+]]>         </help>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="counts_matrix" format="csv" label="${tool.name} on ${on_string}: Counts Matrix (CSV)">
+            <filter>write_info and simulation_type['simulation_type_select'] == 'simulate_experiment'</filter>
+        </data>
+        <data name="sim_rep_info" format="tabular" label="${tool.name} on ${on_string}: Rep Info (txt)" from_work_dir="sim_rep_info.txt" >
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment_countmat' and write_info</filter>
+        </data>
+        <data name="sim_tx_info" format="tabular" label="${tool.name} on ${on_string}: Tx Info (txt)" from_work_dir="sim_tx_info.txt" >
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment_countmat' and write_info</filter>
+        </data>
+        <data name="coverages" format="rdata" label="${tool.name} on ${on_string}: Coverage Matrices (Rdata)" from_work_dir="sample_coverages.rda">
+            <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and report_coverage</filter>
+        </data>
+        <collection name="paired_output" type="list:list:paired" label="${tool.name}: Simulated Paired-end output">
+            <discover_datasets from_provided_metadata="true" ext="fasta" visible="false" />
+            <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and paired and (not gzip)</filter>
+        </collection>
+        <collection name="list_output" type="list:list" label="${tool.name}: Simulated Single-end Output">
+            <discover_datasets from_provided_metadata="true" ext="fasta" visible="false" />
+            <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and (not paired) and (not gzip)</filter>
+        </collection>
+        <collection name="paired_list_output_unknown_elements" type="list" label="${tool.name}: Simulated Paired-end Output">
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta" ext="fasta" visible="false" />
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and paired and (not gzip)</filter>
+        </collection>
+        <collection name="list_output_unknown_elements" type="list" label="${tool.name}: Simulated Single-end Output">
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)\.fasta" ext="fasta" visible="false" />
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and (not paired) and (not gzip)</filter>
+        </collection>
+        <collection name="paired_output_gzip" type="list:list:paired" label="${tool.name}: Simulated Paired-end output">
+            <discover_datasets from_provided_metadata="true" ext="fasta.gz" visible="false" />
+            <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and paired and gzip</filter>
+        </collection>
+        <collection name="list_output_gzip" type="list:list" label="${tool.name}: Simulated Single-end Output">
+            <discover_datasets from_provided_metadata="true" ext="fasta.gz" visible="false" />
+            <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and (not paired) and gzip</filter>
+        </collection>
+        <collection name="paired_list_output_unknown_elements_gzip" type="list:paired" label="${tool.name}: Simulated Paired-end Output">
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta.gz" ext="fasta.gz" visible="false" />
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and paired and gzip</filter>
+        </collection>
+        <collection name="list_output_unknown_elements_gzip" type="list" label="${tool.name}: Simulated Single-end Output">
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)\.fasta.gz" ext="fasta.gz" visible="false" />
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and (not paired) and gzip</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!--
+            Test 1a
+            All outputs
+            Txome FASTA Input from history
+            Integer reads per transcript
+            Default size conditional
+            CSV fold_changes
+        -->
+        <test expect_num_outputs="5">
+            <param name="gzip" value="true" />
+            <conditional name="reference_transcriptome">
+                <param name="reference_transcriptome_source" value="history"/>
+                <param name="input_fasta" value="txome.fa" />
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment" />
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <conditional name="reads_per_transcript">
+                    <param name="reads_per_transcript_select" value="integer" />
+                    <param name="reads_per_transcript" value="2" />
+                </conditional>
+                <conditional name="size_conditional">
+                    <param name="size_conditional_select" value="default" />
+                </conditional>
+                <param name="fold_changes" value="fold_changes.csv" ftype="csv"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-integer" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="true" />
+            <param name="report_coverage" value="true" />
+            <param name="write_info" value="true" />
+            <param name="seed" value="42" />
+
+            <output name="counts_matrix" value="test1-counts-matrix.csv"/>
+            <output name="sim_rep_info" value="test1-rep-info.txt"/>
+            <output name="sim_tx_info" value="test1-tx-info.txt"/>
+            <output name="coverages" value="test1-coverage-matrices.rdata" compare="sim_size"/>
+            <output_collection name="paired_output_gzip">
+                <element name="group01">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group01/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group01/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+                <element name="group02">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group02/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group02/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+        <!--
+            Test 1b
+            All outputs
+            Txome FASTA Input from cached
+            Integer reads per transcript
+            Default size conditional
+            CSV fold_changes
+        -->
+        <test expect_num_outputs="5">
+            <param name="gzip" value="true" />
+            <conditional name="reference_transcriptome">
+                <param name="reference_transcriptome_source" value="cached"/>
+                <param name="input_fasta" value="txome_fasta"/>
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment" />
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <conditional name="reads_per_transcript">
+                    <param name="reads_per_transcript_select" value="integer" />
+                    <param name="reads_per_transcript" value="2" />
+                </conditional>
+                <conditional name="size_conditional">
+                    <param name="size_conditional_select" value="default" />
+                </conditional>
+                <param name="fold_changes" value="fold_changes.csv" ftype="csv"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-integer" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="true" />
+            <param name="report_coverage" value="true" />
+            <param name="write_info" value="true" />
+            <param name="seed" value="42" />
+
+            <output name="counts_matrix" value="test1-counts-matrix.csv"/>
+            <output name="sim_rep_info" value="test1-rep-info.txt"/>
+            <output name="sim_tx_info" value="test1-tx-info.txt"/>
+            <output name="coverages" value="test1-coverage-matrices.rdata" compare="sim_size"/>
+            <output_collection name="paired_output_gzip">
+                <element name="group01">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group01/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group01/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+                <element name="group02">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group02/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group02/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+        <!--
+            Test 1c
+            All outputs
+            Reference Genome + GTF Input From History
+            Integer Vector reads per transcript
+            Default size conditional
+            Tabular fold_changes
+            Vector fraglen and fragsd
+            Single-end output
+        -->
+        <test expect_num_outputs="5">
+            <param name="gzip" value="true" />
+            <conditional name="annotation_type">
+                <param name="annotation_type_select" value="gtf+fasta" />
+                <param name="input_gtf" value="reference.gtf" />
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="history"/>
+                    <param name="input_reference" value="reference.fa" />
+                </conditional>
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment" />
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <conditional name="reads_per_transcript">
+                    <param name="reads_per_transcript_select" value="integer_vec" />
+                    <param name="reads_per_transcript" value="reads_per_transcript.csv" ftype="csv" />
+                </conditional>
+                <conditional name="size_conditional">
+                    <param name="size_conditional_select" value="default" />
+                </conditional>
+                <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-vector" />
+                <param name="fraglen" value="fraglen.csv" ftype="csv"/>
+                <param name="fragsd" value="fragsd.csv" ftype="csv"/>
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="true" />
+            <param name="report_coverage" value="true" />
+            <param name="write_info" value="true" />
+            <param name="seed" value="42" />
+
+            <output name="counts_matrix" value="test1-counts-matrix.csv"/>
+            <output name="sim_rep_info" value="test1-rep-info.txt"/>
+            <output name="sim_tx_info" value="test1-tx-info.txt"/>
+            <output name="coverages" value="test1-coverage-matrices.rdata" compare="sim_size"/>
+            <output_collection name="paired_output_gzip">
+                <element name="group01">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group01/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group01/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+                <element name="group02">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group02/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group02/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+        <!--
+            Test 1d
+            All outputs
+            Reference Genome + GTF Input Cached
+            Integer Vector reads per transcript
+            Default size conditional
+            Tabular fold_changes
+            Vector fraglen and fragsd
+            Single-end output
+        -->
+        <test expect_num_outputs="5">
+            <param name="gzip" value="true" />
+            <conditional name="annotation_type">
+                <param name="annotation_type_select" value="gtf+fasta" />
+                <param name="input_gtf" value="reference.gtf" />
+                <conditional name="reference_source">
+                    <param name="reference_source_selector" value="cached"/>
+                    <param name="input_reference" value="reference_fasta" />
+                </conditional>
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment" />
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <conditional name="reads_per_transcript">
+                    <param name="reads_per_transcript_select" value="integer_vec" />
+                    <param name="reads_per_transcript" value="reads_per_transcript.csv" ftype="csv" />
+                </conditional>
+                <conditional name="size_conditional">
+                    <param name="size_conditional_select" value="default" />
+                </conditional>
+                <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-vector" />
+                <param name="fraglen" value="fraglen.csv" ftype="csv"/>
+                <param name="fragsd" value="fragsd.csv" ftype="csv"/>
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="true" />
+            <param name="report_coverage" value="true" />
+            <param name="write_info" value="true" />
+            <param name="seed" value="42" />
+
+            <output name="counts_matrix" value="test1-counts-matrix.csv"/>
+            <output name="sim_rep_info" value="test1-rep-info.txt"/>
+            <output name="sim_tx_info" value="test1-tx-info.txt"/>
+            <output name="coverages" value="test1-coverage-matrices.rdata" compare="sim_size"/>
+            <output_collection name="paired_output_gzip">
+                <element name="group01">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group01/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group01/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group01/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+                <element name="group02">
+                    <element name="rep01">
+                        <element name="forward" value="test1-fasta-output/group02/rep01/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep01/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                    <element name="rep02">
+                        <element name="forward" value="test1-fasta-output/group02/rep02/forward.fasta.gz" decompress="true"/>
+                        <element name="reverse" value="test1-fasta-output/group02/rep02/reverse.fasta.gz" decompress="true"/>
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+        <!--
+            Test 2
+            FASTA output only
+            Reference Genome + GTF Input
+            Integer reads per transcript
+            Default size conditional
+            Tabular fold_changes
+            Vector fraglen and fragsd
+            Single-end output
+        -->
+        <test expect_num_outputs="1">
+            <param name="gzip" value="true" />
+            <conditional name="annotation_type">
+                <param name="annotation_type_select" value="fasta" />
+                <conditional name="reference_transcriptome">
+                    <param name="reference_transcriptome_source" value="history"/>
+                    <param name="input_fasta" value="txome.fa" />
+                </conditional>
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment" />
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <repeat name="num_reps_repeat">
+                    <param name="replicates" value="2" />
+                </repeat>
+                <conditional name="reads_per_transcript">
+                    <param name="reads_per_transcript_select" value="integer" />
+                    <param name="reads_per_transcript" value="2" />
+                </conditional>
+                <conditional name="size_conditional">
+                    <param name="size_conditional_select" value="integer" />
+                    <param name="size" value="10"/>
+                </conditional>
+                <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="empirical" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="illumina5" />
+            </conditional>
+            <param name="paired" value="false" />
+            <param name="report_coverage" value="false" />
+            <param name="write_info" value="false" />
+            <param name="seed" value="42" />
+
+            <output_collection name="list_output_gzip">
+                <element name="group01">
+                    <element name="rep01" value="test2-fasta-output/group01/rep01.fasta.gz" decompress="true"/>
+                    <element name="rep02" value="test2-fasta-output/group01/rep02.fasta.gz" decompress="true"/>
+                </element>
+                <element name="group02">
+                    <element name="rep01" value="test2-fasta-output/group02/rep01.fasta.gz" decompress="true"/>
+                    <element name="rep02" value="test2-fasta-output/group02/rep02.fasta.gz" decompress="true"/>
+                </element>
+            </output_collection>
+        </test>
+        <!--
+            Test 3
+            Only FASTA output
+            Txome FASTA Input from history
+            Countmat input
+            Default size conditional
+            CSV fold_changes
+        -->
+        <test expect_num_outputs="1">
+            <param name="gzip" value="true" />
+            <conditional name="reference_transcriptome">
+                <param name="reference_transcriptome_source" value="history"/>
+                <param name="input_fasta" value="txome.fa" />
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment_countmat" />
+                <param name="readmat" value="test3-counts-matrix.csv" ftype="csv"/>
+            </conditional>
+            
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-integer" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="false" />
+            <param name="report_coverage" value="false" />
+            <param name="write_info" value="false" />
+            <param name="seed" value="42" />
+            <output_collection name="list_output_unknown_elements_gzip">
+                <element name="sample_01" value="test3-fasta-output/sample_01.fasta.gz" decompress="true"/>
+                <element name="sample_02" value="test3-fasta-output/sample_02.fasta.gz" decompress="true"/>
+                <element name="sample_03" value="test3-fasta-output/sample_03.fasta.gz" decompress="true"/>
+                <element name="sample_04" value="test3-fasta-output/sample_04.fasta.gz" decompress="true"/>
+            </output_collection>
+        </test>
+        <!--
+            Test 4
+            Only FASTA output
+            Txome FASTA Input from history
+            FPKM matrix input
+            Default size conditional
+            CSV fold_changes
+        -->
+        <test expect_num_outputs="1">
+            <param name="gzip" value="true" />
+            <conditional name="reference_transcriptome">
+                <param name="reference_transcriptome_source" value="history"/>
+                <param name="input_fasta" value="txome.fa" />
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment_empirical" />
+                <param name="fpkmMat" value="test4-fpkm-matrix.tabular" ftype="tabular"/>
+                <param name="mean_rps" value="1000000"/>
+                <param name="grouplabels" value="group_labels.tabular" ftype="tabular"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-integer" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="false" />
+            <param name="report_coverage" value="false" />
+            <param name="write_info" value="false" />
+            <param name="seed" value="42" />
+            <output_collection name="list_output_unknown_elements_gzip">
+                <element name="sample_01" value="test4-fasta-output/sample_01.fasta.gz" decompress="true"/>
+                <element name="sample_02" value="test4-fasta-output/sample_02.fasta.gz" decompress="true"/>
+                <element name="sample_03" value="test4-fasta-output/sample_03.fasta.gz" decompress="true"/>
+                <element name="sample_04" value="test4-fasta-output/sample_04.fasta.gz" decompress="true"/>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+@WID@
+
+**Input**
+
+- Reference Transcriptome (FASTA)
+
+OR
+
+- Reference Genome (FASTA)
+- Transcriptome Annotation (GTF)
+
+**Output**
+
+- Simulated RNA-seq reads (FASTA)
+- Counts matrix (csv) (optional)
+- Simulation Rep Info (tabular)(optional)
+- Simulation Transcript Info (tabular) (optional)
+- Coverage matrices (Rdata) (optional)
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
