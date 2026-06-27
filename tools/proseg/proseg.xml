@@ -1,0 +1,362 @@
+<tool id="proseg" name="ProSeg" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        probabilistic cell segmentation for spatial transcriptomics
+    </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">rust-proseg</requirement>
+        <requirement type="package" version="3.0">zip</requirement>
+        <requirement type="package" version="6.0">unzip</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+
+    ## Input preparation
+    ## For CSV: symlink (ProSeg detects gzip from content).
+    ## For parquet: symlink with .parquet extension.
+    ## For tabular: copy and rename to .csv for ProSeg.
+
+    #if $input_mode.mode == "table"
+        #if $input_mode.transcripts.ext == "parquet"
+            cp '$input_mode.transcripts' input_data.parquet &&
+        #elif $input_mode.transcripts.ext == "tabular"
+            cp '$input_mode.transcripts' input_data.csv &&
+        #else
+            ln -s '$input_mode.transcripts' input_data.csv &&
+        #end if
+    #end if
+
+    ## For SpatialData zarr input: unzip the spatialdata.zip archive
+    #if $input_mode.mode == "zarr"
+        unzip -q '$input_mode.zarr_input' -d zarr_input_dir &&
+    #end if
+
+    ## ProSeg command
+    proseg
+
+    ## Input mode flag
+    #if $input_mode.mode == "zarr"
+        --zarr
+    #end if
+
+    ## Macro tokens, each block defined in macros.xml
+    @PLATFORM_CMD@
+    @QV_CMD@
+    @CELLPOSE_CMD@
+    @SPACERANGER_CMD@
+    @MORPHOLOGY_CMD@
+    @CORE_PARAMS_CMD@
+    @ADVANCED_CMD@
+    @OPTIONAL_OUTPUTS_CMD@
+
+    ## Always write the main SpatialData zarr output
+    --output-spatialdata proseg-output.zarr
+
+    ## Positional input argument
+    #if $input_mode.mode == "table"
+        #if $input_mode.transcripts.ext == "parquet"
+            input_data.parquet
+        #else
+            input_data.csv
+        #end if
+    #else
+        zarr_input_dir
+    #end if
+
+    ## Error capture
+    2> proseg_error.log
+    || { cat proseg_error.log; exit 1; }
+
+    ## Package zarr directory as spatialdata.zip for Galaxy.
+    ## Galaxy creates an empty placeholder at the output path,
+    ## so we write to a temp file then move it into place.
+    &&
+    zip -r proseg-output.zip proseg-output.zarr
+
+    ## Move optional outputs to Galaxy output paths
+    #if $outputs.polygons
+        && gunzip polygons.geojson.gz && mv polygons.geojson '$polygons'
+    #end if
+    #if $outputs.polygon_layers
+        && gunzip polygon_layers.geojson.gz && mv polygon_layers.geojson '$polygon_layers'
+    #end if
+
+    ]]></command>
+    <inputs>
+        <conditional name="input_mode">
+            <param name="mode" type="select" label="Input type" help="Select the format of your input data.">
+                <option value="table" selected="true">Transcript table (CSV / Parquet)</option>
+                <option value="zarr">SpatialData (zarr)</option>
+            </param>
+            <when value="table">
+                <param name="transcripts" type="data" format="csv,tabular,parquet"
+                    label="Transcript table"
+                    help="Table of transcript positions with gene identities and preliminary cell assignments. Accepted formats: CSV, Parquet, tabular."/>
+                <expand macro="platform_inputs"/>
+                <expand macro="qv_inputs"/>
+            </when>
+            <when value="zarr">
+                <param name="zarr_input" type="data" format="spatialdata.zip"
+                    label="SpatialData archive"
+                    help="SpatialData zarr directory packaged as a spatialdata.zip archive."/>
+                <expand macro="platform_inputs"/>
+            </when>
+        </conditional>
+        <expand macro="cellpose_inputs"/>
+        <expand macro="morphology_inputs"/>
+        <expand macro="core_param_inputs"/>
+        <expand macro="advanced_inputs"/>
+        <expand macro="output_toggle_inputs"/>
+    </inputs>
+    <outputs>
+        <data name="output_spatialdata" format="spatialdata.zip" from_work_dir="proseg-output.zip"
+            label="${tool.name} on ${on_string}: SpatialData archive"/>
+        <expand macro="optional_data_outputs"/>
+    </outputs>
+    <tests>
+        <!-- Test 1: Basic Xenium run with CSV input -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="table"/>
+                <param name="transcripts" value="transcripts.csv" ftype="csv"/>
+                <conditional name="platform">
+                    <param name="preset" value="xenium"/>
+                </conditional>
+            </conditional>
+            <param name="samples" value="50"/>
+            <param name="burnin_samples" value="50"/>
+            <section name="advanced">
+                <param name="recorded_samples" value="10"/>
+            </section>
+            <output name="output_spatialdata">
+                <assert_contents>
+                    <has_archive_member path="proseg-output.zarr/.zgroup"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: Xenium run with 2D mode (ignore z) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="table"/>
+                <param name="transcripts" value="transcripts.csv" ftype="csv"/>
+                <conditional name="platform">
+                    <param name="preset" value="xenium"/>
+                </conditional>
+            </conditional>
+            <param name="samples" value="50"/>
+            <param name="burnin_samples" value="50"/>
+            <param name="ignore_z" value="true"/>
+            <section name="advanced">
+                <param name="recorded_samples" value="10"/>
+            </section>
+            <output name="output_spatialdata">
+                <assert_contents>
+                    <has_archive_member path="proseg-output.zarr/.zgroup"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: Xenium run with polygon output enabled -->
+        <test expect_num_outputs="2">
+            <conditional name="input_mode">
+                <param name="mode" value="table"/>
+                <param name="transcripts" value="transcripts.csv" ftype="csv"/>
+                <conditional name="platform">
+                    <param name="preset" value="xenium"/>
+                </conditional>
+            </conditional>
+            <param name="samples" value="50"/>
+            <param name="burnin_samples" value="50"/>
+            <section name="advanced">
+                <param name="recorded_samples" value="10"/>
+            </section>
+            <section name="outputs">
+                <param name="polygons" value="true"/>
+            </section>
+            <output name="polygons">
+                <assert_contents>
+                    <has_size value="0" negate="true"/>
+                    <has_text text="FeatureCollection"/>
+                    <has_text text="MultiPolygon"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: Xenium run with count matrix output enabled -->
+        <test expect_num_outputs="2">
+            <conditional name="input_mode">
+                <param name="mode" value="table"/>
+                <param name="transcripts" value="transcripts.csv" ftype="csv"/>
+                <conditional name="platform">
+                    <param name="preset" value="xenium"/>
+                </conditional>
+            </conditional>
+            <param name="samples" value="50"/>
+            <param name="burnin_samples" value="50"/>
+            <section name="advanced">
+                <param name="recorded_samples" value="10"/>
+            </section>
+            <section name="outputs">
+                <param name="counts" value="true"/>
+            </section>
+            <output name="counts">
+                <assert_contents>
+                    <has_size value="0" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: Xenium run with cell metadata output -->
+        <test expect_num_outputs="2">
+            <conditional name="input_mode">
+                <param name="mode" value="table"/>
+                <param name="transcripts" value="transcripts.csv" ftype="csv"/>
+                <conditional name="platform">
+                    <param name="preset" value="xenium"/>
+                </conditional>
+            </conditional>
+            <param name="samples" value="50"/>
+            <param name="burnin_samples" value="50"/>
+            <section name="advanced">
+                <param name="recorded_samples" value="10"/>
+            </section>
+            <section name="outputs">
+                <param name="cellmeta" value="true"/>
+            </section>
+            <output name="cellmeta">
+                <assert_contents>
+                    <has_size value="0" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: Manual column mapping -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="table"/>
+                <param name="transcripts" value="test_transcripts_with_id.csv" ftype="csv"/>
+                <conditional name="platform">
+                    <param name="preset" value="manual"/>
+                    <param name="gene_col" value="feature_name"/>
+                    <param name="x_col" value="x_location"/>
+                    <param name="y_col" value="y_location"/>
+                    <param name="z_col" value="z_location"/>
+                    <param name="cell_id_col" value="cell_id"/>
+                    <param name="unassigned_id" value="0"/>
+                </conditional>
+            </conditional>
+            <param name="samples" value="50"/>
+            <param name="burnin_samples" value="50"/>
+            <section name="advanced">
+                <param name="recorded_samples" value="10"/>
+            </section>
+            <output name="output_spatialdata">
+                <assert_contents>
+                    <has_archive_member path="proseg-output.zarr/.zgroup"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+ProSeg - Probabilistic Cell Segmentation
+=========================================
+
+ProSeg segments cells in spatial transcriptomics data by modelling the
+spatial distribution of transcripts probabilistically using a Cellular
+Potts Model with MCMC sampling. Unlike image-based segmentation tools,
+ProSeg uses the transcript positions themselves as the primary signal
+for boundary determination, making it platform-independent and capable
+of repositioning transcripts that have diffused away from their cell of
+origin.
+
+
+-----
+
+Supported platforms
+--------------------
+
+- **10x Xenium** -- provide the ``transcripts.csv`` or ``transcripts.parquet`` file
+- **NanoString CosMx** -- provide the ``sample_tx_file.csv`` (pixel or micron coordinates)
+- **Vizgen MERSCOPE / MERFISH** -- provide ``detected_transcripts.csv``
+- **10x Visium HD** -- requires SpaceRanger barcode mappings parquet file
+- **Manual** -- map your own column names for any platform
+
+-----
+
+Inputs
+-------
+
+**Transcript table (required)**
+    A table with one row per detected RNA molecule, containing spatial
+    coordinates (x, y, and optionally z) and a preliminary cell
+    assignment from the instrument segmentation software. This
+    preliminary assignment is used to initialise the number and location
+    of cells. ProSeg refines boundaries but does not introduce new cells
+    that were entirely missed by the prior segmentation.
+    Accepted formats: CSV, Parquet, tabular.
+
+**CellPose masks (optional)**
+    A numpy array (.npy) of pixel-level cell assignments from CellPose
+    or similar tools. If provided, ProSeg uses this for a more detailed
+    initialisation. The mask coordinates must be correctly registered to
+    transcript micron coordinates using the scale and affine transform
+    parameters.
+
+-----
+
+Key parameters
+---------------
+
+**Voxel size**
+    X/Y resolution of the spatial grid used during sampling. Smaller
+    values give finer boundaries but require more memory. Typical values:
+    1.0 um for Xenium, 0.5 um for CosMx.
+
+**Burn-in voxel size**
+    Must be an integer multiple of voxel size (e.g. 2.0 when voxel size
+    is 1.0). A coarser resolution is used during the preliminary burn-in
+    phase to reach a good starting configuration efficiently.
+
+**Sampling iterations**
+    200 is adequate for testing. Use 500 or more for production results.
+    ProSeg is non-deterministic -- results vary slightly between runs due
+    to the MCMC sampling procedure.
+
+-----
+
+Outputs
+--------
+
+**SpatialData archive (always)**
+    A spatialdata.zip archive of a zarr directory readable by the Python
+    ``spatialdata`` package. Contains:
+
+    - ``sdata.points["transcripts"]`` -- revised transcript positions
+    - ``sdata.shapes["cell_boundaries"]`` -- cell boundary polygons
+    - ``sdata.tables["table"]`` -- AnnData with count matrix in X,
+      cell metadata in obs, gene metadata in var, centroids in obsm["spatial"]
+
+**Count matrix (optional)**
+    Cell-by-gene integer counts in Apache Parquet format.
+    Read with ``pandas.read_parquet``.
+
+**Cell polygons (optional)**
+    2D cell boundary polygons in GeoJSON format, flattened from 3D.
+
+-----
+
+Known limitations
+------------------
+
+- Cells with very few transcripts will have unreliable boundaries.
+- ProSeg cannot introduce cells missed entirely by the prior segmentation.
+- In highly homogeneous regions where neighbouring cells express very
+  similar genes, boundary placement is less reliable.
+- Results vary slightly between runs due to MCMC non-determinism.
+- If ProSeg crashes without an error message, it likely ran out of memory.
+  Increase voxel size, reduce voxel layers, or enable Disable diffusion
+  model to reduce memory usage.
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41592-025-02697-0</citation>
+    </citations>
+</tool>
