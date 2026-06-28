@@ -1,0 +1,353 @@
+<tool id="dashing2_dist" name="dashing2 dist" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>compare sketches or sequences into a distance/similarity matrix</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        #if $input_mode.mode == 'raw':
+            ## Build a file-of-files of symlinks named by element_identifier (see
+            ## the sketch tool for the rationale). The inputs are raw sequences,
+            ## which dashing2 sketches on the fly using the options below.
+            mkdir -p '@FFILE_DIR@' &&
+            #for $element in $input_mode.reference_collection:
+                #set $name = re.sub('[^A-Za-z0-9._-]', '_', str($element.element_identifier))
+                ln -s '$element' '@FFILE_DIR@/${name}' &&
+                echo '@FFILE_DIR@/${name}' >> 'ffile.txt' &&
+            #end for
+            #set $use_query = $input_mode.query.use_query == 'yes'
+            #if $use_query:
+                #for $qelement in $input_mode.query.query_collection:
+                    #set $qname = re.sub('[^A-Za-z0-9._-]', '_', str($qelement.element_identifier))
+                    ln -s '$qelement' '@FFILE_DIR@/${qname}' &&
+                    echo '@FFILE_DIR@/${qname}' >> 'qfile.txt' &&
+                #end for
+            #end if
+
+            dashing2 dist
+                -p \${GALAXY_SLOTS:-8}
+                -S${input_mode.sketch_params.sketch_size}
+                $input_mode.alphabet
+                $input_mode.sketch_mode
+                #if str($input_mode.sketch_params.kmer_length) != '':
+                    -k${input_mode.sketch_params.kmer_length}
+                #end if
+                #if str($input_mode.sketch_params.window_size) != '':
+                    --window-size ${input_mode.sketch_params.window_size}
+                #end if
+                #if str($input_mode.sketch_params.spacing) != '':
+                    --spacing '${input_mode.sketch_params.spacing}'
+                #end if
+                $input_mode.sketch_params.no_canon
+                $input_mode.sketch_params.long_kmers
+                #if str($input_mode.sketch_params.seed) != '':
+                    --seed ${input_mode.sketch_params.seed}
+                #end if
+                $input_mode.parse_by_seq
+                $measure
+                #if not $use_query:
+                    $result_shape
+                #end if
+                #if $sparse.mode == 'topk':
+                    --topk ${sparse.topk}
+                #elif $sparse.mode == 'threshold':
+                    --similarity-threshold ${sparse.threshold}
+                #end if
+                $binary_output
+                #if $use_query:
+                    -Q 'qfile.txt'
+                #end if
+                --cmpout '$output'
+                -F 'ffile.txt'
+        #else:
+            ## Pre-sketched input: dashing2 reads the stacked sketch from a single
+            ## positional argument with --presketched, alongside its '.names.txt'
+            ## sidecar (which it locates by appending '.names.txt' to the sketch
+            ## path). dashing2 memory-maps the sketch read-write (it truncates the
+            ## file in place even when the size is unchanged), so we must stage a
+            ## WRITABLE copy: a symlink to the (read-only mounted) input dataset
+            ## aborts with "Failed to truncate". 'cat >' yields a fresh writable
+            ## file under a shared basename that also restores the original labels;
+            ## without the names file the rows/columns are numbered instead.
+            cat '$input_mode.sketch_bin' > presketched.bin &&
+            #if $input_mode.sketch_names:
+                cat '$input_mode.sketch_names' > presketched.bin.names.txt &&
+            #end if
+            dashing2 dist --presketched
+                -p \${GALAXY_SLOTS:-8}
+                $measure
+                $result_shape
+                #if $sparse.mode == 'topk':
+                    --topk ${sparse.topk}
+                #elif $sparse.mode == 'threshold':
+                    --similarity-threshold ${sparse.threshold}
+                #end if
+                $binary_output
+                --cmpout '$output'
+                presketched.bin
+        #end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_mode">
+            <param name="mode" type="select" label="Input type" help="Compare raw sequences (sketched on the fly) or a stacked sketch already produced by the dashing2 sketch tool. Pre-sketched comparison skips sketching entirely and is the way to re-use sketches across several comparisons.">
+                <option value="raw" selected="true">Sequences—a FASTA/FASTQ collection, sketched on the fly</option>
+                <option value="presketched">Pre-sketched—a stacked sketch from dashing2 sketch</option>
+            </param>
+            <when value="raw">
+                <param name="reference_collection" type="data_collection" collection_type="list" format="@INTYPES@" label="Reference collection" help="A collection of raw FASTA/FASTQ datasets to compare. Two elements give a single pairwise distance; N elements give an all-pairs matrix."/>
+                <conditional name="query">
+                    <param name="use_query" type="select" label="Rectangular query-vs-reference comparison" help="Compare every reference dataset against a separate query collection, producing a rectangular |reference|×|query| matrix instead of an all-pairs matrix.">
+                        <option value="no" selected="true">No—all-pairs within the reference set</option>
+                        <option value="yes">Yes—supply a query collection</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="yes">
+                        <param name="query_collection" type="data_collection" collection_type="list" format="@INTYPES@" label="Query collection" help="Datasets forming the query set. Each is compared against every dataset in the reference collection."/>
+                    </when>
+                </conditional>
+                <param argument="--parse-by-seq" type="boolean" checked="false" truevalue="--parse-by-seq" falsevalue="" label="Parse each sequence separately" help="Treat every sequence within every raw input file as a separate entity rather than one entity per file. Only relevant when the inputs are raw sequences."/>
+                <expand macro="alphabet_select"/>
+                <expand macro="sketch_mode_select"/>
+                <expand macro="sketch_params"/>
+            </when>
+            <when value="presketched">
+                <param name="sketch_bin" type="data" format="binary" label="Stacked sketch" help="The 'sketches' dataset emitted by dashing2 sketch (SetSketch modes). It is compared directly with --presketched, without re-reading any sequences."/>
+                <param name="sketch_names" type="data" format="tabular" optional="true" label="Sketch names" help="The 'sketch names' (.names.txt) dataset emitted alongside the sketch. Optional, but supplying it restores the original row/column labels; without it the matrix is labelled with numeric indices."/>
+            </when>
+        </conditional>
+        <expand macro="comparison_opts"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="binary_output" value="--binary-output" format="binary"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Two-file pairwise distance (raw sequences, default similarity) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="raw"/>
+                <param name="reference_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="output">
+                <assert_contents>
+                    <!-- 2 header comment lines + #Sources + 2 data rows -->
+                    <has_n_lines n="5"/>
+                    <has_text text="hg38"/>
+                    <has_text text="mm39"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Many-file all-pairs matrix, Poisson distance -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="raw"/>
+                <param name="reference_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                        <element name="subset" value="chrM_subset.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="measure" value="--distance"/>
+            <output name="output">
+                <assert_contents>
+                    <!-- 2 header comment lines + #Sources + 3 data rows -->
+                    <has_n_lines n="6"/>
+                    <has_text text="subset"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Rectangular query-vs-reference comparison, exact containment.
+             subset is queried against the hg38/mm39 reference; with exact
+             k-mer sets containment(hg38|subset) is the deterministic ratio
+             0.3000363. -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="raw"/>
+                <param name="reference_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+                <conditional name="query">
+                    <param name="use_query" value="yes"/>
+                    <param name="query_collection">
+                        <collection type="list">
+                            <element name="subset" value="chrM_subset.fa.gz"/>
+                        </collection>
+                    </param>
+                </conditional>
+                <param name="sketch_mode" value="--set"/>
+                <section name="sketch_params">
+                    <param name="kmer_length" value="21"/>
+                    <param name="sketch_size" value="512"/>
+                </section>
+            </conditional>
+            <param name="measure" value="--containment"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="subset"/>
+                    <has_text text="0.3000363"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Exact intersection matrix compared byte-for-byte against a
+             committed expected file (deterministic under the pinned package) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="raw"/>
+                <param name="reference_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="subset" value="chrM_subset.fa.gz"/>
+                    </collection>
+                </param>
+                <param name="sketch_mode" value="--set"/>
+                <section name="sketch_params">
+                    <param name="kmer_length" value="21"/>
+                    <param name="sketch_size" value="512"/>
+                </section>
+            </conditional>
+            <param name="measure" value="--intersection"/>
+            <output name="output" file="expected_set_intersection.tabular"/>
+        </test>
+        <!-- Exact symmetric containment: subset is contained in hg38, so the
+             symmetric containment is exactly 1. -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="raw"/>
+                <param name="reference_collection">
+                    <collection type="list">
+                        <element name="subset" value="chrM_subset.fa.gz"/>
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                    </collection>
+                </param>
+                <param name="sketch_mode" value="--set"/>
+                <section name="sketch_params">
+                    <param name="kmer_length" value="21"/>
+                    <param name="sketch_size" value="512"/>
+                </section>
+            </conditional>
+            <param name="measure" value="--symmetric-containment"/>
+            <output name="output">
+                <assert_contents>
+                    <has_line_matching expression="ffiles/subset\s+-\s+1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Binary float32 output (change_format path) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="raw"/>
+                <param name="reference_collection">
+                    <collection type="list">
+                        <element name="hg38" value="chrM_hg38.fa.gz"/>
+                        <element name="mm39" value="chrM_mm39.fa.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="binary_output" value="true"/>
+            <output name="output" ftype="binary">
+                <assert_contents>
+                    <has_size value="4" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Pre-sketched reuse: compare a stacked sketch (plus its names
+             sidecar) produced earlier by dashing2 sketch, without re-reading
+             any sequences. Because the sketch bytes are fixed, the similarity
+             0.31640625 is fully deterministic. -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="presketched"/>
+                <param name="sketch_bin" value="presketched.bin" ftype="binary"/>
+                <param name="sketch_names" value="presketched.bin.names.txt"/>
+            </conditional>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="hg38"/>
+                    <has_text text="subset"/>
+                    <has_text text="0.31640625"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Pre-sketched reuse with a square containment layout (exercises the
+             presketched path together with a non-default measure/shape) -->
+        <test expect_num_outputs="1">
+            <conditional name="input_mode">
+                <param name="mode" value="presketched"/>
+                <param name="sketch_bin" value="presketched.bin" ftype="binary"/>
+                <param name="sketch_names" value="presketched.bin.names.txt"/>
+            </conditional>
+            <param name="measure" value="--containment"/>
+            <param name="result_shape" value="--asymmetric-all-pairs"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text text="Asymmetric"/>
+                    <has_text text="hg38"/>
+                    <has_text text="subset"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+dashing2 dist compares a set of inputs and emits a distance or similarity matrix. It is the comparison half of dashing2, offered here with two input modes.
+
+.. class:: infomark
+
+**Note:** ``dist`` and ``cmp`` are interchangeable aliases for this same sub-command in dashing2; they invoke identical behaviour. This tool is called ``dist`` for consistency, but any documentation that refers to ``dashing2 cmp`` also applies.
+
+-----
+
+Input
+*****
+
+**Sequences mode** takes a **reference collection** of raw FASTA/FASTQ datasets, which are sketched on the fly using the sketch-construction options below. The element names become the row/column labels.
+
+* **Two elements** yield a single pairwise distance.
+* **N elements** yield an all-pairs matrix.
+* Supplying a **query collection** yields a rectangular reference-vs-query matrix.
+
+In sequences mode the **Sketch construction**, **Sketching mode** and **Sequence alphabet** options control how the inputs are sketched (identical to the *dashing2 sketch* tool).
+
+**Pre-sketched mode** skips sketching entirely: supply the **sketches** dataset produced by *dashing2 sketch* (its stacked SetSketch output) and, to keep the original labels, the accompanying **sketch names** dataset. This is the way to re-use one set of sketches across several comparisons without re-reading the sequences each time. Pre-sketched comparison applies to the SetSketch modes (default and ``--full``); it does not apply to the exact ``--set`` / ``--countdict`` outputs. The comparison measure, output shape and sparse/binary options apply in both modes.
+
+-----
+
+Options
+*******
+
+    ===========================  ==========================  ===========  ===========================
+    **Option**                   **Flag**                    **Default**  **Description**
+    ---------------------------  --------------------------  -----------  ---------------------------
+    Comparison measure           --distance / --containment  similarity   Quantity emitted per pair
+    Output shape                 --asymmetric-all-pairs      symmetric    Dense matrix layout
+    Sparse Top-k                 --topk                      off          Nearest-neighbour graph
+    Sparse threshold             --similarity-threshold      off          Thresholded similarity graph
+    Binary output                --binary-output             False        float32 instead of text
+    ===========================  ==========================  ===========  ===========================
+
+See the *dashing2 sketch* tool help for the full list of sketch-construction and sketching-mode parameters, which are shared between the two tools.
+
+-----
+
+Output
+******
+
+A single distance/similarity matrix. The symmetric all-pairs result is an upper-triangular PHYLIP matrix; square and rectangular results are flat tab-separated matrices; Top-k and threshold results are compressed-sparse-row (CSR) text. ``--binary-output`` replaces the text with a float32 binary matrix.
+
+]]></help>
+    <expand macro="citations" />
+</tool>

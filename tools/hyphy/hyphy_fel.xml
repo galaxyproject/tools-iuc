@@ -7,17 +7,32 @@
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         @SYMLINK_FILES@
+        @SHELL_OPTIONS@
         @HYPHYMPI@ fel
             --alignment ./$input_file
             @INPUT_TREE@
             --code '$gencodeid'
+            --multiple-hits $multiple_hits_conditional.multiple_hits
             @branch_options@
             --srv '$include_srv'
             --pvalue '$p_value'
             @resample@
+            #if $restrict_sites_conditional.restrict_sites_flag == "true":
+            --limit-to-sites '$restrict_sites_conditional.limit_to_sites'
+            --save-lf-for-sites '$restrict_sites_conditional.save_lf_for_sites'
+            #end if
             --precision $precision
             $ci
             --output '$fel_output'
+            #if $multiple_hits_conditional.multiple_hits != "None":
+            --site-multihit $multiple_hits_conditional.site_multihit
+            #end if
+
+            --kill-zero-lengths $kill_zero_lengths
+            #if $full_model:
+            --full-model $full_model
+            #end if
+            > fel_stdout.md 
         @ERRORS@
     ]]></command>
     <inputs>
@@ -25,32 +40,117 @@
         <expand macro="gencode"/>
         <expand macro="branches"/>
         <param argument="--pvalue" name="p_value" type="float" value=".1" min="0" max="1" label="P-value"/>
-        <param name="include_srv" type="select" label="Include synonymous rate variation" help = "Allow synonymous rates to vary from site to site">
-            <option value="Yes">Yes (recommended)</option>
-            <option value="No">No</option>
-        </param>
-        <param argument="--ci" type="boolean" truevalue="--ci Yes" falsevalue="" label="Compute profile likelihood confidence intervals for each variable site" />
-        <expand macro="resample"/>
-        <param argument="--precision" type="select" label="Optimization precision for preliminary fits">
-            <option value="standard">Standard</option>
-            <option value="reduced">Reduced for faster fitting</option>
-        </param>
+        <section name="advanced_options" title="Advanced Options" expanded="false">
+            <param name="include_srv" type="select" label="Include synonymous rate variation" help = "Allow synonymous rates to vary from site to site">
+                <option value="Yes">Yes (recommended)</option>
+                <option value="No">No</option>
+            </param>
+            <conditional name="multiple_hits_conditional">
+                <param argument="--multiple-hits" type="select" label="Include support for multiple nucleotide substitutions">
+                    <option value="Double">Include branch-specific rates for double nucleotide substitutions</option>
+                    <option value="Double+Triple">Include branch-specific rates for double and triple nucleotide substitutions</option>
+                    <option value="None" selected="true">Use standard models which permit only single nucleotide changes to occur instantly</option>
+                </param>
+                <when value="Double">
+                    <param argument="--site-multihit" type="select" label="Estimate multiple hit rates for each site">
+                        <option value="Estimate" selected="true">Estimate</option>
+                        <option value="No">No</option>
+                    </param>
+                </when>
+                <when value="Double+Triple">
+                    <param argument="--site-multihit" type="select" label="Estimate multiple hit rates for each site">
+                        <option value="Estimate" selected="true">Estimate</option>
+                        <option value="No">No</option>
+                    </param>
+                </when>
+                <when value="None">
+                </when>
+            </conditional>
+            <param argument="--ci" type="boolean" truevalue="--ci Yes" falsevalue="" label="Compute profile likelihood confidence intervals for each variable site" />
+                         <expand macro="resample"/>
+                        <conditional name="restrict_sites_conditional">
+                            <param name="restrict_sites_flag" type="select" label="Restrict FEL analysis to a subset of sites" help="If Yes, allows specifying a subset of sites for analysis.">
+                                <option value="true">Yes</option>
+                                <option value="false" selected="true">No</option>
+                            </param>
+                            <when value="true">
+                                <param argument="--limit-to-sites" type="text" optional="true" label="Only analyze sites whose 1-based indices match the following list (null to skip)" value="null" help="Comma-separated list of site indices."/>
+                                <param argument="--save-lf-for-sites" type="text" optional="true" label="For sites whose 1-based indices match the following list, write out likelihood function snapshots (null to skip)" value="null" help="Comma-separated list of site indices."/>
+                            </when>
+                            <when value="false">
+                            </when>
+                        </conditional>
+                        <param argument="--precision" type="select" label="Optimization precision for preliminary fits">
+                            <option value="standard">Standard</option>
+                            <option value="reduced">Reduced for faster fitting</option>
+                        </param>
+            
+                        <expand macro="kill_zero_lengths_param"/>
+                        <param argument="--full-model" type="boolean" truevalue="Yes" falsevalue="No" checked="true" label="Perform branch length re-optimization under the full codon model" help="If true, re-optimizes branch lengths under the full codon model."/>
+                    </section>        
+                    
     </inputs>
     <outputs>
+        <data name="fel_md_report" format="markdown" from_work_dir="fel_stdout.md" label="FEL Report (Markdown) for ${tool.name} on ${on_string}" />
         <data name="fel_output" format="hyphy_results.json" />
+
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_file" ftype="fasta" value="absrel-in1.fa"/>
             <param name="input_nhx" ftype="nhx" value="absrel-in1.nhx"/>
-            <output name="fel_output" file="fel-out1.json" compare="sim_size"/>
+            <output name="fel_output">
+                <assert_contents>
+                     <has_text text="Likelihood ratio test statistic for beta = alpha, versus beta " />               
+                </assert_contents>
+            </output>
+            <output name="fel_md_report">
+                <assert_contents>
+                    <has_text text="sites under pervasive positive diversifying and" />
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="2">
             <param name="input_file" ftype="fasta" value="absrel-in1.fa"/>
             <param name="input_nhx" ftype="nhx" value="absrel-in1.nhx"/>
-            <param name="ci" value="true" />
-            <param name="precision" value="reduced" />
-            <output name="fel_output" file="fel-out1.json" compare="sim_size"/>
+            <param name="advanced_options|ci" value="true" />
+            <param name="advanced_options|precision" value="reduced" />
+            <param name="p_value" value="0.05" />
+            <output name="fel_output">
+                <assert_contents>
+                     <has_text text="Likelihood ratio test statistic for beta = alpha, versus beta " />               
+                     <has_text text="95% profile likelihood CI upper bound for dN/dS (if available)" />               
+                </assert_contents>
+            </output>
+            <output name="fel_md_report">
+                <assert_contents>
+                    <has_text text="sites under pervasive positive diversifying and" />
+                    <has_text text=">precision => reduced" />
+                    <has_text text="### For partition 1 these sites are significant at p &lt;=0.05" />
+               </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="fasta" value="absrel-in1.fa"/>
+            <param name="input_nhx" ftype="nhx" value="absrel-in1.nhx"/>
+            <section name="advanced_options">
+                <conditional name="restrict_sites_conditional">
+                    <param name="restrict_sites_flag" value="true" />
+                    <param name="limit_to_sites" value="1,2,3" />
+                </conditional>
+            </section>
+            <output name="fel_output">
+                <assert_contents>
+                    <has_text text="&quot;site-filter&quot;:&quot;1,2,3&quot;" />
+                    <has_text text="Likelihood ratio test statistic for beta = alpha, versus beta " />               
+                </assert_contents>
+            </output>
+            <output name="fel_md_report">
+                <assert_contents>
+                    <has_text text=">limit-to-sites => 1,2,3" />
+                    <has_text text="sites under pervasive positive diversifying and" />
+               </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -60,7 +160,7 @@ FEL : Fixed effects likelihood
 What question does this method answer?
 --------------------------------------
 
-Which site(s) in a gene are subject to pervasive, i.e. consistently across the entire phylogeny, diversifying selection?
+FEL (Fixed Effects Likelihood) is a statistical method used to identify individual sites in a gene that are subject to pervasive diversifying selection. It addresses the question: Which specific sites in a gene show evidence of positive selection that has been consistently maintained across the entire evolutionary phylogeny of the analyzed sequences?
 
 Recommended Applications
 ------------------------
@@ -74,14 +174,9 @@ FEL is our recommended method for analyzing small-to-medium size datasets when o
 Brief description
 -----------------
 
-FEL (Fixed Effects Likelihood) estimates site-wise synonymous (alpha)
-and non-synonymous rates (beta), and uses a likelihood ratio test to
-determine if beta != alpha at a site. The estimates aggregate
-information over all branches, so the signal is derived from pervasive
-diversification or conservation. A subset of branches can be selected
-for testing as well, in which case an additional (nuisance) parameter
-will be inferred -- the non-synonymous rate on branches NOT selected for
-testing.
+FEL (Fixed Effects Likelihood) is a powerful method for detecting pervasive positive or negative selection at individual sites in a coding sequence. It operates by estimating site-wise synonymous (alpha, dS) and non-synonymous (beta, dN) substitution rates using a maximum likelihood approach. For each site, FEL then performs a likelihood ratio test (LRT) to compare a null model (where dN = dS) against an alternative model (where dN != dS). A significant p-value from this test indicates that the site is under selection. The method aggregates information across all branches of the phylogenetic tree, making it suitable for identifying sites under pervasive diversifying selection (dN > dS) or pervasive purifying selection (dN < dS). While primarily designed for pervasive selection, FEL can also infer an additional nuisance parameter for the non-synonymous rate on branches not selected for testing, allowing for analysis of a subset of branches.
+
+**Intuition:** Imagine you're looking at a gene's evolution across different species. Some parts of the gene might change a lot (diversifying selection), while others stay the same (purifying selection). FEL helps pinpoint the exact "letters" (sites) in the gene that are consistently under pressure to change or stay the same throughout its evolutionary history. It does this by comparing how often synonymous (silent) changes happen versus non-synonymous (amino acid altering) changes at each site. If non-synonymous changes happen significantly more often, it suggests positive selection.
 
 
 Input
@@ -107,35 +202,64 @@ http://hyphy.org/methods/selection-methods/#FEL
 
 Tool options
 ------------
-
 ::
 
-    --code              Which genetic code to use
+    --alignment         [required] An in-frame codon alignment in one of the formats supported by HyPhy.
+    --tree              [conditionally required] A phylogenetic tree (optionally annotated with {}).
+
+    --code              Which genetic code to use (see tool form for available options).
+
+    --multiple-hits     Include support for multiple nucleotide substitutions.
+                            Double : Include branch-specific rates for double nucleotide substitutions.
+                            Double+Triple : Include branch-specific rates for double and triple nucleotide substitutions.
+                            None [default] : Use standard models which permit only single nucleotide changes to occur instantly.
+
+    --site-multihit     Estimate multiple hit rates for each site. This option is available only if 'Include support for multiple nucleotide substitutions' is set to 'Double' or 'Double+Triple'.
+                            Estimate [default] : Estimate multiple hit rates.
+                            No : Do not estimate multiple hit rates.
 
     --branches          Which branches should be tested for selection?
-                            All [default] : test all branches
+                            All [default] : test all branches.
+                            Internal : test only internal branches (suitable for intra-host pathogen evolution for example, where terminal branches may contain polymorphism data).
+                            Leaves: test only terminal (leaf) branches.
+                            Unlabeled: if the Newick string is labeled using the {} notation, test only branches without explicit labels (see http://hyphy.org/tutorials/phylotree/).
+                            Custom : Enter a branch label.
 
-                            Internal : test only internal branches (suitable for
-                            intra-host pathogen evolution for example, where terminal branches
-                            may contain polymorphism data)
+    --pvalue            The significance level used to determine significance (default: 0.1, range: 0 to 1).
 
-                            Leaves: test only terminal (leaf) branches
+    --srv               Include site-to-site synonymous rate variation?
+                            Yes [default] : Allow synonymous rates to vary from site to site.
+                            No : Do not allow synonymous rates to vary.
 
-                            Unlabeled: if the Newick string is labeled using the {} notation,
-                            test only branches without explicit labels
-                            (see http://hyphy.org/tutorials/phylotree/)
+    --ci                Compute profile likelihood confidence intervals for each variable site (default: No).
 
-     --pvalue           The significance level used to determine significance
+Advanced Attributes
+-------------------
+::
 
-     --srv              Include site-to-site synonymous rate variation?
-                            Yes [default] or No
+    --resample          Perform parametric bootstrap resampling to derive site-level null LRT distributions.
+                        Warning: This will result in a significantly slower analysis. A value of 0 means no resampling is performed. This parameter specifies the maximum number of replicates per site (default: 0, range: 0 to 1000).
 
+    --restrict-sites    Restrict FEL analysis to a subset of sites. If Yes, allows specifying a subset of sites for analysis.
+                            Yes : Restrict analysis to a subset of sites.
+                            No [default] : Do not restrict analysis to a subset of sites.
 
+    --limit-to-sites    Only analyze sites whose 1-based indices match the following list (null to skip). This option is available only if 'Restrict FEL analysis to a subset of sites' is set to 'Yes'. Comma-separated list of site indices.
+    --save-lf-for-sites For sites whose 1-based indices match the following list, write out likelihood function snapshots (empty string to skip). This option is available only if 'Restrict FEL analysis to a subset of sites' is set to 'Yes'. Comma-separated list of site indices.
 
+    --precision         Optimization precision settings for preliminary fits.
+                            Standard [default]
+                            Reduced for faster fitting
 
-]]>
+    --kill-zero-lengths Automatically delete internal zero-length branches for computational efficiency.
+                            Yes [default] : Automatically delete internal zero-length branches for computational efficiency (will not affect results otherwise).
+                            Constrain : Keep zero-length branches, but constrain their values to 0.
+                            No : Keep all branches.
 
-    </help>
+    --full-model        Perform branch length re-optimization under the full codon model (default: Yes). If true, re-optimizes branch lengths under the full codon model.
+
+  ]]>;
+  </help>
 
     <expand macro="citations">
         <citation type="doi">10.1093/molbev/msi105</citation>

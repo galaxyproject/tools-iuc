@@ -1,26 +1,68 @@
-<?xml version="1.0"?>
-<tool id="ncbi_taxonomy_fetcher" name="NCBI" tool_type="manage_data" version="1.0.4" profile="23.0">
+<tool id="ncbi_taxonomy_fetcher" name="NCBI" tool_type="manage_data" version="1.1" profile="24.0">
     <description>taxonomy downloader</description>
     <requirements>
-        <requirement type="package" version="3.7">python</requirement>
+        <requirement type="package" version="1.25.0">wget</requirement>
     </requirements>
     <command detect_errors="exit_code">
     <![CDATA[
-        python '$__tool_directory__/data_manager.py' --out '${out_file}'
-        #if $taxonomy_url:
-            --url '${taxonomy_url}'
+        set -o pipefail;
+
+        mkdir -p '$out_file.extra_files_path/taxonomy/' &&
+        wget -O - '$taxonomy_url' | tar -xz -C '$out_file.extra_files_path/taxonomy/' &&
+        if [[ ! -f '$out_file.extra_files_path/taxonomy/nodes.dmp' ]]; then >&2 echo "nodes.dmp missing"; exit 1; fi &&
+
+        #if $name_maps
+            mkdir -p '$out_file.extra_files_path/accession2taxid/' &&
+            #if $partial_data
+                #set files = ['pdb.accession2taxid']
+            #else
+                #set files = ['dead_nucl.accession2taxid', 'dead_prot.accession2taxid', 'dead_wgs.accession2taxid', 'nucl_gb.accession2taxid', 'nucl_wgs.accession2taxid', 'pdb.accession2taxid', 'prot.accession2taxid', 'prot.accession2taxid.FULL']
+            #end if
+            #for file in files
+                wget -O - ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/accession2taxid/${file}.gz | gunzip -c > '$out_file.extra_files_path/accession2taxid/${file}' &&
+            #end for
         #end if
-        #if $database_name:
-            --name '${database_name}'
-        #end if
-        $name_maps
-        $partial_data
+        cp '$dmjson' '$out_file'
     ]]>
     </command>
+        <configfiles>
+        <configfile name="dmjson"><![CDATA[#slurp
+#if $database_name == ""
+    #import datetime
+    #import os.path
+    #set now = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    #set basename = os.path.basename(str($taxonomy_url))[:-7]
+    #set value = basename + "_" + now
+    #set name = basename + " " + now
+#else
+    #set value = $database_name.lower()
+    #set name = $database_name
+#end if
+{
+  "data_tables":{
+    "ncbi_taxonomy":[
+      {
+        "value": "$value",
+        "name": "$name",
+        "path": "."
+      }
+    ]
+#if $name_maps
+    ,"ncbi_accession2taxid":[
+      {
+        "value": "$value",
+        "name": "$name",
+        "path": "."
+      }
+    ]
+#end if
+  }
+}]]></configfile>
+    </configfiles>
     <inputs>
-        <param name="database_name" type="text" optional="true" label="Name for this database" help="Enter a unique identifier, or leave blank for today's date" />
+        <param name="database_name" type="text" label="Name for this database" help="Enter a unique identifier, or leave blank for today's date" />
         <param name="taxonomy_url" type="text" value='ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz' label="Enter URL for taxonomy files" />
-        <param name="name_maps" type="boolean" truevalue="--name-maps" falsevalue="" label="Also download accession2taxid data" checked="false" />
+        <param name="name_maps" type="boolean" label="Also download accession2taxid data" checked="false" />
         <param name="partial_data" type="hidden" value="" help="Used for testing"/>
     </inputs>
     <outputs>
@@ -30,6 +72,14 @@
         <test>
             <param name="database_name" value="tax_name"/>
             <output name="out_file" value="taxonomy.json"/>
+        </test>
+        <test>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text_matching expression='"value": "taxdump_\d\d\d\d-\d\d-\d\d-\d\d\d\d\d\d"'/>
+                    <has_text_matching expression='"name": "taxdump \d\d\d\d-\d\d-\d\d-\d\d\d\d\d\d"'/>
+                </assert_contents>
+            </output>
         </test>
         <test>
             <param name="database_name" value="tax_name"/>

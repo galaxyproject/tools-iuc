@@ -60,28 +60,71 @@
                     #set $filename = 'abundance.tsv'
                 #end if
 
+                ## read cofactor repeats and generate cofactor_map dictionary
+                ## cofactor_map structure: {file_path: {cofactor_name: cofactor_level_name, ...}, ...}
+                #set $cofactor_map = {}
+                #set $cofactor_names = []
+                #for $cofactor_item in $functionMode.tool_source.cofactor:
+                    #set $cofactor_name = str($cofactor_item.cofactor_name)
+                    $cofactor_names.append($cofactor_name)
+                    #for $level_item in $cofactor_item.cofactor_level:
+                        #set $level_name = str($level_item.cofactor_level_name)
+                        #for $level_file in $level_item.cofactor_level_files:
+                            #set $file_path = str($level_file)
+                            #if $file_path not in $cofactor_map:
+                                #set $cofactor_map[$file_path] = {}
+                            #end if
+                            #set $cofactor_map[$file_path][$cofactor_name] = $level_name
+                        #end for
+                    #end for
+                #end for
+
+                ## create file_to_sample_map dictionary
+                #set $file_to_sample_map = {}
+
                 #for $index in range(len($functionMode.tool_source.first_factor.trans_counts)):
+                    #set $sampleID = str($functionMode.tool_source.first_factor.factorLevel) + str($index)
+                    #set $trans_file = $functionMode.tool_source.first_factor.trans_counts[$index]
+                    #set $file_to_sample_map[$sampleID] = str($trans_file)
                     $conditions.append($functionMode.tool_source.first_factor.factorLevel)
-                    $sampleIDs.append(str($functionMode.tool_source.first_factor.factorLevel) + str($index))
+                    $sampleIDs.append($sampleID)
                     $replicates.append($index)
                     mkdir './input_files/${functionMode.tool_source.first_factor.factorLevel}${index}/' &&
-                    ln -s $functionMode.tool_source.first_factor.trans_counts[$index] './input_files/${functionMode.tool_source.first_factor.factorLevel}${index}/${filename}' &&
+                    ln -s $trans_file './input_files/${functionMode.tool_source.first_factor.factorLevel}${index}/${filename}' &&
                 #end for
 
                 #for $index in range(len($functionMode.tool_source.second_factor.trans_counts)):
+                    #set $sampleID = str($functionMode.tool_source.second_factor.factorLevel) + str($index)
+                    #set $trans_file = $functionMode.tool_source.second_factor.trans_counts[$index]
+                    #set $file_to_sample_map[$sampleID] = str($trans_file)
                     $conditions.append($functionMode.tool_source.second_factor.factorLevel)
-                    $sampleIDs.append(str($functionMode.tool_source.second_factor.factorLevel) + str($index))
+                    $sampleIDs.append($sampleID)
                     $replicates.append($index)
                     mkdir './input_files/${functionMode.tool_source.second_factor.factorLevel}${index}/' &&
-                    ln -s $functionMode.tool_source.second_factor.trans_counts[$index] './input_files/${functionMode.tool_source.second_factor.factorLevel}${index}/${filename}' &&
+                    ln -s $trans_file './input_files/${functionMode.tool_source.second_factor.factorLevel}${index}/${filename}' &&
                 #end for
                 
+
                 Rscript '${__tool_directory__}/IsoformSwitchAnalyzeR.R'
                     #for $i, $condition in enumerate($conditions)
                         --condition $condition
                         --sampleID $sampleIDs[$i]
                         --replicate $replicates[$i]
+                        #set $sample_file = $file_to_sample_map[$sampleIDs[$i]]
+                        #if $sample_file in $cofactor_map
+                            #set $cofactor_values = []
+                            #for $cofactor_name in $cofactor_names:
+                                #if $cofactor_name in $cofactor_map[$sample_file]
+                                    #set $cofactor_value = $cofactor_map[$sample_file][$cofactor_name]
+                                    #silent $cofactor_values.append(str($cofactor_value))
+                                #end if
+                            #end for
+                            --cofactors $(','.join($cofactor_values))
+                        #end if
                     #end for
+                    #if len($cofactor_names) > 0
+                        --cofactorNames $(','.join($cofactor_names))
+                    #end if
                     $functionMode.pairedSamples
                     --modeSelector $functionMode.selector
                     --parentDir './input_files'
@@ -648,7 +691,15 @@
                 </assert_contents>
             </output>
             <output name="matrix_counts" file="test02_counts.tabular" ftype="tabular" lines_diff="6"/>
-            <output name="sample_annotation" file="test02_samples_annotation.tabular" ftype="tabular"/>
+            <output name="sample_annotation">
+                <assert_contents>
+                    <has_text_matching expression="sampleID\s+condition"/>
+                    <has_text_matching expression="health0\s+health"/>
+                    <has_text_matching expression="health1\s+health"/>
+                    <has_text_matching expression="cancer0\s+cancer"/>
+                    <has_text_matching expression="cancer1\s+cancer"/>
+                </assert_contents>
+            </output>
         </test>
         <!-- Test 03: Data import mode generate collection count files-->
         <test expect_num_outputs="3">
@@ -1115,7 +1166,82 @@
                     <has_size value="652170" delta="300"/>
                 </assert_contents>
             </output>
-            <output name="sample_annotation" file="test10_samples_annotation.tabular" ftype="tabular"/>
+            <output name="sample_annotation">
+                <assert_contents>
+                    <has_text_matching expression="sampleID\s+condition\s+replicate"/>
+                    <has_text_matching expression="health0\s+health\s+0"/>
+                    <has_text_matching expression="health1\s+health\s+1"/>
+                    <has_text_matching expression="cancer0\s+cancer\s+0"/>
+                    <has_text_matching expression="cancer1\s+cancer\s+1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 11: Data import mode add cofactor-->
+        <test expect_num_outputs="3">
+            <conditional name="functionMode">
+                <param name="selector" value="data_import"/>
+                <param name="genomeAnnotation" value="gencode.hg19.chr10_1000.gtf.gz"/>
+                <param name="transcriptome" value="transcriptome_stringtie.fasta.gz"/>
+                <param name="countFiles" value="matrix"/>
+                <conditional name="tool_source">
+                    <param name="selector" value="stringtie"/>
+                        <conditional name="novoisoforms">
+                            <param name="selector" value="novel"/>
+                            <param name="stringtieAnnotation" value="annotation_stringtie.gtf.gz"/>
+                        </conditional>                    
+                    <section name="first_factor">
+                        <param name="factorLevel" value="EWS-FLI1"/>
+                        <param name="trans_counts" value="ASP14_1.tabular,ASP14_2.tabular,ASP14_3.tabular"/>
+                    </section>
+                    <section name="second_factor">
+                        <param name="factorLevel" value="no-EWS-FLI1"/>
+                        <param name="trans_counts" value="ASP14_doxycycline_1.tabular,ASP14_doxycycline_2.tabular,ASP14_doxycycline_3.tabular"/>
+                    </section>
+                    <repeat name="cofactor">
+                        <param name="cofactor_name" value="Batch"/>
+                        <repeat name="cofactor_level">
+                            <param name="cofactor_level_name" value="batch1"/>
+                            <param name="cofactor_level_files" value="ASP14_1.tabular,ASP14_doxycycline_1.tabular"/> 
+                        </repeat>
+                        <repeat name="cofactor_level">
+                            <param name="cofactor_level_name" value="batch2"/>
+                            <param name="cofactor_level_files" value="ASP14_2.tabular,ASP14_doxycycline_2.tabular"/> 
+                        </repeat>
+                        <repeat name="cofactor_level">
+                            <param name="cofactor_level_name" value="batch3"/>
+                            <param name="cofactor_level_files" value="ASP14_3.tabular,ASP14_doxycycline_3.tabular"/>
+                        </repeat>
+                    </repeat>
+                    <repeat name="cofactor">
+                        <param name="cofactor_name" value="Age"/>
+                        <repeat name="cofactor_level">
+                            <param name="cofactor_level_name" value="20"/>
+                            <param name="cofactor_level_files" value="ASP14_1.tabular,ASP14_doxycycline_1.tabular,ASP14_2.tabular"/> 
+                        </repeat>
+                        <repeat name="cofactor_level">
+                            <param name="cofactor_level_name" value="60"/>
+                            <param name="cofactor_level_files" value="ASP14_doxycycline_2.tabular,ASP14_3.tabular,ASP14_doxycycline_3.tabular"/>
+                        </repeat>
+                    </repeat>
+                </conditional>
+            </conditional>
+            <output name="switchList" ftype="rdata">
+                <assert_contents>
+                    <has_size value="374542" delta="300"/>
+                </assert_contents>
+            </output>
+            <output name="matrix_counts" file="stringtie_counts.tabular" ftype="tabular" lines_diff="6"/>
+            <output name="sample_annotation">
+                <assert_contents>
+                    <has_text_matching expression="sampleID\s+condition\s+Batch\s+Age"/>
+                    <has_text_matching expression="EWSXFLI10\s+EWSXFLI1\s+batch1\s+20"/>
+                    <has_text_matching expression="EWSXFLI11\s+EWSXFLI1\s+batch2\s+20"/>
+                    <has_text_matching expression="EWSXFLI12\s+EWSXFLI1\s+batch3\s+60"/>
+                    <has_text_matching expression="noXEWSXFLI10\s+noXEWSXFLI1\s+batch1\s+20"/>
+                    <has_text_matching expression="noXEWSXFLI11\s+noXEWSXFLI1\s+batch2\s+60"/>
+                    <has_text_matching expression="noXEWSXFLI12\s+noXEWSXFLI1\s+batch3\s+60"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[

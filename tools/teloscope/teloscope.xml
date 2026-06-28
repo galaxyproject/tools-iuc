@@ -1,0 +1,248 @@
+<tool id="teloscope" name="Teloscope" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Assembly telomere annotation</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>teloscope -v</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir -p output &&
+        teloscope
+            --input-sequence '$input_sequence'
+            --output output
+            --canonical '$canonical'
+            --patterns '$patterns'
+            --window '$window'
+            --step '$step'
+            --threads "\${GALAXY_SLOTS:-2}"
+            --terminal-limit '$terminal_limit'
+            --max-match-distance '$max_match_distance'
+            --max-block-distance '$max_block_distance'
+            --min-block-length '$min_block_length'
+            --min-block-density '$min_block_density'
+            --edit-distance '$edit_distance'
+            
+            $out_win_repeats
+            $out_gc
+            $out_entropy
+            $out_matches
+            $out_its
+            $ultra_fast
+            $verbose
+            > '$telo_report'
+    ]]></command>
+    <inputs>
+        <param argument="--input-sequence" type="data" format="fasta,fasta.gz" label="Input assembly"/>
+        <param argument="--canonical" type="text" value="TTAGGG" label="Canonical telomeric pattern">
+            <sanitizer>
+                <valid initial="string.printable">
+                    <remove value=" "/>
+                    <remove value="\t"/>
+                    <remove value="\r"/>
+                    <remove value="\n"/>
+                </valid>
+            </sanitizer>
+            <validator type="regex" message="Canonical must contain only A,C,G,T.">^[ACGTacgt]+$</validator>
+        </param>
+
+        <param argument="--patterns" type="text" value="TTAGGG,CCCTAA"
+            label="Patterns to explore (comma-separated), IUPAC allowed">
+            <validator type="regex"
+                    message="Use IUPAC letters ACGTRYSWKMBDHVN; comma-separated.">^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+(?:,[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+)*$</validator>
+        </param>
+
+        <param argument="--window" type="integer" min="100" value="1000" label="Sliding window size"/>
+        <param argument="--step" type="integer" min="100" value="500" label="Sliding window step"/>
+        <param argument="--terminal-limit" type="integer" min="10000" value="50000" label="Terminal limit (bp) in contigs"/>
+        <param argument="--max-match-distance" type="integer" min="0" value="50" label="Maximum distance (bp) for merging matches"/>
+        <param argument="--max-block-distance" type="integer" min="0" value="200" label="Maximum block distance for merging"/>
+        <param argument="--min-block-length" type="integer" min="0" value="500" label="Minimum block length"/>
+        <param argument="--min-block-density" type="float" min="0" max="1" value="0.5" label="Minimum block density (0–1)"/>
+        <param argument="--edit-distance" type="integer" min="0" max="2" value="0" label="Edit distance for pattern matching (0–2)"/>
+
+        <param argument="--out-win-repeats" type="boolean" truevalue="--out-win-repeats" falsevalue="" checked="false" label="Window repeat counts"/>
+        <param argument="--out-gc" type="boolean" truevalue="--out-gc" falsevalue="" checked="false" label="Window GC"/>
+        <param argument="--out-entropy" type="boolean" truevalue="--out-entropy" falsevalue="" checked="false" label="Window Shannon entropy"/>
+        <param argument="--out-matches" type="boolean" truevalue="--out-matches" falsevalue="" checked="false" label="Canonical/NonCanonical Matches"/>
+        <param argument="--out-its" type="boolean" truevalue="--out-its" falsevalue="" checked="false" label="Interstitial telomeres (ITSs)"/>
+        <param argument="--ultra-fast" type="boolean" truevalue="--ultra-fast" falsevalue="" checked="true" label="Ultra-fast mode (terminal regions only)"/>
+        <param argument="--verbose" type="boolean" truevalue="--verbose" falsevalue="" checked="false" label="Verbose output"/>
+    </inputs>
+
+    <outputs>
+        <!-- BASIC OUTFILES -->
+        <data name="terminal_telomeres" format="bed" from_work_dir="output/*_terminal_telomeres.bed" label="${tool.name} on ${on_string}: Terminal telomeres"/>
+        <data name="telo_report" format="tabular" label="${tool.name} on ${on_string}: Summary report"/>
+
+        <!-- OPTIONAL OUTFILES -->
+        <data name="interstitial_telomeres" format="bed" from_work_dir="output/*_interstitial_telomeres.bed" label="${tool.name} on ${on_string}: Interstitial telomeres">
+            <filter>out_its</filter>
+        </data>
+        <data name="canonical_matches" format="bed" from_work_dir="output/*_canonical_matches.bed" label="${tool.name} on ${on_string}: Canonical matches">
+            <filter>out_matches</filter>
+        </data>
+        <data name="noncanonical_matches" format="bed" from_work_dir="output/*_noncanonical_matches.bed" label="${tool.name} on ${on_string}: Noncanonical matches">
+            <filter>out_matches</filter>
+        </data>
+        <data name="window_metrics" format="bedgraph" from_work_dir="output/*_window_metrics.bedgraph" label="${tool.name} on ${on_string}: Window metrics">
+            <filter>out_gc or out_entropy or out_win_repeats</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <!-- 1) Default (-u) : terminal telomeres + report -->
+        <test expect_num_outputs="2">
+            <param name="input_sequence" value="bTaeGut7_chr33_mat.fa.gz" ftype="fasta.gz"/>
+            <param name="canonical" value="TTAGGG"/>
+            <param name="patterns" value="TTAGGG,CCCTAA"/>
+            <output name="terminal_telomeres">
+                <assert_contents>
+                    <!-- at least one BED-like line (match whole line to allow extra cols) -->
+                    <has_line_matching expression="^\S+\t\d+\t\d+(?:\t.*)?$"/>
+                </assert_contents>
+            </output>
+            <output name="telo_report">
+                <assert_contents>
+                    <has_line_matching expression="\+\+\+ Path Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Assembly Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Telomere Statistics \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere Counts\+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere/Gap Completeness\+\+\+"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- 2) Genome-wide (-g -e -r -m -i ; disable -u) -->
+        <test expect_num_outputs="6">
+            <param name="input_sequence" value="bTaeGut7_chr33_mat.fa.gz" ftype="fasta.gz"/>
+            <param name="canonical" value="TTAGGG"/>
+            <param name="patterns" value="TTAGGG,CCCTAA"/>
+            <param name="out_gc" value="true"/>
+            <param name="out_entropy" value="true"/>
+            <param name="out_win_repeats" value="true"/>
+            <param name="out_matches" value="true"/>
+            <param name="out_its" value="true"/>
+            <param name="ultra_fast" value="false"/>
+
+            <output name="terminal_telomeres">
+                <assert_contents>
+                    <has_line_matching expression="^\S+\t\d+\t\d+(?:\t.*)?$"/>
+                </assert_contents>
+            </output>
+            <output name="interstitial_telomeres">
+                <assert_contents>
+                    <has_line_matching expression="^\S+\t\d+\t\d+(?:\t.*)?$"/>
+                </assert_contents>
+            </output>
+            <output name="canonical_matches">
+                <assert_contents>
+                    <!-- ensure at least one CCCTAA match line -->
+                    <has_line_matching expression="^\S+\t\d+\t\d+\tCCCTAA(?:\s|$)"/>
+                </assert_contents>
+            </output>
+            <output name="noncanonical_matches">
+                <assert_contents>
+                    <!-- expect an empty file -->
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+            <output name="window_metrics">
+                <assert_contents>
+                    <has_text text="track type=bedGraph"/>
+                    <!-- first data window line -->
+                    <has_line_matching expression="^\S+\t0\t1000\t.*"/>
+                </assert_contents>
+            </output>
+            <output name="telo_report">
+                <assert_contents>
+                    <has_line_matching expression="\+\+\+ Path Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Assembly Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Telomere Statistics \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere Counts\+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere/Gap Completeness\+\+\+"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- 3) Edit distance 1: more variants detected -->
+        <test expect_num_outputs="2">
+            <param name="input_sequence" value="bTaeGut7_chr33_mat.fa.gz" ftype="fasta.gz"/>
+            <param name="canonical" value="TTAGGG"/>
+            <param name="patterns" value="TTAGGG,CCCTAA"/>
+            <param name="edit_distance" value="1"/>
+            <output name="terminal_telomeres">
+                <assert_contents>
+                    <!-- p-arm telomere with extended start due to edit distance -->
+                    <has_text text="chr33_mat&#9;442&#9;14354&#9;13912&#9;p&#9;"/>
+                    <!-- q-arm telomere -->
+                    <has_text text="chr33_mat&#9;4219967&#9;4246337&#9;26370&#9;q&#9;"/>
+                </assert_contents>
+            </output>
+            <output name="telo_report">
+                <assert_contents>
+                    <has_line_matching expression="\+\+\+ Path Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Assembly Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Telomere Statistics \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere Counts\+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere/Gap Completeness\+\+\+"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- 4) Edit distance 2: maximum variants detected -->
+        <test expect_num_outputs="2">
+            <param name="input_sequence" value="bTaeGut7_chr33_mat.fa.gz" ftype="fasta.gz"/>
+            <param name="canonical" value="TTAGGG"/>
+            <param name="patterns" value="TTAGGG,CCCTAA"/>
+            <param name="edit_distance" value="2"/>
+            <output name="terminal_telomeres">
+                <assert_contents>
+                    <!-- p-arm telomere extends to position 1 with edit distance 2 -->
+                    <has_text text="chr33_mat&#9;1&#9;14354&#9;14353&#9;p&#9;"/>
+                    <!-- q-arm telomere -->
+                    <has_text text="chr33_mat&#9;4219967&#9;4246337&#9;26370&#9;q&#9;"/>
+                </assert_contents>
+            </output>
+            <output name="telo_report">
+                <assert_contents>
+                    <has_line_matching expression="\+\+\+ Path Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Assembly Summary Report \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Telomere Statistics \+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere Counts\+\+\+"/>
+                    <has_line_matching expression="\+\+\+ Chromosome Telomere/Gap Completeness\+\+\+"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    
+    <help><![CDATA[
+        Description:
+        Teloscope is a tool for telomere annotation in genome assemblies. 
+        It scans for user-specified telomeric repeat patterns across assembly paths, contigs and windows.
+        Teloscope annotates terminal and interstitial telomeres, canonical/noncanonical matches and genome-wide metrics such as GC content, Shannon entropy, and repeat counts.
+        It generates a detailed telomere summary report for paths, telomere statistics, and chromosome labels to assess telomere completeness.
+        Teloscope can be used for both complete and fragmented assemblies, providing valuable information for genome manual curation and analysis.
+
+        Usage:
+        Default (ultra-fast) scans terminal regions and reports terminal telomeres + a summary report.
+        * ${input_sequence.name}_terminal_telomeres.bed
+        * ${input_sequence.name}.telo.report
+
+        Enabling window/match options (-g -e -r -m -i) performs a genome-wide scan and produces:
+        * ${input_sequence.name}_terminal_telomeres.bed
+        * ${input_sequence.name}_interstitial_telomeres.bed
+        * ${input_sequence.name}_canonical_matches.bed
+        * ${input_sequence.name}_noncanonical_matches.bed
+        * ${input_sequence.name}_window_metrics.bedgraph
+        * ${input_sequence.name}.telo.report
+
+        Key parameters:
+        - -c / --canonical: Canonical repeat (default TTAGGG). This is the vertebrate telomeric motif found at chromosome ends that binds to shelterin complex to form a telomere.
+        - -p / --patterns: Variant patterns (comma-separated). These are additional telomeric repeat motifs to search for, besides the canonical repeat, it includes other variants that can be part of telomeres.
+        - -w / -s: window size / step (defaults 1000/500).
+        - -u / --ultra-fast: terminal scan only (default true); disabled automatically when -g/-e/-r/-m/-i are used.
+        - -x / --edit-distance: Edit Hamming distance for pattern matching (0–2). Useful for identifying degenerate telomeric repeats (default 0).
+    ]]></help>
+
+    <expand macro="citations"/>
+</tool>

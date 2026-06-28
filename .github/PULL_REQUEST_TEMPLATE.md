@@ -4,3 +4,12 @@ FOR CONTRIBUTOR:
 * [ ] This PR adds a new tool or tool collection
 * [ ] This PR updates an existing tool or tool collection
 * [ ] This PR does something else (explain below)
+
+There are two labels that allow to ignore specific (false positive) tool linter errors:
+
+* `skip-version-check`: Use it if only a subset of the tools has been updated in a suite.
+* `skip-url-check`: Use it if github CI sees 403 errors, but the URLs work.
+
+To request a review once your PR is ready, comment "please review" on the PR. This will
+automatically apply the `ready-for-review` label if the PR is not a draft, all review
+threads are resolved, and all CI checks have passed.

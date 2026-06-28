@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <macros>
-    <token name="@TOOL_VERSION@">2.0.2</token>
-    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@TOOL_VERSION@">2.1.0</token>
+    <token name="@VERSION_SUFFIX@">1</token>
     <token name="@PROFILE@">21.01</token>
     <xml name="biotools">
         <xrefs>
@@ -48,6 +48,23 @@
             </when>
         </conditional>
     </xml>
+    <xml name="mode_fasta_strobealign">
+        <conditional name="mode">
+            <expand macro="mode_select"/>
+            <when value="single">
+                <expand macro="input-fasta-single"/>
+                <expand macro="input-txt"/>
+            </when>
+            <when value="co">
+                <expand macro="input-fasta-single"/>
+                <expand macro="input-txt"/>
+            </when>
+            <when value="multi">
+                <expand macro="input-fasta-multi"/>
+                <expand macro="input-txt"/>
+            </when>
+        </conditional>
+    </xml>
     <xml name="mode_select">
         <param name="select" type="select" label="Binning mode">
             <option value="single" selected="true">Single sample binning (each sample is assembled and binned independently)</option>
@@ -55,8 +72,14 @@
             <option value="multi">Multi-sample binning (multiple samples are assembled and binned individually, but information from multiple samples is used together)</option>
         </param>
     </xml>
+    <xml name="bam_or_strobealign">
+        <param name="align_select" type="select" label="Use bam or strobealign abundance files?" help="Strobealign abundance files can only be used when samples used in binning above or equal 5">
+            <option value="bam">BAM</option>
+            <option value="txt">Strobealign-aemb file(s)</option>
+        </param>
+    </xml>
     <xml name="input-fasta-single">
-        <param argument="--input-fasta" type="data" format="fasta,fasta.gz" label="Contig sequences"/>
+        <param argument="--input-fasta" type="data" format="fasta,fasta.gz,fasta.bz2" label="Contig sequences"/>
     </xml>
     <xml name="input-fasta-multi">
         <conditional name="multi_fasta">
@@ -65,11 +88,11 @@
                 <option value="multi">1 contig file per sample</option>
             </param>
             <when value="concatenated">
-                <param argument="--input-fasta" type="data" format="fasta,fasta.gz" label="Combined contig sequences"/>
+                <param argument="--input-fasta" type="data" format="fasta,fasta.gz,fasta.bz2" label="Combined contig sequences"/>
                 <expand macro="separator"/>
             </when>
             <when value="multi">
-                <param argument="--input-fasta" type="data" multiple="true" format="fasta,fasta.gz" label="Contig sequences"/>
+                <param argument="--input-fasta" type="data" multiple="true" format="fasta,fasta.gz,fasta.bz2" label="Contig sequences"/>
                 <expand macro="concat_min_len"/>
             </when>
         </conditional>
@@ -78,39 +101,27 @@
         <param name="min_len" type="integer" min="0" value="0" label="Minimal length for contigs to be kept"/>
     </xml>
     <token name="@SINGLE_FASTA_FILES@"><![CDATA[
-#if $input_fasta.ext.endswith(".gz")
-gunzip -c '$input_fasta' > 'contigs.fasta' &&
-#else
-ln -s '$input_fasta' 'contigs.fasta' &&
-#end if
+ln -s '$input_fasta' 'contigs.$input_fasta.ext' &&
     ]]></token>
     <token name="@FASTA_FILES@"><![CDATA[
 #if $mode.select == 'single' or $mode.select == 'co'
-    #if $mode.input_fasta.ext.endswith(".gz")
-gunzip -c '$mode.input_fasta' > 'contigs.fasta' &&
-    #else
-ln -s '$mode.input_fasta' 'contigs.fasta' &&
-    #end if
+ln -s '$input_fasta' 'contigs.$input_fasta.ext' &&
 #else
     #if $mode.multi_fasta.select == 'concatenated'
-        #if $mode.multi_fasta.input_fasta.ext.endswith(".gz")
-gunzip -c '$mode.multi_fasta.input_fasta' > 'contigs.fasta' &&
-        #else
-ln -s '$mode.multi_fasta.input_fasta' 'contigs.fasta' &&
-        #end if
+ln -s '$input_fasta' 'contigs.$input_fasta.ext' &&
 #set $separator = $mode.multi_fasta.separator
     #else
         #for $e in $mode.multi_fasta.input_fasta
-            #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($e.element_identifier))
-            #if $e.ext.endswith(".gz")
-gunzip -c '$e' > '${identifier}.fasta' &&
-            #else
-ln -s '$e' '${identifier}.fasta' &&
-            #end if
+            #set $identifier = re.sub('[^\s\w\-]', '_', str($e.element_identifier))
+ln -s '$e' '${identifier}.$e.ext' &&
         #end for
 #set $separator = ':'
 SemiBin2 concatenate_fasta
-    --input-fasta *.fasta
+    --input-fasta
+    #for $e in $mode.multi_fasta.input_fasta
+        #set $identifier = re.sub('[^\s\w\-]', '_', str($e.element_identifier))
+        '${identifier}.$e.ext'
+    #end for
     --output 'output'
     --separator '$separator'
     --compression none
@@ -129,20 +140,37 @@ ln -s 'output/concatenated.fa' 'contigs.fasta' &&
     <xml name="input-bam-multi">
         <param argument="--input-bam" type="data" format="bam" multiple="true" label="Read mapping to the contigs" help="One file per sample, sorted BAM files"/>
     </xml>
+    <!-- Strobealign files -->
+    <xml name="input-txt">
+        <param argument="--abundance" type="data" format="txt" label="Read mapping to the contigs" multiple="true" help="Strobealign abundance files"/>
+    </xml>
     <token name="@BAM_FILES@"><![CDATA[
 #if $mode.select == 'single'
-#set $identifier = re.sub('[^\s\w\-\\.]', '_', str($input_bam.element_identifier))
-ln -s '$input_bam' '${identifier}.bam' &&
+#set $identifier = re.sub('[^\s\w\-]', '_', str($mode.input_bam.element_identifier))
+ln -s '$mode.input_bam' '${identifier}.bam' &&
 #else
-    #for $e in $input_bam
-        #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($e.element_identifier))
+    #for $e in $mode.input_bam
+        #set $identifier = re.sub('[^\s\w\-]', '_', str($e.element_identifier))
 ln -s '$e' '${identifier}.bam' &&
     #end for
 #end if
     ]]></token>
+    <token name="@STROBEALIGN_FILES@"><![CDATA[
+#for $e in $mode.align_select.abundance
+    #set $identifier = re.sub('[^\s\w\-]', '_', str($e.element_identifier))
+    ln -s '$e' '${identifier}.txt' &&
+#end for
+    ]]></token>
+    <xml name="ref_select_cannot">
+        <param name="select" type="select" label="Reference database">
+            <option value="cached">Cached database</option>
+            <option value="taxonomy">Pre-computed taxonomy</option>
+        </param>
+    </xml>
     <xml name="ref_select">
         <param name="select" type="select" label="Reference database">
-            <option value="cached" selected="true">Cached database</option>
+            <option value="ml" selected="true">Use SemiBin ML function</option>
+            <option value="cached">Cached database</option>
             <option value="taxonomy">Pre-computed taxonomy</option>
         </param>
     </xml>
@@ -153,6 +181,28 @@ ln -s '$e' '${identifier}.bam' &&
             </options>
         </param>
     </xml>
+    <xml name="ref-single-cannot">
+        <conditional name="ref">
+            <expand macro="ref_select_cannot"/>
+            <when value="cached">
+                <expand macro="cached_db"/>
+            </when>
+            <when value="taxonomy">
+                <param argument="--taxonomy-annotation-table" type="data" format="tabular" label="Pre-computed mmseqs2 format taxonomy TSV file"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="ref-multi-cannot">
+        <conditional name="ref">
+            <expand macro="ref_select_cannot"/>
+            <when value="cached">
+                <expand macro="cached_db"/>
+            </when>
+            <when value="taxonomy">
+                <param argument="--taxonomy-annotation-table" type="data" format="tabular" multiple="true" label="Pre-computed mmseqs2 format taxonomy TSV file" help="One per bin file"/>
+            </when>
+        </conditional>
+    </xml>
     <xml name="ref-single">
         <conditional name="ref">
             <expand macro="ref_select"/>
@@ -162,6 +212,7 @@ ln -s '$e' '${identifier}.bam' &&
             <when value="taxonomy">
                 <param argument="--taxonomy-annotation-table" type="data" format="tabular" label="Pre-computed mmseqs2 format taxonomy TSV file"/>
             </when>
+            <when value="ml"/>
         </conditional>
     </xml>
     <xml name="ref-multi">
@@ -173,6 +224,7 @@ ln -s '$e' '${identifier}.bam' &&
             <when value="taxonomy">
                 <param argument="--taxonomy-annotation-table" type="data" format="tabular" multiple="true" label="Pre-computed mmseqs2 format taxonomy TSV file" help="One per bin file"/>
             </when>
+            <when value="ml"/>
         </conditional>
     </xml>
     <xml name="ref_single">
@@ -184,6 +236,7 @@ ln -s '$e' '${identifier}.bam' &&
             <when value="taxonomy">
                 <param argument="--taxonomy-annotation-table" type="data" format="tabular" label="Pre-computed mmseqs2 format taxonomy TSV file"/>
             </when>
+            <when value="ml"/>
         </conditional>
     </xml>
     <xml name="min_len">
@@ -225,7 +278,6 @@ ln -s '$e' '${identifier}.bam' &&
         <param argument="--orf-finder" type="select" label="ORF finder used to estimate the number of bins">
             <option value="fast-naive" selected="true">Fast-Naive</option>
             <option value="prodigal">Prodigal</option>
-            <option value="fraggenescan">Fraggenescan</option>
         </param>
     </xml>
     <xml name="max-node">
@@ -261,58 +313,153 @@ ln -s '$e' '${identifier}.bam' &&
     </xml>
     <xml name="data_output_single">
         <data name="single_data" format="csv" from_work_dir="output/data.csv" label="${tool.name} on ${on_string}: Training data">
-            <filter>mode["select"]=="single" or mode["select"]=="co"</filter>
+            <filter>input_type_select['mode']['select']=="single" or input_type_select['mode']['select']=="co"</filter>
         </data>
         <data name="single_data_split" format="csv" from_work_dir="output/data_split.csv" label="${tool.name} on ${on_string}: Split training data">
-            <filter>mode["select"]=="single" or mode["select"]=="co"</filter>
+            <filter>input_type_select['mode']['select']=="single" or input_type_select['mode']['select']=="co"</filter>
         </data>
     </xml>
-    <xml name="data_output_multi">
+    <xml name="data_output_multi"> 
         <collection name="multi_data" type="list" label="${tool.name} on ${on_string}: Training data per sample">
-            <filter>mode["select"]=="multi"</filter>
+            <filter>input_type_select['mode']['select']=="multi"</filter>
             <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
         </collection>
         <collection name="multi_data_split" type="list" label="${tool.name} on ${on_string}: Split training data per sample">
-            <filter>mode["select"]=="multi"</filter>
+            <filter>input_type_select['mode']['select']=="multi"</filter>
             <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
         </collection>
     </xml>
     <xml name="generate_sequence_features_extra_outputs">
         <data name="single_cov" format="csv" from_work_dir="output/*_data_cov.csv" label="${tool.name} on ${on_string}: Coverage">
-            <filter>mode["select"]=="single" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="single" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
         </data>
         <data name="single_split_cov" format="csv" from_work_dir="output/*_data_split_cov.csv" label="${tool.name} on ${on_string}: Coverage (split data)">
-            <filter>mode["select"]=="single" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="single" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
         </data>
         <collection name="co_cov" type="list" label="${tool.name} on ${on_string}: Coverage (co_cov)">
-            <filter>mode["select"]=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
             <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov\.csv" format="csv" directory="output/" />
         </collection>
         <collection name="co_split_cov" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample">
-            <filter>mode["select"]=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
             <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov\.csv" format="csv" directory="output/" />
         </collection>
+        <data name="cov_txt" label="${tool.name} on ${on_string}: Coverage (split data) per sample (aemb)" from_work_dir="output/cov_split.csv" format="csv">
+            <filter>input_type_select['mode']['select']=="single" or input_type_select['mode']['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="txt"</filter>
+        </data>
+        <data name="co_cov_txt" label="${tool.name} on ${on_string}: Coverage (aemb)" format="csv" from_work_dir="output/cov.csv">
+            <filter>input_type_select['mode']['select']=="single" or input_type_select['mode']['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="txt"</filter>
+        </data>
+        <collection name="multi_split_cov_txt" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov) (aemb)">
+            <filter>input_type_select['mode']['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="txt"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
         <collection name="multi_cov" type="list" label="${tool.name} on ${on_string}: Coverage (multi_cov)">
-            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
-            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov.csv" format="csv" directory="output/samples/" />
+            <filter>input_type_select['mode']['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov.csv" format="csv" directory="output/samples/" recurse="true"/>
         </collection>
         <collection name="multi_cov_sample" type="list" label="${tool.name} on ${on_string}: Coverage per sample">
-            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="multi" and extra_output and "coverage" in extra_output</filter>
             <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
         </collection>
         <collection name="multi_split_cov" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov)">
-            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
             <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov.csv" format="csv" directory="output/samples/" />
         </collection>
         <collection name="multi_split_cov_sample" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov_sample)">
-            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
-            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+            <filter>input_type_select['mode']['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>input_type_select['input_type']=="bam"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split_cov.csv" format="csv" directory="output/samples/" match_relative_path="true" recurse="true"/>
         </collection>
         <collection name="multi_contigs" type="list" label="${tool.name} on ${on_string}: Contigs">
-            <filter>mode["select"]=="multi" and extra_output and "contigs" in extra_output</filter>
+            <filter>input_type_select['mode']['select']=="multi" and extra_output and "contigs" in extra_output</filter>
             <discover_datasets pattern="(?P&lt;designation&gt;.*).fa" format="fasta" directory="output/samples/" />
         </collection>
-        
+    </xml>
+    <xml name="generate_sequence_features_extra_outputs_main">
+    <!-- Single -->
+        <data name="single_cov" format="csv" from_work_dir="output/*_data_cov.csv" label="${tool.name} on ${on_string}: Coverage">
+            <filter>mode['select']=="single" and extra_output and "coverage" in extra_output</filter>
+        </data>
+        <data name="single_split_cov" format="csv" from_work_dir="output/*_data_split_cov.csv" label="${tool.name} on ${on_string}: Coverage (split data)">
+            <filter>mode['select']=="single" and extra_output and "coverage" in extra_output</filter>
+        </data>
+    <!-- Bam co aligned -->
+        <collection name="co_cov_bam" type="list" label="${tool.name} on ${on_string}: Coverage (co_cov)">
+            <filter>mode['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="bam"</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov\.csv" format="csv" directory="output/" />
+        </collection>
+        <collection name="co_split_cov_bam" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample">
+            <filter>mode['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="bam"</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov\.csv" format="csv" directory="output/" />
+        </collection>
+
+    <!-- Bam Multi aligned -->
+        <collection name="multi_cov_bam" type="list" label="${tool.name} on ${on_string}: Coverage (multi_cov)">
+            <filter>mode['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="bam"</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov.csv" format="csv" directory="output/samples/" />
+        </collection>
+        <collection name="multi_cov_sample_bam" type="list" label="${tool.name} on ${on_string}: Coverage per sample">
+            <filter>mode['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="bam"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
+        <collection name="multi_split_cov_bam" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov)">
+            <filter>mode['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="bam"</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov.csv" format="csv" directory="output/samples/" />
+        </collection>
+        <collection name="multi_split_cov_sample_bam" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov_sample)">
+            <filter>mode['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="bam"</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov.csv" format="csv" directory="output/samples/" />
+        </collection>
+        <collection name="multi_contigs" type="list" label="${tool.name} on ${on_string}: Contigs">
+            <filter>mode['select']=="multi" and extra_output and "contigs" in extra_output</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*).fa" format="fasta" directory="output/samples/" />
+        </collection>
+        <!-- Txt co aligned -->
+        <data name="co_split_cov_txt" label="${tool.name} on ${on_string}: Coverage (split data) per sample (aemb)" from_work_dir="output/cov_split.csv" format="csv">
+            <filter>mode['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="txt"</filter>
+        </data>
+        <data name="co_cov_txt" label="${tool.name} on ${on_string}: Coverage (aemb)" format="csv" from_work_dir="output/cov.csv">
+            <filter>mode['select']=="co" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="txt"</filter>
+        </data>
+        <!-- Txt multi aligned -->
+        <collection name="multi_cov_txt" type="list" label="${tool.name} on ${on_string}: Coverage per sample (aemb)">
+            <filter>mode['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select'] =="txt"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
+        <collection name="multi_split_cov_txt" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov) (aemb)">
+            <filter>mode['select']=="multi" and extra_output and "coverage" in extra_output</filter>
+            <filter>mode['align_select']</filter>
+            <filter>mode['align_select']['align_select']=="txt"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
     </xml>
     <xml name="train_output">
         <data name="model" format="h5" from_work_dir="output/model.h5" label="${tool.name} on ${on_string}: Semi-supervised deep learning model" />
@@ -321,31 +468,34 @@ ln -s '$e' '${identifier}.bam' &&
         <data name="cannot" format="txt" from_work_dir="output/cannot/cannot.txt" label="${tool.name} on ${on_string}: Cannot-link constraints" />
     </xml>
     <token name="@HELP_HEADER@"><![CDATA[
+
 What it does
 ============
 
 SemiBin is a Semi-supervised siamese neural network for metagenomic binning
-
-]]></token>
+    ]]></token>
     <token name="@HELP_INPUT_FASTA@"><![CDATA[
 - Contigs in fasta for 1 or several samples from single or co-assembly
-]]></token>
+    ]]></token>
     <token name="@HELP_INPUT_BAM@"><![CDATA[
 - BAM with reads mapping to the contigs
-]]></token>
+    ]]></token>
+    <token name="@HELP_INPUT_STROBEALIGN@"><![CDATA[
+- TXT alignment files that are the output of strobealign-aemb
+    ]]></token>
     <token name="@HELP_CANNOT@"><![CDATA[
 - Cannot-link constraints
-]]></token>
+    ]]></token>
     <token name="@HELP_DATA@"><![CDATA[
 - Training data and split training data for the model
-]]></token>
+    ]]></token>
     <token name="@HELP_MODEL@"><![CDATA[
 - Semi-supervised deep learning model
-]]></token>
+    ]]></token>
     <token name="@HELP_BINS@"><![CDATA[
 - Reconstructed bins after reclustering
 - Reconstructed bins before reclustering
-]]></token>
+    ]]></token>
     <xml name="citations">
         <citations>
             <citation type="doi">10.1038/s41467-022-29843-y</citation>
