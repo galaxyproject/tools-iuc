@@ -7,53 +7,80 @@
     <command detect_errors="exit_code"><![CDATA[
             mkdir 'output' &&
 
-            #if $fixed_effects:
+            #if $model_specification.source == 'individual':
+                model_formula='' &&
+                append_model_effects () {
+                    prefix="\$1";
+                    suffix="\$2";
+                    values="\$3";
+                    old_ifs="\$IFS";
+                    IFS=',';
+                    for value in \$values; do
+                        if [ -n "\$model_formula" ]; then
+                            model_formula="\$model_formula + ";
+                        fi;
+                        model_formula="\${model_formula}\${prefix}\${value}\${suffix}";
+                    done;
+                    IFS="\$old_ifs";
+                } &&
+            #end if
+
+            #if $model_specification.source == 'individual' and $model_specification.fixed_effects:
                 #set idx = []
-                #for $i in $fixed_effects:
+                #for $i in $model_specification.fixed_effects:
                     #silent idx.append(f'${i}')
                 #end for
                 #set idx_for_awk = ','.join(idx)
 
-                fixed_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { print $idx_for_awk }' "$input_metadata"` &&
+                fixed_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { gsub(/"/, ""); print $idx_for_awk }' "$input_metadata"` &&
                 echo 'Assigned fixed effects as:' \$fixed_effects &&
+                append_model_effects '' '' "\$fixed_effects" &&
             #end if
 
-            #if $random_effects:
+            #if $model_specification.source == 'individual' and $model_specification.random_effects:
             #set idx = []
-            #for $i in $random_effects:
+            #for $i in $model_specification.random_effects:
                 #silent idx.append(f'${i}')
             #end for
             #set idx_for_awk = ','.join(idx)
 
-            random_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { print $idx_for_awk }' "$input_metadata"` &&
+            random_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { gsub(/"/, ""); print $idx_for_awk }' "$input_metadata"` &&
             echo 'Assigned random effects as:' \$random_effects &&
+            append_model_effects '(1 | ' ')' "\$random_effects" &&
             #end if
 
-            #if $group_effects:
+            #if $model_specification.source == 'individual' and $model_specification.group_effects:
                 #set idx = []
-                #for $i in $group_effects:
+                #for $i in $model_specification.group_effects:
                     #silent idx.append(f'${i}')
                 #end for
                 #set idx_for_awk = ','.join(idx)
 
-                group_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { print $idx_for_awk }' "$input_metadata"` &&
+                group_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { gsub(/"/, ""); print $idx_for_awk }' "$input_metadata"` &&
                 echo 'Assigned group effects as:' \$group_effects &&
+                append_model_effects 'group(' ')' "\$group_effects" &&
             #end if
 
-            #if $ordered_effects:
+            #if $model_specification.source == 'individual' and $model_specification.ordered_effects:
                 #set idx = []
-                #for $i in $ordered_effects:
+                #for $i in $model_specification.ordered_effects:
                     #silent idx.append(f'${i}')
                 #end for
                 #set idx_for_awk = ','.join(idx)
 
-                ordered_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { print $idx_for_awk }' "$input_metadata"` &&
-                echo 'Assigned fixed effects as:' \$ordered_effects &&
+                ordered_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { gsub(/"/, ""); print $idx_for_awk }' "$input_metadata"` &&
+                echo 'Assigned ordered effects as:' \$ordered_effects &&
+                append_model_effects 'ordered(' ')' "\$ordered_effects" &&
             #end if
 
-            #if $strata_effects:
-                strata_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { print $strata_effects }' "$input_metadata"` &&
+            #if $model_specification.source == 'individual' and $model_specification.strata_effects:
+                strata_effects=`awk -v OFS=',' -F"\t" 'NR == 1 { gsub(/"/, ""); print $model_specification.strata_effects }' "$input_metadata"` &&
                 echo 'Assigned strata effects as:' \$strata_effects &&
+                append_model_effects 'strata(' ')' "\$strata_effects" &&
+            #end if
+
+            #if $model_specification.source == 'individual' and ($model_specification.fixed_effects or $model_specification.random_effects or $model_specification.group_effects or $model_specification.ordered_effects or $model_specification.strata_effects):
+                echo 'Assembled model formula:' "\$model_formula" &&
             #end if
 
             #if $covariate.feature_specific_covariate and $covariate.feature_specific_covariate_name:
@@ -90,26 +117,13 @@
             'input_data.tsv'
             'input_metadata.tsv'
             'output'
-            #if $formula:
-                --formula  '~ $formula'
-            #end if
-            #if $fixed_effects:
-                --fixed_effects \$fixed_effects
+            #if $model_specification.source == 'formula':
+                --formula '~ $model_specification.formula'
+            #elif $model_specification.fixed_effects or $model_specification.random_effects or $model_specification.group_effects or $model_specification.ordered_effects or $model_specification.strata_effects:
+                --formula "~ \$model_formula"
             #end if
             #if len($ref) != 0:
                 --reference '$final_ref'
-            #end if
-            #if $random_effects:
-                --random_effects \$random_effects
-            #end if
-            #if $group_effects:
-                --group_effects \$group_effects
-            #end if
-            #if $ordered_effects:
-                --ordered_effects \$ordered_effects
-            #end if
-            #if $strata_effects:
-                --strata_effects  \$strata_effects
             #end if
             #if $options.min_abundance:
                 --min_abundance ${options.min_abundance}
@@ -179,15 +193,25 @@
     <inputs>
         <param name="input_data" type="data" format="tabular" label="Data file"/>
         <param name="input_metadata" type="data" format="tabular" label="Metadata file"/>
-        <param argument="--formula" type="text" value="" label="Input formula (use header of columns for this)" help="Enter the formula which should the model use. NOTE: separate the name with and plus and have space between it like: 'header1 + header2 + ...' as an example. When no input is used all columns will be used"/>
-        <param argument="--fixed_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Set fix effects" help="Select the fix effects for the model. DEFAULT: ALL"/>
+        <conditional name="model_specification">
+            <param name="source" type="select" label="Model specification">
+                <option value="formula" selected="true">Formula</option>
+                <option value="individual">Individual factors</option>
+            </param>
+            <when value="formula">
+                <param name="formula" type="text" label="Input formula" help="Enter an MaAsLin3 formula without the leading tilde, for example: group + pH + site."/>
+            </when>
+            <when value="individual">
+                <param name="fixed_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Fixed effects" help="Variables included as fixed effects. If no effects are selected, MaAsLin3 uses all metadata columns by default."/>
+                <param name="random_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Random effects" help="Variables included as random intercepts."/>
+                <param name="group_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Group effects" help="Categorical variables included for group testing."/>
+                <param name="ordered_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Ordered effects" help="Categorical variables whose consecutive levels are compared."/>
+                <param name="strata_effects" type="data_column" data_ref="input_metadata" use_header_names="true" optional="true" label="Strata effects" help="One grouping variable for a matched case-control analysis. Strata and random effects cannot be combined."/>
+            </when>
+        </conditional>
         <repeat name="ref" title="Reference pairs">
-            <param argument="--reference" type="text" label="Reference" help="The factor to use as a reference for a variable with more than two levels provided as a string of 'variable,reference'. DEFAULT: NA"/>
+            <param argument="--reference" type="text" label="Reference" help="Set the reference level of an effect as 'variable,reference'. This applies to both model specification modes."/>
         </repeat>
-        <param argument="--random_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Set random effects" help="Select the random effects for the model. DEFAULT; NONE"/>
-        <param argument="--group_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Set group effects" help="Select group effects for the model. DEFAULT: NONE"/>
-        <param argument="--ordered_effects" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Set ordered effects" help="Select the ordered effects for the model. DEFAULT: NONE"/>
-        <param argument="--strata_effects" type="data_column" data_ref="input_metadata" use_header_names="true" optional="true" label="Set strata effects" help="Select only one strata effect for the model. DEFAULT: NONE"/>
         <section name="options" title="Additional options" expanded="true">
             <param argument="--min_abundance" type="integer" value="0" label="Minimum abundance" help="Minimum abundance for each feature befor normalization and transformation"/>
             <param argument="--min_prevalence" type="integer" value="0" label="Mimimum prevalence" help="The minimum proportion of samples for which a feature is detected at minimum abundance"/>
@@ -276,19 +300,30 @@
         <test expect_num_outputs="9">
             <param name="input_data" value="HMP2_taxonomy.tsv" ftype="tabular"/>
             <param name="input_metadata" value="HMP2_metadata.tsv" ftype="tabular"/>
-            <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            <conditional name="model_specification">
+                <param name="source" value="formula"/>
+                <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            </conditional>
             <repeat name="ref">
                 <param name="reference" value="diagnosis,CD"/>
             </repeat>
             <repeat name="ref">
                 <param name="reference" value="dysbiosis_state,dysbiosis_UC"/>
             </repeat>
+            <assert_command>
+                <has_text text="--formula"/>
+                <has_text text="--fixed_effects" negate="true"/>
+            </assert_command>
             <output name="data_norm" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="818" delta="10"/>
                 </assert_contents>
             </output>
-            <output name="data_trans" file="data_transformed.tsv" ftype="tabular"/>
+            <output name="data_trans" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="817" delta="10"/>
+                </assert_contents>
+            </output>
             <output name="data_filter" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="818" delta="10"/>
@@ -304,12 +339,12 @@
             <output name="summary_png" ftype="png">
                 <assert_contents>
                     <has_image_height height="3690" delta="20"/>
-                    <has_image_width width="4375" delta="20"/>
+                    <has_image_width width="4275" delta="20"/>
                 </assert_contents>
             </output>
             <output name="summary_pdf" ftype="pdf">
                 <assert_contents>
-                    <has_size size="18000" delta="2000"/>
+                    <has_size size="15000" delta="2000"/>
                 </assert_contents>
             </output>
             <output name="result_all" ftype="tabular">
@@ -319,14 +354,17 @@
             </output>
             <output name="result_sig" ftype="tabular">
                 <assert_contents>
-                    <has_n_lines n="834" delta="15"/>
+                    <has_n_lines n="193" delta="15"/>
                 </assert_contents>
             </output>
         </test>
         <test expect_num_outputs="7">
             <param name="input_data" value="HMP2_taxonomy.tsv" ftype="tabular"/>
             <param name="input_metadata" value="HMP2_metadata.tsv" ftype="tabular"/>
-            <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            <conditional name="model_specification">
+                <param name="source" value="individual"/>
+                <param name="fixed_effects" value="5,6,7,8,9"/>
+            </conditional>
             <repeat name="ref">
                 <param name="reference" value="diagnosis,CD"/>
             </repeat>
@@ -336,12 +374,21 @@
             <section name="output">
                 <param name="summary_plot_balanced" value="True"/>
             </section>
+            <assert_command>
+                <has_text text="append_model_effects"/>
+                <has_text text="--formula"/>
+                <has_text text="--fixed_effects" negate="true"/>
+            </assert_command>
             <output name="data_norm" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="818" delta="10"/>
                 </assert_contents>
             </output>
-            <output name="data_trans" file="data_transformed.tsv" ftype="tabular"/>
+            <output name="data_trans" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="817" delta="10"/>
+                </assert_contents>
+            </output>
             <output name="data_filter" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="818" delta="10"/>
@@ -361,14 +408,17 @@
             </output>
             <output name="result_sig" ftype="tabular">
                 <assert_contents>
-                    <has_n_lines n="834" delta="15"/>
+                    <has_n_lines n="193" delta="15"/>
                 </assert_contents>
             </output>
         </test>
         <test expect_num_outputs="10">
             <param name="input_data" value="HMP2_taxonomy.tsv" ftype="tabular"/>
             <param name="input_metadata" value="HMP2_metadata.tsv" ftype="tabular"/>
-            <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            <conditional name="model_specification">
+                <param name="source" value="formula"/>
+                <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            </conditional>
             <repeat name="ref">
                 <param name="reference" value="diagnosis,CD"/>
             </repeat>
@@ -383,7 +433,11 @@
                     <has_n_lines n="818" delta="10"/>
                 </assert_contents>
             </output>
-            <output name="data_trans" file="data_transformed.tsv" ftype="tabular"/>
+            <output name="data_trans" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="817" delta="10"/>
+                </assert_contents>
+            </output>
             <output name="data_filter" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="818" delta="10"/>
@@ -399,12 +453,12 @@
             <output name="summary_png" ftype="png">
                 <assert_contents>
                     <has_image_height height="3690" delta="20"/>
-                    <has_image_width width="4375" delta="20"/>
+                    <has_image_width width="4275" delta="20"/>
                 </assert_contents>
             </output>
             <output name="summary_pdf" ftype="pdf">
                 <assert_contents>
-                    <has_size size="18000" delta="2000"/>
+                    <has_size size="15000" delta="2000"/>
                 </assert_contents>
             </output>
             <output name="result_all" ftype="tabular">
@@ -414,13 +468,13 @@
             </output>
             <output name="result_sig" ftype="tabular">
                 <assert_contents>
-                    <has_n_lines n="834" delta="15"/>
+                    <has_n_lines n="193" delta="15"/>
                 </assert_contents>
             </output>
-            <output_collection name="plots_r" type="list" count="4">
+            <output_collection name="plots_r" type="list" count="6">
                 <element name="summary_plot_gg" ftype="rdata">
                     <assert_contents>
-                        <has_size size="720000" delta="100000"/>
+                        <has_size size="500000" delta="100000"/>
                     </assert_contents>
                 </element>
             </output_collection>
@@ -428,7 +482,10 @@
         <test expect_num_outputs="8">
             <param name="input_data" value="HMP2_taxonomy.tsv" ftype="tabular"/>
             <param name="input_metadata" value="HMP2_metadata.tsv" ftype="tabular"/>
-            <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            <conditional name="model_specification">
+                <param name="source" value="formula"/>
+                <param name="formula" value="reads + diagnosis + dysbiosis_state + antibiotics + age"/>
+            </conditional>
             <repeat name="ref">
                 <param name="reference" value="diagnosis,CD"/>
             </repeat>
@@ -444,7 +501,11 @@
                     <has_n_lines n="818" delta="10"/>
                 </assert_contents>
             </output>
-            <output name="data_trans" file="data_transformed.tsv" ftype="tabular"/>
+            <output name="data_trans" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="817" delta="10"/>
+                </assert_contents>
+            </output>
             <output name="data_filter" ftype="tabular">
                 <assert_contents>
                     <has_n_lines n="818" delta="10"/>
@@ -460,12 +521,12 @@
             <output name="summary_png" ftype="png">
                 <assert_contents>
                     <has_image_height height="3690" delta="20"/>
-                    <has_image_width width="4375" delta="20"/>
+                    <has_image_width width="4275" delta="20"/>
                 </assert_contents>
             </output>
             <output name="summary_pdf" ftype="pdf">
                 <assert_contents>
-                    <has_size size="18000" delta="2000"/>
+                    <has_size size="15000" delta="2000"/>
                 </assert_contents>
             </output>
             <output name="result_all" ftype="tabular">
@@ -475,7 +536,7 @@
             </output>
             <output name="result_sig" ftype="tabular">
                 <assert_contents>
-                    <has_n_lines n="834" delta="15"/>
+                    <has_n_lines n="193" delta="15"/>
                 </assert_contents>
             </output>
         </test>
@@ -483,9 +544,17 @@
     <help>
         <![CDATA[
 
-            **IMPORTANT**
+            **Model specification**
 
-            random_effects, group_effects, ordered_effects, and strata_effects must be NULL when formula is not NULL!!
+            Choose *Formula* to enter a complete MaAsLin3 model formula without
+            the leading tilde. This supports fixed effects, interactions, random
+            effects in ``(1 | subject)`` syntax, and the ``group()``,
+            ``ordered()``, and ``strata()`` functions.
+
+            Choose *Individual factors* to select metadata columns separately
+            as fixed, random, group, ordered, or strata effects. MaAsLin3
+            converts these selections into its internal model formula. Strata
+            effects cannot be combined with random effects.
 
             If warn_prevalence (Warn prevalence) is set to True please selecet evaluate_only (Evaluate only) to NULL.
             If you want to use evaluate_only (Evaluate only) please do not set warn_prevalence (Warn prevalence) to True!
