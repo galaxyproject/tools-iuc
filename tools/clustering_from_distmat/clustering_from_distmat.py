@@ -2,39 +2,39 @@ import argparse
 import sys
 from collections import Counter
 
-from scipy.spatial.distance import squareform
-from scipy.cluster import hierarchy
 from pandas import DataFrame
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import squareform
 
 
-"""
-Convert a hierarchical clustering linkage matrix to Newick tree format.
-
-This function transforms a scipy hierarchical clustering linkage matrix into a
-phylogenetic tree in Newick format, with branch lengths representing the
-distances from clustering steps.
-
-@param linkage A hierarchical clustering linkage matrix from scipy.cluster.hierarchy.linkage.
-               Each row contains [cluster_id_1, cluster_id_2, distance, n_samples].
-               The first len(tip_names) rows correspond to individual samples, and
-               subsequent rows correspond to merged clusters.
-@param tip_names A list of strings containing the names of leaf nodes (samples/tips).
-                 The order should correspond to the indices in the linkage matrix.
-
-@return A string in Newick format representing the hierarchical tree structure with
-        branch lengths and ending with a semicolon.
-        Format: (child1:distance1,child2:distance2)parent_name;
-
-Note: Branch lengths are computed as half the cluster distance to represent the
-      distance from each leaf to their most recent common ancestor.
-
-Example:
-    names = ['A', 'B', 'C']
-    linkage_data = [[0, 1, 0.5, 2], [2, 3, 1.0, 3]]
-    tree = linkage_as_newick(linkage_data, names)
-    print(tree)  # Output: ((A:0.25,B:0.25):0.5,C:0.5);
-"""
 def linkage_as_newick(linkage, tip_names):
+    """
+    Convert a hierarchical clustering linkage matrix to Newick tree format.
+
+    This function transforms a scipy hierarchical clustering linkage matrix into a
+    phylogenetic tree in Newick format, with branch lengths representing the
+    distances from clustering steps.
+
+    :param linkage: A hierarchical clustering linkage matrix from scipy.cluster.hierarchy.linkage.
+                   Each row contains [cluster_id_1, cluster_id_2, distance, n_samples].
+                   The first len(tip_names) rows correspond to individual samples, and
+                   subsequent rows correspond to merged clusters.
+    :param tip_names: A list of strings containing the names of leaf nodes (samples/tips).
+                     The order should correspond to the indices in the linkage matrix.
+
+    :return: A string in Newick format representing the hierarchical tree structure with
+            branch lengths and ending with a semicolon.
+            Format: (child1:distance1,child2:distance2)parent_name;
+
+    Note: Branch lengths are computed as half the cluster distance to represent the
+          distance from each leaf to their most recent common ancestor.
+
+    Example:
+        names = ['A', 'B', 'C']
+        linkage_data = [[0, 1, 0.5, 2], [2, 3, 1.0, 3]]
+        tree = linkage_as_newick(linkage_data, names)
+        print(tree)  # Output: ((A:0.25,B:0.25):0.5,C:0.5);
+    """
     newick_parts = tip_names[::]
     within_cluster_distances = [0] * len(tip_names)
     for step in linkage:
@@ -194,7 +194,7 @@ if __name__ == "__main__":
         DataFrame(
             linkage,
             columns=["cluster1", "cluster2", "linkageValue", "newClusterSize"]
-        ).to_csv(args.out_prefix + ".tree", sep="\t", header=True,index=False)
+        ).to_csv(args.out_prefix + ".tree", sep="\t", header=True, index=False)
 
     # cut the tree as specified and report sample to cluster assignments
     if args.n_clusters or args.height:
