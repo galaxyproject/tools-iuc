@@ -17,7 +17,6 @@ allowWGCNAThreads()
 ## Galaxy parameters
 counts_file        <- "$counts_file"
 metadata_file      <- "$metadata_file"
-soft_power         <- as.integer("$soft_power")
 network_type       <- "$network_type"
 tom_type           <- "$tom_type"
 min_module_size    <- as.integer($min_module_size)
@@ -27,6 +26,17 @@ log_transform      <- $log_transform
 filter_by_variance <- $filter_by_variance
 variance_quantile  <- as.numeric($variance_quantile)
 run_sample_gene_qc <- $run_sample_gene_qc
+
+## Read soft power from config file if provided, else use manual value
+#if $softpower_config:
+sft_config      <- readLines("$softpower_config")
+soft_power_line <- grep("^soft_power", sft_config, value = TRUE)[1]
+soft_power      <- as.integer(trimws(strsplit(soft_power_line, "=")[[1]][2]))
+cat("Soft power loaded from config file:", soft_power, "\n")
+#else:
+soft_power <- as.integer("$soft_power")
+cat("Soft power set manually:", soft_power, "\n")
+#end if
 
 trait_columns <- trimws(
     strsplit("$trait_columns", ",")[[1]]
@@ -45,7 +55,6 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
         for (col in names(meta_data)[!numeric_cols]) {
             col_data <- data.frame(x = as.factor(meta_data[[col]]))
             mm       <- model.matrix(~ x - 1, data = col_data)
-            ## rename e.g. "xmale" -> "gender_male"
             colnames(mm) <- gsub("^x", paste0(col, "_"), colnames(mm))
             result <- cbind(result, mm)
         }
@@ -156,19 +165,14 @@ if (anyDuplicated(meta[[sample_column]]) > 0) {
     stop("Duplicate sample names found in first column of metadata.")
 }
 
-## Check requested trait columns exist
 missing_traits <- setdiff(trait_columns, colnames(meta))
 if (length(missing_traits) > 0) {
     stop("Trait column(s) not found: ", paste(missing_traits, collapse = ", "))
 }
 
-## Subset metadata to sample column + requested traits only
 meta_subset <- meta[, c(sample_column, trait_columns), drop = FALSE]
+trait_data  <- prepare_trait_matrix(meta_subset, sample_col = 1)
 
-## Use model.matrix to convert character columns to numeric dummy variables
-trait_data <- prepare_trait_matrix(meta_subset, sample_col = 1)
-
-## Align with expression data samples
 sample_ids      <- rownames(datExpr)
 missing_samples <- setdiff(sample_ids, rownames(trait_data))
 if (length(missing_samples) > 0) {
@@ -176,7 +180,6 @@ if (length(missing_samples) > 0) {
 }
 trait_data <- trait_data[sample_ids, , drop = FALSE]
 
-## Ensure all values are numeric
 for (col in colnames(trait_data)) {
     trait_data[[col]] <- as.numeric(trait_data[[col]])
 }
@@ -238,7 +241,6 @@ dev.off()
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
 
-## FIX: guard against single-module case — hclust/plot crashes with only 1 node
 if (ncol(module_eigengenes) > 1) {
     ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs")
     ME_diss <- 1 - ME_cor
@@ -334,7 +336,6 @@ gene_module_membership <- cor(
 module_gene_info <- data.frame(
     Gene             = module_genes,
     ModuleMembership = as.numeric(gene_module_membership),
-    ## FIX: was incorrectly using gene_module_membership for GeneSignificance
     GeneSignificance = as.numeric(gene_significance[module_genes]),
     MM_pvalue        = corPvalueStudent(as.numeric(gene_module_membership), nSamples),
     GS_pvalue        = as.numeric(gene_significance_pval[module_genes]),
@@ -520,20 +521,26 @@ cat("Results written to: results/\n")
                help="Genes as rows, samples as columns. First column must be gene IDs."/>
         <param name="metadata_file" type="data" format="tabular" label="Sample metadata"
                help="First column should be sample name. Trait columns can be numeric or categorical."/>
+        <param name="softpower_config" type="data" format="txt" optional="true"
+               label="Soft-thresholding config (optional)"
+               help="Config file output from the 'WGCNA: Soft-Thresholding Power' tool. If provided, soft power is read automatically and the manual value below is ignored."/>
         <param name="soft_power" type="integer" value="6" min="1" max="30"
-               label="Soft-thresholding power"
-               help="Use the value output by the 'WGCNA: Soft-Thresholding Power' tool."/>
-        <param name="network_type" type="select" label="Network type">
-            <option value="signed" selected="true">Signed</option>
+               label="Soft-thresholding power (used only if no config file is provided)"
+               help="Ignored when a soft-thresholding config file is supplied above."/>
+        <param name="network_type" type="select" label="Network type"
+               help="Signed networks distinguish positive and negative correlations and are recommended for most RNA-seq analyses. Unsigned networks treat positive and negative correlations equally.">
+            <option value="signed" selected="true">Signed (recommended)</option>
             <option value="unsigned">Unsigned</option>
             <option value="signed hybrid">Signed hybrid</option>
         </param>
-        <param name="tom_type" type="select" label="TOM type">
-            <option value="signed" selected="true">Signed</option>
+        <param name="tom_type" type="select" label="TOM type"
+               help="Should match the network type. Signed TOM is recommended when using a signed network.">
+            <option value="signed" selected="true">Signed (recommended)</option>
             <option value="unsigned">Unsigned</option>
         </param>
         <param name="min_module_size" type="integer" value="30" min="5" max="500"
-               label="Minimum number of genes required to form a module."/>
+               label="Minimum module size"
+               help="Minimum number of genes required to form a module."/>
         <param name="merge_cut_height" type="float" value="0.25" min="0" max="1"
                label="Module merge cut height"
                help="Modules with eigengene correlation above (1 - this value) will be merged."/>
@@ -542,43 +549,64 @@ cat("Results written to: results/\n")
                truevalue="TRUE" falsevalue="FALSE"
                label="Run WGCNA sample/gene QC filtering"
                help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
-        <param name="trait_columns" type="text" value="age_at_diagnosis"
-               label="Metadata trait columns (comma-separated)"
-               help="Column names from the metadata file to use as traits. Numeric columns are used as-is; categorical columns are one-hot encoded."/>
+        <param name="trait_columns" type="data_column" data_ref="metadata_file"
+               use_header_names="true" multiple="true"
+               label="Metadata trait columns"
+               help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded."/>
     </inputs>
 
     <outputs>
-        <data name="plot_variance"     format="png" label="Plot: gene variance distribution"              from_work_dir="plots/01_gene_variance_distribution.png"/>
-        <data name="plot_sample_clust" format="png" label="Plot: sample clustering"                       from_work_dir="plots/02_sample_clustering.png"/>
-        <data name="plot_expr_dist"    format="png" label="Plot: expression distribution"                 from_work_dir="plots/03_expression_data_distribution.png"/>
-        <data name="plot_dendrogram"   format="png" label="Plot: gene dendrogram and module colors"       from_work_dir="plots/05_dendrogram_and_modules.png"/>
-        <data name="plot_me_dendro"    format="png" label="Plot: module eigengene dendrogram"             from_work_dir="plots/06_module_eigengene_dendrogram.png"/>
-        <data name="plot_trait_heatmap" format="png" label="Plot: module-trait heatmap"                  from_work_dir="plots/07_module_trait_heatmap.png"/>
-        <data name="plot_mm_gs"        format="png" label="Plot: module membership vs gene significance"  from_work_dir="plots/08_gene_significance_vs_module_membership.png"/>
-        <data name="plot_coexpr_net"   format="png" label="Plot: co-expression network"                  from_work_dir="plots/14_coexpression_network.png"/>
-        <data name="plot_me_heatmap"   format="png" label="Plot: module eigengene correlation heatmap"   from_work_dir="plots/16_module_eigengene_correlation_heatmap.png"/>
-        <collection name="module_gene_tables" type="list" label="Module gene info tables">
+        <data name="plot_variance" format="png"
+              label="${tool.name} on ${on_string} - Gene variance distribution"
+              from_work_dir="plots/01_gene_variance_distribution.png"/>
+        <data name="plot_sample_clust" format="png"
+              label="${tool.name} on ${on_string} - Sample clustering"
+              from_work_dir="plots/02_sample_clustering.png"/>
+        <data name="plot_expr_dist" format="png"
+              label="${tool.name} on ${on_string} - Expression distribution"
+              from_work_dir="plots/03_expression_data_distribution.png"/>
+        <data name="plot_dendrogram" format="png"
+              label="${tool.name} on ${on_string} - Gene dendrogram and module colors"
+              from_work_dir="plots/05_dendrogram_and_modules.png"/>
+        <data name="plot_me_dendro" format="png"
+              label="${tool.name} on ${on_string} - Module eigengene dendrogram"
+              from_work_dir="plots/06_module_eigengene_dendrogram.png"/>
+        <data name="plot_trait_heatmap" format="png"
+              label="${tool.name} on ${on_string} - Module-trait heatmap"
+              from_work_dir="plots/07_module_trait_heatmap.png"/>
+        <data name="plot_mm_gs" format="png"
+              label="${tool.name} on ${on_string} - Module membership vs gene significance"
+              from_work_dir="plots/08_gene_significance_vs_module_membership.png"/>
+        <data name="plot_coexpr_net" format="png"
+              label="${tool.name} on ${on_string} - Co-expression network"
+              from_work_dir="plots/14_coexpression_network.png"/>
+        <data name="plot_me_heatmap" format="png"
+              label="${tool.name} on ${on_string} - Module eigengene correlation heatmap"
+              from_work_dir="plots/16_module_eigengene_correlation_heatmap.png"/>
+        <collection name="module_gene_tables" type="list"
+                    label="${tool.name} on ${on_string} - Module gene info tables">
             <discover_datasets pattern="module_gene_info_(?P&lt;name&gt;.+)\.tsv" directory="results" format="tabular"/>
         </collection>
-        <collection name="hub_gene_tables" type="list" label="Hub gene tables">
+        <collection name="hub_gene_tables" type="list"
+                    label="${tool.name} on ${on_string} - Hub gene tables">
             <discover_datasets pattern="hub_genes_(?P&lt;name&gt;.+)\.tsv" directory="results" format="tabular"/>
         </collection>
     </outputs>
 
     <tests>
         <test>
-            <param name="counts_file"       value="normalized_counts.tsv"/>
-            <param name="metadata_file"     value="trait_data.tsv"/>
-            <param name="soft_power"        value="6"/>
-            <param name="network_type"      value="signed"/>
-            <param name="tom_type"          value="signed"/>
-            <param name="min_module_size"   value="10"/>
-            <param name="merge_cut_height"  value="0.25"/>
-            <param name="log_transform"     value="true"/>
+            <param name="counts_file"        value="normalized_counts.tsv"/>
+            <param name="metadata_file"      value="trait_data.tsv"/>
+            <param name="soft_power"         value="6"/>
+            <param name="network_type"       value="signed"/>
+            <param name="tom_type"           value="signed"/>
+            <param name="min_module_size"    value="10"/>
+            <param name="merge_cut_height"   value="0.25"/>
+            <param name="log_transform"      value="true"/>
             <param name="filter_by_variance" value="true"/>
-            <param name="variance_quantile" value="0.4"/>
+            <param name="variance_quantile"  value="0.4"/>
             <param name="run_sample_gene_qc" value="true"/>
-            <param name="trait_columns"     value="age_at_diagnosis"/>
+            <param name="trait_columns"      value="2"/>
 
             <output name="plot_variance">
                 <assert_contents><has_size min="100"/></assert_contents>
@@ -633,10 +661,15 @@ Runs the complete Weighted Gene Co-expression Network Analysis (WGCNA) workflow:
 6. Hub-gene ranking
 7. Co-expression and eigengene network visualization
 
-The sample metadata table must be cleaned before running this tool:
+**Inputs**
 
-- First column = sample names matching count matrix columns
-- Trait columns can be numeric or categorical (text/factor columns will be one-hot encoded automatically)
+- **Counts matrix** — TSV with genes as rows and samples as columns. First column must be gene IDs.
+- **Sample metadata** — TSV with first column as sample names matching count matrix columns. Trait columns can be numeric or categorical (categorical columns are one-hot encoded automatically).
+- **Soft-thresholding config (optional)** — Config file output from the *WGCNA: Soft-Thresholding Power* tool. If provided, soft power is read automatically from this file.
+
+**Network type and TOM type**
+
+Both default to *Signed*, which is recommended for most RNA-seq analyses as it preserves the distinction between positive and negative co-expression. Select *Unsigned* only if you want positive and negative correlations treated equally.
     ]]></help>
 
     <expand macro="wgcna_citations"/>
