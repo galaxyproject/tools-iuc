@@ -6,7 +6,6 @@
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         mkdir -p plots results &&
-        cat '$wgcna_script' &&
         Rscript '$wgcna_script'
     ]]></command>
     <configfiles>
@@ -56,14 +55,14 @@ soft_power <- as.integer("$soft_power")
 cat("Soft power set manually:", soft_power, "\n")
 #end if
 
-## trait_columns arrives as a comma-separated string of 1-based column
-## indices selected via the Galaxy "data_column" parameter (e.g. "2,4,5").
-## Split it into a character vector of index strings for later parsing.
-trait_columns <- trimws(
-    strsplit("$trait_columns", ",")[[1]]
-)
-## Drop any empty strings that can arise from leading/trailing/duplicate commas.
-trait_columns <- trait_columns[nzchar(trait_columns)]
+## trait_columns arrives as a comma-separated string from the Galaxy
+## data_column parameter (with use_header_names=true this is column names,
+## e.g. "age_at_diagnosis,sample_group"; in tool tests it may be indices).
+trait_tokens <- trimws(strsplit("$trait_columns", ",")[[1]])
+trait_tokens <- trait_tokens[nzchar(trait_tokens)]
+if (length(trait_tokens) == 0) {
+    stop("No trait columns selected.")
+}
 
 cat("Config loaded. Starting WGCNA analysis...\n")
 
@@ -211,22 +210,20 @@ if (anyDuplicated(meta[[sample_column]]) > 0) {
     stop("Duplicate sample names found in first column of metadata.")
 }
 
-## ─── convert 1-based column indices (from data_column param) to names ───
-trait_indices <- suppressWarnings(as.integer(trait_columns))
-if (any(is.na(trait_indices))) {
-    stop("Invalid trait column index: ",
-         paste(trait_columns[is.na(trait_indices)], collapse = ", "))
-}
-if (any(trait_indices < 1 | trait_indices > ncol(meta))) {
-    bad <- trait_indices[trait_indices < 1 | trait_indices > ncol(meta)]
-    stop("Trait column index out of range: ", paste(bad, collapse = ", "))
-}
-trait_columns <- colnames(meta)[trait_indices]
-## Defensive safeguard only: since trait_columns was just derived directly
-## from colnames(meta), missing_traits should always be empty here.
-missing_traits <- setdiff(trait_columns, colnames(meta))
-if (length(missing_traits) > 0) {
-    stop("Trait column(s) not found: ", paste(missing_traits, collapse = ", "))
+## ─── resolve trait column tokens (names or 1-based indices) ───
+trait_indices <- suppressWarnings(as.integer(trait_tokens))
+if (all(!is.na(trait_indices))) {
+    if (any(trait_indices < 1 | trait_indices > ncol(meta))) {
+        bad <- trait_indices[trait_indices < 1 | trait_indices > ncol(meta)]
+        stop("Trait column index out of range: ", paste(bad, collapse = ", "))
+    }
+    trait_columns <- colnames(meta)[trait_indices]
+} else {
+    missing <- setdiff(trait_tokens, colnames(meta))
+    if (length(missing) > 0) {
+        stop("Trait column(s) not found: ", paste(missing, collapse = ", "))
+    }
+    trait_columns <- trait_tokens
 }
 
 meta_subset <- meta[, c(sample_column, trait_columns), drop = FALSE]
@@ -357,11 +354,10 @@ labeledHeatmap(
 )
 dev.off()
 
-## ── STEP 7: GS/MM ────────────────────────────────────────────────────────────
-## The "trait of interest" used for gene significance (GS) and downstream
-## hub-gene identification is defined as the first selected trait column.
-## Reorder the "Metadata trait columns" parameter to change which trait is used.
-trait_of_interest <- colnames(trait_data_aligned)[1]
+## ── STEP 7 & 8: GS/MM and hub genes for each trait ─────────────────────────
+## Gene significance, module membership, and hub-gene analysis are run
+## independently for every trait column (numeric or one-hot encoded categorical).
+safe_label <- function(x) gsub("[^A-Za-z0-9._-]", "_", x)
 
 common_samples <- Reduce(intersect, list(
     rownames(datExpr),
@@ -373,96 +369,105 @@ trait_data_aligned <- trait_data_aligned[common_samples, , drop = FALSE]
 module_eigengenes  <- module_eigengenes[common_samples, , drop = FALSE]
 nSamples           <- nrow(datExpr)
 
-gene_significance      <- cor(datExpr, trait_data_aligned[[trait_of_interest]], use = "pairwise.complete.obs")
-gene_significance_pval <- corPvalueStudent(as.numeric(gene_significance), nSamples)
-gene_significance      <- as.numeric(gene_significance)
-names(gene_significance)      <- colnames(datExpr)
-names(gene_significance_pval) <- colnames(datExpr)
-
 module_trait_cor_sub <- cor(module_eigengenes, trait_data_aligned, use = "pairwise.complete.obs")
 if (is.null(rownames(module_trait_cor_sub))) rownames(module_trait_cor_sub) <- colnames(module_eigengenes)
 if (is.null(colnames(module_trait_cor_sub))) colnames(module_trait_cor_sub) <- colnames(trait_data_aligned)
 
-## The "most relevant module" is simply the module whose eigengene shows the
-## strongest absolute correlation with the trait of interest.
-trait_vec            <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
-best_idx             <- which.max(trait_vec)
-most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
-module_id_clean      <- sub("^ME", "", most_relevant_module)
+for (trait_of_interest in colnames(trait_data_aligned)) {
+    cat("\nAnalyzing trait:", trait_of_interest, "\n")
 
-if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
-    module_name <- labels2colors(as.numeric(module_id_clean))
-} else {
-    module_name <- module_id_clean
+    gene_significance      <- cor(datExpr, trait_data_aligned[[trait_of_interest]], use = "pairwise.complete.obs")
+    gene_significance_pval <- corPvalueStudent(as.numeric(gene_significance), nSamples)
+    gene_significance      <- as.numeric(gene_significance)
+    names(gene_significance)      <- colnames(datExpr)
+    names(gene_significance_pval) <- colnames(datExpr)
+
+    ## The most relevant module is the one whose eigengene shows the strongest
+    ## absolute correlation with this trait.
+    trait_vec            <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
+    best_idx             <- which.max(trait_vec)
+    most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
+    module_id_clean      <- sub("^ME", "", most_relevant_module)
+
+    if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
+        module_name <- labels2colors(as.numeric(module_id_clean))
+    } else {
+        module_name <- module_id_clean
+    }
+
+    cat("Most relevant module:", most_relevant_module, "->", module_name, "\n")
+
+    module_genes <- names(module_colors)[module_colors == module_name]
+    cat("Genes in module", module_name, ":", length(module_genes), "\n")
+    if (length(module_genes) == 0) {
+        warning("No genes found in module ", module_name, " for trait ", trait_of_interest, "; skipping.")
+        next
+    }
+
+    gene_module_membership <- cor(
+        datExpr[, module_genes, drop = FALSE],
+        module_eigengenes[, most_relevant_module, drop = TRUE],
+        use = "pairwise.complete.obs"
+    )
+
+    module_gene_info <- data.frame(
+        Gene             = module_genes,
+        ModuleMembership = as.numeric(gene_module_membership),
+        GeneSignificance = as.numeric(gene_significance[module_genes]),
+        MM_pvalue        = corPvalueStudent(as.numeric(gene_module_membership), nSamples),
+        GS_pvalue        = as.numeric(gene_significance_pval[module_genes]),
+        stringsAsFactors = FALSE
+    )
+    module_gene_info <- module_gene_info[order(-abs(module_gene_info[["ModuleMembership"]])), ]
+
+    trait_label <- safe_label(trait_of_interest)
+
+    png(paste0("plots/08_gene_significance_vs_module_membership_", module_name, "_", trait_label, ".png"),
+        width = 1000, height = 700, res = plot_resolution)
+    plot(abs(module_gene_info[["ModuleMembership"]]),
+         abs(module_gene_info[["GeneSignificance"]]),
+         xlab = paste("Module Membership in", module_name, "module"),
+         ylab = paste("Gene Significance for", trait_of_interest),
+         main = paste("MM vs GS in", module_name, "module"),
+         pch = 20, col = module_name, cex = 1)
+    abline(lm(abs(GeneSignificance) ~ abs(ModuleMembership), data = module_gene_info),
+           col = "red", lwd = 2)
+    dev.off()
+
+    write.table(module_gene_info,
+        file  = paste0("results/module_gene_info_", module_name, "_", trait_label, ".tsv"),
+        sep   = "\t", quote = FALSE, row.names = FALSE)
+
+    adjacency_matrix <- adjacency(datExpr[, module_genes, drop = FALSE],
+                                   power = soft_power, type = network_type,
+                                   corFnc = cor_fnc)
+    connectivity <- colSums(adjacency_matrix) - 1
+
+    hub_info <- data.frame(
+        Gene             = module_genes,
+        ModuleMembership = as.numeric(gene_module_membership),
+        GeneSignificance = as.numeric(gene_significance[module_genes]),
+        Connectivity     = as.numeric(connectivity),
+        stringsAsFactors = FALSE
+    )
+    hub_info <- hub_info[order(-hub_info[["Connectivity"]]), ]
+
+    write.table(hub_info,
+        file  = paste0("results/hub_genes_", module_name, "_", trait_label, ".tsv"),
+        sep   = "\t", quote = FALSE, row.names = FALSE)
+
+    is_top10 <- hub_info[["Connectivity"]] > quantile(hub_info[["Connectivity"]], 0.9, na.rm = TRUE)
+
+    png(paste0("plots/09_hub_genes_", module_name, "_", trait_label, ".png"),
+        width = 800, height = 600, res = plot_resolution)
+    plot(hub_info[["ModuleMembership"]], hub_info[["Connectivity"]],
+         xlab = "Module Membership (MM)", ylab = "Connectivity (Intramodular)",
+         main = paste("Hub Gene Identification in", module_name, "module"),
+         pch = 20, col = ifelse(is_top10, "red", "black"))
+    legend("topright", legend = c("Top 10% connected", "Other genes"),
+           col = c("red", "black"), pch = 20, bty = "n")
+    dev.off()
 }
-
-cat("Most relevant module:", most_relevant_module, "->", module_name, "\n")
-
-module_genes <- names(module_colors)[module_colors == module_name]
-cat("Genes in module", module_name, ":", length(module_genes), "\n")
-if (length(module_genes) == 0) stop("No genes found in selected module.")
-
-gene_module_membership <- cor(
-    datExpr[, module_genes, drop = FALSE],
-    module_eigengenes[, most_relevant_module, drop = TRUE],
-    use = "pairwise.complete.obs"
-)
-
-module_gene_info <- data.frame(
-    Gene             = module_genes,
-    ModuleMembership = as.numeric(gene_module_membership),
-    GeneSignificance = as.numeric(gene_significance[module_genes]),
-    MM_pvalue        = corPvalueStudent(as.numeric(gene_module_membership), nSamples),
-    GS_pvalue        = as.numeric(gene_significance_pval[module_genes]),
-    stringsAsFactors = FALSE
-)
-module_gene_info <- module_gene_info[order(-abs(module_gene_info[["ModuleMembership"]])), ]
-
-png("plots/08_gene_significance_vs_module_membership.png", width = 1000, height = 700, res = plot_resolution)
-plot(abs(module_gene_info[["ModuleMembership"]]),
-     abs(module_gene_info[["GeneSignificance"]]),
-     xlab = paste("Module Membership in", module_name, "module"),
-     ylab = paste("Gene Significance for", trait_of_interest),
-     main = paste("MM vs GS in", module_name, "module"),
-     pch = 20, col = module_name, cex = 1)
-abline(lm(abs(GeneSignificance) ~ abs(ModuleMembership), data = module_gene_info),
-       col = "red", lwd = 2)
-dev.off()
-
-write.table(module_gene_info,
-    file  = paste0("results/module_gene_info_", module_name, "_", trait_of_interest, ".tsv"),
-    sep   = "\t", quote = FALSE, row.names = FALSE)
-
-## ── STEP 8: Hub genes ────────────────────────────────────────────────────────
-adjacency_matrix <- adjacency(datExpr[, module_genes, drop = FALSE],
-                               power = soft_power, type = network_type,
-                               corFnc = cor_fnc)
-connectivity <- colSums(adjacency_matrix) - 1
-
-hub_info <- data.frame(
-    Gene             = module_genes,
-    ModuleMembership = as.numeric(gene_module_membership),
-    GeneSignificance = as.numeric(gene_significance[module_genes]),
-    Connectivity     = as.numeric(connectivity),
-    stringsAsFactors = FALSE
-)
-hub_info <- hub_info[order(-hub_info[["Connectivity"]]), ]
-
-write.table(hub_info,
-    file  = paste0("results/hub_genes_", module_name, "_", trait_of_interest, ".tsv"),
-    sep   = "\t", quote = FALSE, row.names = FALSE)
-
-is_top10 <- hub_info[["Connectivity"]] > quantile(hub_info[["Connectivity"]], 0.9, na.rm = TRUE)
-
-png(paste0("plots/09_hub_genes_", module_name, "_", trait_of_interest, ".png"),
-    width = 800, height = 600, res = plot_resolution)
-plot(hub_info[["ModuleMembership"]], hub_info[["Connectivity"]],
-     xlab = "Module Membership (MM)", ylab = "Connectivity (Intramodular)",
-     main = paste("Hub Gene Identification in", module_name, "module"),
-     pch = 20, col = ifelse(is_top10, "red", "black"))
-legend("topright", legend = c("Top 10% connected", "Other genes"),
-       col = c("red", "black"), pch = 20, bty = "n")
-dev.off()
 
 ## ── STEP 9: Co-expression network visualization ───────────────────────────────
 gene_var  <- apply(datExpr, 2, var, na.rm = TRUE)
@@ -613,11 +618,11 @@ cat("Results written to: results/\n")
             <option value="pearson" selected="true">Pearson</option>
             <option value="bicor">Biweight midcorrelation (bicor)</option>
         </param>
-        <param name="min_module_size" type="integer" value="30" min="5" max="500" label="Minimum number of genes required to form a module."/>
+        <param name="min_module_size" type="integer" value="30" min="5" max="500" label="Minimum module size" help="Minimum number of genes required to form a module."/>
         <param name="merge_cut_height" type="float" value="0.25" min="0" max="1" label="Module merge cut height" help="Modules with eigengene correlation above (1 - this value) will be merged."/>
         <expand macro="filter_variance_params"/>
         <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
-        <param name="trait_columns" type="data_column" data_ref="metadata_file" use_header_names="true" multiple="true" label="Metadata trait columns" help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded. The first selected column is used as the trait of interest for gene significance and hub-gene analysis."/>
+        <param name="trait_columns" type="data_column" data_ref="metadata_file" use_header_names="true" multiple="true" label="Metadata trait columns" help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded. Gene significance, module membership, and hub-gene analysis are run for every selected trait (and each one-hot level of categorical traits)."/>
         <param name="n_threads" type="integer" value="4" min="1" max="16" label="Number of threads" help="Number of threads WGCNA is allowed to use for correlation calculations."/>
         <param name="plot_resolution" type="integer" value="300" min="72" max="600" label="Plot resolution (DPI)" help="Resolution, in dots per inch, used when rendering the PNG plots."/>
         <param name="save_rscript" type="boolean" checked="false" truevalue="true" falsevalue="false" label="Save the R script used for this run" help="Useful for debugging. If enabled, the exact R script executed by this tool is provided as an additional output."/>
@@ -639,7 +644,6 @@ cat("Results written to: results/\n")
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="network_type" value="signed"/>
-            <param name="tom_type" value="signed"/>
             <param name="min_module_size" value="10"/>
             <param name="trait_columns" value="2"/>
             <output_collection name="wgcna_plots" type="list" count="11">
@@ -685,7 +689,7 @@ cat("Results written to: results/\n")
                         <has_image_height min="800"/>
                     </assert_contents>
                 </element>
-                <element name="08_gene_significance_vs_module_membership">
+                <element name="08_gene_significance_vs_module_membership_magenta_age_at_diagnosis">
                     <assert_contents>
                         <has_size min="100"/>
                         <has_image_width width="1000"/>
@@ -731,7 +735,6 @@ cat("Results written to: results/\n")
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="softpower_config" value="softpower_config.txt"/>
             <param name="network_type" value="signed"/>
-            <param name="tom_type" value="signed"/>
             <param name="min_module_size" value="10"/>
             <param name="trait_columns" value="2"/>
             <param name="save_rscript" value="true"/>
@@ -743,6 +746,15 @@ cat("Results written to: results/\n")
                     <has_text text="blockwiseModules"/>
                 </assert_contents>
             </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="counts_file" value="normalized_counts.tsv"/>
+            <param name="metadata_file" value="trait_data.tsv"/>
+            <param name="network_type" value="signed"/>
+            <param name="min_module_size" value="10"/>
+            <param name="trait_columns" value="2,3"/>
+            <output_collection name="wgcna_plots" type="list" count="17"/>
+            <output_collection name="gene_tables" type="list" count="8"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -761,7 +773,7 @@ Runs the complete Weighted Gene Co-expression Network Analysis (WGCNA) workflow:
 **Inputs**
 
 - **Counts matrix** — TSV with genes as rows and samples as columns. First column must be gene IDs.
-- **Sample metadata** — TSV with first column as sample names matching count matrix columns. Trait columns can be numeric or categorical (categorical columns are one-hot encoded automatically). The first selected trait column is used as the "trait of interest" for gene significance and hub-gene analysis.
+- **Sample metadata** — TSV with first column as sample names matching count matrix columns. Trait columns can be numeric or categorical (categorical columns are one-hot encoded automatically). Gene significance, module membership, and hub-gene outputs are produced for every selected trait.
 - **Soft-thresholding config** — Config file output from the *WGCNA: Soft-Thresholding Power* tool. If provided, soft power is read automatically from this file.
 
 **Network type, TOM type, and correlation type**
@@ -771,7 +783,7 @@ Network type defaults to *Unsigned*. For most RNA-seq co-expression analyses, *S
 **Outputs**
 
 - **wgcna_plots** — a collection of every diagnostic and results plot produced by the pipeline.
-- **gene_tables** — a collection containing the module gene info table and the hub gene table for the most trait-relevant module.
+- **gene_tables** — a collection of module gene info and hub gene tables, one pair per trait (and per one-hot level for categorical traits), each for the module most correlated with that trait.
 - **R script** (optional) — the exact R script executed for this run, provided when "Save the R script used for this run" is enabled; useful for debugging.
     ]]></help>
     <expand macro="wgcna_citations"/>
