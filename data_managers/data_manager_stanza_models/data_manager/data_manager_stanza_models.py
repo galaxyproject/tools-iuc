@@ -2,16 +2,19 @@
 """
 Data Manager for Stanza Language Models
 
-Downloads Stanza language models with ``stanza.download()`` and registers them
-in Galaxy's ``stanza_models`` data table. Uses the memory-efficient
-``default_fast`` package (nocharlm models), matching the Stanza NLP tool so the
-same on-disk layout (a stanza_resources directory with resources.json) is loaded
-at run time via ``stanza.Pipeline(dir=models_path, package="default_fast")``.
+Downloads Stanza language models with ``stanza.download()`` into the data
+manager output's extra files directory and registers them in Galaxy's
+``stanza_models`` data table. Galaxy then moves the models into the managed
+data directory (see data_manager_conf.xml).
+
+Each language is installed as a self-contained stanza_resources directory
+(resources.json plus a per-language model subdirectory) using the
+memory-efficient ``default_fast`` package, matching the Stanza NLP tool which
+loads it via ``stanza.Pipeline(dir=models_path, package="default_fast")``.
 """
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import stanza
@@ -71,80 +74,57 @@ STANZA_LANGUAGES = {
 }
 
 
-def load_existing_models(data_table_path):
-    """Load existing model entries from the data table to avoid duplicates."""
-    existing = set()
-    if data_table_path and Path(data_table_path).exists():
-        with open(data_table_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    parts = line.split('\t')
-                    if parts:
-                        existing.add(parts[0])
-    return existing
-
-
 def main():
     parser = argparse.ArgumentParser(description="Download and register Stanza language models")
+    parser.add_argument("data_manager_json",
+                        help="Galaxy data manager JSON file (prepopulated with output paths)")
     parser.add_argument("--model", action="append", required=True,
                         help="Language code(s) to download (can be specified multiple times)")
-    parser.add_argument("--target-directory", required=True,
-                        help="Persistent stanza_resources directory to store downloaded models")
-    parser.add_argument("--output", required=True,
-                        help="JSON output file for Galaxy data manager")
-    parser.add_argument("--data-table", required=False,
-                        help="Path to existing data table file to check for duplicates")
-
     args = parser.parse_args()
 
-    # Load existing models to avoid duplicates
-    existing_models = load_existing_models(args.data_table)
-
-    # Use the persistent target directory as the stanza_resources root. stanza
-    # writes resources.json here plus a per-language subdirectory.
-    model_dir = Path(args.target_directory)
-    model_dir.mkdir(parents=True, exist_ok=True)
+    # Galaxy prepopulates the data manager JSON with the output dataset's
+    # extra files path, which is a writable directory. Models are downloaded
+    # there and Galaxy moves them into the managed data directory afterwards.
+    with open(args.data_manager_json) as fh:
+        params = json.load(fh)
+    target_dir = Path(params["output_data"][0]["extra_files_path"])
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     data_table_entries = []
 
     for lang in args.model:
-        if lang in existing_models:
-            print(f"Skipping {lang} - already in data table")
-            continue
-
         display_name = STANZA_LANGUAGES.get(lang, lang)
 
+        # Install each language as its own stanza_resources directory so the
+        # tool can load it directly with stanza.Pipeline(dir=models_path).
+        lang_dir = target_dir / lang
         print(f"Downloading {display_name} ({lang}) models with the default_fast package...")
-        try:
-            stanza.download(
-                lang=lang,
-                model_dir=str(model_dir),
-                package="default_fast",
-                verbose=False,
-            )
-        except Exception as e:
-            print(f"Error downloading {lang} model: {e}", file=sys.stderr)
-            sys.exit(1)
+        stanza.download(
+            lang=lang,
+            model_dir=str(lang_dir),
+            package="default_fast",
+            verbose=False,
+        )
 
         data_table_entries.append({
             "value": lang,
             "name": display_name,
             "lang": lang,
-            "models_path": str(model_dir),
+            # Relative to extra_files_path; data_manager_conf.xml moves it into
+            # ${GALAXY_DATA_MANAGER_DATA_PATH}/stanza_models/${value}.
+            "models_path": lang,
         })
 
-        print(f"Successfully registered {display_name} ({lang}) at {model_dir}")
+        print(f"Successfully downloaded {display_name} ({lang})")
 
-    # Create data manager JSON output
     data_manager_output = {
         "data_tables": {
             "stanza_models": data_table_entries
         }
     }
 
-    with open(args.output, "w") as f:
-        json.dump(data_manager_output, f, indent=2)
+    with open(args.data_manager_json, "w") as fh:
+        json.dump(data_manager_output, fh, sort_keys=True)
 
     print(f"Summary: Successfully registered {len(data_table_entries)} model(s)")
 
