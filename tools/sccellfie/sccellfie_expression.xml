@@ -1,0 +1,169 @@
+<tool id="sccellfie_expression" name="scCellFie expression aggregation" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>aggregate expression, reaction, or metabolic task scores by cell group</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+mkdir -p report_output &&
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_IMPORTS@
+@CMD_READ_INPUTS@
+
+#if str($method.method) == 'aggregate':
+agg = sccellfie.expression.agg_expression_cells(
+    adata,
+    groupby='$method.groupby',
+    #if str($method.layer) != '':
+    layer='$method.layer',
+    #end if
+    agg_func='$method.agg_func',
+    top_percent=$method.top_percent,
+    exclude_zeros=$method.exclude_zeros,
+    use_raw=$method.use_raw)
+agg.to_csv('agg_out.tsv', sep='\t')
+
+#else if str($method.method) == 'summary_report':
+report = sccellfie.reports.generate_report_from_adata(
+    adata,
+    group_by='$method.group_by',
+    agg_func='$method.agg_func',
+    #if str($method.layer) != '':
+    layer='$method.layer',
+    #end if
+    #if str($method.tissue_col) != '':
+    tissue_col='$method.tissue_col',
+    #end if
+    feature_name='$method.feature_name',
+    min_cells=$method.min_cells,
+    threshold=$method.threshold)
+for key, df in report.items():
+    df.to_csv(f'report_output/{key}.tsv', sep='\t', index=(key != 'melted'))
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="input_adata" label="Annotated data matrix (expression, reaction, or metabolic task scores)"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method">
+                <option value="aggregate">Aggregate expression per cell group (agg_expression_cells)</option>
+                <option value="summary_report">Generate group-level summary report (generate_report_from_adata)</option>
+            </param>
+            <when value="aggregate">
+                <expand macro="param_groupby" label="Column in adata.obs to group cells by"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_agg_func"/>
+                <param name="use_raw" argument="use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use adata.raw.X instead of adata.X?"/>
+            </when>
+            <when value="summary_report">
+                <param name="group_by" argument="group_by" type="text" label="Column in adata.obs to group cells by">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_layer"/>
+                <expand macro="param_agg_func"/>
+                <param name="tissue_col" argument="tissue_col" type="text" value="" optional="true" label="Column in adata.obs with tissue/sample information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="feature_name" argument="feature_name" type="text" value="feature" label="Name to use for features in the melted result" help="e.g. 'metabolic_task' or 'reaction'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="min_cells" argument="min_cells" type="integer" min="1" value="1" label="Minimum number of cells required for a group to be included"/>
+                <param name="threshold" argument="threshold" type="float" value="3.4657359027997265" label="Expression threshold" help="Used for counting the number of cells passing the threshold per group (default: 5*ln(2))"/>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="agg_out" format="tabular" from_work_dir="agg_out.tsv" label="${tool.name} (${method.method}) on ${on_string}: aggregated table">
+            <filter>method['method'] == 'aggregate'</filter>
+        </data>
+        <collection name="report_collection" type="list" label="${tool.name} (${method.method}) on ${on_string}: report tables">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv$" format="tabular" directory="report_output"/>
+            <filter>method['method'] == 'summary_report'</filter>
+        </collection>
+        <data name="hidden_output" format="txt" label="${tool.name} (${method.method}) on ${on_string}: log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test 1: aggregate -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="aggregate"/>
+                <param name="groupby" value="celltype"/>
+                <param name="agg_func" value="trimean"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="agg_expression_cells"/>
+                </assert_contents>
+            </output>
+            <output name="agg_out">
+                <assert_contents>
+                    <has_text_matching expression="HK1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 2: summary report -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="summary_report"/>
+                <param name="group_by" value="celltype"/>
+                <param name="agg_func" value="trimean"/>
+                <param name="feature_name" value="gene"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="generate_report_from_adata"/>
+                </assert_contents>
+            </output>
+            <output_collection name="report_collection" type="list">
+                <element name="melted" ftype="tabular">
+                    <assert_contents>
+                        <has_text_matching expression="gene"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+Aggregates single-cell expression, reaction, or metabolic task scores at the cell-group level (e.g. cell
+type), which is useful for heatmaps, dot plots, or exporting summaries for the scCellFie Metabolic Task
+Visualizer.
+
+- **Aggregate expression per cell group**: computes one summary statistic (mean, median, trimean, etc.) per
+  gene/feature and per group, returning a groups x features table.
+- **Generate group-level summary report**: computes multiple statistics per group (aggregated value, variance,
+  standard deviation, number of cells passing an expression threshold, number of non-zero cells, cell counts,
+  and min/max), returning a collection of tables including a long/melted table useful for radial plots.
+
+**Input**
+
+- An AnnData object (``.h5ad``), typically the output of the scCellFie pipeline (expression, reaction, or
+  metabolic task scores).
+
+**Output**
+
+- A tabular file (aggregation) or a collection of tabular files (summary report).
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
