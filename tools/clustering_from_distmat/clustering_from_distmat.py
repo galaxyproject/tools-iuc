@@ -2,10 +2,39 @@ import argparse
 import sys
 from collections import Counter
 
-import scipy
+from pandas import DataFrame
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import squareform
 
 
 def linkage_as_newick(linkage, tip_names):
+    """
+    Convert a hierarchical clustering linkage matrix to Newick tree format.
+
+    This function transforms a scipy hierarchical clustering linkage matrix into a
+    phylogenetic tree in Newick format, with branch lengths representing the
+    distances from clustering steps.
+
+    :param linkage: A hierarchical clustering linkage matrix from scipy.cluster.hierarchy.linkage.
+                   Each row contains [cluster_id_1, cluster_id_2, distance, n_samples].
+                   The first len(tip_names) rows correspond to individual samples, and
+                   subsequent rows correspond to merged clusters.
+    :param tip_names: A list of strings containing the names of leaf nodes (samples/tips).
+                     The order should correspond to the indices in the linkage matrix.
+
+    :return: A string in Newick format representing the hierarchical tree structure with
+            branch lengths and ending with a semicolon.
+            Format: (child1:distance1,child2:distance2)parent_name;
+
+    Note: Branch lengths are computed as half the cluster distance to represent the
+          distance from each leaf to their most recent common ancestor.
+
+    Example:
+        names = ['A', 'B', 'C']
+        linkage_data = [[0, 1, 0.5, 2], [2, 3, 1.0, 3]]
+        tree = linkage_as_newick(linkage_data, names)
+        print(tree)  # Output: ((A:0.25,B:0.25):0.5,C:0.5);
+    """
     newick_parts = tip_names[::]
     within_cluster_distances = [0] * len(tip_names)
     for step in linkage:
@@ -32,7 +61,10 @@ if __name__ == "__main__":
         'out_prefix',
         help="Output prefix"
     )
-    parser.add_argument
+    parser.add_argument(
+        '-nwk', '--newick', action='store_true',
+        help="Boolean indicating if the dendogram output should be converted to newick format"
+    )
     parser.add_argument(
         '-m', '--method', default="average",
         choices=[
@@ -150,13 +182,19 @@ if __name__ == "__main__":
     # this gives us further checks and raises ValueErrors if:
     # - the values on the diagonal aren't zero
     # - the upper and lower triangle of the matrix aren't identical
-    D = scipy.spatial.distance.squareform(matrix)
+    D = squareform(matrix)
 
     # perform the requested clustering and retrieve the result as a linkage object
-    linkage = scipy.cluster.hierarchy.linkage(D, args.method)
+    linkage = hierarchy.linkage(D, args.method)
 
-    with open(args.out_prefix + '.tree.newick', 'w') as o:
-        o.write(linkage_as_newick(linkage, col_names))
+    if args.newick:
+        with open(args.out_prefix + ".tree", 'w') as o:
+            o.write(linkage_as_newick(linkage, col_names))
+    else:
+        DataFrame(
+            linkage,
+            columns=["cluster1", "cluster2", "linkageValue", "newClusterSize"]
+        ).to_csv(args.out_prefix + ".tree", sep="\t", header=True, index=False)
 
     # cut the tree as specified and report sample to cluster assignments
     if args.n_clusters or args.height:
@@ -169,7 +207,7 @@ if __name__ == "__main__":
         header_cols = ["sample"] + [
             colname_template.format(x) for x in cut_values
         ]
-        cut_result = scipy.cluster.hierarchy.cut_tree(
+        cut_result = hierarchy.cut_tree(
             linkage,
             args.n_clusters,
             args.height
