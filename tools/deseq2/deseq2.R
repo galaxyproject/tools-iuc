@@ -67,6 +67,7 @@ spec <- matrix(c(
     "outlier_filter_off", "b", 0, "logical",
     "auto_mean_filter_off", "c", 0, "logical",
     "use_beta_priors", "d", 0, "logical",
+    "lfc_shrinkage_type", "L", 1, "character",
     "alpha_ma", "A", 1, "numeric",
     "prefilter", "P", 0, "logical",
     "prefilter_value", "V", 1, "numeric",
@@ -96,6 +97,14 @@ if (is.null(opt$outfile)) {
 }
 if (is.null(opt$factors) && is.null(opt$sample_sheet_mode)) {
     cat("'factors' is required when not using sample_sheet_mode\n")
+    q(status = 1)
+}
+if (is.null(opt$lfc_shrinkage_type)) {
+    opt$lfc_shrinkage_type <- "none"
+}
+valid_lfc_shrinkage_types <- c("none", "normal", "apeglm", "ashr")
+if (!(opt$lfc_shrinkage_type %in% valid_lfc_shrinkage_types)) {
+    cat(paste0("'lfc_shrinkage_type' must be one of: ", paste(valid_lfc_shrinkage_types, collapse = ", "), "\n"))
     q(status = 1)
 }
 
@@ -434,10 +443,11 @@ generate_generic_plots <- function(dds, factors) {
 
 # these are plots which can be made for each comparison, e.g.
 # once for C vs A and once for B vs A
-generate_specific_plots <- function(res, threshold, title_suffix) {
-    use <- res$baseMean > threshold
+generate_specific_plots <- function(res, threshold, title_suffix, unshrunken_res = NULL, lfc_shrinkage_type = "none") {
+    histogram_res <- if (!is.null(unshrunken_res)) unshrunken_res else res
+    use <- histogram_res$baseMean > threshold
     if (sum(!use) == 0) {
-        h <- hist(res$pvalue, breaks = 0:50 / 50, plot = FALSE)
+        h <- hist(histogram_res$pvalue, breaks = 0:50 / 50, plot = FALSE)
         barplot(
             height = h$counts,
             col = "powderblue",
@@ -448,8 +458,8 @@ generate_specific_plots <- function(res, threshold, title_suffix) {
         )
         text(x = c(0, length(h$counts)), y = 0, label = paste(c(0, 1)), adj = c(0.5, 1.7), xpd = NA)
     } else {
-        h1 <- hist(res$pvalue[!use], breaks = 0:50 / 50, plot = FALSE)
-        h2 <- hist(res$pvalue[use], breaks = 0:50 / 50, plot = FALSE)
+        h1 <- hist(histogram_res$pvalue[!use], breaks = 0:50 / 50, plot = FALSE)
+        h2 <- hist(histogram_res$pvalue[use], breaks = 0:50 / 50, plot = FALSE)
         colori <- c("filtered (low count)" = "khaki", "not filtered" = "powderblue")
         barplot(
             height = rbind(h1$counts, h2$counts),
@@ -463,7 +473,100 @@ generate_specific_plots <- function(res, threshold, title_suffix) {
         text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0, 1)), adj = c(0.5, 1.7), xpd = NA)
         legend("topright", fill = rev(colori), legend = rev(names(colori)), bg = "white")
     }
-    plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
+    if (!is.null(unshrunken_res)) {
+        ma_ylim <- range(c(unshrunken_res$log2FoldChange, res$log2FoldChange), na.rm = TRUE)
+        plotMA(
+            unshrunken_res,
+            main = paste("MA-plot for", title_suffix, "(without LFC shrinkage)"),
+            ylim = ma_ylim,
+            alpha = opt$alpha_ma
+        )
+        plotMA(
+            res,
+            main = paste("MA-plot for", title_suffix, paste0("(LFC shrinkage: ", lfc_shrinkage_type, ")")),
+            ylim = ma_ylim,
+            alpha = opt$alpha_ma
+        )
+    } else {
+        plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
+    }
+}
+
+get_contrast_coefficient_name <- function(dds, contrast_factor, lvl, ref) {
+    coefficient_name <- paste0(contrast_factor, "_", lvl, "_vs_", ref)
+    sanitized_coefficient_name <- paste0(
+        make.names(contrast_factor), "_",
+        make.names(lvl), "_vs_",
+        make.names(ref)
+    )
+    available_names <- resultsNames(dds)
+    coefficient_candidates <- unique(c(coefficient_name, sanitized_coefficient_name))
+    matching_names <- coefficient_candidates[coefficient_candidates %in% available_names]
+    if (length(matching_names) > 0) {
+        return(matching_names[1])
+    }
+
+    stop(
+        paste0(
+            "Could not find coefficient for '", contrast_factor, ": ", lvl, " vs ", ref, "' for lfcShrink. ",
+            "Checked: ", paste(coefficient_candidates, collapse = ", "), ". ",
+            "Available coefficients are: ", paste(available_names, collapse = ", "), ". ",
+            "lfcShrink requires a model coefficient; for non-reference pairwise contrasts, ",
+            "rerun with the requested reference level or disable lfcShrink."
+        )
+    )
+}
+
+get_contrast_results <- function(dds, contrast_factor, lvl, ref, cooks_cutoff, independent_filtering, lfc_shrinkage_type, parallel) {
+    if (lfc_shrinkage_type == "none") {
+        res <- results(
+            dds,
+            contrast = c(contrast_factor, lvl, ref),
+            cooksCutoff = cooks_cutoff,
+            independentFiltering = independent_filtering
+        )
+        return(list(results = res, unshrunken_results = NULL))
+    }
+
+    if (lfc_shrinkage_type == "apeglm" && !requireNamespace("apeglm", quietly = TRUE)) {
+        stop("lfcShrink type 'apeglm' requires the apeglm package.")
+    }
+    if (lfc_shrinkage_type == "ashr" && !requireNamespace("ashr", quietly = TRUE)) {
+        stop("lfcShrink type 'ashr' requires the ashr package.")
+    }
+
+    coefficient_name <- get_contrast_coefficient_name(dds, contrast_factor, lvl, ref)
+    res <- results(
+        dds,
+        name = coefficient_name,
+        cooksCutoff = cooks_cutoff,
+        independentFiltering = independent_filtering
+    )
+    if (verbose) {
+        cat(paste0("Applying DESeq2 lfcShrink type '", lfc_shrinkage_type, "' using coefficient '", coefficient_name, "'\n"))
+    }
+    shrunk_res <- lfcShrink(
+        dds,
+        coef = coefficient_name,
+        res = res,
+        type = lfc_shrinkage_type,
+        parallel = parallel
+    )
+    output_res <- shrunk_res
+    if (!("pvalue" %in% names(output_res)) && "pvalue" %in% names(res)) {
+        output_res$pvalue <- res$pvalue
+    }
+    if (!("padj" %in% names(output_res)) && "padj" %in% names(res)) {
+        output_res$padj <- res$padj
+    }
+    list(results = output_res, unshrunken_results = res)
+}
+
+get_result_output_columns <- function(lfc_shrinkage_type) {
+    if (lfc_shrinkage_type == "none") {
+        return(c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"))
+    }
+    c("geneID", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj")
 }
 
 if (verbose) {
@@ -604,6 +707,15 @@ if (is.null(opt$use_beta_priors)) {
 }
 sprintf("use_beta_prior is set to %s", beta_prior)
 
+if (beta_prior && opt$lfc_shrinkage_type != "none") {
+    cat("Error: DESeq2 lfcShrink cannot be combined with beta prior shrinkage. Turn off beta priors or set lfcShrink to none.\n")
+    q(status = 1)
+}
+if (!is.null(opt$many_contrasts) && opt$lfc_shrinkage_type != "none") {
+    cat("Error: lfcShrink is only supported for a single selected contrast. Disable many_contrasts or set lfcShrink to none.\n")
+    q(status = 1)
+}
+
 
 # dispersion fit type
 if (is.null(opt$fit_type)) {
@@ -682,12 +794,18 @@ if (is.null(opt$many_contrasts)) {
         contrast_factor <- primary_factor
     }
 
-    res <- results(
+    contrast_results <- get_contrast_results(
         dds,
-        contrast = c(contrast_factor, lvl, ref),
-        cooksCutoff = cooks_cutoff,
-        independentFiltering = independent_filtering
+        contrast_factor = contrast_factor,
+        lvl = lvl,
+        ref = ref,
+        cooks_cutoff = cooks_cutoff,
+        independent_filtering = independent_filtering,
+        lfc_shrinkage_type = opt$lfc_shrinkage_type,
+        parallel = parallel
     )
+    res <- contrast_results$results
+    unshrunken_res <- contrast_results$unshrunken_results
     if (verbose) {
         cat("summary of results\n")
         cat(paste0(contrast_factor, ": ", lvl, " vs ", ref, "\n"))
@@ -696,17 +814,18 @@ if (is.null(opt$many_contrasts)) {
     res_sorted <- res[order(res$padj), ]
     out_df <- as.data.frame(res_sorted)
     out_df$geneID <- rownames(out_df) # nolint
-    out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
+    out_df <- out_df[, get_result_output_columns(opt$lfc_shrinkage_type)]
     filename <- opt$outfile
     write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+    threshold_res <- if (!is.null(unshrunken_res)) unshrunken_res else res
     if (independent_filtering) {
-        threshold <- unname(attr(res, "filterThreshold"))
+        threshold <- unname(attr(threshold_res, "filterThreshold"))
     } else {
         threshold <- 0
     }
     title_suffix <- paste0(primary_factor, ": ", lvl, " vs ", ref)
     if (!is.null(opt$plots)) {
-        generate_specific_plots(res, threshold, title_suffix)
+        generate_specific_plots(res, threshold, title_suffix, unshrunken_res, opt$lfc_shrinkage_type)
     }
 } else {
     # rotate through the possible contrasts of the primary factor
@@ -716,26 +835,33 @@ if (is.null(opt$many_contrasts)) {
         ref <- all_levels[i]
         contrast_levels <- all_levels[(i + 1):n]
         for (lvl in contrast_levels) {
-            res <- results(
+            contrast_results <- get_contrast_results(
                 dds,
-                contrast = c(primary_factor, lvl, ref),
-                cooksCutoff = cooks_cutoff,
-                independentFiltering = independent_filtering
+                contrast_factor = primary_factor,
+                lvl = lvl,
+                ref = ref,
+                cooks_cutoff = cooks_cutoff,
+                independent_filtering = independent_filtering,
+                lfc_shrinkage_type = opt$lfc_shrinkage_type,
+                parallel = parallel
             )
+            res <- contrast_results$results
+            unshrunken_res <- contrast_results$unshrunken_results
             res_sorted <- res[order(res$padj), ]
             out_df <- as.data.frame(res_sorted)
             out_df$geneID <- rownames(out_df) # nolint
-            out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
+            out_df <- out_df[, get_result_output_columns(opt$lfc_shrinkage_type)]
             filename <- paste0(primary_factor, "_", lvl, "_vs_", ref)
             write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+            threshold_res <- if (!is.null(unshrunken_res)) unshrunken_res else res
             if (independent_filtering) {
-                threshold <- unname(attr(res, "filterThreshold"))
+                threshold <- unname(attr(threshold_res, "filterThreshold"))
             } else {
                 threshold <- 0
             }
             title_suffix <- paste0(primary_factor, ": ", lvl, " vs ", ref)
             if (!is.null(opt$plots)) {
-                generate_specific_plots(res, threshold, title_suffix)
+                generate_specific_plots(res, threshold, title_suffix, unshrunken_res, opt$lfc_shrinkage_type)
             }
         }
     }

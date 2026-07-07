@@ -13,6 +13,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 from alphagenome.data import genome
 from alphagenome.models import dna_client
 
@@ -79,6 +80,71 @@ def extract_region_slice(values, interval_start, region_start, region_end):
     offset_start = max(0, offset_start)
     offset_end = min(values.shape[0], offset_end)
     return values[offset_start:offset_end]
+
+
+def metadata_column(metadata, column, size):
+    if metadata is not None and column in metadata.columns:
+        values = metadata[column].astype(str).to_numpy()
+        if len(values) >= size:
+            return values[:size]
+        padded = np.full(size, "", dtype=object)
+        padded[:len(values)] = values
+        return padded
+    return np.full(size, "", dtype=object)
+
+
+def as_2d(values):
+    values = np.asarray(values)
+    if values.ndim == 1:
+        return values.reshape(-1, 1)
+    return values
+
+
+def binned_means(values, bin_size):
+    starts = np.arange(0, values.shape[0], bin_size)
+    ends = np.minimum(starts + bin_size, values.shape[0])
+    sums = np.add.reduceat(values, starts, axis=0)
+    return starts, ends, sums / (ends - starts)[:, None]
+
+
+def write_interval_output(outfile, chrom, start, end, name, otype, values, metadata,
+                          output_mode, bin_size):
+    values = as_2d(values)
+    num_tracks = values.shape[1]
+    track_names = metadata_column(metadata, "track_name", num_tracks)
+    ontology_curies = metadata_column(metadata, "ontology_curie", num_tracks)
+
+    if output_mode == "summary":
+        df = pd.DataFrame({
+            "chrom": np.repeat(chrom, num_tracks),
+            "start": np.repeat(start, num_tracks),
+            "end": np.repeat(end, num_tracks),
+            "name": np.repeat(name, num_tracks),
+            "output_type": np.repeat(otype, num_tracks),
+            "track_name": track_names,
+            "ontology_curie": ontology_curies,
+            "mean_signal": np.mean(values, axis=0),
+            "max_signal": np.max(values, axis=0),
+        })
+    else:
+        if values.shape[0] == 0:
+            return 0
+        bin_starts, bin_ends, means = binned_means(values, bin_size)
+        num_bins = len(bin_starts)
+        df = pd.DataFrame({
+            "chrom": np.repeat(chrom, num_tracks * num_bins),
+            "bin_start": start + np.tile(bin_starts, num_tracks),
+            "bin_end": start + np.tile(bin_ends, num_tracks),
+            "region_name": np.repeat(name, num_tracks * num_bins),
+            "output_type": np.repeat(otype, num_tracks * num_bins),
+            "track_name": np.repeat(track_names, num_bins),
+            "ontology_curie": np.repeat(ontology_curies, num_bins),
+            "mean_signal": means.T.ravel(),
+        })
+
+    df.to_csv(outfile, sep="\t", header=False, index=False,
+              float_format="%.6f", lineterminator="\r\n")
+    return len(df)
 
 
 def run(args):
@@ -172,41 +238,10 @@ def run(args):
                         values, interval.start, start, end,
                     )
 
-                    num_tracks = region_values.shape[1] if region_values.ndim > 1 else 1
-                    if region_values.ndim == 1:
-                        region_values = region_values.reshape(-1, 1)
-
-                    for track_idx in range(num_tracks):
-                        track_vals = region_values[:, track_idx]
-                        track_name = ""
-                        ontology_curie = ""
-                        if metadata is not None and len(metadata) > track_idx:
-                            row = metadata.iloc[track_idx]
-                            track_name = str(row.get("track_name", ""))
-                            ontology_curie = str(row.get("ontology_curie", ""))
-
-                        if args.output_mode == "summary":
-                            mean_sig = float(np.mean(track_vals))
-                            max_sig = float(np.max(track_vals))
-                            writer.writerow([
-                                chrom, start, end, name, otype,
-                                track_name, ontology_curie,
-                                f"{mean_sig:.6f}", f"{max_sig:.6f}",
-                            ])
-                        else:
-                            # Binned mode
-                            region_len = region_values.shape[0]
-                            bin_size = args.bin_size
-                            for bin_start_offset in range(0, region_len, bin_size):
-                                bin_end_offset = min(bin_start_offset + bin_size, region_len)
-                                bin_vals = track_vals[bin_start_offset:bin_end_offset]
-                                mean_sig = float(np.mean(bin_vals))
-                                writer.writerow([
-                                    chrom, start + bin_start_offset,
-                                    start + bin_end_offset, name, otype,
-                                    track_name, ontology_curie,
-                                    f"{mean_sig:.6f}",
-                                ])
+                    write_interval_output(
+                        outfile, chrom, start, end, name, otype, region_values,
+                        metadata, args.output_mode, args.bin_size,
+                    )
 
                 stats["predicted"] += 1
 

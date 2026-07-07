@@ -1,0 +1,106 @@
+<tool id="jdeskew" name="jdeskew" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>document image deskewing</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>echo @TOOL_VERSION@</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+        python '$script' &&
+        mv ./out.${output_image.ext} '${output_image}'
+    ]]></command>
+    <configfiles>
+        <configfile name="script"><![CDATA[
+import cv2
+import numpy as np
+from jdeskew.estimator import get_angle
+from jdeskew.utility import rotate
+
+with open('${input_image}', 'rb') as fh:
+    content = fh.read()
+
+nparr = np.frombuffer(content, np.uint8)
+image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+angle = get_angle(image, angle_max=${angle_max})
+output_image = rotate(image, angle, resize=${resize})
+
+cv2.imwrite('./out.${output_image.ext}', output_image)
+
+with open('${output_angle}', 'w') as fh:
+    fh.write(f'{angle}\n')
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="input_image" type="data" format="png,jpg,tiff" label="Input image"/>
+        <param argument="--angle-max" type="float" value="45.0" min="1.0" max="90.0" label="Maximum detectable skew angle (degrees)" help="Skew angles beyond this value will not be corrected."/>
+        <param argument="--resize" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Resize output to fit rotated content" help="When enabled, the output canvas expands to avoid cropping corners. When disabled, the original dimensions are kept and corners are filled with black."/>
+    </inputs>
+    <outputs>
+        <data name="output_image" format_source="input_image" label="${tool.name} on ${on_string}: deskewed image"/>
+        <data name="output_angle" format="txt" label="${tool.name} on ${on_string}: detected angle"/>
+    </outputs>
+    <tests>
+        <!-- test.png rotated +5 degrees; estimated angle should be approximately -5 -->
+        <test expect_num_outputs="2">
+            <param name="input_image" value="skewed_5deg.png"/>
+            <output name="output_image" file="deskewed_5deg.png" compare="image_diff" metric="mae" eps="0.01"/>
+            <output name="output_angle">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text_matching expression="-[45]\.\d+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test.png rotated -8 degrees; estimated angle should be approximately +8 -->
+        <test expect_num_outputs="2">
+            <param name="input_image" value="skewed_neg8deg.png"/>
+            <param name="angle_max" value="15.0"/>
+            <param name="resize" value="False"/>
+            <output name="output_image" file="deskewed_neg8deg.png" compare="image_diff" metric="mae" eps="0.01"/>
+            <output name="output_angle">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text_matching expression="[78]\.\d+"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+
+**jdeskew** estimates and corrects the skew angle of a document image.
+
+Skew is introduced when a document is placed at a slight angle on a scanner
+or photographed off-axis. Correcting it improves the accuracy of downstream
+OCR and layout analysis.
+
+-----
+
+**Inputs**
+
+- *Input image* — A scanned or photographed document in PNG, JPEG, or TIFF format.
+
+**Parameters**
+
+- *Maximum detectable skew angle* — Skew angles larger than this threshold are
+  ignored. Lower values speed up processing and avoid misidentifying
+  non-document rotations as skew. Default: 45°.
+- *Resize output* — When enabled, the output canvas grows to contain the full
+  rotated image. When disabled, the image is cropped to the original dimensions
+  and unfilled corners are black.
+
+**Outputs**
+
+- *Deskewed image* — The corrected image in the same format as the input.
+- *Detected angle* — A plain-text file containing the estimated skew angle in
+  degrees (negative = counter-clockwise tilt).
+
+-----
+
+**Method**
+
+jdeskew uses Adaptive Radial Projection on the Fourier Magnitude Spectrum
+(ARPFMS) to estimate the dominant text-line angle without requiring
+binarisation or line detection.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

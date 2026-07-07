@@ -9,14 +9,169 @@ server-side chunking and parallelism.
 
 import argparse
 import csv
+import json
 import logging
 import os
 import sys
+from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 from alphagenome.data import genome
 from alphagenome.models import dna_client
 from alphagenome.models.variant_scorers import RECOMMENDED_VARIANT_SCORERS
+
+
+def _col_as_list(df, col):
+    """Extract a column as a list of strings; empty strings if the column is missing."""
+    if col in df.columns:
+        return df[col].astype(str).tolist()
+    return [""] * len(df)
+
+
+ISM_OUTPUT_COLUMNS = [
+    "region", "position", "ref_base", "alt_base",
+    "gene_id", "gene_name", "gene_type",
+    "scorer", "track_name", "ontology_curie",
+    "raw_score", "quantile_score",
+]
+
+
+def _write_chunked_tsv(outfile, columns):
+    df = pd.DataFrame(columns)
+    df.to_csv(outfile, sep="\t", header=False, index=False,
+              float_format="%.6f", na_rep="",
+              lineterminator="\r\n")
+    return len(df)
+
+
+def _write_region_results(outfile, name, results, scorers_arg, flush_rows=200_000):
+    """Post-process ISM results for one region and stream TSV rows to outfile.
+
+    Returns the number of non-NaN rows written. obs/var metadata is identical
+    across variants for a given scorer, so extract once per (region, scorer)
+    then flatten non-NaN cells into a DataFrame and let pandas' C path handle
+    CSV formatting.
+    """
+    chunks = {col: [] for col in ISM_OUTPUT_COLUMNS}
+    pending_rows = 0
+    per_scorer_meta = {}
+    row_count = 0
+
+    def flush_pending():
+        nonlocal pending_rows, row_count
+        if pending_rows == 0:
+            return
+        row_count += _write_chunked_tsv(
+            outfile,
+            {col: np.concatenate(values) for col, values in chunks.items()},
+        )
+        for values in chunks.values():
+            values.clear()
+        pending_rows = 0
+
+    for var_results in results:
+        for scorer_idx, ad in enumerate(var_results):
+            variant_obj = ad.uns["variant"]
+            pos = variant_obj.position
+            ref_base = variant_obj.reference_bases
+            alt_base = variant_obj.alternate_bases
+            scorer_name = (
+                scorers_arg[scorer_idx]
+                if scorer_idx < len(scorers_arg)
+                else f"scorer_{scorer_idx}"
+            )
+
+            if scorer_idx not in per_scorer_meta:
+                per_scorer_meta[scorer_idx] = (
+                    np.asarray(_col_as_list(ad.obs, "gene_id")),
+                    np.asarray(_col_as_list(ad.obs, "gene_name")),
+                    np.asarray(_col_as_list(ad.obs, "gene_type")),
+                    np.asarray(_col_as_list(ad.var, "name")),
+                    np.asarray(_col_as_list(ad.var, "ontology_curie")),
+                )
+            gene_ids, gene_names, gene_types, track_names, track_curies = per_scorer_meta[scorer_idx]
+
+            raw_scores = np.asarray(ad.X, dtype=float)
+            quantile_scores = ad.layers.get("quantiles", None)
+            if quantile_scores is not None:
+                quantile_scores = np.asarray(quantile_scores, dtype=float)
+
+            valid_mask = ~np.isnan(raw_scores)
+            gi, ti = np.where(valid_mask)
+            if gi.size == 0:
+                continue
+
+            if quantile_scores is not None:
+                q_flat = quantile_scores[gi, ti]
+            else:
+                q_flat = np.full(gi.size, np.nan)
+
+            size = gi.size
+            chunks["region"].append(np.full(size, name, dtype=object))
+            chunks["position"].append(np.full(size, pos))
+            chunks["ref_base"].append(np.full(size, ref_base, dtype=object))
+            chunks["alt_base"].append(np.full(size, alt_base, dtype=object))
+            chunks["gene_id"].append(gene_ids[gi])
+            chunks["gene_name"].append(gene_names[gi])
+            chunks["gene_type"].append(gene_types[gi])
+            chunks["scorer"].append(np.full(size, scorer_name, dtype=object))
+            chunks["track_name"].append(track_names[ti])
+            chunks["ontology_curie"].append(track_curies[ti])
+            chunks["raw_score"].append(raw_scores[gi, ti])
+            chunks["quantile_score"].append(q_flat)
+            pending_rows += size
+            if pending_rows >= flush_rows:
+                flush_pending()
+    flush_pending()
+    return row_count
+
+
+def _load_mock_ism_results(path):
+    """Load JSON describing mock AnnData inputs for CI testing of the post-processing path.
+
+    The real --test-fixture path bypasses post-processing entirely (it just dumps
+    pre-computed TSV rows). This loader constructs the minimal AnnData interface
+    consumed by _write_region_results so CI can exercise the vectorized code
+    path against controlled multi-region / NaN / missing-quantile cases.
+    """
+    class _MockAd:
+        def __init__(self, obs, var, X, quantiles, variant):
+            self.obs = pd.DataFrame(obs)
+            self.var = pd.DataFrame(var)
+            self.X = np.asarray(X, dtype=float)
+            self.layers = (
+                {"quantiles": np.asarray(quantiles, dtype=float)}
+                if quantiles is not None
+                else {}
+            )
+            self.uns = {"variant": SimpleNamespace(**variant)}
+
+    with open(path) as f:
+        data = json.load(f)
+
+    regions = []
+    for region_data in data["regions"]:
+        region_results = []
+        for var_entry in region_data["variants"]:
+            variant_meta = {
+                "position": var_entry["position"],
+                "reference_bases": var_entry["reference_bases"],
+                "alternate_bases": var_entry["alternate_bases"],
+            }
+            region_results.append([
+                _MockAd(
+                    obs=scorer.get("obs", {}),
+                    var=scorer.get("var", {}),
+                    X=scorer["X"],
+                    quantiles=scorer.get("quantiles"),
+                    variant=variant_meta,
+                )
+                for scorer in var_entry["scorers"]
+            ])
+        regions.append((region_data["name"], region_results))
+    return regions, data.get("scorers", [])
+
 
 __version__ = "0.6.1"
 
@@ -91,6 +246,22 @@ def run(args):
         logging.info("Fixture mode: wrote %d rows to %s", len(fixture_data["rows"]), args.output)
         return
 
+    if args.mock_ism_results:
+        mock_regions, mock_scorers = _load_mock_ism_results(args.mock_ism_results)
+        with open(args.output, "w", newline="") as outfile:
+            writer = csv.writer(outfile, delimiter="\t")
+            writer.writerow([
+                "region", "position", "ref_base", "alt_base",
+                "gene_id", "gene_name", "gene_type",
+                "scorer", "track_name", "ontology_curie",
+                "raw_score", "quantile_score",
+            ])
+            row_count = 0
+            for name, results in mock_regions:
+                row_count += _write_region_results(outfile, name, results, mock_scorers)
+        logging.info("Mock mode: wrote %d rows to %s", row_count, args.output)
+        return
+
     api_key = args.api_key or os.environ.get("ALPHAGENOME_API_KEY")
     if not api_key and not args.local_model:
         logging.error("No API key provided. Set ALPHAGENOME_API_KEY or use --api-key")
@@ -145,47 +316,8 @@ def run(args):
                     max_workers=args.max_workers,
                 )
 
-                # results is list[list[AnnData]] — outer=variants (3*width), inner=scorers
-                # Each AnnData has: uns['variant'] with position/ref/alt,
-                # X for raw scores, layers['quantiles'], obs for genes, var for tracks
-                for var_results in results:
-                    for scorer_idx, ad in enumerate(var_results):
-                        variant_obj = ad.uns["variant"]
-                        pos = variant_obj.position
-                        ref_base = variant_obj.reference_bases
-                        alt_base = variant_obj.alternate_bases
-                        scorer_name = args.scorers[scorer_idx] if scorer_idx < len(args.scorers) else f"scorer_{scorer_idx}"
-
-                        raw_scores = ad.X  # shape (n_genes, n_tracks)
-                        quantile_scores = ad.layers.get("quantiles", None)
-
-                        for gene_idx in range(ad.n_obs):
-                            gene_row = ad.obs.iloc[gene_idx]
-                            gene_id = str(gene_row.get("gene_id", ""))
-                            gene_name = str(gene_row.get("gene_name", ""))
-                            gene_type = str(gene_row.get("gene_type", ""))
-
-                            for track_idx in range(ad.n_vars):
-                                track_row = ad.var.iloc[track_idx]
-                                track_name = str(track_row.get("name", ""))
-                                ontology_curie = str(track_row.get("ontology_curie", ""))
-
-                                raw = float(raw_scores[gene_idx, track_idx])
-                                if np.isnan(raw):
-                                    continue
-                                quant = ""
-                                if quantile_scores is not None:
-                                    q = float(quantile_scores[gene_idx, track_idx])
-                                    if not np.isnan(q):
-                                        quant = f"{q:.6f}"
-
-                                writer.writerow([
-                                    name, pos, ref_base, alt_base,
-                                    gene_id, gene_name, gene_type,
-                                    scorer_name, track_name, ontology_curie,
-                                    f"{raw:.6f}", quant,
-                                ])
-                                row_count += 1
+                # results is list[list[AnnData]] -- outer=variants (3*width), inner=scorers
+                row_count += _write_region_results(outfile, name, results, args.scorers)
 
                 stats["scored"] += 1
                 logging.info("Region %s: %d ISM variants scored", name, len(results))
@@ -228,6 +360,9 @@ def parse_arguments():
     parser.add_argument("--local-model", action="store_true")
     parser.add_argument("--test-fixture", default=None,
                         help="Test fixture JSON for CI testing (bypasses API)")
+    parser.add_argument("--mock-ism-results", default=None,
+                        help="Mock AnnData JSON for CI testing the post-processing "
+                             "path (bypasses API but exercises the vectorized loop)")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()

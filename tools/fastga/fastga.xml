@@ -1,7 +1,7 @@
 <tool id="fastga" name="FastGA" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>align whole genomes</description>
     <macros>
-        <import>fastga_macros.xml</import>
+        <import>macros.xml</import>
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
@@ -9,66 +9,127 @@
         ## symlinks are used to bypass that restriction
         ln -s '$input1' 'input1.${input1.ext}' &&
         ln -s '$input2' 'input2.${input2.ext}' &&
-        FastGA
-        '${output_settings.out.format}'
-        #if str( $output_settings.out.format ) == "-paf":
-            #if str( $output_settings.out.cigar_string ) != "no":
-                '${output_settings.out.cigar_string}'
+
+        ## Build the GDB and GIX explicitly up front. FastGA will build these
+        ## itself on-the-fly if they are missing, but the internal code path
+        ## that does so is racy under -T>1 on some CI builds (`free(): invalid
+        ## pointer` / `Call to FAtoGDB failed`). Building them ahead of time
+        ## makes FastGA skip that path and go straight to alignment.
+        FAtoGDB 'input1.${input1.ext}' &&
+        FAtoGDB 'input2.${input2.ext}' &&
+        GIXmake -T\${GALAXY_SLOTS:-8} 'input1.${input1.ext}' &&
+        GIXmake -T\${GALAXY_SLOTS:-8} 'input2.${input2.ext}' &&
+
+        #if str($chain_mode.enabled) == "no":
+            FastGA
+                #if str($output_settings.out.format) == "-1:output":
+                    -1:aln
+                #else:
+                    '${output_settings.out.format}'
+                    #if str($output_settings.out.format) == "-paf":
+                        #if str($output_settings.out.cigar_string) != "no":
+                            '${output_settings.out.cigar_string}'
+                        #end if
+                        #if str($output_settings.out.cs_string) != "no":
+                            '${output_settings.out.cs_string}'
+                        #end if
+                    #end if
+                #end if
+                $disable_soft_mask
+                $use_sym_seeding
+                -T\${GALAXY_SLOTS:-8}
+                -f${adaptive_seed_count_cutoff}
+                -c${minimum_seed_coverage}
+                -s${new_seed_threshold}
+                -l${minimum_alignment_length}
+                -i${minimum_alignment_identity}
+                'input1.${input1.ext}' 'input2.${input2.ext}'
+                #if str($output_settings.out.format) == "-1:output":
+                    && mv 'aln.1aln' '$output'
+                #else:
+                    > '$output'
+                #end if
+        #else:
+            ## Chaining is enabled: always produce a .1aln, run ALNchain on it,
+            ## then convert to PAF/PSL if that was the requested output format.
+            FastGA
+                -1:aln
+                $disable_soft_mask
+                $use_sym_seeding
+                -T\${GALAXY_SLOTS:-8}
+                -f${adaptive_seed_count_cutoff}
+                -c${minimum_seed_coverage}
+                -s${new_seed_threshold}
+                -l${minimum_alignment_length}
+                -i${minimum_alignment_identity}
+                'input1.${input1.ext}' 'input2.${input2.ext}' &&
+
+            ## Alias the chain params so the shared ALNchain command token
+            ## resolves correctly inside the chain_mode conditional scope.
+            #set $chain_params = $chain_mode.chain_params
+            #set $filter_params = $chain_mode.filter_params
+            @ALNCHAIN_CMD@
+                -o'chained'
+                'aln.1aln' &&
+
+            #if str($output_settings.out.format) == "-1:output":
+                mv 'chained.1aln' '$output'
+            #elif str($output_settings.out.format) == "-psl":
+                ALNtoPSL -T\${GALAXY_SLOTS:-8} 'chained.1aln' > '$output'
+            #else:
+                ## PAF family: translate -paf* CIGAR/CS flags to the bare
+                ## flags ALNtoPAF accepts (-x / -m / -s / -S).
+                ALNtoPAF -T\${GALAXY_SLOTS:-8}
+                    #if str($output_settings.out.cigar_string) == "-pafx":
+                        -x
+                    #elif str($output_settings.out.cigar_string) == "-pafm":
+                        -m
+                    #end if
+                    #if str($output_settings.out.cs_string) == "-pafs":
+                        -s
+                    #elif str($output_settings.out.cs_string) == "-pafS":
+                        -S
+                    #end if
+                    'chained.1aln' > '$output'
             #end if
-            #if str( $output_settings.out.cs_string ) != "no":
-                '${output_settings.out.cs_string}'
-            #end if
-        #end if
-        $use_soft_mask
-        $use_sym_seeding
-        -f${adaptive_seed_count_cutoff}
-        -c${minimum_seed_coverage}
-        -s${new_seed_threshold}
-        -l${minimum_alignment_length}
-        -i${minimum_alignment_identity}
-        'input1.${input1.ext}' 'input2.${input2.ext}' 
-        #if str( $output_settings.out.format ) != "-1:output":
-            > output
         #end if
     ]]></command>
     <inputs>
-        <param name="input1" type="data" label="FASTA sequence 1" format="fasta,fasta.gz"
-            help="FASTA or gzip-compressed FASTA file of a high-quality genome assembly (Q40 or better). The order of inputs can affect results—FastGA is not commutative unless symmetric seeding (-S) is enabled."/>
-        <param name="input2" type="data" label="FASTA sequence 2" format="fasta,fasta.gz"
-            help="FASTA or gzip-compressed FASTA file of a high-quality genome assembly (Q40 or better). The order of inputs can affect results—FastGA is not commutative unless symmetric seeding (-S) is enabled."/>
-        <param argument="-M" name="use_soft_mask" type="boolean" label="Use soft mask information if available" checked="false" truevalue="-M" falsevalue=""
-            help="Use soft-masked regions (lowercase nucleotides) encoded in the genome index to guide alignment. Helps reduce spurious alignments in repeat-rich genomes by down-weighting repetitive regions during seed finding."/>
-        <param argument="-S" name="use_sym_seeding" type="boolean" label="Use symmetric seeding" checked="false" truevalue="-S" falsevalue=""
-            help="Generate seeds from both genomes instead of only from genome 1. Makes alignment results independent of input order at the cost of extra computation time. Generally not recommended for standard use."/>
-        <param argument="-f" name="adaptive_seed_count_cutoff" type="integer" label="Adaptive seed count cutoff" value="10" min="0" max="255"
-            help="Frequency threshold for repetitive adaptive seeds (adaptamers). Seeds occurring more than this many times across both genomes are excluded from seeding to prevent anchoring in repetitive regions. Lower values are more stringent. Range: 0–255."/>
-        <param argument="-c" name="minimum_seed_coverage" type="integer" label="Minimum seed chain coverage in both genomes" value="85" min="0"
-            help="Minimum base-pair span that a seed chain must cover in both genomes to be retained for alignment extension. Increasing this value reduces spurious short chains. Range: ≥ 0."/>
-        <param argument="-s" name="new_seed_threshold" type="integer" label="Threshold for starting a new seed chain" value="1000" min="0"
-            help="Maximum gap (in bp) allowed between consecutive seeds within a chain. Seeds further apart than this threshold start a new independent chain. Increasing this allows chaining across larger gaps; decreasing it produces more, shorter chains. Range: ≥ 0."/>
-        <param argument="-l" name="minimum_alignment_length" type="integer" label="Minimum alignment length" value="100" min="0"
-            help="Alignments shorter than this length (in bp) are discarded from the output. Increase to focus on longer syntenic blocks and reduce noise from short matches. Range: ≥ 0."/>
-        <param argument="-i" name="minimum_alignment_identity" type="float" label="Minimum alignment identity" value="0.7" min="0.55" max="1.0"
-            help="Minimum sequence identity fraction required to report an alignment. For example, 0.7 requires at least 70% identity. Lower values permit more divergent alignments. Range: 0.55–&lt;1.0.">
+        <param name="input1" type="data" label="FASTA sequence 1" format="fasta,fasta.gz" help="FASTA or gzip-compressed FASTA file of a high-quality genome assembly (Q40 or better). The order of inputs can affect results—FastGA is not commutative unless symmetric seeding (-S) is enabled."/>
+        <param name="input2" type="data" label="FASTA sequence 2" format="fasta,fasta.gz" help="FASTA or gzip-compressed FASTA file of a high-quality genome assembly (Q40 or better). The order of inputs can affect results—FastGA is not commutative unless symmetric seeding (-S) is enabled."/>
+        <param argument="-N" name="disable_soft_mask" type="boolean" label="Do not soft mask" checked="false" truevalue="-N" falsevalue="" help="Ignore masking information encoded in the genome index. By default, masking from the GIX is applied during alignment to reduce spurious matches in repeat-rich regions."/>
+        <param argument="-S" name="use_sym_seeding" type="boolean" label="Use symmetric seeding" checked="false" truevalue="-S" falsevalue="" help="Generate seeds from both genomes instead of only from genome 1. Makes alignment results independent of input order at the cost of extra computation time. Generally not recommended for standard use."/>
+        <param argument="-f" name="adaptive_seed_count_cutoff" type="integer" label="Adaptive seed count cutoff" value="10" min="0" max="255" help="Frequency threshold for repetitive adaptive seeds (adaptamers). Seeds occurring more than this many times across both genomes are excluded from seeding to prevent anchoring in repetitive regions. Lower values are more stringent. Range: 0–255."/>
+        <param argument="-c" name="minimum_seed_coverage" type="integer" label="Minimum seed chain coverage in both genomes" value="85" min="0" help="Minimum base-pair span that a seed chain must cover in both genomes to be retained for alignment extension. Increasing this value reduces spurious short chains. Range: ≥ 0."/>
+        <param argument="-s" name="new_seed_threshold" type="integer" label="Threshold for starting a new seed chain" value="1000" min="0" help="Maximum gap (in bp) allowed between consecutive seeds within a chain. Seeds further apart than this threshold start a new independent chain. Increasing this allows chaining across larger gaps; decreasing it produces more, shorter chains. Range: ≥ 0."/>
+        <param argument="-l" name="minimum_alignment_length" type="integer" label="Minimum alignment length" value="100" min="0" help="Alignments shorter than this length (in bp) are discarded from the output. Increase to focus on longer syntenic blocks and reduce noise from short matches. Range: ≥ 0."/>
+        <param argument="-i" name="minimum_alignment_identity" type="float" label="Minimum alignment identity" value="0.7" min="0.55" max="1.0" help="Minimum sequence identity fraction required to report an alignment. For example, 0.7 requires at least 70% identity. Lower values permit more divergent alignments. Range: 0.55–&lt;1.0.">
             <validator type="in_range" min="0.55" max="1.0" exclude_max="true"/>
         </param>
+        <conditional name="chain_mode">
+            <param name="enabled" type="select" label="Chain alignments with ALNchain" help="Chaining post-processes the alignment into one-to-one global chains (allowing rearrangements), reducing spurious short hits. When enabled, FastGA internally produces a .1aln, runs ALNchain, and then converts the result back to the selected output format.">
+                <option value="no" selected="true">No chaining</option>
+                <option value="yes">Chain with ALNchain</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <expand macro="chaining_params"/>
+            </when>
+        </conditional>
         <section name="output_settings" expanded="False" title="Output">
             <conditional name="out">
-                <param name="format" type="select" label="Specify the output format"
-                    help="Output format for alignments. PAF (Pairwise Alignment Format) is the default and most widely supported. PSL (Pattern Space Layout) is compatible with UCSC tools. 1ALN is a compact binary ONEcode format—note that 1ALN output is nondeterministic.">
+                <param name="format" type="select" label="Specify the output format" help="Output format for alignments. PAF (Pairwise Alignment Format) is the default and most widely supported. PSL (Pattern Space Layout) is compatible with UCSC tools. 1ALN is a compact binary ONEcode format—note that 1ALN output is nondeterministic.">
                     <option value="-paf" selected="true">paf (-paf)</option>
                     <option value="-psl">psl (-psl)</option>
                     <option value="-1:output">1aln (-1)</option>
                 </param>
                 <when value="-paf">
-                    <param name="cigar_string" type="select" label="Use CIGAR string?"
-                        help="Optionally add a CIGAR string to PAF output (column 17). With X's (-pafx): mismatches are encoded as 'X', matches as '='. With ='s (-pafm): all aligned bases encoded as 'M'. Only one CIGAR style can be selected.">
+                    <param name="cigar_string" type="select" label="Use CIGAR string?" help="Optionally add a CIGAR string to PAF output (column 17). With X's (-pafx): mismatches are encoded as 'X', matches as '='. With ='s (-pafm): all aligned bases encoded as 'M'. Only one CIGAR style can be selected.">
                         <option value="no" selected="true">No CIGAR string</option>
                         <option value="-pafx">CIGAR string with X's (-pafx)</option>
                         <option value="-pafm">CIGAR string with ='s (-pafm)</option>
                     </param>
-                    <param name="cs_string" type="select" label="Use CS string?"
-                        help="Optionally add a CS difference string to PAF output. Short form (-pafs): compact encoding using ':', '*', '+', '-' operators. Long form (-pafS): full nucleotide-level representation. Only one CS style can be selected.">
+                    <param name="cs_string" type="select" label="Use CS string?" help="Optionally add a CS difference string to PAF output. Short form (-pafs): compact encoding using ':', '*', '+', '-' operators. Long form (-pafS): full nucleotide-level representation. Only one CS style can be selected.">
                         <option value="no" selected="true">No CS string</option>
                         <option value="-pafs">CS string in short form (-pafs)</option>
                         <option value="-pafS">CS string in long form (-pafS)</option>
@@ -80,15 +141,16 @@
         </section>
     </inputs>
     <outputs>
-        <data name="output" format="paf" from_work_dir="output">
+        <data name="output" format="paf">
             <change_format>
                 <when input="output_settings.out.format" value="-paf" format="paf"/>
                 <when input="output_settings.out.format" value="-psl" format="psl"/>
-                <when input="output_settings.out.format" value="-1:output" format="txt"/>
+                <when input="output_settings.out.format" value="-1:output" format="binary"/>
             </change_format>
         </data>
     </outputs>
     <tests>
+        <!-- Unchained tests (existing, byte-exact against committed fixtures) -->
         <test expect_num_outputs="1">
             <param name="input1" value="chrM_hg38.fa.gz"/>
             <param name="input2" value="chrM_mm39.fa.gz"/>
@@ -123,7 +185,7 @@
         <test expect_num_outputs="1">
             <param name="input1" value="chrM_hg38.fa.gz"/>
             <param name="input2" value="chrM_mm39.fa.gz"/>
-            <param name="use_soft_mask" value="True"/>
+            <param name="disable_soft_mask" value="True"/>
             <param name="use_sym_seeding" value="True"/>
             <param name="adaptive_seed_count_cutoff" value="9"/>
             <param name="minimum_seed_coverage" value="100"/>
@@ -147,6 +209,59 @@
                     <param name="format" value="-1:output"/>
                 </conditional>
             </section>
+        </test>
+        <!-- Chained tests: assertion-based, default chain params -->
+        <test expect_num_outputs="1">
+            <param name="input1" value="chrM_hg38.fa.gz"/>
+            <param name="input2" value="chrM_mm39.fa.gz"/>
+            <section name="output_settings">
+                <conditional name="out">
+                    <param name="format" value="-paf"/>
+                </conditional>
+            </section>
+            <conditional name="chain_mode">
+                <param name="enabled" value="yes"/>
+            </conditional>
+            <output name="output" ftype="paf">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="chrM"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input1" value="chrM_hg38.fa.gz"/>
+            <param name="input2" value="chrM_mm39.fa.gz"/>
+            <section name="output_settings">
+                <conditional name="out">
+                    <param name="format" value="-psl"/>
+                </conditional>
+            </section>
+            <conditional name="chain_mode">
+                <param name="enabled" value="yes"/>
+            </conditional>
+            <output name="output" ftype="psl">
+                <assert_contents>
+                    <has_text text="chrM"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input1" value="chrM_hg38.fa.gz"/>
+            <param name="input2" value="chrM_mm39.fa.gz"/>
+            <section name="output_settings">
+                <conditional name="out">
+                    <param name="format" value="-1:output"/>
+                </conditional>
+            </section>
+            <conditional name="chain_mode">
+                <param name="enabled" value="yes"/>
+            </conditional>
+            <output name="output">
+                <assert_contents>
+                    <has_size value="2300" delta="300"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -189,6 +304,19 @@ Options
 
 -----
 
+Chaining
+********
+
+When *Chain alignments with ALNchain* is enabled, the FastGA output is routed through ALNchain to be chained (allowing rearrangements) and is then converted back to the requested output format if said format is not ``.1aln``. 
+
+Chaining is useful when you want to reduce spurious short hits and collapse collinear fragments into chains.
+
+It is equivalent to running FastGA and then ALNchain as two separate tools but without the need to re-supply the source genomes.
+
+See the ALNchain tool for a description of the chain construction, scoring, and selection parameters.
+
+-----
+
 Output
 ******
 
@@ -197,12 +325,12 @@ Output
     ==========  ========  ===========  ===============================
     **Format**  **Flag**  **Default**  **Notes**
     ----------  --------  -----------  -------------------------------
-    PAF         -paf      Yes          
+    PAF         -paf      Yes
     PSL         -psl      No
     1ALN        -1        No           Output is nondeterministic
     ==========  ========  ===========  ===============================
 
-**CIGAR string options**  
+**CIGAR string options**
 
 (available only when output format is PAF)
 
@@ -214,7 +342,7 @@ Output
     CIGAR string with ='s           -pafm     No
     ==============================  ========  ===========
 
-**CS string options**  
+**CS string options**
 
 (available only when output format is PAF)
 
