@@ -8,13 +8,51 @@ Processes text files with spaCy and outputs results in various formats.
 
 import argparse
 import json
+import os
+import shutil
 import sys
+import urllib.request
+import zipfile
 
 try:
     import spacy
 except ImportError:
     print("Error: spaCy is not installed. Please install spaCy and required models.", file=sys.stderr)
     sys.exit(1)
+
+# Used only by the test-only --download path to fetch a small model on the fly.
+SPACY_MODELS_BASE_URL = "https://github.com/explosion/spacy-models/releases/download"
+SPACY_COMPAT_URL = "https://raw.githubusercontent.com/explosion/spacy-models/master/compatibility.json"
+SPACY_VERSION = "3.8"
+
+
+def download_model(model_name, dest_parent):
+    """Download and extract a spaCy model wheel, returning the loadable model dir.
+
+    This is used only for self-contained tests (via --download); in production
+    the model directory comes from the data manager via --model-dir.
+    """
+    compat = json.loads(urllib.request.urlopen(SPACY_COMPAT_URL).read())
+    versions = compat.get("spacy", {}).get(SPACY_VERSION, {}).get(model_name)
+    if not versions:
+        raise RuntimeError(f"No compatible version for {model_name} with spaCy {SPACY_VERSION}")
+    version = versions[0] if isinstance(versions, list) else versions
+
+    wheel_name = f"{model_name}-{version}-py3-none-any.whl"
+    url = f"{SPACY_MODELS_BASE_URL}/{model_name}-{version}/{wheel_name}"
+    os.makedirs(dest_parent, exist_ok=True)
+    wheel_path = os.path.join(dest_parent, wheel_name)
+    extract_dir = os.path.join(dest_parent, f"_{model_name}_wheel")
+    urllib.request.urlretrieve(url, wheel_path)
+    with zipfile.ZipFile(wheel_path) as zf:
+        zf.extractall(extract_dir)
+
+    data_dir = os.path.join(extract_dir, model_name, f"{model_name}-{version}")
+    model_dir = os.path.join(dest_parent, model_name)
+    if os.path.exists(model_dir):
+        shutil.rmtree(model_dir)
+    shutil.move(data_dir, model_dir)
+    return model_dir
 
 
 def process_text(nlp, text, output_format, include_components):
@@ -180,12 +218,16 @@ def main():
     parser = argparse.ArgumentParser(description="Process text with spaCy NLP")
     parser.add_argument("--input", required=True, help="Input text file")
     parser.add_argument("--output", required=True, help="Output file")
-    parser.add_argument("--model", required=True, help="spaCy model name")
+    parser.add_argument("--model-dir", help="Path to a spaCy model directory (from the data manager)")
+    parser.add_argument("--download", help="Model name to download on the fly (test use only)")
     parser.add_argument("--format", choices=["json", "conll", "conllu", "text"],
                         default="json", help="Output format")
     parser.add_argument("--annotators", required=True, help="Annotation type")
 
     args = parser.parse_args()
+
+    if not args.model_dir and not args.download:
+        parser.error("one of --model-dir or --download is required")
 
     # Map annotator selection to components
     component_map = {
@@ -197,12 +239,22 @@ def main():
 
     include_components = component_map.get(args.annotators, ["sentences"])
 
+    # Determine the model directory: download on the fly for tests, otherwise
+    # use the data-manager-installed directory passed via --model-dir.
+    if args.download:
+        try:
+            model_dir = download_model(args.download, os.path.join(os.getcwd(), "spacy_models"))
+        except Exception as e:
+            print(f"Error downloading model '{args.download}': {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        model_dir = args.model_dir
+
     # Load spaCy model
     try:
-        nlp = spacy.load(args.model)
-    except OSError:
-        print(f"Error: Model '{args.model}' not found. Please install it first.", file=sys.stderr)
-        print(f"You can install it with: python -m spacy download {args.model}", file=sys.stderr)
+        nlp = spacy.load(model_dir)
+    except OSError as e:
+        print(f"Error loading spaCy model from '{model_dir}': {e}", file=sys.stderr)
         sys.exit(1)
 
     # Read input text

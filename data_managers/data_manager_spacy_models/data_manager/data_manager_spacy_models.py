@@ -1,16 +1,23 @@
 #!/usr/bin/env python
-# Copyright 2006 The Galaxy Project. All rights reserved.
 """
 Data Manager for spaCy Language Models
 
-This script downloads and registers spaCy language models for use with Galaxy.
+Downloads spaCy model wheels from the explosion/spacy-models GitHub releases,
+extracts the model data directory into the data manager output's extra files
+path, and registers the path in Galaxy's ``spacy_models`` data table. Galaxy
+then moves the model into the managed data directory (see data_manager_conf.xml).
+
+Storing the extracted model directory (rather than pip-installing the package)
+means the tool can load it directly and offline with ``spacy.load(model_path)``,
+so the model persists across jobs and does not need to be re-downloaded at run
+time. No spaCy install is required to run this data manager.
 """
 
 import argparse
 import json
-import subprocess
-import sys
+import shutil
 import urllib.request
+import zipfile
 from pathlib import Path
 
 # GitHub releases base URL for spaCy models
@@ -142,154 +149,103 @@ SPACY_MODELS = {
 }
 
 
-def load_existing_models(data_table_path):
-    """Load existing model entries from the data table to avoid duplicates."""
-    existing = set()
-    if data_table_path and Path(data_table_path).exists():
-        with open(data_table_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    parts = line.split('\t')
-                    if parts:
-                        existing.add(parts[0])  # Add the value (first column)
-    return existing
-
-
 def get_model_version(model_name):
-    """
-    Look up the compatible model version from spaCy's compatibility.json.
-    """
+    """Look up the compatible model version from spaCy's compatibility.json."""
     print(f"Looking up compatible version for {model_name} (spaCy {SPACY_VERSION})")
-    try:
-        response = urllib.request.urlopen(SPACY_COMPAT_URL)
-        compat = json.loads(response.read())
-        spacy_compat = compat.get("spacy", {})
-        if SPACY_VERSION in spacy_compat:
-            models = spacy_compat[SPACY_VERSION]
-            if model_name in models:
-                versions = models[model_name]
-                version = versions[0] if isinstance(versions, list) else versions
-                print(f"Found compatible version: {version}")
-                return version
-        print(f"No compatible version found for {model_name} with spaCy {SPACY_VERSION}", file=sys.stderr)
-        return None
-    except Exception as e:
-        print(f"Error fetching compatibility info: {e}", file=sys.stderr)
-        return None
+    response = urllib.request.urlopen(SPACY_COMPAT_URL)
+    compat = json.loads(response.read())
+    models = compat.get("spacy", {}).get(SPACY_VERSION, {})
+    versions = models.get(model_name)
+    if not versions:
+        raise RuntimeError(f"No compatible version for {model_name} with spaCy {SPACY_VERSION}")
+    version = versions[0] if isinstance(versions, list) else versions
+    print(f"Found compatible version: {version}")
+    return version
 
 
-def download_model(model_name):
+def install_model(model_name, dest_dir):
+    """Download a spaCy model wheel and extract its data directory into dest_dir.
+
+    spaCy model wheels contain ``<model_name>/<model_name>-<version>/`` which is
+    the loadable model data directory (config.cfg, meta.json, pipeline
+    components). Its contents are written to ``dest_dir`` so that
+    ``spacy.load(dest_dir)`` works offline.
     """
-    Download a spaCy model from GitHub releases using pip install.
-
-    spaCy models are not on PyPI — they are hosted on GitHub releases.
-    This function looks up the compatible version and installs from the
-    direct URL, without requiring spaCy itself.
-    """
-    print(f"Downloading spaCy model: {model_name}")
-
     version = get_model_version(model_name)
-    if not version:
-        return False
-
-    # Construct GitHub releases URL
     wheel_name = f"{model_name}-{version}-py3-none-any.whl"
     url = f"{SPACY_MODELS_BASE_URL}/{model_name}-{version}/{wheel_name}"
-    print(f"Installing from {url}")
 
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", url],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        print(result.stdout)
-        print(f"Successfully downloaded {model_name} {version}")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"Error downloading model: {e}", file=sys.stderr)
-        print(e.stderr, file=sys.stderr)
-        return False
+    dest_dir = Path(dest_dir)
+    extract_dir = dest_dir.parent / f"_{model_name}_wheel"
+    wheel_path = dest_dir.parent / wheel_name
+
+    print(f"Downloading {url}")
+    urllib.request.urlretrieve(url, str(wheel_path))
+
+    print(f"Extracting {wheel_name}")
+    with zipfile.ZipFile(str(wheel_path)) as zf:
+        zf.extractall(str(extract_dir))
+
+    # The loadable model data directory is <model_name>/<model_name>-<version>.
+    data_dir = extract_dir / model_name / f"{model_name}-{version}"
+    if not data_dir.is_dir():
+        raise RuntimeError(f"Model data directory not found in wheel: {data_dir}")
+
+    # Move the model data directory contents to dest_dir so dest_dir is the
+    # directory that spacy.load() consumes.
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    shutil.move(str(data_dir), str(dest_dir))
+
+    # Clean up the wheel and leftover extraction directory.
+    wheel_path.unlink()
+    shutil.rmtree(extract_dir, ignore_errors=True)
+
+    return version
 
 
 def main():
     parser = argparse.ArgumentParser(description="Download and register spaCy language models")
+    parser.add_argument("data_manager_json",
+                        help="Galaxy data manager JSON file (prepopulated with output paths)")
     parser.add_argument("--model", action="append", required=True, choices=SPACY_MODELS.keys(),
                         help="spaCy model(s) to download (can be specified multiple times)")
-    parser.add_argument("--output", required=True,
-                        help="JSON output file for Galaxy data manager")
-    parser.add_argument("--data-table", required=False,
-                        help="Path to existing data table file to check for duplicates")
-
     args = parser.parse_args()
 
-    # Load existing models to avoid duplicates
-    existing_models = load_existing_models(args.data_table)
+    # Galaxy prepopulates the data manager JSON with the output dataset's extra
+    # files path, a writable directory. Models are extracted there and Galaxy
+    # moves them into the managed data directory afterwards.
+    with open(args.data_manager_json) as fh:
+        params = json.load(fh)
+    target_dir = Path(params["output_data"][0]["extra_files_path"])
+    target_dir.mkdir(parents=True, exist_ok=True)
 
-    # List to collect all data table entries
     data_table_entries = []
 
-    # Process each model
     for model_name in args.model:
-        if model_name in existing_models:
-            print(f"\n{'=' * 60}")
-            print(f"Skipping {model_name} - already in data table")
-            print(f"{'=' * 60}")
-        else:
-            print(f"\n{'=' * 60}")
-            print(f"Processing {model_name}...")
-            print(f"{'=' * 60}")
+        display_name, language, size = SPACY_MODELS[model_name]
+        print(f"\n{'=' * 60}\nProcessing {model_name}...\n{'=' * 60}")
 
-            display_name, language, size = SPACY_MODELS[model_name]
+        model_dir = target_dir / model_name
+        install_model(model_name, model_dir)
 
-            # Download model via pip to verify it exists and is installable
-            if not download_model(model_name):
-                print(f"WARNING: Failed to download {model_name}", file=sys.stderr)
-                continue  # Skip this model but continue with others
+        data_table_entries.append({
+            "value": model_name,
+            "name": display_name,
+            "lang": language,
+            "size": size,
+            # Relative to extra_files_path; data_manager_conf.xml moves it into
+            # ${GALAXY_DATA_MANAGER_DATA_PATH}/spacy_models/${value}.
+            "model_path": model_name,
+        })
 
-            # Verify the package was installed
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "show", model_name],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                print(f"Model package {model_name} verified")
-            except subprocess.CalledProcessError:
-                print(f"WARNING: Package {model_name} not found after install", file=sys.stderr)
-                continue
+        print(f"Successfully installed {display_name} ({model_name})")
 
-            # Add to data table entries
-            data_table_entries.append({
-                "value": model_name,
-                "name": display_name,
-                "lang": language,
-                "size": size,
-                "model_name": model_name
-            })
+    data_manager_output = {"data_tables": {"spacy_models": data_table_entries}}
+    with open(args.data_manager_json, "w") as fh:
+        json.dump(data_manager_output, fh, sort_keys=True)
 
-            print(f"Successfully registered {display_name}")
-            print(f"  Model name: {model_name}")
-            print(f"  Language: {language}")
-            print(f"  Size: {size}")
-
-    # Create data manager JSON output
-    data_manager_output = {
-        "data_tables": {
-            "spacy_models": data_table_entries
-        }
-    }
-
-    # Write output JSON
-    with open(args.output, "w") as f:
-        json.dump(data_manager_output, f, indent=2)
-
-    print(f"\n{'=' * 60}")
-    print(f"Summary: Successfully registered {len(data_table_entries)} model(s)")
-    print(f"{'=' * 60}")
+    print(f"\nSummary: Successfully registered {len(data_table_entries)} model(s)")
 
 
 if __name__ == "__main__":
