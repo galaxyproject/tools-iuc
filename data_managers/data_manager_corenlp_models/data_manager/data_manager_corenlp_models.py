@@ -1,11 +1,13 @@
 #!/usr/bin/env python
-# Copyright 2006 The Galaxy Project. All rights reserved.
 """
 Data Manager for Stanford CoreNLP Language Models
 
-Downloads CoreNLP language model JARs to a persistent directory and registers
-them in the Galaxy data table. JARs are stored at the absolute path so the
-CoreNLP tool can symlink them at runtime.
+Downloads CoreNLP model JARs from Maven Central into the data manager output's
+extra files path and registers them in Galaxy's ``corenlp_models`` data table.
+Galaxy then moves the JARs into a shared managed directory (see
+data_manager_conf.xml) so the CoreNLP tool can symlink them at run time. All
+JARs land in the same directory so the coreference annotator can find the
+common models JAR alongside a language JAR.
 """
 
 import argparse
@@ -14,196 +16,113 @@ import sys
 import urllib.request
 from pathlib import Path
 
-
-# CoreNLP version and model information
 CORENLP_VERSION = "4.5.10"
+BASE_URL = f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}"
 
-# Common models JAR (contains dcoref dictionaries and common models)
+# Common models JAR (dictionaries/models needed for coreference).
 COMMON_MODELS = {
     "name": "Common Models",
     "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models.jar",
-    "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models.jar"
+    "url": f"{BASE_URL}/stanford-corenlp-{CORENLP_VERSION}-models.jar",
 }
 
 LANGUAGE_MODELS = {
-    "ar": {
-        "name": "Arabic",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-arabic.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-arabic.jar"
-    },
-    "zh": {
-        "name": "Chinese",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-chinese.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-chinese.jar"
-    },
-    "en": {
-        "name": "English",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-english.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-english.jar"
-    },
-    "fr": {
-        "name": "French",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-french.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-french.jar"
-    },
-    "de": {
-        "name": "German",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-german.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-german.jar"
-    },
-    "hu": {
-        "name": "Hungarian",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-hungarian.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-hungarian.jar"
-    },
-    "it": {
-        "name": "Italian",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-italian.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-italian.jar"
-    },
-    "es": {
-        "name": "Spanish",
-        "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-spanish.jar",
-        "url": f"https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/{CORENLP_VERSION}/stanford-corenlp-{CORENLP_VERSION}-models-spanish.jar"
-    }
+    "ar": {"name": "Arabic", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-arabic.jar"},
+    "zh": {"name": "Chinese", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-chinese.jar"},
+    "en": {"name": "English", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-english.jar"},
+    "fr": {"name": "French", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-french.jar"},
+    "de": {"name": "German", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-german.jar"},
+    "hu": {"name": "Hungarian", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-hungarian.jar"},
+    "it": {"name": "Italian", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-italian.jar"},
+    "es": {"name": "Spanish", "jar_name": f"stanford-corenlp-{CORENLP_VERSION}-models-spanish.jar"},
+}
+for _code, _info in LANGUAGE_MODELS.items():
+    _info["url"] = f"{BASE_URL}/{_info['jar_name']}"
+
+# Lightweight stand-in used only by the data manager test (--test): the ~8 MB
+# CoreNLP code JAR, so the test exercises download and registration without
+# pulling a multi-hundred-MB model JAR.
+TEST_MODEL = {
+    "value": "en",
+    "name": "English",
+    "lang_code": "en",
+    "jar_name": f"stanford-corenlp-{CORENLP_VERSION}.jar",
+    "url": f"{BASE_URL}/stanford-corenlp-{CORENLP_VERSION}.jar",
 }
 
 
 def download_model(url, target_path):
-    """Download a file from URL to target path with progress reporting."""
-    print(f"Downloading from {url}")
+    """Download a file from URL to target_path."""
+    print(f"Downloading {url}")
     print(f"Saving to {target_path}")
-
-    def report_progress(block_num, block_size, total_size):
-        downloaded = block_num * block_size
-        if total_size > 0:
-            percent = min(100, (downloaded / total_size) * 100)
-            mb = downloaded / 1024 / 1024
-            total_mb = total_size / 1024 / 1024
-            print(f"  {percent:.0f}% ({mb:.0f}/{total_mb:.0f} MB)", flush=True)
-
     try:
-        urllib.request.urlretrieve(url, target_path, reporthook=report_progress)
-        print("Download complete!")
+        urllib.request.urlretrieve(url, target_path)
+        print("Download complete")
         return True
     except Exception as e:
         print(f"Error downloading file: {e}", file=sys.stderr)
         return False
 
 
-def load_existing_models(data_table_path):
-    """Load existing model entries from the data table to avoid duplicates."""
-    existing = set()
-    if data_table_path and Path(data_table_path).exists():
-        with open(data_table_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    parts = line.split('\t')
-                    if parts:
-                        existing.add(parts[0])
-    return existing
-
-
 def main():
     parser = argparse.ArgumentParser(description="Download and register CoreNLP language models")
+    parser.add_argument("data_manager_json",
+                        help="Galaxy data manager JSON file (prepopulated with output paths)")
     parser.add_argument("--language", action="append", choices=LANGUAGE_MODELS.keys(),
                         help="Language code(s) for the model(s) to download")
     parser.add_argument("--common-models", action="store_true",
                         help="Download the common models JAR (required for coreference)")
-    parser.add_argument("--target-directory", required=True,
-                        help="Directory to store the downloaded model JARs")
-    parser.add_argument("--output", required=True,
-                        help="JSON output file for Galaxy data manager")
-    parser.add_argument("--data-table", required=False,
-                        help="Path to existing data table file to check for duplicates")
-
+    parser.add_argument("--test", action="store_true",
+                        help="Download the small CoreNLP code JAR as a lightweight test stand-in")
     args = parser.parse_args()
 
-    if not args.language and not args.common_models:
-        parser.error("At least one of --language or --common-models must be specified")
+    if not args.language and not args.common_models and not args.test:
+        parser.error("one of --language, --common-models or --test is required")
 
-    existing_models = load_existing_models(args.data_table)
-
-    target_dir = Path(args.target_directory)
+    # Galaxy prepopulates the data manager JSON with the output dataset's extra
+    # files path, a writable directory. JARs are downloaded there and Galaxy
+    # moves them into the managed data directory afterwards.
+    with open(args.data_manager_json) as fh:
+        params = json.load(fh)
+    target_dir = Path(params["output_data"][0]["extra_files_path"])
     target_dir.mkdir(parents=True, exist_ok=True)
 
     data_table_entries = []
 
-    # Process common models if requested
-    if args.common_models:
-        if "common" in existing_models:
-            print(f"\n{'=' * 60}")
-            print(f"Skipping {COMMON_MODELS['name']} - already in data table")
-            print(f"{'=' * 60}")
-        else:
-            print(f"\n{'=' * 60}")
-            print(f"Processing {COMMON_MODELS['name']}...")
-            print(f"{'=' * 60}")
+    def install(value, name, lang_code, jar_name, url):
+        if not download_model(url, str(target_dir / jar_name)):
+            return False
+        data_table_entries.append({
+            "value": value,
+            "name": name,
+            "lang_code": lang_code,
+            "version": CORENLP_VERSION,
+            # Relative to extra_files_path; data_manager_conf.xml moves it into
+            # the shared ${GALAXY_DATA_MANAGER_DATA_PATH}/corenlp/<version> directory.
+            "models_path": jar_name,
+        })
+        print(f"Registered {name}")
+        return True
 
-            jar_path = target_dir / COMMON_MODELS["jar_name"]
+    if args.test:
+        if not install(TEST_MODEL["value"], TEST_MODEL["name"], TEST_MODEL["lang_code"],
+                       TEST_MODEL["jar_name"], TEST_MODEL["url"]):
+            sys.exit(1)
+    else:
+        if args.common_models:
+            if not install("common", COMMON_MODELS["name"], "common",
+                           COMMON_MODELS["jar_name"], COMMON_MODELS["url"]):
+                sys.exit(1)
+        for lang_code in args.language or []:
+            info = LANGUAGE_MODELS[lang_code]
+            if not install(lang_code, info["name"], lang_code, info["jar_name"], info["url"]):
+                sys.exit(1)
 
-            if jar_path.exists():
-                print(f"Model already exists at {jar_path}")
-            else:
-                if not download_model(COMMON_MODELS["url"], str(jar_path)):
-                    print(f"WARNING: Failed to download {COMMON_MODELS['name']}", file=sys.stderr)
+    data_manager_output = {"data_tables": {"corenlp_models": data_table_entries}}
+    with open(args.data_manager_json, "w") as fh:
+        json.dump(data_manager_output, fh, sort_keys=True)
 
-            if jar_path.exists():
-                data_table_entries.append({
-                    "value": "common",
-                    "name": COMMON_MODELS["name"],
-                    "lang_code": "common",
-                    "models_path": str(jar_path.absolute())
-                })
-                print(f"Registered {COMMON_MODELS['name']}")
-                print(f"  Path: {jar_path.absolute()}")
-
-    # Process each language
-    if args.language:
-        for lang_code in args.language:
-            if lang_code in existing_models:
-                print(f"\n{'=' * 60}")
-                print(f"Skipping {LANGUAGE_MODELS[lang_code]['name']} - already in data table")
-                print(f"{'=' * 60}")
-            else:
-                model_info = LANGUAGE_MODELS[lang_code]
-
-                print(f"\n{'=' * 60}")
-                print(f"Processing {model_info['name']} model...")
-                print(f"{'=' * 60}")
-
-                jar_path = target_dir / model_info["jar_name"]
-
-                if jar_path.exists():
-                    print(f"Model already exists at {jar_path}")
-                else:
-                    if not download_model(model_info["url"], str(jar_path)):
-                        print(f"WARNING: Failed to download {model_info['name']} model", file=sys.stderr)
-                        continue
-
-                data_table_entries.append({
-                    "value": lang_code,
-                    "name": model_info["name"],
-                    "lang_code": lang_code,
-                    "models_path": str(jar_path.absolute())
-                })
-                print(f"Registered {model_info['name']} model")
-                print(f"  Path: {jar_path.absolute()}")
-
-    # Write data manager JSON output
-    data_manager_output = {
-        "data_tables": {
-            "corenlp_models": data_table_entries
-        }
-    }
-
-    with open(args.output, "w") as f:
-        json.dump(data_manager_output, f, indent=2)
-
-    print(f"\n{'=' * 60}")
     print(f"Summary: {len(data_table_entries)} model(s) registered")
-    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":
