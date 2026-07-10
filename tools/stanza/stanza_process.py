@@ -185,6 +185,10 @@ def main():
     parser.add_argument("--format", choices=["json", "conll", "conllu", "text"],
                         default="json", help="Output format")
     parser.add_argument("--annotators", required=True, help="Annotation type")
+    parser.add_argument("--package", default="default_fast",
+                        help="Stanza model package to load (e.g. default_fast, default, "
+                             "default_accurate). Determines which annotators are available; "
+                             "constituency parsing requires default or default_accurate.")
     parser.add_argument("--download", action="store_true",
                         help="Download the required models on the fly before processing. "
                              "Intended for testing; production models are installed via the data manager.")
@@ -192,6 +196,18 @@ def main():
     args = parser.parse_args()
 
     processors = PROCESSOR_MAP.get(args.annotators, "tokenize")
+
+    # The processor that must be present for the selected annotation type. If the
+    # chosen package does not ship this model, Stanza silently drops it, so we
+    # check for it after loading and fail with a clear message instead.
+    REQUIRED_PROCESSOR = {
+        "tokenize": "tokenize",
+        "pos": "pos",
+        "ner": "ner",
+        "parse": "depparse",
+        "sentiment": "sentiment",
+        "constituency": "constituency",
+    }
 
     # In download mode, fetch only the models needed for the selected processors into
     # a writable directory in the job working area. This keeps tests self-contained
@@ -204,25 +220,41 @@ def main():
                 lang=args.lang,
                 model_dir=model_dir,
                 processors=processors,
-                package='default_fast',
+                package=args.package,
                 verbose=False,
             )
         except Exception as e:
             print(f"Error downloading Stanza model: {e}", file=sys.stderr)
             sys.exit(1)
 
-    # Load Stanza pipeline using default_fast package (nocharlm) for lower memory usage
+    # Load Stanza pipeline using the selected package. default_fast (nocharlm) is
+    # the low-memory default; default/default_accurate add heavier models such as
+    # constituency parsing.
     try:
         nlp = stanza.Pipeline(
             lang=args.lang,
             dir=model_dir,
             processors=processors,
-            package='default_fast',
+            package=args.package,
             download_method=None,
             use_gpu=False,
         )
     except Exception as e:
         print(f"Error loading Stanza pipeline: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Stanza silently ignores a requested processor the package does not provide
+    # (e.g. constituency is absent from default_fast). Fail clearly rather than
+    # emitting empty annotations.
+    required = REQUIRED_PROCESSOR.get(args.annotators)
+    if required and required not in nlp.processors:
+        print(
+            f"Error: the '{args.annotators}' annotation requires the '{required}' model, "
+            f"which is not available in the '{args.package}' package for language "
+            f"'{args.lang}'. Install a package that includes it (default or "
+            f"default_accurate) via the Stanza Language Models data manager.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Read input text
