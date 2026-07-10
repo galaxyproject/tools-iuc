@@ -8,9 +8,12 @@ manager output's extra files directory and registers them in Galaxy's
 data directory (see data_manager_conf.xml).
 
 Each language is installed as a self-contained stanza_resources directory
-(resources.json plus a per-language model subdirectory) using the
-memory-efficient ``default_fast`` package, matching the Stanza NLP tool which
-loads it via ``stanza.Pipeline(dir=models_path, package="default_fast")``.
+(resources.json plus a per-language model subdirectory) using the selected
+package (``default_fast`` by default). The Stanza NLP tool loads it via
+``stanza.Pipeline(dir=models_path, package=<package>)``, reading the package
+back from the data table. Installing the ``default`` or ``default_accurate``
+package additionally provides constituency parsing, which ``default_fast``
+does not include.
 """
 
 import argparse
@@ -80,6 +83,10 @@ def main():
                         help="Galaxy data manager JSON file (prepopulated with output paths)")
     parser.add_argument("--model", action="append", required=True,
                         help="Language code(s) to download (can be specified multiple times)")
+    parser.add_argument("--package", default="default_fast",
+                        help="Stanza model package to install (default_fast, default, or "
+                             "default_accurate). default/default_accurate add constituency "
+                             "parsing at the cost of larger downloads.")
     args = parser.parse_args()
 
     # Galaxy prepopulates the data manager JSON with the output dataset's
@@ -92,30 +99,36 @@ def main():
 
     data_table_entries = []
 
+    package = args.package
+
     for lang in args.model:
         display_name = STANZA_LANGUAGES.get(lang, lang)
 
-        # Install each language as its own stanza_resources directory so the
-        # tool can load it directly with stanza.Pipeline(dir=models_path).
-        lang_dir = target_dir / lang
-        print(f"Downloading {display_name} ({lang}) models with the default_fast package...")
+        # A data-table entry is keyed by language + package so multiple packages
+        # for the same language can coexist (e.g. a small default_fast model and
+        # a full default model with constituency). The value doubles as the
+        # on-disk subdirectory name.
+        entry_value = f"{lang}-{package}"
+        lang_dir = target_dir / entry_value
+        print(f"Downloading {display_name} ({lang}) models with the {package} package...")
         stanza.download(
             lang=lang,
             model_dir=str(lang_dir),
-            package="default_fast",
+            package=package,
             verbose=False,
         )
 
         data_table_entries.append({
-            "value": lang,
-            "name": display_name,
+            "value": entry_value,
+            "name": f"{display_name} — {package}",
             "lang": lang,
+            "package": package,
             # Relative to extra_files_path; data_manager_conf.xml moves it into
             # ${GALAXY_DATA_MANAGER_DATA_PATH}/stanza_models/${value}.
-            "models_path": lang,
+            "models_path": entry_value,
         })
 
-        print(f"Successfully downloaded {display_name} ({lang})")
+        print(f"Successfully downloaded {display_name} ({lang}) [{package}]")
 
     data_manager_output = {
         "data_tables": {

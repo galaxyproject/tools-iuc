@@ -1,34 +1,43 @@
 # Galaxy Data Manager for Stanza Language Models
 
-This Galaxy data manager downloads and installs Stanza language models for use with the Stanza NLP annotation tool, supporting 80+ languages with neural models trained on Universal Dependencies.
+This Galaxy data manager downloads and installs Stanza language models for use with the Stanza NLP annotation tool, supporting a curated selection of Stanza's 80+ languages with neural models trained on Universal Dependencies.
 
 ## Features
 
-- **80+ languages**: Comprehensive language support for multilingual NLP
-- **Direct HuggingFace download**: Downloads models directly from HuggingFace without requiring stanza installation
-- **Multiple language installation**: Select and install multiple languages simultaneously
-- **Progress reporting**: Shows download progress for each language model
-- **Duplicate prevention**: Checks existing installations to avoid redundant downloads
-- **Data table integration**: Automatically registers models in Galaxy's data table system
+- **Curated language selection**: Install one or more of ~50 commonly used languages
+- **Selectable model package**: Choose `default_fast`, `default`, or `default_accurate` depending on the annotators and accuracy you need
+- **Constituency parsing support**: The `default` and `default_accurate` packages add constituency parsing (absent from `default_fast`)
+- **Multiple packages per language**: The same language can be installed under more than one package; each becomes a separate selectable entry in the tool
+- **Data table integration**: Registers models in Galaxy's `stanza_models` data table for the Stanza NLP tool
 
 ## How It Works
 
 This data manager:
-1. **Connects to HuggingFace**: Downloads default_fast model packages directly from Stanford's HuggingFace repository
-2. **No dependencies**: Uses only Python's `urllib.request` - no stanza installation required
-3. **Extracts models**: Unzips model packages to Galaxy's managed storage
-4. **Registers models**: Updates the `stanza_models.loc` data table for tool access
-5. **Version control**: Downloads models compatible with Stanza 1.11.1
+1. **Downloads with Stanza**: Uses the `stanza.download()` API to fetch models for the selected package directly from Stanford's HuggingFace repository.
+2. **Installs per language**: Each language is stored as a self-contained `stanza_resources` directory (a `resources.json` plus a per-language model subdirectory).
+3. **Registers models**: Writes an entry to the `stanza_models` data table so the Stanza NLP tool can load it with `stanza.Pipeline(dir=models_path, package=<package>)`.
+4. **Managed storage**: Models are downloaded into the job's writable output directory, then moved by Galaxy into the managed data directory (see `data_manager_conf.xml`).
+5. **Version**: Installs models compatible with Stanza 1.12.0.
+
+## Model Packages
+
+| Package | Contents | Constituency? | Approx. English size |
+|---------|----------|---------------|----------------------|
+| `default_fast` | Memory-efficient nocharlm models: tokenization, POS, lemma, depparse, NER, sentiment (where available) | No | ~130–200 MB |
+| `default` | charlm-based models; adds constituency parsing | Yes | ~300 MB |
+| `default_accurate` | Largest, most accurate (electra-based) models; adds constituency parsing | Yes | Largest |
+
+`default_fast` is recommended for most deployments. Install `default` or `default_accurate` only for languages where you need constituency parsing or maximum accuracy, as they are substantially larger.
 
 ## Supported Languages
 
-The data manager supports **80+ languages** including:
+The data manager offers a curated selection of ~50 of Stanza's 80+ languages, including:
 
 ### European Languages
 - **Western**: English, German, French, Spanish, Italian, Portuguese, Dutch
 - **Nordic**: Swedish, Danish, Norwegian (Bokmål/Nynorsk), Finnish
 - **Slavic**: Russian, Ukrainian, Polish, Czech, Slovak, Croatian, Serbian, Bulgarian
-- **Other**: Greek, Hungarian, Romanian, Estonian, Latvian, Lithuanian
+- **Other**: Greek, Hungarian, Romanian, Estonian, Latvian, Lithuanian, Catalan, Slovenian
 
 ### Asian Languages
 - **East Asian**: Chinese (Simplified/Traditional), Japanese, Korean
@@ -38,29 +47,22 @@ The data manager supports **80+ languages** including:
 
 ### Other Languages
 - **African**: Afrikaans
-- **Minority**: Basque, Galician, Catalan, Armenian, Georgian
+- **Minority/regional**: Basque, Galician, Armenian, Georgian
 
 See [Stanza's complete model list](https://stanfordnlp.github.io/stanza/available_models.html) for detailed language coverage.
 
-## Model Details
+## Model Components
 
-### Model Type
-- **default_fast**: Memory-efficient models without character-level processing
-- **Neural networks**: Pretrained on Universal Dependencies v2.12 treebanks
-- **Multi-task**: Single package includes tokenization, POS, lemma, parsing, and NER models (where available)
-
-### Model Sizes
-- **Typical size**: 50-200MB per language
-- **Variation**: Depends on language complexity and available training data
-- **Storage**: Models persist in Galaxy's `tool-data/stanza_models/` directory
-
-### Model Components
-Each language package may include:
+Depending on the language and package, each install may include:
 - **Tokenization**: Sentence and token segmentation
 - **POS tagging**: Universal POS tags and morphological features
 - **Lemmatization**: Base form reduction
 - **Dependency parsing**: Universal Dependencies syntax
-- **NER**: Named entity recognition (available for subset of languages)
+- **NER**: Named entity recognition (subset of languages)
+- **Sentiment**: Per-sentence sentiment (subset of languages)
+- **Constituency**: Phrase-structure parse trees (`default`/`default_accurate` only)
+
+Models are pretrained on Universal Dependencies v2.12 treebanks.
 
 ## Installation Process
 
@@ -71,28 +73,33 @@ Each language package may include:
 4. **Select "Stanza Language Models"**
 
 ### Model Installation
-1. **Choose languages**: Select checkboxes for desired languages
-2. **Run installation**: Data manager will download and extract models
-3. **Monitor progress**: Download status shown for each language
-4. **Verify installation**: Models appear in the Stanza tool's language dropdown
+1. **Choose a package**: `default_fast` (default), `default`, or `default_accurate`
+2. **Choose languages**: Select checkboxes for the desired languages
+3. **Run installation**: The data manager downloads and installs the models
+4. **Verify installation**: Models appear in the Stanza tool's language dropdown, labelled with their package (e.g. `English — default_fast`)
 
 ### Post-Installation
 - Models are immediately available to the Stanza NLP tool
 - No restart required
 - Models persist across Galaxy restarts
-- Multiple installations of the same language are prevented
 
 ## Data Table Format
 
-Models are registered in `stanza_models.loc` with this format:
+Models are registered in `stanza_models.loc` with five columns:
 ```
-<lang_code>    <display_name>    <lang_code>    <models_path>
+<value>    <name>    <lang>    <package>    <models_path>
 ```
+
+- `value`: unique identifier, `<lang>-<package>` (also the on-disk subdirectory name)
+- `name`: display name shown in the tool UI
+- `lang`: ISO 639-1 language code
+- `package`: `default_fast`, `default`, or `default_accurate`
+- `models_path`: path to the `stanza_resources` directory containing the model
 
 Example:
 ```
-en    English    en    /galaxy/tool-data/stanza_models/en
-de    German     de    /galaxy/tool-data/stanza_models/de
+en-default_fast    English — default_fast    en    default_fast    /galaxy/tool-data/stanza_models/en-default_fast
+en-default         English — default         en    default         /galaxy/tool-data/stanza_models/en-default
 ```
 
 ## Technical Details
@@ -100,51 +107,42 @@ de    German     de    /galaxy/tool-data/stanza_models/de
 ### Download Source
 - **Repository**: https://huggingface.co/stanfordnlp/
 - **Model naming**: `stanza-{lang}` (e.g., `stanza-en`, `stanza-de`)
-- **Version**: Models tagged with `v{resources_version}` from Stanford's resources.json
+- **Fetched via**: `stanza.download()`
 
 ### Storage Structure
 ```
 tool-data/
 └── stanza_models/
-    ├── en/
-    │   └── [English model files]
-    ├── de/
-    │   └── [German model files]
+    ├── en-default_fast/
+    │   └── [English default_fast model files]
+    ├── en-default/
+    │   └── [English default model files, incl. constituency]
     └── stanza_models.loc
 ```
 
 ### Dependencies
-- **Python 3.12**: Standard library only
-- **No stanza package**: Downloads directly from HuggingFace
-- **urllib.request**: For HTTP downloads
-- **zipfile**: For model extraction
+- **Python 3.12**
+- **stanza 1.12.0**
 
 ## Troubleshooting
 
 ### Common Issues
 - **Network connectivity**: Ensure access to huggingface.co
-- **Disk space**: Large language sets require substantial storage
-- **Permissions**: Galaxy must have write access to tool-data directory
+- **Disk space**: Large language sets and the `default`/`default_accurate` packages require substantial storage
+- **Permissions**: Galaxy must have write access to the managed data directory
 
 ### Model Verification
 - Check `stanza_models.loc` for registered models
-- Verify model files exist in expected directories
-- Test with Stanza NLP tool after installation
+- Verify model files exist in the expected directories
+- Test with the Stanza NLP tool after installation
 
 ## Citation
 
 This data manager installs models created by the Stanford NLP Group. Please cite:
 
 ```
-Qi, Peng, Yuhao Zhang, Yuhui Zhang, Jason Bolton, and Christopher D. Manning. 
-"Stanza: A Python Natural Language Processing Toolkit for Many Human Languages." 
-In Proceedings of the 58th Annual Meeting of the Association for Computational 
+Qi, Peng, Yuhao Zhang, Yuhui Zhang, Jason Bolton, and Christopher D. Manning.
+"Stanza: A Python Natural Language Processing Toolkit for Many Human Languages."
+In Proceedings of the 58th Annual Meeting of the Association for Computational
 Linguistics: System Demonstrations, 2020.
 ```
-
-## Version History
-
-- **1.11.1.3**: Enhanced duplicate prevention and error handling
-- **1.11.1.2**: Improved download progress reporting
-- **1.11.1.1**: Direct HuggingFace download implementation
-- **1.11.1.0**: Initial release
