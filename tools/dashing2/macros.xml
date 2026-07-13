@@ -1,0 +1,106 @@
+<macros>
+    <token name="@TOOL_VERSION@">2.1.20</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">25.0</token>
+    <token name="@INTYPES@">fasta,fasta.gz,fastq,fastq.gz,fastqsanger,fastqsanger.gz</token>
+    <!-- Working subdirectory holding the element_identifier-named symlinks that
+         make up the file-of-files passed to dashing2 with -F (see the comment on
+         the symlink loop below). -->
+    <token name="@FFILE_DIR@">ffiles</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">dashing2</requirement>
+        </requirements>
+    </xml>
+
+    <!-- Each tool builds a file-of-files (FFILE) from its dataset collection by
+         symlinking every element under its element_identifier (so the names
+         dashing2 prints in the distance matrix are the human-readable dataset
+         names, not Galaxy's numeric paths) and writing the symlink paths one
+         per line into a list passed to dashing2 with -F. The loop is inlined in
+         each <command> because the collection variable name differs per tool. -->
+
+    <!-- Sequence parsing / sketch construction parameters shared by the sketch
+         and dist tools, mirroring dashing2's k-mer, sketch-size, window,
+         spacing, canonicalization, long-kmer and seed options. -->
+    <xml name="sketch_params">
+        <section name="sketch_params" expanded="false" title="Sketch construction">
+            <param argument="-k" name="kmer_length" type="integer" value="" optional="true" min="1" label="K-mer length" help="Length of the k-mers (or minimizers) to hash. Leave blank to use the maximum length expressible for the chosen alphabet (31 for DNA, 14 for protein). Values larger than that limit switch dashing2 to rolling hashing, allowing unbounded k."/>
+            <param argument="-S" name="sketch_size" type="integer" value="1024" min="1" label="Sketch size" help="Number of registers retained per sketch. Larger sketches give more accurate similarity estimates at the cost of memory and time. Unlike Dashing 1, any positive integer is allowed (it need not be a power of two)."/>
+            <param argument="--window-size" type="integer" value="" optional="true" min="1" label="Window size (winnowing)" help="When greater than the k-mer length, only the minimum-hash k-mer in each window of this size is kept (minimizer winnowing). Larger windows yield fewer minimizers and faster sketching. Leave blank to use every k-mer."/>
+            <param argument="--spacing" type="text" value="" optional="true" label="Spaced-seed pattern" help="Spacing scheme for spaced minimizers, given as one fewer integer than the k-mer length, e.g. for -k5 the value 0,1,1,0 specifies the match pattern KK.K.KK where '.' positions are ignored. Run-length form such as 0,1x2,0 is also accepted. Leave blank for contiguous (unspaced) k-mers.">
+                <validator type="regex" message="Use comma-separated integers, optionally run-length compressed (e.g. 0,1,1,0 or 0,1x2,0).">^$|^[0-9]+(x[0-9]+)?(,[0-9]+(x[0-9]+)?)*$</validator>
+            </param>
+            <param argument="--no-canon" type="boolean" checked="false" truevalue="--no-canon" falsevalue="" label="Disable canonicalization" help="By default DNA k-mers are canonicalized with their reverse complement so the sketch is strand-independent. Enable this to make sketching strand-specific. Ignored for protein alphabets."/>
+            <param argument="--long-kmers" type="boolean" checked="false" truevalue="--long-kmers" falsevalue="" label="Use 128-bit k-mers" help="Encode k-mers in 128-bit integers instead of 64-bit, allowing exact encoding of DNA k-mers up to length 64."/>
+            <param argument="--seed" type="integer" value="" optional="true" min="0" label="Hash seed" help="Seed for the k-mer hash function. A value of 0 disables k-mer XORing so k-mers are encoded directly. Leave blank to use the default seed."/>
+        </section>
+    </xml>
+
+    <!-- Sequence alphabet. DNA is the default; the protein options select a
+         reduced amino-acid alphabet and disable canonicalization. -->
+    <xml name="alphabet_select">
+        <param name="alphabet" type="select" label="Sequence alphabet" help="Alphabet used to interpret the input sequences. DNA is canonicalized by default; any protein alphabet disables canonicalization. The reduced alphabets group chemically similar residues to improve sensitivity for divergent proteins.">
+            <option value="" selected="true">DNA (default)</option>
+            <option value="--enable-protein">Protein, 20 characters (--enable-protein)</option>
+            <option value="--protein14">Protein, 14 characters (--protein14)</option>
+            <option value="--protein8">Protein, 8 characters (--protein8)</option>
+            <option value="--protein6">Protein, 6 characters (--protein6)</option>
+        </param>
+    </xml>
+
+    <!-- Sketch data structure. Determines how multiplicities are handled and
+         whether the comparison is exact or sketched. The weighted-sequence
+         modes (BagMinHash and ProbMinHash) are deliberately omitted: they
+         segfault when sketching sequence data in the pinned dashing2 2.1.20
+         build. Weighted sketching is still available for feature sets via the
+         BED and BigWig input types and via the dashing2 wsketch tool, all of
+         which work. Re-add these options once the upstream crash is fixed. -->
+    <xml name="sketch_mode_select">
+        <param name="sketch_mode" type="select" label="Sketching mode" help="Data structure used to summarize each input. One-permutation SetSketch is the fastest and treats inputs as sets. Full SetSketch is more accurate for large sketches and small sets. The exact modes (k-mer set / count dictionary) build sorted hash sets rather than sketches.">
+            <option value="" selected="true">One-permutation SetSketch—fastest, set-based (default)</option>
+            <option value="--full">Full SetSketch—set-based, better for large sketches (--full)</option>
+            <option value="--set">Exact k-mer set (--set)</option>
+            <option value="--countdict">Exact k-mer count dictionary (--countdict)</option>
+        </param>
+    </xml>
+
+    <!-- Comparison options shared by sketch (in compare mode) and dist. The
+         rectangular (query-vs-reference) shape is driven by a query collection
+         supplied at the tool level, not here. -->
+    <xml name="comparison_opts">
+        <param name="measure" type="select" label="Comparison measure" help="Quantity emitted for each pair. Similarity is the fraction of shared registers. Mash/Poisson distance converts similarity to an evolutionary distance suitable for clustering. Containment is asymmetric (|A&amp;B|/|A|); symmetric containment uses the smaller set. Intersection and union report raw cardinalities.">
+            <option value="" selected="true">Similarity (default)</option>
+            <option value="--distance">Mash / Poisson distance (--distance)</option>
+            <option value="--containment">Containment, asymmetric (--containment)</option>
+            <option value="--symmetric-containment">Symmetric containment (--symmetric-containment)</option>
+            <option value="--intersection">Intersection size (--intersection)</option>
+            <option value="--union-size">Union size (--union-size)</option>
+        </param>
+        <param name="result_shape" type="select" label="Output shape" help="Dense all-pairs layout. Symmetric emits an upper-triangular PHYLIP matrix. Square emits a full N×N matrix (use with an asymmetric measure such as containment). For a query-vs-reference (rectangular) comparison, additionally supply a query collection above.">
+            <option value="" selected="true">Symmetric all-pairs, upper-triangular PHYLIP (default)</option>
+            <option value="--asymmetric-all-pairs">Square all-pairs, full N×N matrix (--asymmetric-all-pairs)</option>
+        </param>
+        <conditional name="sparse">
+            <param name="mode" type="select" label="Sparse output filter" help="Restrict the dense matrix to its most important entries, emitting a compressed-sparse-row (CSR) result powered by an LSH index. Top-k keeps each item's nearest neighbours; thresholding keeps pairs above a similarity cutoff.">
+                <option value="none" selected="true">None—emit the full matrix</option>
+                <option value="topk">Top-k nearest neighbours (--topk)</option>
+                <option value="threshold">Similarity threshold (--similarity-threshold)</option>
+            </param>
+            <when value="none"/>
+            <when value="topk">
+                <param argument="--topk" type="integer" value="25" min="1" label="Number of nearest neighbours (k)" help="Maximum number of nearest neighbours listed per item. If k is greater than N-1, full pairwise distances are emitted instead."/>
+            </when>
+            <when value="threshold">
+                <param argument="--similarity-threshold" name="threshold" type="float" value="0.7" min="0" max="1" label="Minimum similarity" help="Only pairs whose similarity exceeds this fraction are emitted."/>
+            </when>
+        </conditional>
+        <param argument="--binary-output" type="boolean" checked="false" truevalue="--binary-output" falsevalue="" label="Binary output" help="Emit the distances as a binary float32 matrix rather than human-readable text. Symmetric comparisons emit a condensed matrix; square and rectangular comparisons emit full row-major matrices."/>
+    </xml>
+
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1101/gr.277655.123</citation>
+        </citations>
+    </xml>
+</macros>
