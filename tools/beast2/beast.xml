@@ -10,6 +10,19 @@
         mkdir -p results &&
         ln -s '$input_xml' 'results/beast_input.xml' &&
         cd results &&
+        ## Step 1 :The tool validates the XML and if validation fails, the job aborts here (and MCMC is skipped)
+        beast
+        -threads "\${GALAXY_SLOTS:-1}"
+        #if str($definitions).strip()
+            -D '$definitions'
+        #end if
+        #if str($loglevel)
+            -loglevel $loglevel
+        #end if
+        -validate
+        'beast_input.xml' > '$validation_report' 2>&1 &&
+
+        ## Step 2 : Run the MCMC analysis, when validation is successful
         beast
         -threads "\${GALAXY_SLOTS:-1}"
         -overwrite
@@ -20,36 +33,20 @@
         #if str($loglevel)
             -loglevel $loglevel
         #end if
-        #if str($run_mode.mode) == 'validate'
-            -validate
-        #else
-            #if str($run_mode.seed)
-                -seed $run_mode.seed
-            #end if
-            #if str($run_mode.errors)
-                -errors $run_mode.errors
-            #end if
-            $run_mode.sampleFromPrior
+        #if str($seed)
+            -seed $seed
         #end if
+        #if str($errors)
+            -errors $errors
+        #end if
+        $sampleFromPrior
         'beast_input.xml'
-        #if str($run_mode.mode) == 'validate'
-            > '$validation_report'
-        #end if
-    ]]></command>
+    ]]></command> 
     <inputs>
         <param name="input_xml" type="data" format="xml" label="BEAST2 XML input file" help="BEAST 2 analysis specification, typically produced by BEAUti. This must be a BEAST 2 XML, not a BEAST 1 XML."/>
-        <conditional name="run_mode">
-            <param name="mode" type="select" label="Run mode">
-                <option value="run" selected="true">Run MCMC analysis</option>
-                <option value="validate">Validate XML only (parse, do not run)</option>
-            </param>
-            <when value="run">
-                <param argument="-seed" type="integer" optional="true" label="Random number seed" help="Set for reproducibility. Leave blank for a random seed."/>
-                <param argument="-sampleFromPrior" type="boolean" truevalue="-sampleFromPrior" falsevalue="" checked="false" label="Sample from prior" help="Ignore the data likelihood and sample from the prior only."/>
-                <param argument="-errors" type="integer" optional="true" min="0" label="Maximum numerical errors" help="Number of numerical errors tolerated before stopping."/>
-            </when>
-            <when value="validate"/>
-        </conditional>
+        <param argument="-seed" type="integer" value="" optional="true" label="Random number seed" help="Set for reproducibility. Leave blank for a random seed."/>
+        <param argument="-sampleFromPrior" type="boolean" truevalue="-sampleFromPrior" falsevalue="" checked="false" label="Sample from prior" help="Ignore the data likelihood and sample from the prior only."/>
+        <param argument="-errors" type="integer" value="" optional="true" min="0" label="Maximum numerical errors" help="Number of numerical errors tolerated before stopping."/>
         <param argument="-loglevel" type="select" label="Log level" help="Verbosity of BEAST's screen logging.">
             <option value="" selected="true">Default</option>
             <option value="error">error</option>
@@ -58,31 +55,24 @@
             <option value="debug">debug</option>
             <option value="trace">trace</option>
         </param>
-        <param argument="-D" name="definitions" type="text" optional="true" label="Attribute-value definitions" help="Comma-separated key=value pairs substituted into the XML, e.g. chainLength=1000000,tree=mytree">
+        <param argument="-D" name="definitions" type="text" value="" optional="true" label="Attribute-value definitions" help="Comma-separated key=value pairs substituted into the XML, e.g. chainLength=1000000,tree=mytree">
             <validator type="regex" message="Only alphanumeric characters, '.', '_', '-', '=', ',' and spaces are allowed">[A-Za-z0-9._,=\- ]*</validator>
         </param>
     </inputs>
     <outputs>
         <collection name="trace_logs" type="list" label="${tool.name} on ${on_string}: Trace logs">
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\.log" ext="tabular" directory="results"/>
-            <filter>run_mode['mode'] == 'run'</filter>
         </collection>
         <collection name="tree_logs" type="list" label="${tool.name} on ${on_string}: Tree logs">
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\.trees" ext="beast.trees" directory="results"/>
-            <filter>run_mode['mode'] == 'run'</filter>
         </collection>
-        <data name="validation_report" format="txt" label="${tool.name} on ${on_string}: Validation report">
-            <filter>run_mode['mode'] == 'validate'</filter>
-        </data>
+        <data name="validation_report" format="txt" label="${tool.name} on ${on_string}: Validation report"/>
     </outputs>
     <tests>
-        <!-- Test 1: default MCMC run with fixed seed -->
-        <test expect_num_outputs="2">
+        <!-- Test 1: default validate-then-run with fixed seed -->
+        <test expect_num_outputs="3">
             <param name="input_xml" value="beast2_test.xml"/>
-            <conditional name="run_mode">
-                <param name="mode" value="run"/>
-                <param name="seed" value="12345"/>
-            </conditional>
+            <param name="seed" value="12345"/>
             <output_collection name="trace_logs" type="list" count="1">
                 <element name="beast_test">
                     <assert_contents>
@@ -100,29 +90,32 @@
                     </assert_contents>
                 </element>
             </output_collection>
-        </test>
-        <!-- Test 2: sample from prior code path -->
-        <test expect_num_outputs="2">
-            <param name="input_xml" value="beast2_test.xml"/>
-            <conditional name="run_mode">
-                <param name="mode" value="run"/>
-                <param name="seed" value="12345"/>
-                <param name="sampleFromPrior" value="true"/>
-            </conditional>
-            <output_collection name="trace_logs" type="list" count="1"/>
-            <output_collection name="tree_logs" type="list" count="1"/>
-        </test>
-        <!-- Test 3: validate-only mode -->
-        <test expect_num_outputs="1">
-            <param name="input_xml" value="beast2_test.xml"/>
-            <conditional name="run_mode">
-                <param name="mode" value="validate"/>
-            </conditional>
             <output name="validation_report">
                 <assert_contents>
-                    <has_text text="BEAST"/>
+                    <has_text text="  3 taxa"/>
+                    <has_text text="  37 sites"/>
+                    <has_text text="  5 patterns"/>
                 </assert_contents>
             </output>
+        </test>
+        <!-- Test 2: sample from prior code path -->
+        <test expect_num_outputs="3">
+            <param name="input_xml" value="beast2_test.xml"/>
+            <param name="seed" value="12345"/>
+            <param name="sampleFromPrior" value="true"/>
+            <output_collection name="trace_logs" type="list" count="1"/>
+            <output_collection name="tree_logs" type="list" count="1"/>
+            <output name="validation_report">
+                <assert_contents>
+                    <has_text text="  3 taxa"/>
+                    <has_text text="  37 sites"/>
+                    <has_text text="  5 patterns"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: invalid XML fails validation and aborts the job before MCMC -->
+        <test expect_failure="true">
+            <param name="input_xml" value="beast2_invalid.xml"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -132,6 +125,10 @@ BEAST 2 (Bayesian Evolutionary Analysis Sampling Trees) is a cross-platform prog
 phylogenetic analysis of molecular sequences using MCMC. It is oriented towards rooted,
 time-measured phylogenies inferred under strict or relaxed molecular clock models, and is used for
 divergence-time estimation and testing evolutionary hypotheses.
+
+The tool first **validates** the input XML (``beast -validate``). Only if validation succeeds does
+it proceed to the **MCMC analysis**; if the XML is invalid the job stops and the validation report
+explains why.
 
 -----
 
@@ -145,7 +142,6 @@ divergence-time estimation and testing evolutionary hypotheses.
 
 **Options**
 
-- **Run mode**: Run the full MCMC analysis, or only validate (parse) the XML without running.
 - **Random number seed**: Set a specific seed for reproducibility.
 - **Sample from prior**: Sample from the prior distribution instead of the posterior.
 - **Maximum numerical errors**: Number of numerical errors tolerated before stopping.
@@ -162,6 +158,7 @@ collections:
 
 - **Trace logs** (tabular): parameter estimates and likelihoods sampled during the MCMC run.
 - **Tree logs** (beast.trees): sampled trees in NEXUS format.
+- **Validation report** (txt): output of the XML validation step, always produced.
 
 An XML that defines only a screen logger (no file loggers) will produce empty collections.
 
