@@ -11,17 +11,29 @@
     </requirements>
     <version_command>compleasm --version</version_command>
     <command><![CDATA[
+    ## compleasm rebuilds the lineage name as "<taxon>_<odb>", so --odb has to agree with
+    ## the suffix of the cached lineage or it will try to fetch a different OrthoDB release.
+    #set $odb = str($lineage_dataset).split('_')[-1]
+    ## compleasm >=0.2.7 expects the OrthoDB 12 HMM naming scheme. Against an odb10 lineage it
+    ## still exits 0 but discards every hmmsearch hit, reporting 100% missing BUSCOs, so refuse
+    ## to run rather than hand back silently wrong completeness scores.
+    #if not $odb.startswith('odb12'):
+        >&2 echo 'The selected lineage "$lineage_dataset" is an OrthoDB $odb dataset, but compleasm @TOOL_VERSION@ only supports OrthoDB 12 lineages. Older lineages would be reported as 100% missing. Please ask your Galaxy administrator to install odb12 BUSCO datasets.' && exit 1 &&
+    #end if
     mkdir -p 'galaxy_db/' &&
     ln -s '${busco_database.fields.path}/lineages/${lineage_dataset}/' 'galaxy_db/${lineage_dataset}' &&
-    ## Create a compleasm-specific empty file to avoid redownloading the lineage data (https://github.com/huangnengCSU/compleasm/blob/0.2.6/compleasm.py#L165)
+    ## Create a compleasm-specific empty file to avoid redownloading the lineage data (https://github.com/huangnengCSU/compleasm/blob/v0.2.8/compleasm.py#L155)
     touch 'galaxy_db/${lineage_dataset}.done' &&
+    ## Placement files are only used for auto-lineage/SEPP, which this tool never runs, so mark
+    ## them present to skip a large (~30 MB) download on every job.
+    touch 'galaxy_db/placement_files.done' &&
 
     compleasm run
     -a '$input'
     -o galaxy_output
-    --mode $mode
     -L 'galaxy_db'
     -l '$lineage_dataset'
+    --odb '$odb'
     -t "\${GALAXY_SLOTS:-1}"
 
     #if str($specified_contigs) != '':
@@ -31,10 +43,6 @@
     ]]></command>
     <inputs>
         <param argument="-a" name="input" type="data" format="fasta" label="Input genome file"/>
-        <param name="mode" type="select" label="The mode of evaluation" help="If you want to use hmmsearch, select BUSCO mode. Otherwise, select lite mode">
-            <option value="busco" selected="true">BUSCO</option>
-            <option value="lite">Lite</option>
-        </param>
         <param argument="--specified_contigs" type="text" label="Specify the contigs to be evaluated" optional="true" help="e.g. chr1 chr2 chr3. If not specified, all contigs will be evaluated">
             <sanitizer invalid_char="">
                 <valid initial="string.letters,string.digits">
@@ -66,16 +74,16 @@
     </inputs>
 
     <outputs>
-        <data name='full_table_busco' format='tsv' label="${tool.name} on ${on_string}: full table BUSCO" from_work_dir="galaxy_output/*_odb10/full_table_busco_format.tsv">
+        <data name='full_table_busco' format='tsv' label="${tool.name} on ${on_string}: full table BUSCO" from_work_dir="galaxy_output/*_odb*/full_table_busco_format.tsv">
             <filter>outputs and 'full_table_busco' in outputs</filter>
         </data>
-        <data name='full_table' format='tsv' label="${tool.name} on ${on_string}: full table" from_work_dir="galaxy_output/*_odb10/full_table.tsv">
+        <data name='full_table' format='tsv' label="${tool.name} on ${on_string}: full table" from_work_dir="galaxy_output/*_odb*/full_table.tsv">
             <filter>outputs and 'full_table' in outputs</filter>
         </data>
-        <data name='miniprot' format='gff3' label="${tool.name} on ${on_string}: Miniprot" from_work_dir="galaxy_output/*_odb10/miniprot_output.gff">
+        <data name='miniprot' format='gff3' label="${tool.name} on ${on_string}: Miniprot" from_work_dir="galaxy_output/*_odb*/miniprot_output.gff">
             <filter>outputs and 'miniprot' in outputs</filter>
         </data>
-        <data name='translated_protein' format='fasta' label="${tool.name} on ${on_string}: Translated protein" from_work_dir="galaxy_output/*_odb10/translated_protein.fasta">
+        <data name='translated_protein' format='fasta' label="${tool.name} on ${on_string}: Translated protein" from_work_dir="galaxy_output/*_odb*/translated_protein.fasta">
             <filter>outputs and 'translated_protein' in outputs</filter>
         </data>
         <data name='summary' format='txt' label="${tool.name} on ${on_string}: Summary" from_work_dir="galaxy_output/summary.txt">
@@ -86,26 +94,21 @@
     <tests>
         <test expect_num_outputs="4">
             <param name="input" value="small_genome.fasta"/>
-            <param name="mode" value="busco"/>
             <param name="outputs" value="full_table_busco,full_table,miniprot,translated_protein"/>
-            <param name="busco_database" value="entomoplasmatales_odb10"/>
-            <param name="lineage_dataset" value="entomoplasmatales_odb10"/>
+            <param name="busco_database" value="entomoplasmatales_odb12"/>
+            <param name="lineage_dataset" value="entomoplasmatales_odb12"/>
             <output name="full_table_busco">
                 <assert_contents>
                     <has_text text="Busco id"/>
-                    <has_text text="496at186328&#009;Missing"/>
-                    <has_text text="165at186328&#009;Complete"/>
-                    <has_text text="421at186328&#009;Complete"/>
-                    <has_text text="90at186328&#009;Complete"/>
+                    <has_text text="227at186328&#009;Complete"/>
+                    <has_text text="1314at186328&#009;Missing"/>
                 </assert_contents>
             </output>
             <output name="full_table">
                 <assert_contents>
                     <has_text text="Gene&#009;Status"/>
-                    <has_text text="496at186328&#009;Missing"/>
-                    <has_text text="165at186328&#009;Single"/>
-                    <has_text text="421at186328&#009;Single"/>
-                    <has_text text="90at186328&#009;Single"/>
+                    <has_text text="227at186328&#009;Single"/>
+                    <has_text text="1314at186328&#009;Missing"/>
                 </assert_contents>
             </output>
             <output name="miniprot">
@@ -115,35 +118,53 @@
             </output>
             <output name="translated_protein">
                 <assert_contents>
-                    <has_text text="EKDFYQELGVSSDASPEEIKRAYRKLARDLHPDANPGNPAA"/>
-                    <has_text text="AASITILEGLEAVRKRPGMYIGSTGERGLHHLIWEVVD"/>
+                    <has_text text="FTMARAVGIDLGTTNSVVSVLEGGDPVVVANSEGSRTTPSIVAFARNGEVLVGQPAKNQAV"/>
                 </assert_contents>
             </output>
             <assert_stdout>
-                <has_text text="S:1.20%, 4"/>
+                <has_text text="S:0.30%, 1"/>
             </assert_stdout>
         </test>
         <test expect_num_outputs="1">
             <param name="input" value="small_genome.fasta"/>
-            <param name="mode" value="lite"/>
             <param name="outputs" value="summary"/>
-            <param name="busco_database" value="entomoplasmatales_odb10"/>
-            <param name="lineage_dataset" value="entomoplasmatales_odb10"/>
+            <param name="busco_database" value="entomoplasmatales_odb12"/>
+            <param name="lineage_dataset" value="entomoplasmatales_odb12"/>
             <output name="summary">
                 <assert_contents>
-                    <has_text text="## lineage: entomoplasmatales_odb10"/>
-                    <has_text text="M:96.08%, 319"/>
-                    <has_text text="N:332"/>
+                    <has_text text="## lineage: entomoplasmatales_odb12"/>
+                    <has_text text="M:99.70%, 329"/>
+                    <has_text text="N:330"/>
                 </assert_contents>
             </output>
             <assert_stdout>
-                <has_text text="S:3.01%, 10"/>
+                <has_text text="S:0.30%, 1"/>
             </assert_stdout>
+        </test>
+        <!-- an odb10 lineage must fail loudly instead of reporting 100% missing BUSCOs -->
+        <test expect_failure="true">
+            <param name="input" value="small_genome.fasta"/>
+            <param name="outputs" value="summary"/>
+            <param name="busco_database" value="entomoplasmatales_odb10"/>
+            <param name="lineage_dataset" value="entomoplasmatales_odb10"/>
+            <assert_stderr>
+                <has_text text="only supports OrthoDB 12 lineages"/>
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
 
     compleasm_ assesses genome completeness based on genome assembly.
+
+    **OrthoDB version**
+
+    From version 0.2.7 on, compleasm only supports OrthoDB 12 (``odb12``) lineages. Running it
+    against an older ``odb10`` lineage reports every BUSCO as missing, so this tool refuses to
+    start when an ``odb10`` lineage is selected. If no ``odb12`` lineage is offered, ask your
+    Galaxy administrator to install the odb12 BUSCO datasets with the BUSCO data manager.
+
+    The evaluation mode ("busco" / "lite") that earlier versions of this tool exposed no longer
+    exists upstream; compleasm always runs the hmmsearch-based evaluation now.
 
     .. _compleasm: https://github.com/huangnengCSU/compleasm
 
