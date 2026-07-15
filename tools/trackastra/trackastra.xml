@@ -1,224 +1,238 @@
-<?xml version="1.0" encoding="utf-8"?>
-<tool id="trackastra" name="Trackastra" version="@TOOL_VERSION@+galaxy0" profile="23.0">
-    <description>Track cell instances in time-lapse OME-Zarr datasets</description>
+<tool id="trackastra_track" name="Trackastra track" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="BSD-3-Clause">
+    <description>link segmented objects across a microscopy time series</description>
     <macros>
-        <token name="@TOOL_VERSION@">0.3.2</token>
+        <import>macros.xml</import>
     </macros>
-    <requirements>
-        <requirement type="package" version="0.3.2">trackastra</requirement>
-        <requirement type="package" version="3">cellpose</requirement>
-        <requirement type="package" version="0.20.0">ngff-zarr</requirement>
-        <requirement type="package" version=">=2025.1.0">s3fs</requirement>
-    </requirements>
+    <edam_topics>
+        <edam_topic>topic_3474</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_2944</edam_operation>
+    </edam_operations>
+    <expand macro="requirements"/>
+    <version_command>trackastra --help 2&gt;&amp;1 | head -n 1; python -c "import importlib.metadata; print(importlib.metadata.version('trackastra'))"</version_command>
     <command detect_errors="exit_code"><![CDATA[
-python '$__tool_directory__/trackastra_wrapper.py' $mode_cond.mode
-    --zarr_path '$mode_cond.zarr_path'
-    --scale_level $mode_cond.scale_level
-    --downscale_x $mode_cond.downscale_x
-    --downscale_y $mode_cond.downscale_y
-    --downscale_z $mode_cond.downscale_z
-    --start_tp $mode_cond.start_tp
-    --end_tp $mode_cond.end_tp
-    #if $mode_cond.mode == 'segment_and_track'
-    --channel_coords '$mode_cond.channel_coords'
-    --segmentation_model $mode_cond.segmentation_model
-    --tracking_model $mode_cond.tracking_model
-    #else
-    --raw_channel_coords '$mode_cond.raw_channel_coords'
-    --seg_channel_coords '$mode_cond.seg_channel_coords'
-    --tracking_model $mode_cond.tracking_model
-    #end if
-    && cp trackastra_trackgraph.pickle.dat '$output_trackgraph'
-    && cp napari_tracks.pickle.dat '$output_napari_tracks'
+mkdir -p 'ctc_output' 'home' &&
+export HOME="\$PWD/home" &&
+export OMP_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+export MKL_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+#set $images_path = 'images'
+#set $masks_path = 'masks'
+
+#if $inputs.input_format == 'collections':
+    mkdir -p 'images' 'masks' &&
+    #for $i, $image in enumerate($inputs.images):
+        #set $frame = '%04d' % $i
+        ln -s '$image' 'images/image_${frame}.tif' &&
+    #end for
+    #for $i, $mask in enumerate($inputs.masks):
+        #set $frame = '%04d' % $i
+        ln -s '$mask' 'masks/mask_${frame}.tif' &&
+    #end for
+    image_count=\$(find 'images' -maxdepth 1 -type l | wc -l) &&
+    mask_count=\$(find 'masks' -maxdepth 1 -type l | wc -l) &&
+    if [ "\$image_count" -ne "\$mask_count" ]; then
+        echo 'The image and mask collections must contain the same number of elements.' >&2;
+        exit 1;
+    fi &&
+#else:
+    ln -s '$inputs.images_stack' 'images_stack.tif' &&
+    ln -s '$inputs.masks_stack' 'masks_stack.tif' &&
+    #set $images_path = 'images_stack.tif'
+    #set $masks_path = 'masks_stack.tif'
+#end if
+
+#if $model_source.source == 'cached':
+    #set $model_path = $model_source.model.fields.path
+#else:
+    mkdir -p 'custom_model' &&
+    ln -s '$model_source.model_weights' 'custom_model/model.pt' &&
+    ln -s '$model_source.architecture_config' 'custom_model/config.yaml' &&
+    ln -s '$model_source.training_config' 'custom_model/train_config.yaml' &&
+    #set $model_path = 'custom_model'
+#end if
+
+trackastra track --imgs '$images_path' --masks '$masks_path' --output-ctc 'ctc_output' --output-edge-table 'edge_table.csv' --model-custom '$model_path' --mode '$mode' --max-distance '$max_distance'
     ]]></command>
     <inputs>
-        <conditional name="mode_cond">
-            <param name="mode" type="select" label="Processing mode" help="Choose between segmentation+tracking or tracking only">
-                <option value="segment_and_track">Segment cells and track (Cellpose v3 + Trackastra)</option>
-                <option value="track">Track only (requires pre-segmented data)</option>
+        <conditional name="inputs">
+            <param name="input_format" type="select" label="Input organization">
+                <option value="collections" selected="true">Ordered collections: one TIFF per time point</option>
+                <option value="stacks">Two multi-page TIFF time-series datasets</option>
             </param>
-            <when value="segment_and_track">
-                <param name="zarr_path" type="text" label="Zarr dataset path" help="URL or local path to OME-Zarr dataset. Can be https://, s3://, or local ./path. Example: https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0101A/13457537.zarr/0">
-                    <sanitizer>
-                        <valid initial="string.printable" />
-                    </sanitizer>
-                </param>
-                <param name="scale_level" type="integer" value="0" min="0" label="Pyramid scale level" help="Resolution level in zarr pyramid. 0=finest resolution (best quality but slower), higher numbers=lower resolution but faster processing"/>
-                <param name="downscale_x" type="float" value="1.0" min="0.1" label="Downscale factor X" help="Spatial downscaling for X dimension (1.0=no scaling, 2.0=half resolution). Useful for large images (500+ pixels) to speed up processing"/>
-                <param name="downscale_y" type="float" value="1.0" min="0.1" label="Downscale factor Y" help="Spatial downscaling for Y dimension (1.0=no scaling, 2.0=half resolution)"/>
-                <param name="downscale_z" type="float" value="1.0" min="0.1" label="Downscale factor Z" help="Spatial downscaling for Z dimension (1.0=no scaling, 2.0=half resolution) for 3D tracking"/>
-                <param name="start_tp" type="integer" value="0" min="0" label="Start time point" help="First frame to process (0-indexed). Use to test on subset of frames"/>
-                <param name="end_tp" type="integer" value="-1" label="End time point" help="Last frame to process. Use -1 to process all frames"/>
-                <param name="channel_coords" type="text" value="0" label="Channel coordinate" help="For multi-dimensional zarr, specify which dimensions/coordinates select the raw channel. Space or comma-separated. Example: '0' or '0 1' for 6D data">
-                    <sanitizer>
-                        <valid initial="string.digits" />
-                    </sanitizer>
-                </param>
-                <param name="segmentation_model" type="select" label="Segmentation model" help="Cellpose v3 model to use for cell/nuclei detection">
-                    <option value="cyto3" selected="true">cyto3 - Cytoplasm (recommended)</option>
-                    <option value="cyto2">cyto2 - Cytoplasm (older model)</option>
-                    <option value="nuclei">nuclei - Nuclei only</option>
-                </param>
-                <param name="tracking_model" type="select" label="Tracking model" help="Trackastra model for tracking cells across frames">
-                    <option value="ctc" selected="true">ctc - Default CTC model</option>
-                </param>
+            <when value="collections">
+                <param name="images" type="data_collection" collection_type="list" format="tiff" label="Microscopy images" help="Ordered list collection containing one image TIFF per time point. List order defines time."/>
+                <param name="masks" type="data_collection" collection_type="list" format="tiff" label="Instance-segmentation masks" help="Ordered list collection containing one integer-labelled mask TIFF per time point. The number and order of elements must match the image collection."/>
             </when>
-            <when value="track">
-                <param name="zarr_path" type="text" label="Zarr dataset path" help="URL or local path to OME-Zarr dataset. Can be https://, s3://, or local ./path. Example: https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0101A/13457537.zarr/0">
-                    <sanitizer>
-                        <valid initial="string.printable" />
-                    </sanitizer>
-                </param>
-                <param name="scale_level" type="integer" value="0" min="0" label="Pyramid scale level" help="Resolution level in zarr pyramid. 0=finest resolution (best quality but slower), higher numbers=lower resolution but faster processing"/>
-                <param name="downscale_x" type="float" value="1.0" min="0.1" label="Downscale factor X" help="Spatial downscaling for X dimension (1.0=no scaling, 2.0=half resolution). Useful for large images (500+ pixels) to speed up processing"/>
-                <param name="downscale_y" type="float" value="1.0" min="0.1" label="Downscale factor Y" help="Spatial downscaling for Y dimension (1.0=no scaling, 2.0=half resolution)"/>
-                <param name="downscale_z" type="float" value="1.0" min="0.1" label="Downscale factor Z" help="Spatial downscaling for Z dimension (1.0=no scaling, 2.0=half resolution) for 3D tracking"/>
-                <param name="start_tp" type="integer" value="0" min="0" label="Start time point" help="First frame to process (0-indexed). Use to test on subset of frames"/>
-                <param name="end_tp" type="integer" value="-1" label="End time point" help="Last frame to process. Use -1 to process all frames"/>
-                <param name="raw_channel_coords" type="text" value="0" label="Raw channel coordinate" help="For multi-dimensional zarr, specify coordinates to select the raw image channel. Space or comma-separated">
-                    <sanitizer>
-                        <valid initial="string.digits" />
-                    </sanitizer>
-                </param>
-                <param name="seg_channel_coords" type="text" value="0" label="Segmentation channel coordinate" help="For multi-dimensional zarr, specify coordinates to select the segmentation channel. Space or comma-separated">
-                    <sanitizer>
-                        <valid initial="string.digits" />
-                    </sanitizer>
-                </param>
-                <param name="tracking_model" type="select" label="Tracking model" help="Trackastra model for tracking cells across frames">
-                    <option value="ctc" selected="true">ctc - Default CTC model</option>
-                </param>
+            <when value="stacks">
+                <param name="images_stack" type="data" format="tiff" label="Microscopy image time series" help="Multi-page TIFF with shape T,(C),(Z),Y,X."/>
+                <param name="masks_stack" type="data" format="tiff" label="Instance-segmentation mask time series" help="Integer-labelled multi-page TIFF with shape T,(Z),Y,X, matching the image time series."/>
             </when>
         </conditional>
+        <conditional name="model_source">
+            <param name="source" type="select" label="Trackastra model source">
+                <option value="cached" selected="true">Model installed on this Galaxy server</option>
+                <option value="history">Model components from history</option>
+            </param>
+            <when value="cached">
+                <param name="model" type="select" label="Installed Trackastra model" help="Models are installed by a Galaxy administrator using the Trackastra model data manager.">
+                    <options from_data_table="trackastra_models">
+                        <validator type="no_options" message="No Trackastra models are installed on this Galaxy server. Ask an administrator to run the Trackastra model data manager, or select model components from history."/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="model_weights" type="data" format="data" label="Model weights (model.pt)" help="Trackastra model state dictionary. Use only a model from a trusted source; Trackastra loads it with PyTorch's weights-only mode."/>
+                <param name="architecture_config" type="data" format="yaml" label="Model architecture configuration (config.yaml)"/>
+                <param name="training_config" type="data" format="yaml" label="Training configuration (train_config.yaml)"/>
+            </when>
+        </conditional>
+        <param argument="--mode" type="select" label="Linking mode">
+            <option value="greedy" selected="true">Greedy linking with divisions</option>
+            <option value="greedy_nodiv">Greedy linking without divisions</option>
+            <option value="ilp">Integer-linear-programming linking</option>
+        </param>
+        <param argument="--max-distance" type="float" value="128" min="0" label="Maximum linking distance" help="Maximum spatial distance, in pixels or voxels, considered while constructing candidate links."/>
     </inputs>
     <outputs>
-        <data name="output_trackgraph" format="txt" label="${tool.name} on ${on_string}: Track graph (pickle)"/>
-        <data name="output_napari_tracks" format="txt" label="${tool.name} on ${on_string}: Napari tracks (pickle)"/>
+        <data name="edge_table" format="csv" from_work_dir="edge_table.csv" label="${tool.name} on ${on_string}: association edge table"/>
+        <data name="track_table" format="tabular" from_work_dir="ctc_output/man_track.txt" label="${tool.name} on ${on_string}: CTC track table"/>
+        <collection name="tracked_masks" type="list" label="${tool.name} on ${on_string}: tracked masks">
+            <discover_datasets pattern="man_track(?P&lt;designation&gt;[0-9]+)\.tif" format="tiff" directory="ctc_output"/>
+        </collection>
     </outputs>
     <tests>
-        <test expect_exit_code="0">
-            <conditional name="mode_cond">
-                <param name="mode" value="segment_and_track"/>
-                <param name="zarr_path" value="https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0101A/13457537.zarr/0"/>
-                <param name="scale_level" value="2"/>
-                <param name="downscale_x" value="1.0"/>
-                <param name="downscale_y" value="1.0"/>
-                <param name="downscale_z" value="1.0"/>
-                <param name="start_tp" value="0"/>
-                <param name="end_tp" value="2"/>
-                <param name="channel_coords" value="0"/>
-                <param name="segmentation_model" value="cyto3"/>
-                <param name="tracking_model" value="ctc"/>
+        <test expect_num_outputs="3">
+            <conditional name="inputs">
+                <param name="input_format" value="collections"/>
+                <param name="images">
+                    <collection type="list">
+                        <element name="t0000" ftype="tiff" value="image_0000.tif"/>
+                        <element name="t0001" ftype="tiff" value="image_0001.tif"/>
+                        <element name="t0002" ftype="tiff" value="image_0002.tif"/>
+                    </collection>
+                </param>
+                <param name="masks">
+                    <collection type="list">
+                        <element name="t0000" ftype="tiff" value="mask_0000.tif"/>
+                        <element name="t0001" ftype="tiff" value="mask_0001.tif"/>
+                        <element name="t0002" ftype="tiff" value="mask_0002.tif"/>
+                    </collection>
+                </param>
             </conditional>
-            <output name="output_trackgraph" ftype="txt">
+            <conditional name="model_source">
+                <param name="source" value="cached"/>
+                <param name="model" value="tiny_test"/>
+            </conditional>
+            <param name="mode" value="greedy_nodiv"/>
+            <param name="max_distance" value="32"/>
+            <output name="edge_table" ftype="csv">
                 <assert_contents>
-                    <has_size value="5000" delta="500"/>
+                    <has_n_lines n="3"/>
+                    <has_line line="source_frame,source_label,target_frame,target_label,weight"/>
+                    <has_line_matching expression="^0,1,1,1,[0-9.eE+-]+$"/>
+                    <has_line_matching expression="^1,1,2,1,[0-9.eE+-]+$"/>
                 </assert_contents>
             </output>
-            <output name="output_napari_tracks" ftype="txt">
+            <output name="track_table" file="expected_man_track.txt" ftype="tabular"/>
+            <output_collection name="tracked_masks" type="list" count="3">
+                <element name="0000" ftype="tiff">
+                    <assert_contents>
+                        <has_size min="100"/>
+                    </assert_contents>
+                </element>
+                <element name="0001" ftype="tiff">
+                    <assert_contents>
+                        <has_size min="100"/>
+                    </assert_contents>
+                </element>
+                <element name="0002" ftype="tiff">
+                    <assert_contents>
+                        <has_size min="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="inputs">
+                <param name="input_format" value="stacks"/>
+                <param name="images_stack" value="images_stack.tif" ftype="tiff"/>
+                <param name="masks_stack" value="masks_stack.tif" ftype="tiff"/>
+            </conditional>
+            <conditional name="model_source">
+                <param name="source" value="history"/>
+                <param name="model_weights" value="tiny_model/model.pt" ftype="data"/>
+                <param name="architecture_config" value="tiny_model/config.yaml" ftype="yaml"/>
+                <param name="training_config" value="tiny_model/train_config.yaml" ftype="yaml"/>
+            </conditional>
+            <param name="mode" value="greedy"/>
+            <param name="max_distance" value="32"/>
+            <output name="edge_table" ftype="csv">
                 <assert_contents>
-                    <has_size value="5000" delta="500"/>
+                    <has_n_lines n="3"/>
+                    <has_text text="source_frame,source_label,target_frame,target_label,weight"/>
                 </assert_contents>
             </output>
+            <output name="track_table" file="expected_man_track.txt" ftype="tabular"/>
+            <output_collection name="tracked_masks" type="list" count="3"/>
+        </test>
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="inputs">
+                <param name="input_format" value="collections"/>
+                <param name="images">
+                    <collection type="list">
+                        <element name="t0000" ftype="tiff" value="image_0000.tif"/>
+                        <element name="t0001" ftype="tiff" value="image_0001.tif"/>
+                    </collection>
+                </param>
+                <param name="masks">
+                    <collection type="list">
+                        <element name="t0000" ftype="tiff" value="mask_0000.tif"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="model_source">
+                <param name="source" value="cached"/>
+                <param name="model" value="tiny_test"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="must contain the same number of elements"/>
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
-**Trackastra: Deep Learning-based Cell Tracking in Zarr Datasets**
+**Trackastra** associates objects that have already been segmented in a microscopy time series. It does not perform segmentation.
 
-This tool performs automated cell instance tracking in time-lapse OME-Zarr (NGFF) datasets. It supports two workflows:
+Input organization
+==================
 
-1. **Segment and Track**: Automatically segments cell instances using Cellpose v3, then performs tracking using Trackastra
-2. **Track Only**: Performs tracking on pre-segmented data (segmentation provided by other tools)
+Use either two ordered Galaxy list collections or two multi-page TIFF datasets. Images and masks must have matching time points and spatial dimensions. Masks must be integer-labelled instance segmentations; background is label 0.
 
-**Input Format**
+Models
+======
 
-The tool requires OME-Zarr (NGFF) formatted multi-dimensional arrays. The expected dimensions are:
+For reproducible execution, pretrained models are installed once by a Galaxy administrator with the accompanying Trackastra model data manager. This avoids downloading model files during ordinary analysis jobs. A complete custom model can instead be supplied from history as ``model.pt``, ``config.yaml``, and ``train_config.yaml``.
 
-- **t**: Time (required) - number of frames/timepoints
-- **z**: Depth (optional for 2D data) - number of z-slices
-- **y, x**: Spatial dimensions (required) - image height and width
+Trackastra loads ``model.pt`` with PyTorch ``weights_only=True``. Nevertheless, use custom model files only when their origin is trusted.
 
-Additional dimensions (such as channel, view angle, domain) are supported but must be navigated using the coordinate parameters.
+Linking modes
+=============
 
-**Zarr Dataset Paths**
+- **greedy**: fast linking that permits cell divisions.
+- **greedy_nodiv**: fast linking without divisions.
+- **ilp**: integer-linear-programming linking. This is slower and depends on a solver available in the Trackastra environment.
 
-The zarr_path can be:
+Resources
+=========
 
-- **HTTP/HTTPS URL**: https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0101A/13457537.zarr/0
-- **S3 path**: s3://bucket-name/path/to/data.zarr
-- **Local path**: ./path/to/local/data.zarr (on Galaxy server)
+The wrapper sets common numerical-library thread limits from the CPU allocation selected by the Galaxy job destination through ``GALAXY_SLOTS``. Trackastra's feature extraction worker count and inference batch size use their upstream defaults. CPU/GPU placement is intentionally not exposed as a user parameter; Trackastra automatically uses CUDA when the administrator routes the job to a compatible GPU destination.
 
-**Key Parameters**
+Outputs
+=======
 
-- **scale_level**: Select pyramid resolution level. 0 is the finest resolution. Use higher levels for faster processing with lower resolution.
-- **Downscale factors (x, y, z)**: Apply additional spatial downscaling. Values >1.0 reduce resolution (e.g., 2.0 = half resolution). Useful for large images to speed up processing.
-- **Time point range**: Use start_tp and end_tp to process a subset of frames (useful for testing).
-- **Channel coordinates**: For multi-dimensional datasets, specify which dimensions index the raw data channel. For example, a t,c,z,y,x dataset needs coordinate '0' to select channel 0.
-
-**Segmentation Models (Cellpose v3)**
-
-- **cyto3**: Recommended for general cell types. Best for most cytoplasmic structures.
-- **cyto2**: Older Cellpose model. Available for compatibility.
-- **nuclei**: Specialized model for nuclear segmentation.
-
-**Outputs**
-
-The tool generates two pickle files:
-
-1. **trackastra_trackgraph.pickle.dat**: Native Trackastra tracking object containing the complete tracking results in Python pickle format
-2. **napari_tracks.pickle.dat**: Formatted tracking results ready for napari visualization
-
-**Using Napari for Visualization**
-
-To inspect tracking results:
-
-1. Open napari in Galaxy
-2. In napari's IPython console::
-
-    pip install napari-ome-zarr
-    viewer.open("https://path/to/same/zarr/as/above")
-    import pickle
-    with open("napari_tracks.pickle.dat", "rb") as f:
-        tracks = pickle.load(f)
-    viewer.add_tracks(tracks)
-
-3. The tracks will overlay on the original image data for inspection and analysis.
-
-**Advanced: Multi-Dimensional Navigation**
-
-For zarr datasets with extra dimensions beyond t,z,y,x (e.g., t,c,z,y,x where c is channel):
-
-1. **Extra dimensions are pinned to front**: The tool moves non-tzyx dimensions to the front during processing
-2. **Coordinates select sub-dimensions**: Provide integer coordinates for each extra dimension
-
-   - Example: 6D data (t,view,domain,z,y,x) needs 2 coordinates to pin view and domain
-   - Use "0 1" to select view=0, domain=1
-
-**Performance Tips**
-
-- For large images (500+ pixels/dimension), use downscale factors 2.0+ to reduce computation
-- Test on a subset with start_tp/end_tp before processing entire datasets
-- Use lower scale_level (higher resolution) for better segmentation accuracy, but expect slower processing
-- S3 datasets stream data, so may be slower than local/http access
-
-**References**
-
-- Trackastra: https://github.com/ybnd/trackastra
-- Cellpose: https://github.com/mouseland/cellpose
-- OME-Zarr/NGFF: https://ngff.openmicroscopy.org/
+- **Association edge table**: CSV containing source/target frame and label identifiers plus association weights.
+- **CTC track table**: space-delimited ``track_id start_frame end_frame parent_track_id`` records.
+- **Tracked masks**: an ordered collection of relabelled TIFF masks in Cell Tracking Challenge form.
     ]]></help>
-    <citations>
-        <citation type="bibtex">@article{trackastra,
-  title={Trackastra: transformer-based cell tracking},
-  author={Theis, F. J. and others},
-  journal={Nature Methods},
-  year={2024}
-}</citation>
-        <citation type="bibtex">@article{cellpose,
-  title={Cellpose: a generalist algorithm for cellular segmentation},
-  author={Stringer, C. and Wang, T. and others},
-  journal={Nature Methods},
-  year={2021}
-}</citation>
-    </citations>
+    <expand macro="citations"/>
 </tool>
