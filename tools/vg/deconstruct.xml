@@ -1,82 +1,174 @@
-<tool id="vg_deconstruct" name="vg deconstruct" version="@TOOL_VERSION@+galaxy1">
-    <description>construct a dynamic succinct variation graph</description>
+<tool id="vg_deconstruct" name="vg deconstruct" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>VCF projection of a variation graph against a reference path</description>
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="xrefs"/>
     <expand macro="requirements"/>
-    <command detect_errors="exit_code"><![CDATA[
-ln -s '$infile' ./infile.${infile.ext} &&
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+#if str($graph.ext) in ('gfa1', 'gfa1.gz')
+    ## vg deconstruct cannot read GFA directly; convert to vg first
+    #if str($graph.ext) == 'gfa1.gz'
+        gunzip -c '$graph' > input.gfa &&
+    #else
+        ln -s '$graph' input.gfa &&
+    #end if
+    vg convert -g -p input.gfa > input.vg &&
+    #set $graph_arg = 'input.vg'
+#else
+    ln -s '$graph' 'input.${graph.ext}' &&
+    #set $graph_arg = 'input.' + str($graph.ext)
+#end if
 
 vg deconstruct
-#if $path:
-    --path '${','.join([$p for $p in $path])}'
-#end if
-#if $path_prefix
-    --path-prefix '${','.join([$p for $p in $path_prefix])}'
-#end if
-#if $alt_prefix
-    --alt-prefix '${','.join([$p for $p in $alt_prefix])}'
-#end if
-#if $snarls:
-    --snarls '$snarls'
-#end if
-$path_traversals  ## -e
---threads=\${GALAXY_SLOTS:-1}
-./infile.${infile.ext}
-
-> '$output'
-
+    --threads \${GALAXY_SLOTS:-1}
+    #if str($ref_mode.mode) == "path"
+        #for $p in str($ref_mode.path).strip().split(',')
+            --path '$p.strip()'
+        #end for
+    #else
+        #for $p in str($ref_mode.path_prefix).strip().split(',')
+            --path-prefix '$p.strip()'
+        #end for
+    #end if
+    #if str($alt_prefix):
+        --alt-prefix '${alt_prefix}'
+    #end if
+    #if $snarls:
+        --snarls '$snarls'
+    #end if
+    $path_traversals
+    $all_snarls
+    $contig_only_ref
+    '$graph_arg'
+    > '$output_vcf'
     ]]></command>
     <inputs>
-        <param name="infile" type="data" format="xg,odgi" label="Graph files" />
-        <param argument="--path" type="text" value="" label="A reference path to deconstruct against"
-            help="comma-separated list accepted">
+        <param argument="--graph" type="data" format="vg,xg,gfa1,gfa1.gz" label="Input graph"
+               help="Variation graph in any vg-readable format (vg/xg/GFA). PanSN-named paths recommended for prefix mode."/>
+        <conditional name="ref_mode">
+            <param name="mode" type="select" label="Reference selection">
+                <option value="path">Specific path name(s) (-p, comma-separated)</option>
+                <option value="prefix" selected="true">PanSN-style path prefix (-P, comma-separated)</option>
+            </param>
+            <when value="path">
+                <param argument="--path" type="text" value=""
+                       label="Reference path names"
+                       help="Comma-separated path names to deconstruct against, e.g. 'chr1,chr2'.">
+                    <validator type="empty_field"/>
+                    <sanitizer>
+                        <valid initial="string.printable">
+                            <remove value="&apos;"/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+            <when value="prefix">
+                <param argument="--path-prefix" type="text" value=""
+                       label="Reference path prefix(es)"
+                       help="Comma-separated PanSN prefixes. All paths starting with this prefix are treated as reference.">
+                    <validator type="empty_field"/>
+                    <sanitizer>
+                        <valid initial="string.printable">
+                            <remove value="&apos;"/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+        </conditional>
+        <param argument="--alt-prefix" type="text" value="" optional="true"
+               label="Non-reference path prefix(es)"
+               help="Paths beginning with this value get lumped together to the same sample in VCF. Comma-separated list accepted.">
             <sanitizer>
                 <valid initial="string.printable">
                     <remove value="&apos;"/>
                 </valid>
             </sanitizer>
         </param>
-        <param argument="--path-prefix" type="text" value="" label="All paths beginning with this value used as reference"
-            help="comma-separated list accepted">
-            <sanitizer>
-                <valid initial="string.printable">
-                    <remove value="&apos;"/>
-                </valid>
-            </sanitizer>
-        </param>
-        <param argument="--alt-prefix" type="text" value="" label="Non-reference paths beginning with with this value get lumped together to same sample in VCF"
-            help="comma-separated list accepted">
-            <sanitizer>
-                <valid initial="string.printable">
-                    <remove value="&apos;"/>
-                </valid>
-            </sanitizer>
-        </param>
-        <param argument="--snarls" type="data" format="xg,odgi" label="Snarls files" optional="true"
-            help="from `vg snarls` to avoid recomputing" />
-
-        <param argument="--path-traversals" type="boolean" truevalue="--path-traversals" falsevalue="" checked="false"
-            label="Only consider traversals that correspond to paths in the grpah" />
+        <param argument="--snarls" type="data" format="xg,odgi" optional="true"
+               label="Pre-computed snarls file"
+               help="From `vg snarls` to avoid recomputing."/>
+        <param argument="--path-traversals" type="boolean" truevalue="--path-traversals" falsevalue=""
+               checked="false" label="Only consider traversals that correspond to paths in the graph (-e)"/>
+        <param argument="--all-snarls" type="boolean" truevalue="--all-snarls" falsevalue=""
+               checked="false" label="Report all nested snarls (-a)"
+               help="By default only top-level snarls are reported."/>
+        <param argument="--contig-only-ref" type="boolean" truevalue="--contig-only-ref" falsevalue=""
+               checked="false" label="Use CONTIG-only reference names (-C)"/>
     </inputs>
     <outputs>
-        <data name="output" format="vcf" />
+        <data name="output_vcf" format="vcf" label="${tool.name} on ${on_string}"/>
     </outputs>
     <tests>
         <test>
-            <param name="infile" value="hla.xg" />
-            <param name="path" value="gi|568815592:29791752-29792749" />
-            <param name="path_traversals" value="true" />
-            <output name="output" file="hla_variants.vcf" sort="true" />
+            <param name="graph" value="hla.xg" ftype="xg"/>
+            <conditional name="ref_mode">
+                <param name="mode" value="path"/>
+                <param name="path" value="gi|568815592:29791752-29792749"/>
+            </conditional>
+            <param name="path_traversals" value="true"/>
+            <output name="output_vcf" file="hla_variants.vcf" sort="true"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="graph" value="simple_2path.gfa" ftype="gfa1"/>
+            <conditional name="ref_mode">
+                <param name="mode" value="path"/>
+                <param name="path" value="ref"/>
+            </conditional>
+            <output name="output_vcf">
+                <assert_contents>
+                    <has_line_matching expression="^##fileformat=VCF.+"/>
+                    <has_text text="#CHROM"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="graph" value="simple_4path.gfa" ftype="gfa1"/>
+            <conditional name="ref_mode">
+                <param name="mode" value="prefix"/>
+                <param name="path_prefix" value="ref_"/>
+            </conditional>
+            <output name="output_vcf">
+                <assert_contents>
+                    <has_line_matching expression="^##fileformat=VCF.+"/>
+                    <has_text text="#CHROM"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--path-prefix"/>
+            </assert_command>
         </test>
     </tests>
-    <help><![CDATA[
-variation graph (vg) deconstruct module
------------------------------------
+    <help format="markdown"><![CDATA[
+**vg deconstruct** — project a variation graph to VCF.
 
-Creates VCF records for Snarls present in a graph (relative to a chosen reference path).
+Walks the snarls of a variation graph relative to a reference path (or
+PanSN-prefix path set) and emits a VCF describing each variant.
 
+Standard pangenome VCF projection: for an 8-strain pangenome with PanSN
+naming `SAMPLE#1#CHR`, set path prefix to `GCA_900093555.2` to use the
+PvP01 reference and get an 8-sample VCF in PvP01 coordinates.
+
+-----
+
+**Modes**
+
+- `-p` (path): explicit reference path name(s).
+- `-P` (path-prefix): all paths whose name begins with the prefix are
+  used as reference — the canonical PanSN approach.
+
+**Additional options**
+
+- `--alt-prefix`: non-reference paths beginning with this prefix get
+  lumped together to the same sample in VCF.
+- `--snarls`: provide a pre-computed snarl file to avoid recomputation.
+- `-e` (--path-traversals): only consider traversals that correspond to
+  paths in the graph.
+- `-a` (--all-snarls): report all nested snarls (default: top-level only).
+- `-C` (--contig-only-ref): use CONTIG-only reference names.
+
+Threads from `GALAXY_SLOTS`.
     ]]></help>
-    <expand macro="citations">
-    </expand>
+    <expand macro="citations"/>
 </tool>
