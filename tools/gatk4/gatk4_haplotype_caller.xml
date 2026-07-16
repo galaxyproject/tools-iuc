@@ -1,0 +1,132 @@
+<tool id="gatk4_haplotype_caller" name="GATK4 HaplotypeCaller" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Call germline SNPs and indels via local re-assembly of haplotypes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_cmd"/>
+    
+    <command detect_errors="exit_code"><![CDATA[
+    ## 1. Link Reference Genome
+    @GATK_LINK_REF@
+
+    ## 2. Link Input BAMs and Indexes
+    #for $i, $bam in enumerate($input_bams):
+        ln -s '$bam' input_${i}.bam &&
+        ln -s '${bam.metadata.bam_index}' input_${i}.bai &&
+    #end for
+
+    ## 3. Link dbSNP (if provided)
+    #if $dbsnp:
+        ln -s '$dbsnp' dbsnp.vcf.gz &&
+        ln -s '${dbsnp.metadata.tabix_index}' dbsnp.vcf.gz.tbi &&
+    #end if
+
+    ## 4. Link Interval List (if provided)
+    #if $intervals:
+        ln -s '$intervals' intervals.interval_list &&
+    #end if
+
+    ## 5. Run HaplotypeCaller
+    ## -XX:-UsePerfData prevents hsperfdata creation to avoid file locking issues
+    gatk --java-options "-Xmx\${GALAXY_MEMORY_MB:-4096}m -XX:-UsePerfData" HaplotypeCaller
+        -R reference.fa
+        -O output.vcf.gz
+        --create-output-variant-index true
+        --tmp-dir \$_GALAXY_JOB_TMP_DIR
+
+        ## Scale native threads based on Galaxy slot allocation
+        --native-pair-hmm-threads \${GALAXY_SLOTS:-1}
+        
+        #for $i, $bam in enumerate($input_bams):
+            -I input_${i}.bam
+        #end for
+
+        ## Configure RNA-Seq specific parameters if selected
+        #if $analysis_type_selector == "rna":
+            --dont-use-soft-clipped-bases
+            --standard-min-confidence-threshold-for-calling 20.0
+        #end if
+
+        #if $dbsnp:
+            --dbsnp dbsnp.vcf.gz
+        #end if
+
+        #if $intervals:
+            -L intervals.interval_list
+        #end if
+    ]]></command>
+
+    <inputs>
+        <expand macro="gatk_ref_source" />
+
+        <param name="input_bams" argument="-I" type="data" format="bam" multiple="true" label="Input BAM(s)" help="Aligned BAM file(s). Must be coordinate-sorted." />
+        
+        <param name="analysis_type_selector" type="select" label="Analysis Type">
+            <option value="dna" selected="true">DNA-Seq (Standard)</option>
+            <option value="rna">RNA-Seq (Splice Aware)</option>
+        </param>
+
+        <param argument="--dbsnp" type="data" format="vcf_bgzip" optional="true" label="dbSNP File" help="Must be bgzipped and have an associated .tbi index." />
+
+        <expand macro="gatk_param_intervals" />
+    </inputs>
+
+    <outputs>
+        <data name="output_vcf" format="vcf_bgzip" from_work_dir="output.vcf.gz" label="${tool.name} on ${on_string}: VCF" />
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs='1'>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history" />
+                <param name="reference_sequence" value="test_ref.fasta" />
+            </conditional>
+            <param name="input_bams" value="hc_input.bam" />
+            <param name="analysis_type_selector" value="rna" />
+            
+            <param name="intervals" value="hc_interval.interval_list" />
+            
+            <param name="dbsnp" value="test_dbsnp.vcf.gz" />
+            <output name="output_vcf" file="hc_expected.vcf" ftype="vcf_bgzip" decompress="true" lines_diff="2" />
+        </test>
+
+        <test expect_num_outputs='1'>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="cached" />
+                <param name="reference_sequence" value="test_ref" />
+            </conditional>
+            <param name="input_bams" value="hc_input.bam" />
+            <param name="analysis_type_selector" value="rna" />
+            <param name="intervals" value="hc_interval.interval_list" />
+            <param name="dbsnp" value="test_dbsnp.vcf.gz" />
+            <output name="output_vcf" file="hc_expected.vcf" ftype="vcf_bgzip" decompress="true" lines_diff="2" />
+        </test>
+    </tests>
+
+    <help><![CDATA[
+        **HaplotypeCaller**
+
+        The HaplotypeCaller is capable of calling SNPs and indels simultaneously via local de-novo assembly of haplotypes in an active region. In other words, whenever the program encounters a region showing signs of variation, it discards the existing mapping information and completely reassembles the reads in that region.
+
+        **Performance Notes**
+
+        * **Multithreading:** This tool automatically uses the available compute slots (Native PairHMM threads) assigned by Galaxy to accelerate processing.
+        * **Memory:** Java heap size is automatically scaled to the memory allocated for the job.
+
+        **Analysis Modes**
+
+        * **DNA-Seq (Standard):** Default calling mode.
+        * **RNA-Seq:** Adds ``--dont-use-soft-clipped-bases`` and sets ``--standard-min-confidence-threshold-for-calling 20.0`` to handle splice junctions correctly.
+
+        **Input Requirements**
+
+        * **BAM Files:** Must be aligned and indexed (``.bai``).
+        * **dbSNP:** Must be a **bgzipped** VCF with a corresponding tabix index (``.tbi``).
+        * **Reference:** FASTA format (can be provided via history or cached).
+    ]]></help>
+
+    <citations>
+        <expand macro="citations" />
+    </citations>
+</tool>

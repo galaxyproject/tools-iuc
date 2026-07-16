@@ -1,0 +1,368 @@
+<tool id="sopa_segmentation" name="SOPA Segmentation" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Perform cell segmentation on patches</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @CMD_UNZIP_ZARR@
+
+        mkdir -p output_dir &&
+
+        sopa segmentation
+        #if $method.method_name == 'cellpose'
+            cellpose
+            input/spatialdata.zarr
+            --diameter $method.diameter
+            #for $channel in str($method.channels).split(',')
+                --channels '$channel'
+            #end for
+            --flow-threshold $method.flow_threshold
+            --cellprob-threshold $method.cellprob_threshold
+            --model-type '$method.model_type'
+            #if $method.pretrained_model
+                --pretrained-model '$method.pretrained_model'
+            #end if
+            --min-area $method.min_area
+            --cache-dir-name '$method.cache_dir_name'
+            @CMD_IMG_PREPROCESSING@
+
+        #else if $method.method_name == 'stardist'
+            stardist
+            input/spatialdata.zarr
+            --model-type '$method.model_type'
+            #if $method.local_model
+                --local-model '$method.local_model'
+            #end if
+            --prob-thresh $method.prob_thresh
+            --nms-thresh $method.nms_thresh
+            #if str($method.channels) != ''
+                --channels '$method.channels'
+            #end if
+            --min-area $method.min_area
+            --cache-dir-name '$method.cache_dir_name'
+            @CMD_IMG_PREPROCESSING@
+
+        #else if $method.method_name == 'comseg'
+            comseg
+            input/spatialdata.zarr
+            --min-area $method.min_area
+
+        #else if $method.method_name == 'baysor'
+            baysor
+            input/spatialdata.zarr
+            --min-area $method.min_area
+            #if $method.scale
+                --scale $method.scale
+            #end if
+
+        #else if $method.method_name == 'proseg'
+            proseg
+            input/spatialdata.zarr
+            $method.infer_presets
+            #if str($method.prior_shapes_key) != ''
+                --prior-shapes-key '$method.prior_shapes_key'
+            #end if
+            #if str($method.bins_key) != ''
+                --bins-key '$method.bins_key'
+            #end if
+
+        #else if $method.method_name == 'tissue'
+            tissue
+            input/spatialdata.zarr
+            #if str($method.image_key) != ''
+                --image-key '$method.image_key'
+            #end if
+            --level $method.level
+            --mode '$method.mode'
+            --kwargs '{
+                "expand_radius_ratio": $method.expand_radius_ratio,
+                #if str($method.channel) != ''
+                    "channel": "$method.channel",
+                #end if
+                "clip_parameters": [$method.clip_parameters],
+                "blur_kernel_size": $method.blur_kernel_size,
+                "open_kernel_size": $method.open_kernel_size,
+                "close_kernel_size": $method.close_kernel_size,
+                "drop_threshold": $method.drop_threshold,
+                "allow_holes": $method.allow_holes
+            }'
+
+        #end if
+        ## Move to output directory
+        && mv "input/spatialdata.zarr" output_dir/ &&
+
+        @CMD_ZIP_ZARR@
+    ]]></command>
+    <inputs>
+        <expand macro="input_sdata"/>
+        <conditional name="method">
+            <param name="method_name" type="select" label="Segmentation method">
+                <option value="cellpose" selected="true">Cellpose - This can be done on all patches directly, or on one individual patch.</option>
+                <option value="stardist">Stardist - This can be done on all patches directly, or on one individual patch.</option>
+                <option value="comseg">Comseg - This can be done on all patches directly, or on one individual patch.</option>
+                <option value="baysor">Baysor - This can be done on all patches directly, or on one individual patch.</option>
+                <option value="proseg">Proseg - This needs to be done on a single patch as proseg is fast enough and doesn't require parallelization.</option>
+                <option value="tissue">Tissue - This can be done only on objects with H&amp;E staining</option>
+            </param>
+            <!-- Important note: For cellpose, stardist, there is also - -method-kwargs, which is a JSON string that can be used to provide additional parameters to the methods. We have currently skipped this.
+            Because it can get confusing for users, but we can add it later if needed.  -->
+            <when value="cellpose">
+                <param argument="--diameter" type="integer" value="0" min="0" label="Expected cell diameter (pixels)" help="If 0, the diameter will be automatically estimated. However, providing a value can improve results."/>
+                <param argument="--channels" type="text" value="DAPI" label="Channel names (comma-separated)" help="If one channel, then provide just a nucleus channel. If two channels, this is the cytoplasm and then the nucleus channel">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="--flow-threshold" type="float" value="2.0" min="0" label="Flow threshold" help="Increase this threshold if cellpose is not returning as many ROIs as you would expect. Similarly, decrease this threshold if cellpose is returning too many ill-shaped ROIs."/>
+                <param argument="--cellprob-threshold" type="float" value="-6.0" max="0" label="Cell probability threshold" help="Decrease this threshold if cellpose is not returning as many ROIs as you would expect. Similarly, increase this threshold if cellpose is returning too ROIs particularly from dim areas."/>
+                <param argument="--model-type" type="select" label="Cellpose model type">
+                    <option value="cyto">cyto - Original cytoplasm model</option>
+                    <option value="cyto2">cyto2 - Cytoplasm model v2</option>
+                    <option value="cyto3" selected="true">cyto3 - Cytoplasm model v3</option>
+                    <option value="nuclei">nuclei - Nucleus segmentation</option>
+                    <option value="tissuenet_cp3">tissuenet_cp3 - Tissue segmentation</option>
+                    <option value="livecell_cp3">livecell_cp3 - Live cell imaging</option>
+                    <option value="cyto2_cp3">cyto2_cp3 - Cellpose 3.0 cytoplasm</option>
+                </param>
+                <param argument="--pretrained-model" type="data" optional="true" format="safetensors" label="Custom pretrained model"/>
+                <expand macro="min_area_param"/>
+                <expand macro="image_preprocessing_params"/>
+                <expand macro="cache_dir_name_param" value="cellpose_boundaries"/>
+            </when>
+            <when value="stardist">
+                <param argument="--model-type" type="select" label="Stardist model type">
+                    <option value="2D_versatile_he" selected="true">2D_versatile_he - Brightfield (H&amp;E)</option>
+                    <option value="2D_versatile_fluo">2D_versatile_fluo - Versatile (fluorescent nuclei)</option>
+                    <option value="2D_paper_dsb2018">2D_paper_dsb2018 - DSB 2018 (from StarDist 2D paper)</option>
+                </param>
+                <param argument="--local-model" type="data" format="safetensors" optional="true" label="Custom stardist model"/>
+                <param argument="--prob-thresh" type="float" value="0.2" min="0" max="1" label="Probability threshold"/>
+                <param argument="--nms-thresh" type="float" value="0.6" min="0" max="1" label="NMS threshold"/>
+                <param argument="--channels" type="text" optional="true" label="Channel names (comma-separated)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="min_area_param"/>
+                <expand macro="image_preprocessing_params"/>
+                <expand macro="cache_dir_name_param" value="stardist_boundaries"/>
+            </when>
+            <when value="comseg">
+                <!-- The config is automatically detected by sopa based on prevous segmentation, We can add this later if needed -->
+                <!-- <param argument="- -config" type="text" optional="true" area="true" value="{}" label="ComSeg configuration" help="ComSeg configuration dictionary in inline string format, e.g. '{&quot;example&quot;: 2}'">
+                    <expand macro="sanitize_query"/>
+                </param> -->
+                <expand macro="min_area_param"/>
+            </when>
+            <when value="baysor">
+                <!-- The config is automatically detected by sopa based on previous segmentation, We can add this later if needed -->
+                <!-- <param argument="- -config" type="text" optional="true" area="true" value="{}" label="ComSeg configuration" help="ComSeg configuration dictionary in inline string format, e.g. '{&quot;example&quot;: 2}'">
+                    <expand macro="sanitize_query"/>
+                </param> -->
+                <expand macro="min_area_param"/>
+                <param argument="--scale" type="float" optional="true" min="0" label="The typical cell radius in microns" help="The configuration is inferred based on this parameter."/>
+            </when>
+            <when value="proseg">
+                <param argument="--infer-presets" type="boolean" truevalue="--infer-presets" falsevalue="--no-infer-presets" checked="true" label="infer the proseg presets based on the columns of the transcripts dataframe?"/>
+                <param argument="--prior-shapes-key" type="text" optional="true" label="Key of spdata object containing the prior cell boundaries [Only for Visium HD data]" help="If `'auto'`, use the latest performed segmentation (e.g., stardist or the 10X Genomics segmentation).">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="--bins-key" type="text" optional="true" label="Key of spdata object containing the bin-by-gene table of gene counts [Only for Visium HD data]" help="Inferred by default">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="tissue">
+                <param argument="--image-key" type="text" optional="true" label="Name of the image key to use for tissue segmentation">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="--level" type="integer" value="-1" label="Level of the multiscale image to use for tissue segmentation"/>
+                <param argument="--mode" type="select" label="Tissue segmentation mode">
+                    <option value="staining">staining</option>
+                    <option value="saturation">saturation (for H&amp;E images)</option>
+                </param>
+                <!-- params for kwargs -->
+                <param argument="--expand-radius-ratio" type="float" value="0.05" min="0" label="The ratio of the radius of the polygons that will be expanded."/>
+                <param argument="--channel" type="text" optional="true" label="Channel" help="The channel to use for the staining mode. If None, the maximum value of all channels is used.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="--clip-parameters" type="text" value="0.9,5" label="Clip parameters" help="Parameters used to get the threshold used to clip the image before converting it to an 8-bit image (only used in 'staining' mode). The first parameter is the quantile, and the second is the divisor. By default, the threshold is the 90th quantile divided by 5.">
+                    <expand macro="sanitize_query">
+                        <add value="("/>
+                        <add value=")"/>
+                    </expand>
+                </param>
+                <param argument="--blur-kernel-size" type="integer" value="5" min="1" label="The kernel size of the median blurring operation"/>
+                <param argument="--open-kernel-size" type="integer" value="5" min="1" label="The kernel size of the morphological opening operation."/>
+                <param argument="--close-kernel-size" type="integer" value="5" min="1" label="The kernel size of the morphological closing operation."/>
+                <param argument="--drop-threshold" type="float" value="0.01" min="0" max="1" label="Drop threshold" help="Polygons whose area is inferior to drop_threshold * total_slide_area will be removed."/>
+                <param argument="--allow-holes" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Allow holes" help="If yes, the holes in the polygons will be kept. If no, the holes will be removed."/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <expand macro="output_sdata"/>
+    </outputs>
+    <tests>
+        <!-- test 1: cellpose segmentation -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto_patchify_image_reduced_1patch.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="cellpose"/>
+                <param name="diameter" value="0"/>
+                <param name="channels" value="DAPI"/>
+                <param name="flow_threshold" value="2.0"/>
+                <param name="cellprob_threshold" value="-6.0"/>
+                <param name="model_type" value="cyto3"/>
+                <param name="min_area" value="0"/>
+                <param name="clip_limit" value="0.2"/>
+                <param name="gaussian_sigma" value="1.0"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                    <has_archive_member path="spatialdata.zarr/.sopa_cache/cellpose_boundaries/0.parquet"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 2: stardist segmentation -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto_patchify_image_reduced_1patch.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="stardist"/>
+                <param name="model_type" value="2D_versatile_fluo"/>
+                <param name="channels" value="DAPI"/>
+                <param name="prob_thresh" value="0.2"/>
+                <param name="nms_thresh" value="0.6"/>
+                <param name="min_area" value="0"/>
+                <param name="clip_limit" value="0.2"/>
+                <param name="gaussian_sigma" value="1.0"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                    <has_archive_member path="spatialdata.zarr/.sopa_cache/stardist_boundaries/0.parquet"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 3: baysor segmentation on patched data -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto_patchify_image_transcripts_cellpose.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="baysor"/>
+                <param name="min_area" value="0"/>
+                <param name="scale" value="5"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="shapes/cells"/>
+                        <has_text text="shapes/baysor_boundaries"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 4: comseg segmentation on patched data -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto_patchify_image_transcripts_cellpose_centroid.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="comseg"/>
+                <param name="min_area" value="0"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="shapes/cells"/>
+                        <has_text text="shapes/comseg_boundaries"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 5: proseg segmentation (no patch support) -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto_patchify_image_transcripts_1patch_cellpose.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="proseg"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="shapes/cells"/>
+                        <has_text text="shapes/proseg_boundaries"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 6: tissue segmentation on patched data (no patch support) -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto_patchify_image_transcripts_1patch_cellpose.spatialdata.zip"/>
+            <conditional name="method">
+                <param name="method_name" value="tissue"/>
+                <param name="level" value="-1"/>
+                <param name="mode" value="staining"/>
+                <param name="expand_radius_ratio" value="0.05"/>
+                <param name="clip_parameters" value="0.9,5"/>
+                <param name="blur_kernel_size" value="5"/>
+                <param name="open_kernel_size" value="5"/>
+                <param name="close_kernel_size" value="5"/>
+                <param name="drop_threshold" value="0.01"/>
+                <param name="allow_holes" value="True"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="shapes/cells"/>
+                        <has_text text="shapes/region_of_interest"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+SOPA Segmentation performs cell segmentation on patched spatial omics data. It supports multiple segmentation methods: cellpose, stardist, comseg, baysor, proseg, and tissue segmentation. For methods supporting patching (cellpose, stardist, comseg, baysor), it will automatically detect the patches in the input SpatialData object and run the segmentation on each patch separately, before resolving the patch overlaps to return a single segmentation for the whole slide. For methods not supporting patching (proseg and tissue), it will run the segmentation on the whole slide directly.
+
+**Technology-specific advice**
+
+Sopa is designed to run on all spatial technologies at single-cell resolution, but some choices or parameters may be more or less suited to certain technologies.
+
+-**Xenium or MERSCOPE or CosMX**
+For Xenium or MERSCOPE data, we recommend using a transcript-based segmentation tool, e.g., Baysor or Proseg. With the Xenium 5k panel, Proseg is recommended due to its fast results and high quality.
+If using Baysor, you can also use area=20 to filter cells with an area below 20 um².
+To filter low-quality cells, you can provide min_transcripts=20 to the aggregation.
+
+-**Visium HD**
+The first option is to run Stardist on the H&E image. Note that, to do that, you'll need the full-resolution image. Else, if you have a prior 10X segmentation, you can directly go to the Proseg section.
+You can use proseg to use the bins information to improve the segmentation and aggregation. To do so, proseg needs a prior segmentation: you can either use stardist , or directly use the 10X Genomics default segmentation available on the recent Visium HD versions.
+
+-**MACSima or PhenoCycler**
+For spatial proteomics, Cellpose is needed. To avoid having artifacts outside of the tissue, we recommend running sopa.segmentation.tissue before running Cellpose. This way, Cellpose will run only inside the tissue.
+For MACSima, we recommend to use diameter=35 pixels and min_area=400 pixels² to sopa.segmentation.cellpose. For PhenoCycler data, it will depend on the image resolution, so you'll need to choose a diameter (in pixels) that is biologically relevant.
+During aggregation, you can for instance use expand_radius_ratio=0.1 to expand the cells, min_intensity_ratio=0.1 to filter cells with a too low intensity.
+
+-**H&E or WSI**
+If you have only a H&E/WSI slide without spatial omics, you can also use Sopa, although many operations are dedicated to spatial omics. For instance, sopa.segmentation.tissue for tissue segmentation, sopa.segmentation.stardist for cell segmentation.
+Though, if you have H&E with spatial omics, e.g. Xenium + H&E, in that case, we recommend segmenting the data on the spatial transcriptomics and aligning the H&E to performed joined operations.
+
+**Performance Notes**
+
+- Segmentation can be time-consuming for large datasets
+- For very large images, consider using smaller patches or reducing patch overlap
+
+
+**Multi-step segmentation**
+Multi-step segmentation consists of running multiple times Cellpose over the whole slides with different parameters. For instance, we can first run a nucleus segmentation using DAPI, then another round using DAPI and a membrane staining, and finally, DAPI and cell boundary staining. This can make the segmentation more robust. Note that the results of the multiple steps are combined into one final segmentation (You need to run Sopa resolve tool after that).
+
+**More Information**
+
+See the `SOPA segmentation documentation <https://prism-oncology.github.io/sopa/tutorials/cli_usage/#run-segmentation>`_.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

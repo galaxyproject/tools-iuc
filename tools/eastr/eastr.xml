@@ -1,0 +1,247 @@
+<tool id="eastr" name="EASTR" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>emend alignments of spliced transcript reads by removing spurious splice junctions</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## EASTR reads the reference FASTA (-r) and builds a Bowtie2 index and a .fai next
+## to it, so symlink the FASTA to a writable name in the job directory. GTF/BED
+## inputs are read directly (EASTR detects the input type from content, not
+## extension). For BAM, symlink so the .bai index sits next to it and the
+## filtered-BAM name is predictable.
+ln -s '$reference' reference.fa &&
+#if $input_type.input_select == 'bam':
+    ln -s '$input_type.input' input.bam &&
+    ln -s '$input_type.input.metadata.bam_index' input.bam.bai &&
+#end if
+
+eastr
+    -r reference.fa
+    -p "\${GALAXY_SLOTS:-1}"
+#if $input_type.input_select == 'bam':
+    --bam input.bam
+    --out_filtered_bam '$filtered_bam'
+#elif $input_type.input_select == 'gtf':
+    --gtf '$input_type.input'
+#else:
+    --bed '$input_type.input'
+#end if
+    --out_removed_junctions '$removed_junctions'
+#if 'kept' in str($optional_outputs).split(','):
+    --out_kept_junctions '$kept_junctions'
+#end if
+#if 'original' in str($optional_outputs).split(','):
+    --out_original_junctions '$original_junctions'
+#end if
+    --bt2_k $adv.bt2_k
+    -o $adv.overhang
+    -a $adv.anchor
+    --min_duplicate_exon_length $adv.min_duplicate_exon_length
+    --min_junc_score $adv.min_junc_score
+    -A $adv.match_score
+    -B $adv.mismatch_penalty
+    -k $adv.kmer
+    -w $adv.window
+    -m $adv.min_chain_score
+#if $adv.trusted_bed:
+    --trusted_bed '$adv.trusted_bed'
+#end if
+#if $adv.log:
+    --verbose 2> '$log'
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_type">
+            <param name="input_select" type="select" label="Input type" help="EASTR can detect spurious splice junctions from a coordinate-sorted BAM of read alignments, or from junctions described in a GTF annotation or BED file. Only the BAM mode produces a filtered alignment file.">
+                <option value="bam">BAM (alignments to filter)</option>
+                <option value="gtf">GTF (annotation)</option>
+                <option value="bed">BED (intron coordinates)</option>
+            </param>
+            <when value="bam">
+                <param name="input" type="data" format="bam" label="Aligned reads" help="Coordinate-sorted BAM file of spliced read alignments (e.g. from HISAT2 or STAR)."/>
+            </when>
+            <when value="gtf">
+                <param name="input" type="data" format="gtf" label="Transcript annotation" help="GTF file whose intron coordinates will be screened for spurious junctions."/>
+            </when>
+            <when value="bed">
+                <param name="input" type="data" format="bed" label="Intron coordinates" help="BED file of intron/junction coordinates to screen for spurious junctions."/>
+            </when>
+        </conditional>
+        <param name="reference" type="data" format="fasta" label="Reference genome" help="Reference genome FASTA. EASTR uses it to extract intron-flanking sequences and builds a Bowtie2 index from it at runtime. For human data, provide a hg38 FASTA with the chrY pseudoautosomal regions (PARs) masked (see Help below)."/>
+        <param name="optional_outputs" type="select" multiple="true" optional="true" display="checkboxes" label="Additional outputs">
+            <option value="kept">Kept (non-spurious) junctions (BED)</option>
+            <option value="original">Original (pre-filter) junctions (BED)</option>
+        </param>
+        <section name="adv" title="Advanced options" expanded="false">
+            <param argument="--bt2_k" type="integer" min="1" value="10" label="Bowtie2 alignment threshold" help="Minimum number of distinct Bowtie2 alignments for a junction to be classified as spurious."/>
+            <param name="overhang" argument="-o" type="integer" min="1" value="50" label="Overhang length" help="Length of flanking sequence taken on either side of a splice junction."/>
+            <param name="anchor" argument="-a" type="integer" min="1" value="7" label="Minimum anchor length" help="Minimum required anchor length in each exon."/>
+            <param argument="--min_duplicate_exon_length" type="integer" min="1" value="27" label="Minimum duplicate exon length" help="Minimum length for duplicated exon detection."/>
+            <param argument="--min_junc_score" type="integer" min="0" value="1" label="Minimum junction score" help="Minimum number of supporting reads per junction."/>
+            <param name="match_score" argument="-A" type="integer" min="1" value="3" label="Match score" help="Alignment matching score."/>
+            <param name="mismatch_penalty" argument="-B" type="integer" min="1" value="4" label="Mismatch penalty" help="Alignment mismatch penalty."/>
+            <param name="kmer" argument="-k" type="integer" min="1" value="3" label="K-mer length" help="K-mer length for alignment."/>
+            <param name="window" argument="-w" type="integer" min="1" value="2" label="Minimizer window size" help="Minimizer window size."/>
+            <param name="min_chain_score" argument="-m" type="integer" min="1" value="25" label="Minimum chain score" help="Minimum chain score."/>
+            <param argument="--trusted_bed" type="data" format="bed" optional="true" label="Trusted junctions" help="BED file of trusted junctions that will never be removed."/>
+            <param name="log" argument="--verbose" type="boolean" truevalue="--verbose" falsevalue="" checked="false" label="Generate log" help="Capture EASTR's verbose progress output (junctions found, spurious junctions detected, alignments removed) as a log dataset in your history."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="removed_junctions" format="bed" label="${tool.name} on ${on_string}: removed (spurious) junctions"/>
+        <data name="filtered_bam" format="bam" label="${tool.name} on ${on_string}: filtered BAM">
+            <filter>input_type['input_select'] == 'bam'</filter>
+        </data>
+        <data name="kept_junctions" format="bed" label="${tool.name} on ${on_string}: kept junctions">
+            <filter>optional_outputs and 'kept' in optional_outputs</filter>
+        </data>
+        <data name="original_junctions" format="bed" label="${tool.name} on ${on_string}: original junctions">
+            <filter>optional_outputs and 'original' in optional_outputs</filter>
+        </data>
+        <data name="log" format="txt" label="${tool.name} on ${on_string}: log">
+            <filter>adv['log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- BAM input: the two spurious junctions (spliced between repeat copies) are removed -->
+        <test expect_num_outputs="2">
+            <conditional name="input_type">
+                <param name="input_select" value="bam"/>
+                <param name="input" value="reads.bam" ftype="bam"/>
+            </conditional>
+            <param name="reference" value="reference.fa" ftype="fasta"/>
+            <output name="removed_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="JUNC1"/>
+                    <has_line_matching expression="chr1\t179\t699\t.*"/>
+                </assert_contents>
+            </output>
+            <output name="filtered_bam" ftype="bam" file="filtered.bam" lines_diff="2" sort="true"/>
+        </test>
+        <!-- BAM input with log enabled: verbose output captured to a log dataset -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_select" value="bam"/>
+                <param name="input" value="reads.bam" ftype="bam"/>
+            </conditional>
+            <param name="reference" value="reference.fa" ftype="fasta"/>
+            <section name="adv">
+                <param name="log" value="true"/>
+            </section>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="Spurious junctions: 2"/>
+                    <has_text text="Removed alignments: 2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- BAM input with all outputs: kept + original (pre-filter) junctions -->
+        <test expect_num_outputs="4">
+            <conditional name="input_type">
+                <param name="input_select" value="bam"/>
+                <param name="input" value="reads.bam" ftype="bam"/>
+            </conditional>
+            <param name="reference" value="reference.fa" ftype="fasta"/>
+            <param name="optional_outputs" value="kept,original"/>
+            <output name="kept_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_line_matching expression="chr1\t349\t499\t.*"/>
+                </assert_contents>
+            </output>
+            <output name="original_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- GTF input: junctions screened; kept + original (file) outputs for non-BAM input -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_select" value="gtf"/>
+                <param name="input" value="annotation.gtf" ftype="gtf"/>
+            </conditional>
+            <param name="reference" value="reference.fa" ftype="fasta"/>
+            <param name="optional_outputs" value="kept,original"/>
+            <output name="kept_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="ts"/>
+                </assert_contents>
+            </output>
+            <output name="original_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- BED input: junction coordinates screened; kept + original outputs -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_select" value="bed"/>
+                <param name="input" value="introns.bed" ftype="bed"/>
+            </conditional>
+            <param name="reference" value="reference.fa" ftype="fasta"/>
+            <param name="optional_outputs" value="kept,original"/>
+            <output name="kept_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+            <output name="original_junctions" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+EASTR (Emending Alignments of Spliced Transcript Reads) detects and removes
+spuriously spliced alignments from RNA-seq data. Splice-aware aligners such as
+HISAT2 and STAR can introduce erroneous spliced alignments between repeated
+sequences, which lead to falsely spliced transcripts in downstream assembly and
+quantification. EASTR examines the sequence similarity between the regions
+flanking an intron and the frequency of those sequences in the reference genome
+to identify junctions that are likely artifacts, independent of the aligner used.
+
+**Inputs**
+
+* **BAM** – a coordinate-sorted BAM file of read alignments. In this mode EASTR
+  writes a *filtered BAM* with the spurious spliced alignments removed.
+* **GTF** – intron coordinates from a transcript annotation are screened.
+* **BED** – intron/junction coordinates are screened directly.
+* **Reference genome** – a FASTA file. EASTR uses it to extract intron-flanking
+  sequences and builds a Bowtie2 index from it at runtime (Bowtie2 is provided by
+  the package). Building the index is quick for small genomes but slower for whole
+  genomes.
+
+.. class:: warningmark
+
+**Human data:** for hg38 we recommend providing a FASTA with the chrY pseudoautosomal
+regions (PARs) masked, to avoid spurious calls from the chrX/chrY PAR duplication.
+See the EASTR documentation for a PAR-masked reference and a script to build one.
+
+**Outputs**
+
+* **Removed (spurious) junctions** – a BED file of the junctions classified as
+  artifacts (always produced).
+* **Filtered BAM** – the input alignments with spurious spliced reads removed
+  (BAM input only).
+* **Kept junctions** / **Original junctions** – optional BED files of the
+  retained and the pre-filter junction sets.
+* **Log** – an optional text log of EASTR's verbose progress output (enable
+  *Generate log* under Advanced options).
+
+**Citation**
+
+Shinder I, Hu R, Ji HJ, Chao KH, Pertea M. EASTR: Identifying and eliminating
+systematic alignment errors in multi-exon genes. *Nature Communications*. 2023;14:7223.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
