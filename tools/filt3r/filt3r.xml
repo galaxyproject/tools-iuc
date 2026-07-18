@@ -1,0 +1,150 @@
+<tool id="filt3r" name="FiLT3r" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>alignment-free detection of internal (tandem) duplications from raw sequencing data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <required_files>
+        <include path="data/flt3_exon14-15.fa"/>
+    </required_files>
+    <command detect_errors="exit_code"><![CDATA[
+filt3r
+    -k $kmer_size
+    --nb-threads \${GALAXY_SLOTS:-1}
+    #if $reference_source.reference_source_selector == 'history'
+        --ref '$reference_source.ref'
+    #else
+        --ref '$__tool_directory__/data/flt3_exon14-15.fa'
+    #end if
+    --threshold $advanced.threshold
+    --kmer-extend $advanced.kmer_extend
+    --min-nb-duplication $advanced.min_nb_duplication
+    --ignore-short-indels $advanced.ignore_short_indels
+    --bloom-size $advanced.bloom_size
+    --nb-hash $advanced.nb_hash
+    --highest-fp-rate $advanced.highest_fp_rate
+    $advanced.no_bloom_filter
+    $advanced.no_subst_removal
+    $advanced.low_mem
+    #if $vcf_output.make_vcf
+        --vcf
+        $vcf_output.out_sequences
+    #end if
+    --out 'filt3r.results.json'
+    ## --sequences is greedy (consumes every following token), so keep it last.
+    --sequences
+    #for $seq in $sequences
+        '$seq'
+    #end for
+    ]]></command>
+    <inputs>
+        <param name="sequences" type="data" format="fastq,fastqsanger,fastq.gz,fastqsanger.gz,fasta,fasta.gz" multiple="true" label="Sequence file(s)" help="Reads to analyse: FASTA or FASTQ, optionally gzipped. Select several files (e.g. R1 and R2) to analyse them together."/>
+        <param name="kmer_size" type="integer" value="12" min="1" label="K-mer size (-k)" help="Length of the k-mers used. The FiLT3r paper used 12 with the FLT3 exon 14-15 reference; tune it for other references."/>
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Reference sequence" help="Use the built-in FLT3 exon 14-15 reference or supply your own.">
+                <option value="builtin" selected="true">Built-in FLT3 exon 14-15 (default)</option>
+                <option value="history">Use a reference from history</option>
+            </param>
+            <when value="builtin"/>
+            <when value="history">
+                <param argument="--ref" type="data" format="fasta" label="Reference sequence" help="Single-sequence FASTA. For genomic coordinates in the output, use a header of the form chr:start-end:strand (e.g. 13:28033760-28034429:-1)."/>
+            </when>
+        </conditional>
+        <conditional name="vcf_output">
+            <param name="make_vcf" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Also produce a VCF file (--vcf)"/>
+            <when value="true">
+                <param argument="--out-sequences" name="out_sequences" type="boolean" truevalue="--out-sequences" falsevalue="" checked="false" label="Write duplication sequences into the VCF (--out-sequences)"/>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param argument="--threshold" type="float" value="0.3" min="0" max="1" label="Read k-mer match ratio (--threshold)" help="Fraction of a read's k-mers that must match the reference for the read to be fully analysed; all others are discarded."/>
+            <param argument="--kmer-extend" type="integer" value="2" min="1" label="K-mers to confirm a breakpoint (--kmer-extend)"/>
+            <param argument="--min-nb-duplication" type="integer" value="2" min="1" label="Minimum identical duplications kept (--min-nb-duplication)" help="Set to 1 to keep all."/>
+            <param argument="--ignore-short-indels" type="integer" value="0" min="0" label="Ignore indels up to this length (--ignore-short-indels)" help="0 keeps all indels."/>
+            <param argument="--bloom-size" type="integer" value="100000" min="1" label="Bloom filter size in bits (--bloom-size)"/>
+            <param argument="--nb-hash" type="integer" value="3" min="0" label="Number of Bloom hash functions (--nb-hash)" help="0 picks the optimal number for the false-positive rate (may not be optimal for speed)."/>
+            <param argument="--highest-fp-rate" type="float" value="0.1" min="0" max="1" label="Max Bloom false-positive rate (--highest-fp-rate)"/>
+            <param argument="--no-bloom-filter" name="no_bloom_filter" type="boolean" truevalue="--no-bloom-filter" falsevalue="" checked="false" label="Disable the Bloom filter (--no-bloom-filter)"/>
+            <param argument="--no-subst-removal" name="no_subst_removal" type="boolean" truevalue="--no-subst-removal" falsevalue="" checked="false" label="Do not remove substitutions (--no-subst-removal)"/>
+            <param argument="--low-mem" name="low_mem" type="boolean" truevalue="--low-mem" falsevalue="" checked="false" label="Low-memory mode (--low-mem)" help="Store reads with duplications on disk so memory use is nearly independent of the number of breakpoints."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="json" format="json" from_work_dir="filt3r.results.json" label="${tool.name} on ${on_string}: JSON report"/>
+        <data name="vcf" format="vcf" from_work_dir="filt3r.results.vcf" label="${tool.name} on ${on_string}: VCF">
+            <filter>vcf_output['make_vcf']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Built-in FLT3 reference, single FASTA -->
+        <test expect_num_outputs="1">
+            <param name="sequences" value="read1.fa" ftype="fasta"/>
+            <param name="kmer_size" value="12"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="builtin"/>
+            </conditional>
+            <output name="json">
+                <assert_contents>
+                    <has_text text="nb_total"/>
+                    <has_text text="is_duplication"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- User-supplied reference from history, with VCF output -->
+        <test expect_num_outputs="2">
+            <param name="sequences" value="read1.fa" ftype="fasta"/>
+            <param name="kmer_size" value="12"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref" value="flt3_exon14-15.fa" ftype="fasta"/>
+            </conditional>
+            <conditional name="vcf_output">
+                <param name="make_vcf" value="true"/>
+            </conditional>
+            <output name="json">
+                <assert_contents>
+                    <has_text text="nb_reads_in_events"/>
+                </assert_contents>
+            </output>
+            <output name="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4"/>
+                    <has_text text="#CHROM"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+FiLT3r detects and quantifies internal duplications in raw sequencing data using
+an alignment-free k-mer approach, so it is fast and memory-frugal. It was
+designed and benchmarked for detecting and quantifying FLT3 internal tandem
+duplications (FLT3-ITD) from capture and RNA-Seq data.
+
+## Inputs
+
+- **Sequence file(s)**: FASTA or FASTQ (optionally gzipped). Select several files
+  to analyse them together (for example paired R1 and R2 reads).
+- **Reference**: the built-in FLT3 exon 14-15 sequence (default) or your own
+  single-sequence FASTA. Give the reference a `chr:start-end:strand` header to
+  get genomic coordinates in the output.
+- **K-mer size**: 12 works well with the FLT3 reference; tune it for others.
+
+## Outputs
+
+- **JSON report** with, per breakpoint, the duplication size, read support,
+  region and wild-type coverage, MT/WT ratio and variant allele frequency (VAF),
+  plus the duplicated sequence.
+- **VCF** (optional).
+
+See the [FiLT3r documentation](https://gitlab.univ-lille.fr/filt3r/filt3r/-/blob/master/README.md)
+for the full description of every output field.
+    ]]></help>
+    <creator>
+        <person givenName="Joachim" familyName="Wolff"/>
+        <organization name="Univ. Lille, CNRS, Centrale Lille, UMR 9189 CRIStAL" url="https://gitlab.univ-lille.fr/filt3r/filt3r"/>
+    </creator>
+    <expand macro="citations"/>
+</tool>
