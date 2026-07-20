@@ -14,6 +14,11 @@
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
 @CMD_READ_INPUTS@
+
+def flatten_values(matrix):
+    if hasattr(matrix, 'toarray'):
+        matrix = matrix.toarray()
+    return np.asarray(matrix).ravel()
 #if str($method.method) == 'to_tensor_c2c'
 tensor = li.multi.to_tensor_c2c(
     adata=adata,
@@ -53,10 +58,17 @@ mdata = li.multi.lrs_to_views(
         var_sep='$method.var_sep',
     #end if
     lr_prop=$method.lr_prop,
+    #if str($method.lr_fill) != '':
+    lr_fill=$method.lr_fill,
+    #end if
     lrs_per_view=$method.lrs_per_view,
     lrs_per_sample=$method.lrs_per_sample,
     samples_per_view=$method.samples_per_view,
     min_variance=$method.min_variance,
+    min_var_nbatches=$method.min_var_nbatches,
+    #if str($method.batch_key) != '':
+    batch_key='$method.batch_key',
+    #end if
     uns_key='$method.uns_key',
     sample_key='$method.sample_key',
     source_key='$method.source_key',
@@ -64,9 +76,53 @@ mdata = li.multi.lrs_to_views(
     ligand_key='$method.ligand_key',
     receptor_key='$method.receptor_key',
     verbose=False)
+numeric_values = np.concatenate([
+    flatten_values(mdata.mod[key].X)
+    for key in sorted(mdata.mod)
+])
+print(f"lrs_to_views_numeric_mean={float(np.nanmean(numeric_values)):.8f}")
 mdata.write_h5mu('mdata_output.h5mu')
 
 #else if str($method.method) == 'adata_to_views'
+psbulk_kwargs = {
+    'mode': '$method.pseudobulk_options.mode',
+    'raw': $method.pseudobulk_options.raw,
+    'empty': $method.pseudobulk_options.empty,
+    'skip_checks': $method.pseudobulk_options.skip_checks,
+    'bsize': $method.pseudobulk_options.bsize,
+}
+#if str($method.pseudobulk_options.layer) != '':
+psbulk_kwargs['layer'] = '$method.pseudobulk_options.layer'
+#end if
+filter_samples_kwargs = None
+#if str($method.filter_samples_settings.filter_samples_selector) == 'filter':
+filter_samples_kwargs = {
+    'min_cells': $method.filter_samples_settings.min_cells,
+    'min_counts': $method.filter_samples_settings.min_counts,
+}
+#end if
+filter_by_expr_kwargs = None
+#if str($method.filter_by_expr_settings.filter_by_expr_selector) == 'filter':
+filter_by_expr_kwargs = {
+    'min_count': $method.filter_by_expr_settings.min_count,
+    'min_total_count': $method.filter_by_expr_settings.min_total_count,
+    'large_n': $method.filter_by_expr_settings.large_n,
+    'min_prop': $method.filter_by_expr_settings.min_prop,
+}
+#if str($method.filter_by_expr_settings.group) != '':
+filter_by_expr_kwargs['group'] = '$method.filter_by_expr_settings.group'
+#end if
+#if str($method.filter_by_expr_settings.lib_size) != '':
+filter_by_expr_kwargs['lib_size'] = $method.filter_by_expr_settings.lib_size
+#end if
+#end if
+filter_by_prop_kwargs = None
+#if str($method.filter_by_prop_settings.filter_by_prop_selector) == 'filter':
+filter_by_prop_kwargs = {
+    'min_prop': $method.filter_by_prop_settings.min_prop,
+    'min_smpls': $method.filter_by_prop_settings.min_smpls,
+}
+#end if
 mdata = li.multi.adata_to_views(
     adata=adata,
     groupby='$method.groupby',
@@ -74,8 +130,18 @@ mdata = li.multi.adata_to_views(
 #if str($method.obs_keys) != ''
     obs_keys=[x.strip() for x in '$method.obs_keys'.split(',') if x.strip()],
 #end if
+    view_sep='$method.view_sep',
     keep_stats=$method.keep_stats,
+    psbulk_kwargs=psbulk_kwargs,
+    filter_samples_kwargs=filter_samples_kwargs,
+    filter_by_expr_kwargs=filter_by_expr_kwargs,
+    filter_by_prop_kwargs=filter_by_prop_kwargs,
     verbose=False)
+numeric_values = np.concatenate([
+    flatten_values(mdata.mod[key].X)
+    for key in sorted(mdata.mod)
+])
+print(f"adata_to_views_numeric_mean={float(np.nanmean(numeric_values)):.8f}")
 mdata.write_h5mu('mdata_output.h5mu')
 
 #else if str($method.method) == 'nmf'
@@ -92,7 +158,16 @@ li.multi.nmf(
 #end if
     inplace=True,
     verbose=False,
-    random_state=$method.random_state)
+#if str($method.init) != '':
+    init='$method.init',
+#end if
+    max_iter=$method.max_iter,
+    tol=$method.tol,
+#if str($method.random_state) != '':
+    random_state=$method.random_state,
+#end if
+)
+print(f"nmf_w_numeric_mean={float(np.mean(adata.obsm['NMF_W'])):.8f}")
 adata.write_h5ad('anndata.h5ad', compression='gzip')
 
 #end if
@@ -121,17 +196,26 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                     <expand macro="validator_optional_csv" FIELD="observation-key list"/>
                 </param>
                 <param argument="lr_prop" type="float" value="0.5" min="0" max="1" label="LR proportion" help="Minimum proportion of samples for an interaction to be considered."/>
+                <param argument="lr_fill" type="float" value="" optional="true" label="Missing interaction fill value" help="Optional value used to replace interactions missing from a sample. Empty preserves LIANA's NaN default."/>
                 <param argument="lrs_per_view" type="integer" value="20" min="1" label="LRs per view" help="Minimum number of interactions in a view."/>
                 <param argument="lrs_per_sample" type="integer" value="10" min="1" label="LRs per sample" help="Minimum number of interactions in a sample."/>
                 <param argument="samples_per_view" type="integer" value="3" min="1" label="Samples per view" help="Minimum samples to keep a view."/>
                 <param argument="min_variance" type="float" value="0" min="0" label="Minimum variance" help="Minimum variance across samples for each interaction."/>
+                <param argument="min_var_nbatches" type="integer" value="1" min="1" label="Minimum variable batches" help="Minimum number of batches in which an interaction must exceed the variance threshold."/>
+                <param argument="batch_key" type="text" value="" optional="true" label="Batch key" help="Optional batch column in the LIANA result table used for batch-wise variance filtering.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="batch key"/>
+                </param>
                 <param argument="var_sep" type="text" value="" label="Variable names separator" help="Separator to use for the variable names in the views">
+                    <expand macro="sanitize_query"/>
                     <expand macro="validator_optional_separator" FIELD="variable-name separator"/>
                 </param>
                 <param argument="cell_sep" type="text" value="" label="Cell names separator" help="Separator between interacting entities (default '&amp;'). Example: ligand&amp;receptor.">
+                    <expand macro="sanitize_query"/>
                     <expand macro="validator_optional_separator" FIELD="cell-name separator"/>
                 </param>
                 <param argument="lr_sep" type="text" value="" label="Ligand and receptor separator" help="Separator to use when joining ligand and receptor names into interactions">
+                    <expand macro="sanitize_query"/>
                     <expand macro="validator_optional_separator" FIELD="ligand-receptor separator"/>
                 </param>
             </when>
@@ -142,13 +226,81 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                     <expand macro="sanitize_query"/>
                     <expand macro="validator_optional_csv" FIELD="observation-key list"/>
                 </param>
+                <param argument="view_sep" type="text" value=":" label="View feature separator" help="Separator inserted between the view name and feature names.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_separator" FIELD="view feature separator"/>
+                </param>
                 <param argument="keep_stats" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Keep stats" help="Keep pseudobulk statistics in mdata.uns."/>
+                <section name="pseudobulk_options" title="Pseudobulk options" expanded="false">
+                    <param argument="mode" type="select" label="Aggregation mode">
+                        <option value="sum" selected="true">Sum</option>
+                        <option value="mean">Mean</option>
+                        <option value="median">Median</option>
+                    </param>
+                    <param argument="layer" type="text" value="" optional="true" label="Count layer">
+                        <expand macro="sanitize_query"/>
+                        <expand macro="validator_optional_key" FIELD="pseudobulk layer"/>
+                    </param>
+                    <param argument="raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use adata.raw"/>
+                    <param argument="empty" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Retain empty sample groups"/>
+                    <param argument="skip_checks" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Skip count-data checks"/>
+                    <param argument="bsize" type="integer" value="250000" min="1" label="Processing block size"/>
+                </section>
+                <conditional name="filter_samples_settings">
+                    <param name="filter_samples_selector" type="select" label="Sample filtering">
+                        <option value="none" selected="true">Do not filter samples</option>
+                        <option value="filter">Filter by cells and counts</option>
+                    </param>
+                    <when value="none"/>
+                    <when value="filter">
+                        <param argument="min_cells" type="integer" value="10" min="0" label="Minimum cells per pseudobulk sample"/>
+                        <param argument="min_counts" type="integer" value="1000" min="0" label="Minimum counts per pseudobulk sample"/>
+                    </when>
+                </conditional>
+                <conditional name="filter_by_expr_settings">
+                    <param name="filter_by_expr_selector" type="select" label="Expression filtering">
+                        <option value="none" selected="true">Do not filter genes by expression</option>
+                        <option value="filter">Filter genes by expression</option>
+                    </param>
+                    <when value="none"/>
+                    <when value="filter">
+                        <param argument="group" type="text" value="" optional="true" label="Group column">
+                            <expand macro="sanitize_query"/>
+                            <expand macro="validator_optional_key" FIELD="expression-filter group"/>
+                        </param>
+                        <param argument="lib_size" type="float" value="" optional="true" min="0" label="Library size"/>
+                        <param argument="min_count" type="integer" value="10" min="0" label="Minimum count"/>
+                        <param argument="min_total_count" type="integer" value="15" min="0" label="Minimum total count"/>
+                        <param argument="large_n" type="integer" value="10" min="1" label="Large-group threshold"/>
+                        <param argument="min_prop" type="float" value="0.7" min="0" max="1" label="Minimum sample proportion"/>
+                    </when>
+                </conditional>
+                <conditional name="filter_by_prop_settings">
+                    <param name="filter_by_prop_selector" type="select" label="Proportion filtering">
+                        <option value="none" selected="true">Do not filter genes by expressing-cell proportion</option>
+                        <option value="filter">Filter genes by expressing-cell proportion</option>
+                    </param>
+                    <when value="none"/>
+                    <when value="filter">
+                        <param argument="min_prop" type="float" value="0.2" min="0" max="1" label="Minimum expressing-cell proportion"/>
+                        <param argument="min_smpls" type="integer" value="2" min="1" label="Minimum qualifying samples"/>
+                    </when>
+                </conditional>
             </when>
             <when value="nmf">
                 <param argument="n_components" type="integer" value="" optional="true" label="Number of components" help="Number of NMF components. If empty, uses k_range to estimate."/>
                 <param name="k_range_min" type="integer" value="1" min="1" label="K range minimum" help="Minimum k for elbow estimation (used if n_components is empty)."/>
                 <param name="k_range_max" type="integer" value="10" min="2" label="K range maximum" help="Maximum k for elbow estimation (used if n_components is empty)."/>
-                <param argument="random_state" type="integer" value="0" label="Random state" help="Random seed for reproducibility."/>
+                <param argument="init" type="select" label="Initialization method" help="Leave automatic to preserve scikit-learn's default selection, or choose a stable explicit strategy.">
+                    <option value="" selected="true">Automatic (scikit-learn default)</option>
+                    <option value="nndsvda">NNDSVD with zeros filled by the mean</option>
+                    <option value="nndsvd">NNDSVD</option>
+                    <option value="nndsvdar">NNDSVD with small random values</option>
+                    <option value="random">Random</option>
+                </param>
+                <param argument="max_iter" type="integer" value="200" min="1" label="Maximum iterations"/>
+                <param argument="tol" type="float" value="0.0001" min="0" label="Convergence tolerance"/>
+                <param argument="random_state" type="integer" value="" optional="true" label="Random state" help="Optional random seed. Empty preserves LIANA/scikit-learn's default."/>
                 <param argument="use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw attribute of adata if present" help=""/>
                 <expand macro="param_layer"/>
             </when>
@@ -200,7 +352,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
         </test>
         <!-- Test 2: lrs_to_views -->
         <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+            <param name="adata" value="multi_lrs_test.h5ad"/>
             <conditional name="method">
                 <param name="method" value="lrs_to_views"/>
                 <param name="sample_key" value="sample"/>
@@ -211,10 +363,13 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                 <param name="ligand_key" value="ligand_complex"/>
                 <param name="receptor_key" value="receptor_complex"/>
                 <param name="lr_prop" value="0.3"/>
-                <param name="lrs_per_view" value="5"/>
-                <param name="lrs_per_sample" value="3"/>
+                <param name="lr_fill" value="0"/>
+                <param name="lrs_per_view" value="2"/>
+                <param name="lrs_per_sample" value="2"/>
                 <param name="samples_per_view" value="2"/>
                 <param name="min_variance" value="0"/>
+                <param name="min_var_nbatches" value="1"/>
+                <param name="batch_key" value="batch"/>
                 <param name="obs_keys" value="case"/>
                 <param name="lr_sep" value="|"/>
                 <param name="cell_sep" value="~"/>
@@ -225,21 +380,25 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </section>
             <output name="mdata_out" ftype="h5mu">
                 <assert_contents>
-                    <has_h5_keys keys="mod/B_cell~B_cell,obs/case"/>
+                    <has_h5_keys keys="mod/B_cell~T_cell,mod/T_cell~B_cell,obs/case"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="li.multi.lrs_to_views"/>
+                    <has_text_matching expression="lrs_to_views_numeric_mean=0\.39158[0-9]+"/>
                 </assert_contents>
             </output>
         </test>
         <!-- Test 3: nmf -->
         <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_nmf_input.h5ad"/>
+            <param name="adata" value="multi_expression_test.h5ad"/>
             <conditional name="method">
                 <param name="method" value="nmf"/>
                 <param name="n_components" value="3"/>
+                <param name="init" value="nndsvda"/>
+                <param name="max_iter" value="300"/>
+                <param name="tol" value="0.0001"/>
                 <param name="random_state" value="42"/>
             </conditional>
             <section name="advanced_common">
@@ -247,37 +406,64 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </section>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="33800" delta="10000"/>
-                    <has_h5_keys keys="obs/_index"/>
+                    <has_h5_keys keys="obs/_index,obsm/NMF_W,varm/NMF_H,uns/nmf_rank"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="li.multi.nmf"/>
+                    <has_text_matching expression="nmf_w_numeric_mean=0\.3893[0-9]+"/>
                 </assert_contents>
             </output>
         </test>
         <!-- Test 4: adata_to_views with observation metadata -->
         <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+            <param name="adata" value="multi_expression_test.h5ad"/>
             <conditional name="method">
                 <param name="method" value="adata_to_views"/>
-                <param name="groupby" value="bulk_labels"/>
+                <param name="groupby" value="cell_type"/>
                 <param name="sample_key" value="sample"/>
                 <param name="obs_keys" value="case"/>
+                <param name="view_sep" value="|"/>
                 <param name="keep_stats" value="true"/>
+                <section name="pseudobulk_options">
+                    <param name="mode" value="sum"/>
+                    <param name="layer" value="counts"/>
+                    <param name="raw" value="false"/>
+                    <param name="empty" value="false"/>
+                    <param name="skip_checks" value="false"/>
+                    <param name="bsize" value="1000"/>
+                </section>
+                <conditional name="filter_samples_settings">
+                    <param name="filter_samples_selector" value="filter"/>
+                    <param name="min_cells" value="1"/>
+                    <param name="min_counts" value="1"/>
+                </conditional>
+                <conditional name="filter_by_expr_settings">
+                    <param name="filter_by_expr_selector" value="filter"/>
+                    <param name="min_count" value="1"/>
+                    <param name="min_total_count" value="1"/>
+                    <param name="large_n" value="10"/>
+                    <param name="min_prop" value="0.1"/>
+                </conditional>
+                <conditional name="filter_by_prop_settings">
+                    <param name="filter_by_prop_selector" value="filter"/>
+                    <param name="min_prop" value="0.1"/>
+                    <param name="min_smpls" value="1"/>
+                </conditional>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
             <output name="mdata_out" ftype="h5mu">
                 <assert_contents>
-                    <has_h5_keys keys="mod/B_cell,obs/case,uns/psbulk_stats"/>
+                    <has_h5_keys keys="mod/B_cell,mod/T_cell,obs/case,uns/psbulk_stats"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
                     <has_text_matching expression="li.multi.adata_to_views"/>
+                    <has_text_matching expression="adata_to_views_numeric_mean=13\.1666[0-9]+"/>
                 </assert_contents>
             </output>
         </test>
@@ -291,11 +477,11 @@ This tool provides multi-sample and multi-condition analysis functions from LIAN
 
 - **to_tensor_c2c**: Converts LIANA results to a tensor format for Tensor-cell2cell analysis. Useful for decomposing cell-cell communication patterns across samples/conditions.
 
-- **lrs_to_views**: Converts LIANA results to a MuData object with views representing ligand-receptor interactions aggregated by cell type pairs. Each view contains interactions for a specific sender-receiver pair.
+- **lrs_to_views**: Converts LIANA results to MuData views and exposes fill, batch-aware variance, and separator controls. Arbitrary Python callables such as `inverse_fun` are intentionally not exposed.
 
-- **adata_to_views**: Converts an AnnData object to a MuData object with views representing aggregated expression for each cell type. Useful for multi-sample analysis.
+- **adata_to_views**: Converts AnnData to pseudobulk MuData views. Typed controls cover `view_sep`, pseudobulk aggregation, sample filtering, expression filtering, and expressing-cell proportion filtering.
 
-- **nmf**: Performs Non-negative Matrix Factorization on the data to identify latent factors/patterns.
+- **nmf**: Performs Non-negative Matrix Factorization with typed initialization, iteration, tolerance, and random-seed controls. Arbitrary scikit-learn keyword arguments are intentionally not accepted.
 
 **Inputs**
 

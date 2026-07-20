@@ -19,7 +19,7 @@ Method | Description
 `singlecellsignalr` | SingleCellSignalR ligand-receptor method
 `geometric_mean` | Geometric-mean ligand-receptor method
 `rank_aggregate` | Aggregate rankings from multiple methods
-`bivariate` | Local/global bivariate spatial statistics
+`bivariate` | Local/global bivariate spatial statistics for AnnData or paired MuData modalities; one or both global metrics can be selected
 `cross_pcf` | Distance-resolved cross pair-correlation for directed cell-type pairs
 `lric` | Expression-weighted Ligand-Receptor Interaction Correlation
 
@@ -36,7 +36,7 @@ LIANA 1.8.1 includes improved preservation of MuData metadata (`uns`, `obsm`, `v
 
 ### 3. Multi-view Utilities (`multi.xml`)
 
-Wrappers for converting LIANA results to views/tensors and for NMF-based multi-view analysis.
+Wrappers for converting LIANA results to views/tensors and for NMF-based multi-view analysis. The Galaxy forms expose typed controls for `adata_to_views` pseudobulk and filtering options, `lrs_to_views` batch-aware variance filtering and missing-value filling, and stable NMF initialization/convergence controls.
 
 ### 4. Plotting (`plot.xml`)
 
@@ -60,6 +60,20 @@ Includes spatial-neighbor construction, AnnData extraction helpers, factor/loadi
 
 Provides built-in or Data Manager-cached ligand-receptor resources, Metalinks retrieval/filtering, HCOP ortholog retrieval through the current target-organism API, and resource translation.
 
+## API coverage and Galaxy-specific constraints
+
+The wrappers call LIANA 1.8.1 directly for the exposed computations. Python-native outputs are converted only after computation into Galaxy-compatible AnnData, MuData, tabular, or image outputs.
+
+The following Python-only extension points are intentionally not exposed:
+
+- arbitrary callables such as `lrs_to_views(inverse_fun=...)`;
+- callable or dictionary pseudobulk aggregation modes;
+- unrestricted `**kwargs` or user-entered Python/JSON dictionaries.
+
+Instead, stable options are represented with typed Galaxy parameters and conditionals. This keeps jobs reproducible, validates values before execution, and avoids evaluating user-supplied Python code.
+
+The deterministic local test fixtures include numerical reference assertions generated with LIANA 1.8.1. These complement structural HDF5 and tabular assertions and check that the wrapped calls retain expected numerical behavior.
+
 ## References
 
 - Dimitrov, D., Türei, D., Garrido-Rodriguez, M. et al. Comparison of methods and resources for cell-cell communication inference from single-cell RNA-Seq data. Nat Commun 13, 3224 (2022). https://doi.org/10.1038/s41467-022-30755-0
@@ -78,9 +92,3 @@ For `translate_resource`, the ligand-receptor source and the ortholog mapping so
 The production table is declared in `tool_data_table_conf.xml.sample` and points to `tool-data/liana_resources.loc`; the `.loc.sample` file is only the installation template. For Planemo tests, `tool_data_table_conf.xml.test` points to `test-data/liana_resources.loc`, whose entries resolve local ligand-receptor, HCOP, and Metalinks fixtures through `${__HERE__}`. This mirrors the established IUC test-data-table pattern.
 
 Repeated spatial-annulus, cell-type, HCOP-download, MuData, separator, and result-key parameters are defined in `macros.xml` so `cross_pcf`, `lric`, and plotting branches share identical defaults and validation.
-
-## LIANA 1.8.1 Galaxy wrapper notes
-
-- The bivariate `global_name` control is intentionally scalar-only in Galaxy: select either `morans` or `lee` per invocation and run separate jobs when both are required.
-- User-entered text that is interpolated into generated Python is validated to reject backslashes, in addition to the existing quote sanitization and separator restrictions.
-- Regression tests are included for global-only bivariate output, custom/equal separators, cross-PCF, grouped and ungrouped LRIC, `adata_to_views`, `annulus_plot`, and `expand_coordinates`.
