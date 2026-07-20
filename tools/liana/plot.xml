@@ -10,6 +10,8 @@
     <command detect_errors="exit_code"><![CDATA[
 #if str($method.method) in ['pl.target_metrics', 'pl.contributions', 'pl.interactions']:
 cp '$method.mdata' 'misty.h5mu' &&
+#else if str($method.method) == 'pl.lric_lineplot':
+cp '$method.curves' 'spatial_curves.tsv' &&
 #else:
 cp '$method.adata' 'anndata.h5ad' &&
 #end if
@@ -22,13 +24,15 @@ cat 'anndata_info.txt' @CMD_PRETTIFY_STDOUT@
     <configfiles>
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
+import matplotlib.pyplot as plt
 import mudata as mu
-if os.path.exists("misty.h5mu"):
-    import mudata as mu
-    mdata = mu.read_h5mu("misty.h5mu")
-    # Wrap MuData into LIANA MistyData (this is what plotting expects)
-else:
-    adata = sc.read_h5ad('anndata.h5ad')
+#if str($method.method) in ['pl.target_metrics', 'pl.contributions', 'pl.interactions']:
+mdata = mu.read_h5mu('misty.h5mu')
+#else if str($method.method) == 'pl.lric_lineplot':
+# This plot consumes the long-form Galaxy table directly.
+#else:
+adata = sc.read_h5ad('anndata.h5ad')
+#end if
 
 
 #if str($method.method) == 'pl.dotplot':
@@ -148,10 +152,76 @@ fig = li.plotting.interactions(
     ascending=$method.ascending,
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
+
+#else if str($method.method) == 'pl.annulus_plot':
+li.plotting.annulus_plot(
+    adata=adata,
+    spatial_key='$method.spatial_key',
+    annulus_width=$method.annulus_width,
+    radius_step=$method.radius_step,
+    extend_first_annulus=$method.extend_first_annulus,
+    n_rings=$method.n_rings,
+    seed=$method.seed,
+    figure_size=($method.figure_size_width, $method.figure_size_height))
+fig = plt.gcf()
+
+#else if str($method.method) == 'pl.lric_lineplot':
+curve_data = pd.read_csv('$method.curves', sep='\t')
+required_columns = {'radius', 'value'}
+missing_columns = required_columns.difference(curve_data.columns)
+if missing_columns:
+    raise ValueError(f"Curve table is missing required columns: {sorted(missing_columns)}")
+#if str($method.source).strip() != '':
+if 'source' not in curve_data.columns:
+    raise ValueError("The source filter requires a 'source' column")
+curve_data = curve_data[curve_data['source'].astype(str) == '$method.source']
+#end if
+#if str($method.target).strip() != '':
+if 'target' not in curve_data.columns:
+    raise ValueError("The target filter requires a 'target' column")
+curve_data = curve_data[curve_data['target'].astype(str) == '$method.target']
+#end if
+#if str($method.interactions).strip() != '':
+if 'interaction' not in curve_data.columns:
+    raise ValueError("The interaction filter requires an 'interaction' column")
+selected_interactions = [x.strip() for x in '$method.interactions'.split(',') if x.strip()]
+curve_data = curve_data[curve_data['interaction'].astype(str).isin(selected_interactions)]
+#end if
+if curve_data.empty:
+    raise ValueError('No curves remain after filtering')
+label_columns = [column for column in ['source', 'target', 'interaction'] if column in curve_data.columns]
+curves = {}
+if label_columns:
+    grouped_curves = curve_data.groupby(label_columns, dropna=False, sort=False)
+else:
+    grouped_curves = [('curve_1', curve_data)]
+for keys, frame in grouped_curves:
+    if not isinstance(keys, tuple):
+        keys = (keys,)
+    label_parts = [str(value) for value in keys if str(value) not in ['', 'nan', 'None']]
+    label = ' | '.join(label_parts) if label_parts else f'curve_{len(curves) + 1}'
+    frame = frame.sort_values('radius')
+    curves[label] = (frame['radius'].to_numpy(), frame['value'].to_numpy())
+first_radii = next(iter(curves.values()))[0]
+fig = li.plotting.lric_lineplot(
+    radii=first_radii,
+    curves=curves,
+    overlay=$method.overlay,
+    ncols=$method.ncols,
+    #if str($method.title) != '':
+    title='$method.title',
+    #end if
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
 #end if
 
-## Save the figure
-fig.save('plot.$format', dpi=150)
+## Save plotnine and matplotlib figures through their respective APIs.
+if hasattr(fig, 'save'):
+    fig.save('plot.$format', dpi=150)
+elif hasattr(fig, 'savefig'):
+    fig.savefig('plot.$format', dpi=150, bbox_inches='tight')
+else:
+    plt.savefig('plot.$format', dpi=150, bbox_inches='tight')
 
         ]]>
         </configfile>
@@ -171,6 +241,8 @@ fig.save('plot.$format', dpi=150)
                 <option value="pl.target_metrics">MISTy Target Metrics: Plot target metrics from MISTy results (target_metrics)</option>
                 <option value="pl.contributions">MISTy Contributions: Plot view contributions per target (contributions)</option>
                 <option value="pl.interactions">MISTy Interactions: Plot interaction importances (interactions)</option>
+                <option value="pl.annulus_plot">Annulus plot: Inspect spatial distance bins (annulus_plot)</option>
+                <option value="pl.lric_lineplot">LRIC/cross-PCF curves: Plot g(r) by radius (lric_lineplot)</option>
             </param>
             <when value="pl.dotplot">
                 <expand macro="inputs_anndata"/>
@@ -212,9 +284,11 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_uns_key"/>
                 <param argument="fill" type="text" value="" optional="true" label="Fill by column" help="Column in liana_res for tile color. E.g., 'magnitude_rank', 'specificity_rank', or p-value columns.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="fill-column key"/>
                 </param>
                 <param argument="label" type="text" value="" optional="true" label="Label by column" help="Column in liana_res to display inside tiles (e.g., 'lr_names', 'magnitude_rank').">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="label-column key"/>
                 </param>
                 <expand macro="param_source_labels"/>
                 <expand macro="param_target_labels"/>
@@ -240,15 +314,17 @@ fig.save('plot.$format', dpi=150)
                 <param argument="idx" type="integer" value="0" min="0" label="Cell index" help="Index of the cell to plot connectivity for."/>
                 <param argument="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm that contains the spatial coordinates.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="spatial coordinates key"/>
                 </param>
                 <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp that contains the spatial connectivity matrix.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="connectivity matrix key"/>
                 </param>
                 <param argument="size" type="float" value="1" min="0" label="Point size" help="Size of the points."/>
                 <expand macro="param_figure_size" width="5.4" height="5"/>
             </when>
             <when value="pl.target_metrics">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
+                <expand macro="param_mdata"/>
                 <expand macro="param_misty_key"/>
                 <param argument="stat" type="select" optional="true" label="Statistic to plot" help="Target metric to visualize. gain_R2: improvement from multi-view; intra_R2: intra-view variance explained; multi_R2: total variance explained.">
                     <option value="">-- Select statistic --</option>
@@ -264,24 +340,51 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
             <when value="pl.contributions">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
+                <expand macro="param_mdata"/>
                 <expand macro="param_misty_key"/>
                 <param argument="view_names" type="text" value="" optional="true" label="Views to include" help="Comma-separated view names (intra, juxta, para) to plot. Empty = all views. Useful for focusing on specific spatial scales.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="view-name list"/>
                 </param>
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
             <when value="pl.interactions">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
+                <expand macro="param_mdata"/>
                 <expand macro="param_misty_key"/>
                 <param argument="view" type="text" value="" optional="true" label="View name" help="Specific view (e.g., 'intra', 'juxta', 'para') to visualize interaction importances. Empty = combined importance across all views.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="view key"/>
                 </param>
                 <param argument="top_n" type="integer" value="" optional="true" min="1" label="Top N interactions" help="Number of top interactions to display. Empty = show all.">
                 </param>
                 <param argument="ascending" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort ascending" help="If enabled: smallest to largest. If disabled: largest to smallest (default, shows most important first).">
                 </param>
                 <expand macro="param_figure_size" width="5" height="5"/>
+            </when>
+            <when value="pl.annulus_plot">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_spatial_key"/>
+                <expand macro="param_annulus_width"/>
+                <expand macro="param_radius_step"/>
+                <expand macro="param_extend_first_annulus"/>
+                <param argument="n_rings" type="integer" value="10" min="1" label="Number of rings"/>
+                <expand macro="param_seed"/>
+                <expand macro="param_figure_size" width="6" height="6"/>
+            </when>
+            <when value="pl.lric_lineplot">
+                <param name="curves" type="data" format="tabular" label="Spatial curves table" help="Long-form table from Liana Methods cross_pcf/lric, with radius and value columns."/>
+                <param argument="source" type="text" value="" optional="true" label="Source cell type filter"><expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="source filter"/></param>
+                <param argument="target" type="text" value="" optional="true" label="Target cell type filter"><expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="target filter"/></param>
+                <param argument="interactions" type="text" value="" optional="true" label="Interaction filter" help="Optional comma-separated interaction names.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="interaction-name list"/>
+                </param>
+                <param argument="overlay" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Overlay curves on one axis"/>
+                <param argument="ncols" type="integer" value="4" min="1" label="Columns in small-multiple layout"/>
+                <param argument="title" type="text" value="" optional="true" label="Figure title"><expand macro="sanitize_query"/></param>
+                <expand macro="param_figure_size" width="8" height="6"/>
             </when>
         </conditional>
         <expand macro="inputs_common_advanced"/>
@@ -497,6 +600,32 @@ fig.save('plot.$format', dpi=150)
                 </assert_contents>
             </output>
         </test>
+        <!-- LIANA 1.8 line plot from the methods long-form table -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.lric_lineplot"/>
+                <param name="curves" value="spatial_curves.tsv" ftype="tabular"/>
+                <param name="overlay" value="true"/>
+                <param name="ncols" value="2"/>
+                <param name="title" value="Spatial curves"/>
+                <param name="figure_size_width" value="7"/>
+                <param name="figure_size_height" value="5"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.plotting.lric_lineplot"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 Liana Plotting Tools
@@ -535,6 +664,12 @@ Available Methods
 **interactions** (MISTy)
     Plot interaction importances from MISTy results. Shows the importance of predictor
     variables for explaining targets within a specific view.
+
+**annulus_plot**
+    Inspect the concentric distance bins used by cross-PCF and LRIC on a spatial AnnData object.
+
+**lric_lineplot**
+    Plot distance-resolved g(r) curves from the long-form table emitted by the cross_pcf or lric method. Curves can be filtered by source, target, or interaction.
 
 Common Parameters
 -----------------

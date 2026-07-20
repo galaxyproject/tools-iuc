@@ -15,6 +15,43 @@ python '$script_file' >> '$hidden_output' 2>&1
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
 
+def _parse_csv(value):
+    return [x.strip() for x in str(value).split(',') if x.strip()]
+
+
+def _prepare_ortholog_map(frame, source_description):
+    """Normalize an ortholog table to source/target columns for LIANA."""
+    if {'source', 'target'}.issubset(frame.columns):
+        mapping = frame[['source', 'target']].copy()
+    elif 'human_symbol' in frame.columns:
+        target_columns = [
+            column for column in frame.columns
+            if column.endswith('_symbol') and column != 'human_symbol'
+        ]
+        if len(target_columns) != 1:
+            raise ValueError(
+                f"The {source_description} must contain exactly one target-species '*_symbol' "
+                f"column alongside 'human_symbol'; found {target_columns or 'none'}."
+            )
+        mapping = frame[['human_symbol', target_columns[0]]].copy()
+        mapping.columns = ['source', 'target']
+    elif frame.shape[1] == 2:
+        mapping = frame.iloc[:, :2].copy()
+        mapping.columns = ['source', 'target']
+    else:
+        raise ValueError(
+            f"The {source_description} must contain 'source' and 'target' columns, "
+            "one human_symbol and one target-species *_symbol column, or exactly two columns."
+        )
+
+    mapping = mapping.dropna().drop_duplicates()
+    mapping['source'] = mapping['source'].astype(str).str.strip()
+    mapping['target'] = mapping['target'].astype(str).str.strip()
+    mapping = mapping[(mapping['source'] != '') & (mapping['target'] != '')]
+    if mapping.empty:
+        raise ValueError(f"The {source_description} contains no non-empty ortholog mappings.")
+    return mapping[['source', 'target']]
+
 #if str($method.method) == 'select_resource'
 #if str($method.resource_api_cached.resource_source_selector) == 'cached'
 # Cached: read from Data Manager path (path is directory, file is path/value.tsv)
@@ -37,63 +74,66 @@ with open('resources_list.txt', 'w') as f:
 
 
 #elif str($method.method) == 'get_metalinks'
-def _parse_csv(value):
-    return [x.strip() for x in str(value).split(',') if x.strip()]
+metalinks_filters = {
+    'type': [
+    #for $t in $method.types
+        '$t',
+    #end for
+    ],
+    'cell_location': _parse_csv('$method.cell_location'),
+    'tissue_location': _parse_csv('$method.tissue_location'),
+    'biospecimen_location': _parse_csv('$method.biospecimen_location'),
+    'disease': _parse_csv('$method.disease'),
+    'pathway': _parse_csv('$method.pathway'),
+    'hmdb': _parse_csv('$method.hmdb_ids'),
+    'uniprot': _parse_csv('$method.uniprot_ids'),
+    'source': _parse_csv('$method.source'),
+}
 
 #if str($method.metalinks_source.source_selector) == 'cached'
-import os
 metalinks_path = '$method.metalinks_source.metalinks_cached.fields.path'
 metalinks_value = '$method.metalinks_source.metalinks_cached.fields.value'
 tsv_path = os.path.join(metalinks_path, metalinks_value + '.tsv')
 metalinks = pd.read_csv(tsv_path, sep='\t')
+for column, accepted_values in metalinks_filters.items():
+    if accepted_values:
+        if column not in metalinks.columns:
+            raise ValueError(f"Cached Metalinks table has no '{column}' column required by the selected filter")
+        metalinks = metalinks[metalinks[column].astype(str).isin(accepted_values)]
 #else
 metalinks = li.resource.get_metalinks(
-#if str($method.metalinks_source.types) != ''
-    types=[
-    #for $t in $method.metalinks_source.types
-        '$t',
-    #end for
-    ],
-#end if
-#if str($method.metalinks_source.cell_location).strip() != ''
-    cell_location=_parse_csv('$method.metalinks_source.cell_location'),
-#end if
-#if str($method.metalinks_source.tissue_location).strip() != ''
-    tissue_location=_parse_csv('$method.metalinks_source.tissue_location'),
-#end if
-#if str($method.metalinks_source.biospecimen_location).strip() != ''
-    biospecimen_location=_parse_csv('$method.metalinks_source.biospecimen_location'),
-#end if
-#if str($method.metalinks_source.disease).strip() != ''
-    disease=_parse_csv('$method.metalinks_source.disease'),
-#end if
-#if str($method.metalinks_source.pathway).strip() != ''
-    pathway=_parse_csv('$method.metalinks_source.pathway'),
-#end if
-#if str($method.metalinks_source.hmdb_ids).strip() != ''
-    hmdb_ids=_parse_csv('$method.metalinks_source.hmdb_ids'),
-#end if
-#if str($method.metalinks_source.uniprot_ids).strip() != ''
-    uniprot_ids=_parse_csv('$method.metalinks_source.uniprot_ids'),
-#end if
-#if str($method.metalinks_source.source).strip() != ''
-    source=_parse_csv('$method.metalinks_source.source'),
-#end if
+    types=metalinks_filters['type'] or None,
+    cell_location=metalinks_filters['cell_location'] or None,
+    tissue_location=metalinks_filters['tissue_location'] or None,
+    biospecimen_location=metalinks_filters['biospecimen_location'] or None,
+    disease=metalinks_filters['disease'] or None,
+    pathway=metalinks_filters['pathway'] or None,
+    hmdb_ids=metalinks_filters['hmdb'] or None,
+    uniprot_ids=metalinks_filters['uniprot'] or None,
+    source=metalinks_filters['source'] or None,
 )
 #end if
 metalinks.to_csv('metalinks.tsv', sep='\t', index=False)
 
-## comenting out, because the ftp server does not exist anymore.
-## #else if str($method.method) == 'get_hcop_orthologs'
-## #if str($method.url) == 'custom':
-## hcop_url = '$method.custom_url'
-## #else:
-## hcop_url = '$method.url'
-## #end if
-## orthologs = li.resource.get_hcop_orthologs(
-##     url=hcop_url,
-##     min_evidence=$method.min_evidence)
-## orthologs.to_csv('orthologs.tsv', sep='\t', index=False)
+#else if str($method.method) == 'get_hcop_orthologs'
+#if str($method.hcop_source.source_selector) == 'cached'
+hcop_path = '$method.hcop_source.hcop_cached.fields.path'
+hcop_value = '$method.hcop_source.hcop_cached.fields.value'
+tsv_path = os.path.join(hcop_path, hcop_value + '.tsv')
+orthologs = pd.read_csv(tsv_path, sep='\t')
+#else
+orthologs = li.resource.get_hcop_orthologs(
+    target_organism='$method.hcop_source.target_organism',
+    #if str($method.hcop_source.url).strip() != '':
+    url='$method.hcop_source.url',
+    #end if
+    min_evidence=$method.hcop_source.min_evidence,
+    #if str($method.hcop_source.columns).strip() != '':
+    columns=_parse_csv('$method.hcop_source.columns'),
+    #end if
+)
+#end if
+orthologs.to_csv('orthologs.tsv', sep='\t', index=False)
 
 #else if str($method.method) == 'translate_resource'
 #if str($method.resource_input.resource_source) == 'builtin':
@@ -109,11 +149,33 @@ resource = li.resource.select_resource(resource_name='$method.resource_input.res
 #else:
 resource = pd.read_csv('$method.resource_input.resource_file', sep='\t')
 #end if
-map_df = pd.read_csv('$method.map_df', sep='\t')
+#if str($method.mapping_api_cached.mapping_source_selector) == 'cached'
+hcop_path = '$method.mapping_api_cached.hcop_cached.fields.path'
+hcop_value = '$method.mapping_api_cached.hcop_cached.fields.value'
+hcop_tsv_path = os.path.join(hcop_path, hcop_value + '.tsv')
+map_df = _prepare_ortholog_map(
+    pd.read_csv(hcop_tsv_path, sep='\t'),
+    'cached HCOP resource',
+)
+#elif str($method.mapping_api_cached.mapping_source_selector) == 'builtin'
+map_df = li.resource.get_hcop_orthologs(
+    target_organism='$method.mapping_api_cached.target_organism',
+    #if str($method.mapping_api_cached.url).strip() != '':
+    url='$method.mapping_api_cached.url',
+    #end if
+    min_evidence=$method.mapping_api_cached.min_evidence,
+)
+map_df = _prepare_ortholog_map(map_df, 'HCOP mapping downloaded by LIANA')
+#else
+map_df = _prepare_ortholog_map(
+    pd.read_csv('$method.mapping_api_cached.map_file', sep='\t'),
+    'history ortholog mapping file',
+)
+#end if
 translated = li.resource.translate_resource(
     resource=resource,
     map_df=map_df,
-    columns='$method.columns'.split(',') if '$method.columns' else None)
+    columns=_parse_csv('$method.columns') or None)
 translated.to_csv('translated_resource.tsv', sep='\t', index=False)
 
 #end if
@@ -125,8 +187,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 <option value="select_resource" selected="true">select_resource - Get ligand-receptor resource</option>
                 <option value="show_resources">show_resources - List available resources</option>
                 <option value="get_metalinks">get_metalinks - Get metabolite-protein interactions</option>
-                <!-- comenting out, because the ftp server does not exist anymore. -->
-                <!-- <option value="get_hcop_orthologs">get_hcop_orthologs - Get ortholog mappings from HCOP</option> -->
+                <option value="get_hcop_orthologs">get_hcop_orthologs - Get HCOP ortholog mappings</option>
                 <option value="translate_resource">translate_resource - Translate resource to another species</option>
             </param>
             <when value="select_resource">
@@ -136,11 +197,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                         <option value="cached" selected="true">Cached on server (from Data Manager)</option>
                     </param>
                     <when value="cached">
-                        <param name="resource_cached" type="select" label="Ligand-receptor database (cached)" help="Select from resources installed by the LIANA Resources Data Manager.">
-                            <options from_data_table="liana_resources">
-                                <validator type="no_options" message="No cached LIANA resources available. Install them via Admin → Data Managers → Download LIANA Resources."/>
-                            </options>
-                        </param>
+                        <expand macro="param_cached_lr_resource"/>
                     </when>
                     <when value="builtin">
                         <expand macro="param_resource_name"/>
@@ -159,41 +216,69 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                     <when value="cached">
                         <param name="metalinks_cached" type="select" label="Cached Metalinks resource">
                             <options from_data_table="liana_resources">
+                                <filter type="regexp" column="value" value="^metalinks_"/>
                                 <filter type="sort_by" column="name"/>
                                 <validator type="no_options" message="No cached Metalinks resources available. Install them via Admin → Data Managers."/>
                             </options>
                         </param>
                     </when>
+                    <when value="builtin"/>
+                </conditional>
+                <param name="types" type="select" multiple="true" optional="true" label="Edge types" help="lr = ligand-receptor; pd = production-degradation">
+                    <option value="lr">Ligand-receptor (lr)</option>
+                    <option value="pd">Production-degradation (pd)</option>
+                </param>
+                <param name="cell_location" type="text" optional="true" label="Cell location" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="cell-location list"/>
+                </param>
+                <param name="tissue_location" type="text" optional="true" label="Tissue location" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="tissue-location list"/>
+                </param>
+                <param name="biospecimen_location" type="text" optional="true" label="Biospecimen location" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="biospecimen-location list"/>
+                </param>
+                <param name="disease" type="text" optional="true" label="Disease" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="disease list"/>
+                </param>
+                <param name="pathway" type="text" optional="true" label="Pathway" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="pathway list"/>
+                </param>
+                <param name="hmdb_ids" type="text" optional="true" label="HMDB IDs" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="HMDB-ID list"/>
+                </param>
+                <param name="uniprot_ids" type="text" optional="true" label="UniProt IDs" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="UniProt-ID list"/>
+                </param>
+                <param name="source" type="text" optional="true" label="Source database" help="Comma-separated values">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="source-database list"/>
+                </param>
+            </when>
+            <when value="get_hcop_orthologs">
+                <conditional name="hcop_source">
+                    <param name="source_selector" type="select" label="HCOP source">
+                        <option value="cached" selected="true">Cached on Galaxy server (from Data Manager)</option>
+                        <option value="builtin">Download with LIANA</option>
+                    </param>
+                    <when value="cached">
+                        <expand macro="param_cached_hcop_resource"/>
+                    </when>
                     <when value="builtin">
-                        <param name="types" type="select" multiple="true" optional="true" label="Edge types" help="lr = ligand-receptor; pd = production-degradation">
-                            <option value="lr">Ligand-receptor (lr)</option>
-                            <option value="pd">Production-degradation (pd)</option>
+                        <expand macro="params_hcop_download"/>
+                        <param argument="columns" type="text" value="" optional="true" label="Columns to retain" help="Optional comma-separated output columns; empty keeps all columns.">
+                            <expand macro="sanitize_query"/>
+                            <expand macro="validator_optional_csv" FIELD="output-column list"/>
                         </param>
-                        <param name="cell_location" type="text" optional="true" label="Cell location" help="Comma-separated values" />
-                        <param name="tissue_location" type="text" optional="true" label="Tissue location" help="Comma-separated values" />
-                        <param name="biospecimen_location" type="text" optional="true" label="Biospecimen location" help="Comma-separated values" />
-                        <param name="disease" type="text" optional="true" label="Disease" help="Comma-separated values" />
-                        <param name="pathway" type="text" optional="true" label="Pathway" help="Comma-separated values" />
-                        <param name="hmdb_ids" type="text" optional="true" label="HMDB IDs" help="Comma-separated HMDB identifiers" />
-                        <param name="uniprot_ids" type="text" optional="true" label="UniProt IDs" help="Comma-separated UniProt identifiers" />
-                        <param name="source" type="text" optional="true" label="Source" help="Comma-separated values" />
                     </when>
                 </conditional>
             </when>
-            <!-- comenting out, because the ftp server does not exist anymore. -->
-            <!-- <when value="get_hcop_orthologs">
-                <param argument="url" type="select" label="Species mapping">
-                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_mouse_hcop_fifteen_column.txt.gz" selected="true">Human to Mouse</option>
-                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_rat_hcop_fifteen_column.txt.gz">Human to Rat</option>
-                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_chicken_hcop_fifteen_column.txt.gz">Human to Chicken</option>
-                    <option value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_zebrafish_hcop_fifteen_column.txt.gz">Human to Zebrafish</option>
-                    <option value="custom">Custom URL</option>
-                </param>
-                <param name="custom_url" type="text" value="" optional="true" label="Custom HCOP URL" help="Only used if 'Custom URL' is selected above. See https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/ for available files.">
-                    <expand macro="sanitize_query"/>
-                </param>
-                <param argument="min_evidence" type="integer" value="3" min="1" label="Minimum evidence" help="Minimum number of orthology resources supporting the interaction."/>
-            </when> -->
             <when value="translate_resource">
                 <conditional name="resource_input">
                     <param name="resource_source" type="select" label="Resource source">
@@ -207,12 +292,7 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                                 <option value="cached" selected="true">Cached on Galaxy server (from Data Manager)</option>
                             </param>
                             <when value="cached">
-                                <param name="resource_cached" type="select" label="Ligand-receptor database (cached)" help="Select from resources installed by the LIANA Resources Data Manager.">
-                                    <options from_data_table="liana_resources">
-                                        <filter type="sort_by" column="name"/>
-                                        <validator type="no_options" message="No cached LIANA ligand-receptor resources available. Install them via Admin → Data Managers → Download LIANA Resources."/>
-                                    </options>
-                                </param>
+                                <expand macro="param_cached_lr_resource"/>
                             </when>
                             <when value="builtin">
                                 <expand macro="param_resource_name"/>
@@ -223,9 +303,25 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                         <param name="resource_file" type="data" format="tabular" label="Resource file" help="Tabular file with ligand and receptor columns"/>
                     </when>
                 </conditional>
-                <param name="map_df" type="data" format="tabular" label="Ortholog mapping file" help="Tabular file with ortholog mappings. Recommended columns are 'source' and 'target'. This can be generated with get_hcop_orthologs and further edited in Galaxy if needed."/>
+                <conditional name="mapping_api_cached">
+                    <param name="mapping_source_selector" type="select" label="Ortholog mapping source" help="Use an administrator-cached HCOP table, download HCOP through LIANA, or provide a mapping from the current history.">
+                        <option value="cached" selected="true">Cached on Galaxy server (from Data Manager)</option>
+                        <option value="builtin">Download with LIANA</option>
+                        <option value="history">Mapping table from history</option>
+                    </param>
+                    <when value="cached">
+                        <expand macro="param_cached_hcop_resource"/>
+                    </when>
+                    <when value="builtin">
+                        <expand macro="params_hcop_download"/>
+                    </when>
+                    <when value="history">
+                        <param name="map_file" type="data" format="tabular" label="Ortholog mapping file" help="The first two columns are treated as source and target. LIANA HCOP output with human_symbol and one target-species *_symbol column is also accepted."/>
+                    </when>
+                </conditional>
                 <param argument="columns" type="text" value="ligand,receptor" label="Columns to translate" help="Comma-separated list of column names to translate (e.g., ligand,receptor).">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_csv" FIELD="column list"/>
                 </param>
             </when>
         </conditional>
@@ -241,10 +337,9 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
         <data name="metalinks_out" format="tabular" from_work_dir="metalinks.tsv" label="${tool.name} (${method.method}): Metalinks">
             <filter>method['method'] == 'get_metalinks'</filter>
         </data>
-        <!-- comenting out, because the ftp server does not exist anymore. -->
-        <!-- <data name="orthologs_out" format="tabular" from_work_dir="orthologs.tsv" label="${tool.name} (${method.method}): Ortholog mappings">
+        <data name="orthologs_out" format="tabular" from_work_dir="orthologs.tsv" label="${tool.name} (${method.method}): HCOP ortholog mappings">
             <filter>method['method'] == 'get_hcop_orthologs'</filter>
-        </data> -->
+        </data>
         <data name="translated_out" format="tabular" from_work_dir="translated_resource.tsv" label="${tool.name} (${method.method}): Translated resource">
             <filter>method['method'] == 'translate_resource'</filter>
         </data>
@@ -324,18 +419,13 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- comenting out, because the ftp server does not exist anymore. -->
-        <!-- Test 4: get_hcop_orthologs -->
-        <!-- <test expect_num_outputs="2">
+        <!-- Test 4: get_hcop_orthologs from cached resource -->
+        <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="get_hcop_orthologs"/>
-                <conditional name="ortholog_source">
-                    <param name="source_selector" value="builtin"/>
-                    <conditional name="url_selector">
-                        <param name="url_mode" value="preset"/>
-                        <param name="url" value="https://ftp.ebi.ac.uk/pub/databases/genenames/hcop/human_mouse_hcop_fifteen_column.txt.gz"/>
-                    </conditional>
-                    <param name="min_evidence" value="3"/>
+                <conditional name="hcop_source">
+                    <param name="source_selector" value="cached"/>
+                    <param name="hcop_cached" value="hcop_human_mouse"/>
                 </conditional>
             </conditional>
             <section name="advanced_common">
@@ -350,10 +440,10 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.resource.get_hcop_orthologs"/>
+                    <has_text_matching expression="pd.read_csv"/>
                 </assert_contents>
             </output>
-        </test> -->
+        </test>
         <!-- Test 5: translate_resource with cached resource -->
         <test expect_num_outputs="2">
             <conditional name="method">
@@ -365,7 +455,10 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                         <param name="resource_cached" value="consensus"/>
                     </conditional>
                 </conditional>
-                <param name="map_df" value="ortholog_map.tsv" ftype="tabular"/>
+                <conditional name="mapping_api_cached">
+                    <param name="mapping_source_selector" value="history"/>
+                    <param name="map_file" value="ortholog_map.tsv" ftype="tabular"/>
+                </conditional>
                 <param name="columns" value="ligand,receptor"/>
             </conditional>
             <section name="advanced_common">
@@ -383,7 +476,41 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 7: translate_resource with built-in resource -->
+        <!-- Test 6: translate_resource with cached ligand-receptor and cached HCOP resources -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_resource"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="builtin"/>
+                    <conditional name="resource_api_cached">
+                        <param name="resource_source_selector" value="cached"/>
+                        <param name="resource_cached" value="consensus"/>
+                    </conditional>
+                </conditional>
+                <conditional name="mapping_api_cached">
+                    <param name="mapping_source_selector" value="cached"/>
+                    <param name="hcop_cached" value="hcop_human_mouse"/>
+                </conditional>
+                <param name="columns" value="ligand,receptor"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                    <has_text_matching expression="Lgals9\s+Ptprc"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text text="cached HCOP resource"/>
+                    <has_text text="human_symbol"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: translate_resource with built-in ligand-receptor resource and history mapping -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="translate_resource"/>
@@ -394,7 +521,10 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                         <param name="resource_name" value="consensus"/>
                     </conditional>
                 </conditional>
-                <param name="map_df" location="https://zenodo.org/records/18388645/files/ortholog_map.tsv" ftype="tabular"/>
+                <conditional name="mapping_api_cached">
+                    <param name="mapping_source_selector" value="history"/>
+                    <param name="map_file" location="https://zenodo.org/records/18388645/files/ortholog_map.tsv" ftype="tabular"/>
+                </conditional>
                 <param name="columns" value="ligand,receptor"/>
             </conditional>
             <section name="advanced_common">
@@ -412,14 +542,48 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 8: get_metalinks via LIANA -->
+        <!-- Test 8: translate_resource with cached ligand-receptor resource and HCOP downloaded by LIANA -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_resource"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="builtin"/>
+                    <conditional name="resource_api_cached">
+                        <param name="resource_source_selector" value="cached"/>
+                        <param name="resource_cached" value="consensus"/>
+                    </conditional>
+                </conditional>
+                <conditional name="mapping_api_cached">
+                    <param name="mapping_source_selector" value="builtin"/>
+                    <param name="target_organism" value="mouse"/>
+                    <param name="min_evidence" value="3"/>
+                </conditional>
+                <param name="columns" value="ligand,receptor"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text text="li.resource.get_hcop_orthologs"/>
+                    <has_text text="target_organism='mouse'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 9: get_metalinks via LIANA -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="get_metalinks"/>
                 <conditional name="metalinks_source">
                     <param name="source_selector" value="builtin"/>
-                    <param name="types" value="lr"/>
                 </conditional>
+                <param name="types" value="lr"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
@@ -438,13 +602,13 @@ translated.to_csv('translated_resource.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 9: get_metalinks from cached resource -->
+        <!-- Test 10: get_metalinks from cached resource -->
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="get_metalinks"/>
                 <conditional name="metalinks_source">
                     <param name="source_selector" value="cached"/>
-                    <param name="metalinks_cached" value="metalinks"/>
+                    <param name="metalinks_cached" value="metalinks_all"/>
                 </conditional>
             </conditional>
             <section name="advanced_common">
@@ -476,12 +640,11 @@ This tool provides access to prior knowledge resources from LIANA+ for ligand-re
 
 - **show_resources**: List all available built-in ligand-receptor resources.
 
-- **get_metalinks**: Retrieve metabolite-protein interaction data from the Metalinks database. Useful for metabolite-mediated cell-cell communication analysis.
+- **get_metalinks**: Retrieve metabolite-protein interaction data from the Metalinks database. The same filters are applied whether the source is LIANA's API or a Data Manager-cached TSV.
 
-.. comenting out, because the ftp server does not exist anymore.
-.. - **get_hcop_orthologs**: Download ortholog mappings from the HCOP (HGNC Comparison of Orthology Predictions) database. Supports human-mouse, human-rat, human-chicken, and human-zebrafish mappings. Use this to translate human resources to other species.
+- **get_hcop_orthologs**: Load a cached HCOP mapping or download it through LIANA's current ``target_organism`` interface. The default download path is the HGNC Google Cloud Storage bucket; an override URL remains available for advanced use.
 
-- **translate_resource**: Translate a ligand-receptor resource from one species to another using ortholog mappings. The ortholog mapping can come from your history or from cached resources installed by the Data Manager.
+- **translate_resource**: Translate a ligand-receptor resource from one species to another. Both inputs have explicit source selectors. Ligand-receptor resources can be cached by the Data Manager or loaded by LIANA; ortholog mappings can be cached by the Data Manager, downloaded by LIANA with ``get_hcop_orthologs``, or supplied from the current history. Cached HCOP tables are normalized from ``human_symbol`` and the target ``*_symbol`` column to the first-two-column mapping format expected by ``translate_resource``.
 
 **Available Resources**
 

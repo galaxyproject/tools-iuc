@@ -47,7 +47,7 @@ factor_scores.to_csv('factor_scores.tsv', sep='\t', index=True)
 #else if str($method.method) == 'get_variable_loadings'
 loadings = li.ut.get_variable_loadings(
     adata=adata,
-    varm_key='$method.varm_key')
+    varm_key='$method.varm_key',
     #if str($method.view_sep) != ''
     view_sep='$method.view_sep',
     #end if
@@ -57,7 +57,19 @@ loadings = li.ut.get_variable_loadings(
     #if str($method.variable_sep) != ''
     variable_sep='$method.variable_sep',
     #end if
+)
 loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
+
+#else if str($method.method) == 'expand_coordinates'
+expanded_adata = li.ut.expand_coordinates(
+    adata=adata,
+    sample_key='$method.sample_key',
+    spatial_key='$method.spatial_key',
+    #if str($method.n_cols) != ''
+    n_cols=$method.n_cols,
+    #end if
+    margin=$method.margin)
+expanded_adata.write_h5ad('anndata.h5ad', compression='gzip')
 
 #end if
         ]]></configfile>
@@ -70,6 +82,7 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
                 <option value="obsm_to_adata">obsm_to_adata - Extract obsm to new AnnData</option>
                 <option value="get_factor_scores">get_factor_scores - Extract factor scores</option>
                 <option value="get_variable_loadings">get_variable_loadings - Extract variable loadings</option>
+                <option value="expand_coordinates">expand_coordinates - Arrange multiple spatial samples on a non-overlapping grid</option>
             </param>
             <when value="spatial_neighbors">
                 <param argument="bandwidth" type="float" value="" optional="true" label="Kernel bandwidth" help="Bandwidth controlling spatial weight decay over distance. Empty = auto-computed from median nearest neighbor distance. Larger values = smoother weighting."/>
@@ -87,33 +100,51 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
                 <expand macro="param_spatial_key"/>
                 <param argument="key_added" type="text" value="spatial" label="Output key in adata.obsp" help="Key in adata.obsp where connectivity matrix will be stored. Default: 'spatial'.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="output connectivity key"/>
                 </param>
             </when>
             <when value="obsm_to_adata">
                 <param argument="obsm_key" type="text" value="" label="obsm key to extract" help="Key in adata.obsm to extract as new AnnData object. E.g., 'X_mofa', 'X_pca', 'X_embedding'.">
                     <expand macro="sanitize_query"/>
-                    <validator type="empty_field" message="obsm_key is required"/>
+                    <expand macro="validator_required_key" FIELD="obsm key"/>
                 </param>
             </when>
             <when value="get_factor_scores">
                 <param argument="obsm_key" type="text" value="X_mofa" label="Factor scores obsm key" help="Key in adata.obsm containing factor/latent variable scores (e.g., 'X_mofa', 'NMF_W'). Cells x Factors matrix.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="factor-score obsm key"/>
                 </param>
             </when>
             <when value="get_variable_loadings">
                 <param argument="varm_key" type="text" value="" label="Variable loadings varm key" help="Key in adata.varm containing variable/feature loadings (e.g., 'NMF_H', 'LFs', 'PCs'). Variables x Factors matrix.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="variable-loadings varm key"/>
                 </param>
-                <param argument="view_sep" type="text" value="" label="View separator" help="Separator between views in variable names (default ':'). Used for multi-view data."/>
-                <param argument="pair_sep" type="text" value="" label="Pair separator" help="Separator between interacting entities (default '&amp;'). Example: ligand&amp;receptor."/>
-                <param argument="variable_sep" type="text" value="" label="Variable separator" help="Separator between subcomponents of variables (default '^')."/>
+                <param argument="view_sep" type="text" value="" label="View separator" help="Optional separator between view and variable names. Leave empty to keep names unchanged.">
+                    <expand macro="validator_optional_separator" FIELD="view separator"/>
+                </param>
+                <param argument="pair_sep" type="text" value="" label="Pair separator" help="Optional separator used to split pair names. Leave empty to keep names unchanged.">
+                    <expand macro="validator_optional_separator" FIELD="pair separator"/>
+                </param>
+                <param argument="variable_sep" type="text" value="" label="Variable separator" help="Optional separator used to split variable names. Leave empty to keep names unchanged.">
+                    <expand macro="validator_optional_separator" FIELD="variable separator"/>
+                </param>
+            </when>
+            <when value="expand_coordinates">
+                <param argument="sample_key" type="text" label="Sample column" help="Column in adata.obs that identifies each spatial sample.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="sample key"/>
+                </param>
+                <expand macro="param_spatial_key"/>
+                <param argument="n_cols" type="integer" value="" optional="true" min="1" label="Grid columns" help="Number of columns in the output grid. Leave empty for an approximately square layout."/>
+                <param argument="margin" type="float" value="0.1" min="0" label="Grid margin" help="Spacing between samples as a fraction of the largest sample extent. Use 0 to pack samples edge-to-edge."/>
             </when>
         </conditional>
         <expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
         <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
-            <filter>method['method'] in ['spatial_neighbors', 'obsm_to_adata']</filter>
+            <filter>method['method'] in ['spatial_neighbors', 'obsm_to_adata', 'expand_coordinates']</filter>
         </data>
         <data name="factor_scores_out" format="tabular" from_work_dir="factor_scores.tsv" label="${tool.name} (${method.method}) on ${on_string}: Factor scores">
             <filter>method['method'] == 'get_factor_scores'</filter>
@@ -236,13 +267,15 @@ This tool provides utility functions from LIANA+ for data transformation and pre
 
 - **get_variable_loadings**: Extract variable loadings from adata.varm (e.g., from MOFA or NMF analysis) as a tabular file.
 
+- **expand_coordinates**: Translate each sample's spatial coordinates into a separate cell of a non-overlapping grid. Relative distances within each sample are preserved, and the original coordinates are stored in ``obsm[spatial_key + '_original']``.
+
 **Inputs**
 
 - AnnData object
 
 **Outputs**
 
-- Modified AnnData object (for spatial_neighbors, obsm_to_adata)
+- Modified AnnData object (for spatial_neighbors, obsm_to_adata, expand_coordinates)
 - Tabular file with factor scores or loadings (for extraction methods)
 
     ]]></help>
