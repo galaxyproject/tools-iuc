@@ -4,7 +4,8 @@
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
-    <command detect_errors="exit_code"><![CDATA[
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
 #set $reference_fasta_filename = "reference.fa"
 #set $query_fasta_filename = "query.fa"
 
@@ -13,53 +14,156 @@
 #else
     ln -s -f '${reference}' '${reference_fasta_filename}' &&
 #end if
+samtools faidx '${reference_fasta_filename}' &&
 
-    samtools faidx '${reference_fasta_filename}' &&
-
-#if str($query.ext).endswith('gz')
-gunzip -c '${query}' > '${query_fasta_filename}' &&
-#else
-ln -s -f '${query}' '${query_fasta_filename}' &&
+#if str($query_source.query_mode) == "two_fasta"
+    #if str($query_source.query.ext).endswith('gz')
+        gunzip -c '${query_source.query}' > '${query_fasta_filename}' &&
+    #else
+        ln -s -f '${query_source.query}' '${query_fasta_filename}' &&
+    #end if
+    samtools faidx '${query_fasta_filename}' &&
 #end if
-samtools faidx '${query_fasta_filename}' &&
 
-wfmash 
-    --threads="\${GALAXY_SLOTS:-1}" 
-    -s $segment_length 
-    -p $pct_identity 
-    $approx_mapping 
-    $no_split 
-    '${reference_fasta_filename}' 
-    '${query_fasta_filename}' 
-    > '${output_paf}' 
+wfmash
+    --threads "\${GALAXY_SLOTS:-1}"
+    -p $p
+    --kmer-size=$kmer_size
+    #if str($sketch_size).strip()
+        --sketch-size=$sketch_size
+    #end if
+    #if str($mappings).strip()
+        --mappings=$mappings
+    #end if
+    #if str($block_length).strip()
+        --block-length=$block_length
+    #end if
+    #if str($group_prefix).strip()
+        --group-prefix='${group_prefix}'
+    #end if
+    $m
+    $N
+    $X
+    $L
+    $sam
+    #if str($sam) == "--sam"
+        $md_tag
+    #end if
+    '${reference_fasta_filename}'
+    #if str($query_source.query_mode) == "two_fasta"
+        '${query_fasta_filename}'
+    #end if
+    > '${output_paf}'
     ]]></command>
     <inputs>
-        <param name="reference" type="data" format="fasta,fasta.gz" label="Reference sequence" help="FASTA format" />
-        <param name="query" type="data" format="fasta,fasta.gz" label="Query sequence" help="FASTA format"/>
-        <param argument="-s" name="segment_length" type="integer" min="100" value="1000" label="Segment Length" help="Minimum seed length, must be >= 100 bp."/>
-        <param argument="-p" name="pct_identity" type="float" min="0" max="100" value="90" label="Minimum Identity %" help="Percent identity in the mashmap step"/>
-        <param argument="-m" name="approx_mapping" type="boolean" truevalue="-m" falsevalue="" label="Approximate mapping" help="Skip base-level alignment"/>
-        <param argument="-N" name="no_split" type="boolean" optional="true" truevalue="-N" falsevalue="" label="No split" help="Disable splitting of input sequences during mapping (Default: enabled)"/>
+        <param name="reference" type="data" format="fasta,fasta.gz" label="Reference sequence" help="Target sequences for alignment."/>
+        <conditional name="query_source">
+            <param name="query_mode" type="select" label="Mapping mode">
+                <option value="self_map" selected="true">Self-map (one FASTA, all-vs-all)</option>
+                <option value="two_fasta">Query vs target (two FASTAs)</option>
+            </param>
+            <when value="self_map"/>
+            <when value="two_fasta">
+                <param name="query" type="data" format="fasta,fasta.gz" label="Query sequence" help="Query sequences to align against reference."/>
+            </when>
+        </conditional>
+        <param argument="-p" type="float" min="50" max="100" value="90" label="Minimum identity %" help="MashMap identity threshold. 90 for intra-species, 70-80 for inter-species pangenome panels."/>
+        <param argument="--kmer-size" type="integer" min="5" max="31" value="15" label="k-mer size" help="Default 15."/>
+        <param argument="--sketch-size" type="text" value="" label="Sketch size (blank = auto)" help="MashMap sketch size. Leave blank for the default heuristic.">
+            <validator type="regex" message="Integer or blank">[0-9]*</validator>
+        </param>
+        <param argument="--mappings" type="text" value="" label="Mappings per segment (blank = unlimited)" help="Plane-sweep cap on mappings per segment.">
+            <validator type="regex" message="Integer or blank">[0-9]*</validator>
+        </param>
+        <param argument="--block-length" type="text" value="" label="Minimum block length (blank = 0)" help="Discard mappings shorter than this.">
+            <validator type="regex" message="Integer or blank">[0-9]*</validator>
+        </param>
+        <param argument="--group-prefix" type="text" value="" label="PanSN group-prefix delimiter (blank = off)" help="Group sequences by everything up to the last occurrence of this delimiter (typically '#' for PanSN). Same value passed to pggb's -Y.">
+            <sanitizer invalid_char="">
+                <valid initial="string.printable">
+                    <remove value="'"/>
+                </valid>
+            </sanitizer>
+        </param>
+        <param argument="-m" type="boolean" truevalue="-m" falsevalue="" checked="false" label="Approximate mapping" help="Skip base-level WFA alignment, output PAF mappings only."/>
+        <param argument="-N" type="boolean" truevalue="-N" falsevalue="" checked="false" label="No split" help="Disable splitting of input sequences."/>
+        <param argument="-X" type="boolean" truevalue="-X" falsevalue="" checked="false" label="Include self-mappings" help="Keep mappings of a sequence to itself."/>
+        <param argument="-L" type="boolean" truevalue="-L" falsevalue="" checked="false" label="Lower-triangular only" help="Only map seq_i to seq_j when i &gt; j."/>
+        <param argument="--sam" type="boolean" truevalue="--sam" falsevalue="" checked="false" label="SAM output (default PAF)"/>
+        <param argument="--md-tag" type="boolean" truevalue="--md-tag" falsevalue="" checked="false" label="Include MD tag" help="SAM-only; ignored for PAF output."/>
     </inputs>
-    
     <outputs>
-        <data name="output_paf" format="paf" label="${tool.name} on ${on_string}:  PAF"/>
+        <data name="output_paf" format="paf" label="${tool.name} on ${on_string}: PAF">
+            <change_format>
+                <when input="sam" value="--sam" format="sam"/>
+            </change_format>
+        </data>
     </outputs>
-
     <tests>
         <test expect_num_outputs="1">
-            <param name="reference" ftype="fasta" value="ecoli_k12.fa"/> 
-            <param name="query" ftype="fasta" value="ecoli_o157.fa"/>        
-            <param name="pct_identity" value="70"/>
-            <output name="output_paf" file="expected_output_ecoli.paf" sort="true"/>
+            <param name="reference" ftype="fasta" value="ecoli_k12.fa"/>
+            <conditional name="query_source">
+                <param name="query_mode" value="two_fasta"/>
+                <param name="query" ftype="fasta" value="ecoli_o157.fa"/>
+            </conditional>
+            <param name="p" value="70"/>
+            <output name="output_paf" file="expected_output_ecoli.paf" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="reference" ftype="fasta" value="ecoli_k12.fa"/>
+            <conditional name="query_source">
+                <param name="query_mode" value="two_fasta"/>
+                <param name="query" ftype="fasta" value="ecoli_o157.fa"/>
+            </conditional>
+            <param name="p" value="70"/>
+            <output name="output_paf">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_line_matching expression="^[^\t]+\t\d+\t\d+\t\d+\t[\+\-]\t.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="reference" ftype="fasta" value="ecoli_k12.fa"/>
+            <conditional name="query_source">
+                <param name="query_mode" value="self_map"/>
+            </conditional>
+            <param name="p" value="95"/>
+            <param name="m" value="true"/>
+            <output name="output_paf">
+                <assert_contents>
+                    <has_size min="0"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
-    
-    <help><![CDATA[
-wfmash is designed to make whole genome alignment easy. It can handle high sequence divergence. 
+    <help format="markdown"><![CDATA[
+**wfmash** — pangenome-scale aligner.
 
-By default, wfmash automatically determines an appropriate identity threshold based on the ANI (Average Nucleotide Identity) distribution of your input sequences. 
+A whole-genome aligner combining MashMap-style mapping with WFA (wavefront)
+base-level alignment. Used as the mapping front-end of `pggb`.
+
+-----
+
+**Modes**
+
+- *Self-map*: one FASTA, all-vs-all mappings (good for building a
+  pangenome graph from PanSN-renamed multifasta).
+- *Query vs target*: two FASTAs, mappings of query onto target.
+
+**Key parameters**
+
+- `-p` (`--map-pct-id`) — MashMap identity threshold (90 for intra-species,
+  70-80 for inter-species).
+- `--group-prefix` — PanSN delimiter (typically `#`). Sequences sharing a
+  prefix are treated as one haplotype group.
+- `--mappings` — plane-sweep cap (`inf` by default).
+- `--block-length` — discard short mappings.
+
+-----
+
+The output is PAF by default (the format expected by `seqwish`). Switch to
+SAM for downstream BAM-pipeline use.
     ]]></help>
-    
     <expand macro="citations"/>
 </tool>
