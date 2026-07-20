@@ -1,5 +1,5 @@
 <tool id="pggb" name="PGGB" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>build a pangenome variation graph (wfmash + seqwish + smoothxg + gfaffix + odgi)</description>
+    <description>build a pangenome variation graph</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -44,8 +44,10 @@ pggb
     #if str($poa_length_target).strip()
         --poa-length-target '$poa_length_target'
     #end if
-    #if str($poa_params).strip()
-        --poa-params '$poa_params'
+    #if str($poa_params_cond.poa_params) == "manual"
+        --poa-params '$poa_params_cond.poa_match,$poa_params_cond.poa_mismatch,$poa_params_cond.poa_gap1,$poa_params_cond.poa_ext1,$poa_params_cond.poa_gap2,$poa_params_cond.poa_ext2'
+    #else
+        --poa-params '$poa_params_cond.poa_params'
     #end if
     #if str($poa_padding).strip()
         --poa-padding $poa_padding
@@ -65,75 +67,86 @@ pggb
 
 pggb_exit=\$? ;
 
-## Locate the output files (filenames carry hashes / params)
+## Locate output files (filenames carry hashes / params).
+## pggb writes exactly one of each type per run, so globbing is sufficient.
 echo "--- pggb exit=\$pggb_exit ---" ;
 ls -la pggb_out/ 2>/dev/null || true ;
 
-gfa_file=\$(find pggb_out -maxdepth 1 \( -name '*.smooth.final.gfa' -o -name '*.smooth.fix.gfa' \) | head -1) ;
-og_file=\$(find pggb_out -maxdepth 1 \( -name '*.smooth.final.og'  -o -name '*.smooth.fix.og'  \) | head -1) ;
-lay_file=\$(find pggb_out -maxdepth 1 -name '*.lay' | head -1) ;
-draw_png=\$(find pggb_out -maxdepth 1 -name '*.draw.png' | head -1) ;
-viz_png=\$(find pggb_out -maxdepth 1 \( -name '*viz_multiqc.png' -o -name '*.viz_O*.png' \) | head -1) ;
-vcf_file=\$(find pggb_out -maxdepth 1 -name '*.vcf' | head -1) ;
-multiqc_html=\$(find pggb_out -maxdepth 1 -name 'multiqc_report.html' | head -1) ;
-
 cp pggb.log '$output_log' ;
 
-if [ -n "\$gfa_file" ]; then gzip -c "\$gfa_file" > '$output_gfa' ;
-else echo "ERROR: no final GFA in pggb_out/ (pggb exit=\$pggb_exit)" >&2; exit 1; fi ;
-
-if [ -n "\$og_file" ]; then cp "\$og_file" '$output_og' ;
-else echo "ERROR: no final .og in pggb_out/ (pggb exit=\$pggb_exit)" >&2; exit 1; fi ;
+## GFA and .og are critical outputs — hard-fail if missing.
+gzip -c pggb_out/*.smooth.final.gfa 2>/dev/null > '$output_gfa' || gzip -c pggb_out/*.smooth.fix.gfa > '$output_gfa' ;
+cp pggb_out/*.smooth.final.og 2>/dev/null '$output_og' || cp pggb_out/*.smooth.fix.og '$output_og' ;
 
 #if not $skip_viz
-if [ -n "\$lay_file" ]; then cp "\$lay_file" '$output_lay' ; fi ;
-if [ -n "\$draw_png" ]; then cp "\$draw_png" '$output_layout_png' ; fi ;
-if [ -n "\$viz_png" ]; then cp "\$viz_png" '$output_viz_png' ; fi ;
+cp pggb_out/*.lay '$output_lay' 2>/dev/null || true ;
+cp pggb_out/*.draw.png '$output_layout_png' 2>/dev/null || true ;
+cp pggb_out/*viz_multiqc.png 2>/dev/null '$output_viz_png' || cp pggb_out/*.viz_O*.png '$output_viz_png' 2>/dev/null || true ;
 #end if
 
 #if str($vcf_spec).strip()
-if [ -n "\$vcf_file" ]; then cp "\$vcf_file" '$output_vcf' ; fi ;
+cp pggb_out/*.vcf '$output_vcf' 2>/dev/null || true ;
 #end if
 
 #if $multiqc
-if [ -n "\$multiqc_html" ]; then cp "\$multiqc_html" '$output_multiqc' ; fi ;
+cp pggb_out/multiqc_report.html '$output_multiqc' 2>/dev/null || true ;
+#end if
+
+#if $write_maf
+cp pggb_out/*.smooth.maf '$output_maf' 2>/dev/null || true ;
 #end if
 
 echo "DONE"
     ]]></command>
     <inputs>
         <param argument="--input-fasta" type="data" format="fasta,fasta.gz" label="Input multi-FASTA (PanSN-renamed)" help="A single FASTA (typically bgzipped) of all haplotypes, with PanSN-spec headers (SAMPLE#HAP#CONTIG)."/>
-        <param argument="--n-haplotypes" type="integer" min="2" value="8" label="Number of haplotypes (-n)" help="Total haplotypes in the input. Automatically computed if names follow PanSN-spec."/>
-        <param argument="--segment-length" type="integer" min="100" value="5000" label="wfmash segment length (-s)" help="Minimum mapping seed length."/>
-        <param argument="--map-pct-id" type="float" min="50" max="100" value="90" label="Mapping identity % (-p)" help="90 intra-species, 70-80 inter-species."/>
-        <param argument="--min-match-len" type="integer" min="1" value="23" label="seqwish min match length (-k)" help="Filter exact matches below this length during graph induction. Default 23 is optimal up to ~5% divergence."/>
-        <param argument="--n-mappings" type="integer" min="1" value="1" label="Mappings per segment (-c)" help="Number of mappings retained per segment in wfmash. Defaults to 1; raise for highly diverse panels."/>
-        <param argument="--mash-kmer" type="integer" min="5" max="31" value="19" label="MashMap k-mer (-K)"/>
-        <param argument="--exclude-delim" type="select" label="PanSN exclude-delimiter (-Y)" help="Skip mappings where query and target share a prefix before this delimiter. Must match the delimiter used in PanSN-renamed headers.">
+        <param argument="--n-haplotypes" type="integer" min="2" value="8" label="Number of haplotypes" help="Total haplotypes in the input. Automatically computed if names follow PanSN-spec."/>
+        <param argument="--segment-length" type="integer" min="100" value="5000" label="wfmash segment length" help="Minimum mapping seed length."/>
+        <param argument="--map-pct-id" type="float" min="50" max="100" value="90" label="Mapping identity %" help="90 intra-species, 70-80 inter-species."/>
+        <param argument="--min-match-len" type="integer" min="1" value="23" label="seqwish min match length" help="Filter exact matches below this length during graph induction. Default 23 is optimal up to ~5% divergence."/>
+        <param argument="--n-mappings" type="integer" min="1" value="1" label="Mappings per segment" help="Number of mappings retained per segment in wfmash. Defaults to 1; raise for highly diverse panels."/>
+        <param argument="--mash-kmer" type="integer" min="5" max="31" value="19" label="MashMap k-mer"/>
+        <param argument="--exclude-delim" type="select" label="PanSN exclude-delimiter" help="Skip mappings where query and target share a prefix before this delimiter. Must match the delimiter used in PanSN-renamed headers.">
             <option value="hash" selected="true">#  (PanSN default)</option>
             <option value="pipe">|  (pipe)</option>
             <option value="underscore">_  (underscore)</option>
             <option value="dot">.  (dot)</option>
         </param>
-        <param argument="--block-length" type="text" value="" label="Block length filter (-l, blank = 5x segment-length)" help="Minimum mapping block length filter.">
-            <validator type="regex" message="Integer or blank">[0-9]*</validator>
-        </param>
-        <param argument="--no-splits" type="boolean" truevalue="--no-splits" falsevalue="" checked="false" label="Disable mapping splits (-N)"/>
-        <param argument="--poa-length-target" type="text" value="700,900,1100" label="POA target lengths (-G)" help="Comma-separated POA target lengths; smoothxg iterates once per length. pggb default: 700,900,1100.">
+        <param argument="--block-length" type="integer" value="" optional="true" min="1" label="Block length filter" help="Minimum mapping block length filter. If not set, defaults to 5x segment-length."/>
+        <param argument="--no-splits" type="boolean" truevalue="--no-splits" falsevalue="" checked="false" label="Disable mapping splits"/>
+        <param argument="--poa-length-target" type="text" value="700,900,1100" label="POA target lengths" help="Comma-separated POA target lengths; smoothxg iterates once per length. pggb default: 700,900,1100.">
             <validator type="regex" message="Comma-separated integers">[0-9]+(,[0-9]+)*</validator>
         </param>
-        <param argument="--poa-params" type="text" value="1,19,39,3,81,1" label="POA score parameters (-P)" help="match,mismatch,gap1,ext1,gap2,ext2 OR a preset (asm5,asm10,asm15,asm20). Default is asm5 = 1,19,39,3,81,1."/>
-        <param argument="--poa-padding" type="text" value="" label="POA padding ratio (-O, blank = pggb default 0.001)" help="Flanking sequence length as fraction of average sequence length per block.">
-            <validator type="regex" message="Float or blank">([0-9]*\.?[0-9]+)?</validator>
-        </param>
-        <param argument="--run-abpoa" type="boolean" truevalue="--run-abpoa" falsevalue="" checked="false" label="Use abPOA (-b)" help="Default SPOA."/>
-        <param argument="--global-poa" type="boolean" truevalue="--global-poa" falsevalue="" checked="false" label="Run POA in global mode (-z)" help="Default is local mode."/>
-        <param argument="--write-maf" type="boolean" truevalue="--write-maf" falsevalue="" checked="false" label="Write MAF output (-M)" help="Multi-Alignment Format representing merged POA blocks."/>
-        <param argument="--multiqc" type="boolean" truevalue="--multiqc" falsevalue="" checked="false" label="Generate MultiQC report (-m)" help="Automatically runs odgi stats and produces a MultiQC report."/>
-        <param argument="--skip-normalization" type="boolean" truevalue="--skip-normalization" falsevalue="" checked="false" label="Skip final graph normalization (-X)"/>
-        <param argument="--skip-viz" type="boolean" truevalue="--skip-viz" falsevalue="" checked="false" label="Skip 1D/2D viz (-v)" help="Suppresses layout PNG and viz outputs. Speeds up small test runs."/>
-        <param argument="--stats" type="boolean" truevalue="--stats" falsevalue="" checked="false" label="Emit odgi stats (-S)"/>
-        <param argument="--vcf-spec" type="text" value="" label="VCF spec (-V, blank = off)" help="Reference path prefix(es) for vg deconstruct, e.g. 'ref:1000'. Multiple comma-separated. Set blank to skip.">
+        <conditional name="poa_params_cond">
+            <param argument="--poa-params" type="select" display="radio" label="POA score parameters" help="Scoring parameters for partial order alignment. Presets follow minimap2 conventions.">
+                <option value="1,19,39,3,81,1" selected="true">asm5 (default: 1,19,39,3,81,1) — for &lt;5% divergence</option>
+                <option value="1,9,16,5,41,1">asm10 (1,9,16,5,41,1) — for &lt;10% divergence</option>
+                <option value="1,4,6,2,26,1">asm15 (1,4,6,2,26,1) — for &lt;15% divergence</option>
+                <option value="1,4,1,4,64,1">asm20 (1,4,1,4,64,1) — for &lt;20% divergence</option>
+                <option value="manual">Manual — specify 6 integer parameters</option>
+            </param>
+            <when value="1,19,39,3,81,1"/>
+            <when value="1,9,16,5,41,1"/>
+            <when value="1,4,6,2,26,1"/>
+            <when value="1,4,1,4,64,1"/>
+            <when value="manual">
+                <param name="poa_match" type="integer" value="1" min="0" label="POA match score" help="Score for matching bases in POA alignment."/>
+                <param name="poa_mismatch" type="integer" value="19" min="0" label="POA mismatch penalty" help="Penalty for mismatched bases."/>
+                <param name="poa_gap1" type="integer" value="39" min="0" label="POA gap-open penalty (first gap)" help="Gap-opening penalty for the first gap."/>
+                <param name="poa_ext1" type="integer" value="3" min="0" label="POA gap-extension penalty (first gap)" help="Gap-extension penalty for the first gap."/>
+                <param name="poa_gap2" type="integer" value="81" min="0" label="POA gap-open penalty (second gap)" help="Gap-opening penalty for the second gap."/>
+                <param name="poa_ext2" type="integer" value="1" min="0" label="POA gap-extension penalty (second gap)" help="Gap-extension penalty for the second gap."/>
+            </when>
+        </conditional>
+        <param argument="--poa-padding" type="float" value="" optional="true" min="0" label="POA padding ratio" help="Flanking sequence length as fraction of average sequence length per block. If not set, uses pggb default of 0.001."/>
+        <param argument="--run-abpoa" type="boolean" truevalue="--run-abpoa" falsevalue="" checked="false" label="Use abPOA" help="Default SPOA."/>
+        <param argument="--global-poa" type="boolean" truevalue="--global-poa" falsevalue="" checked="false" label="Run POA in global mode" help="Default is local mode."/>
+        <param argument="--write-maf" type="boolean" truevalue="--write-maf" falsevalue="" checked="false" label="Write MAF output" help="Multi-Alignment Format representing merged POA blocks."/>
+        <param argument="--multiqc" type="boolean" truevalue="--multiqc" falsevalue="" checked="false" label="Generate MultiQC report" help="Automatically runs odgi stats and produces a MultiQC report."/>
+        <param argument="--skip-normalization" type="boolean" truevalue="--skip-normalization" falsevalue="" checked="false" label="Skip final graph normalization"/>
+        <param argument="--skip-viz" type="boolean" truevalue="--skip-viz" falsevalue="" checked="false" label="Skip 1D/2D viz" help="Suppresses layout PNG and viz outputs. Speeds up small test runs."/>
+        <param argument="--stats" type="boolean" truevalue="--stats" falsevalue="" checked="false" label="Emit odgi stats"/>
+        <param argument="--vcf-spec" type="text" value="" label="VCF spec" help="Reference path prefix(es) for vg deconstruct, e.g. 'ref:1000'. Multiple comma-separated. Leave blank to skip VCF generation.">
             <sanitizer invalid_char="">
                 <valid initial="string.printable">
                     <remove value="'"/>
@@ -160,6 +173,9 @@ echo "DONE"
         <data name="output_multiqc" format="html" label="${tool.name} on ${on_string}: MultiQC report">
             <filter>multiqc</filter>
         </data>
+        <data name="output_maf" format="maf" label="${tool.name} on ${on_string}: MAF alignment">
+            <filter>write_maf</filter>
+        </data>
     </outputs>
     <tests>
         <test expect_num_outputs="3">
@@ -176,11 +192,19 @@ echo "DONE"
                     <has_line_matching expression="^P\t.+"/>
                 </assert_contents>
             </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
             <output name="output_log">
                 <assert_contents>
                     <has_text text="pggb"/>
                 </assert_contents>
             </output>
+            <assert_command>
+                <has_text text="--skip-viz"/>
+            </assert_command>
         </test>
         <test expect_num_outputs="7">
             <param name="input_fasta" value="toy.fa.gz" ftype="fasta.gz"/>
@@ -209,12 +233,16 @@ echo "DONE"
             </output>
             <output name="output_layout_png">
                 <assert_contents>
-                    <has_size min="1000"/>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="100"/>
                 </assert_contents>
             </output>
             <output name="output_viz_png">
                 <assert_contents>
-                    <has_size min="100"/>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="10"/>
                 </assert_contents>
             </output>
             <output name="output_multiqc">
@@ -243,6 +271,11 @@ echo "DONE"
                     <has_line_matching expression="^P\t.+"/>
                 </assert_contents>
             </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
             <output name="output_vcf">
                 <assert_contents>
                     <has_text text="##fileformat=VCF"/>
@@ -252,6 +285,56 @@ echo "DONE"
             <assert_command>
                 <has_text text="--vcf-spec"/>
                 <has_text text="PvA#1#chr1"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="7">
+            <param name="input_fasta" value="toy.fa.gz" ftype="fasta.gz"/>
+            <param name="n_haplotypes" value="3"/>
+            <param name="segment_length" value="500"/>
+            <param name="map_pct_id" value="90"/>
+            <param name="min_match_len" value="11"/>
+            <param name="no_splits" value="true"/>
+            <param name="write_maf" value="true"/>
+            <output name="output_gfa" decompress="true">
+                <assert_contents>
+                    <has_line_matching expression="^H\tVN:Z:1\.\d+.*"/>
+                    <has_line_matching expression="^S\t.+"/>
+                    <has_line_matching expression="^P\t.+"/>
+                </assert_contents>
+            </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="output_lay">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="output_layout_png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="100"/>
+                </assert_contents>
+            </output>
+            <output name="output_viz_png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_maf">
+                <assert_contents>
+                    <has_text text="##maf"/>
+                    <has_text text="a"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--no-splits"/>
+                <has_text text="--write-maf"/>
             </assert_command>
         </test>
     </tests>
@@ -296,6 +379,8 @@ by running the underlying tools (`wfmash`, `seqwish`, `smoothxg`,
 - 2D layout (.og.lay) and layout/viz PNGs (unless `--skip-viz`).
 - Run log.
 - (Optional) deconstruct VCF if `--vcf-spec` is set.
+- (Optional) MultiQC report if `--multiqc` is enabled.
+- (Optional) MAF alignment if `--write-maf` is enabled.
 
 -----
 
