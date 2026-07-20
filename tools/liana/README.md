@@ -78,3 +78,9 @@ For `translate_resource`, the ligand-receptor source and the ortholog mapping so
 The production table is declared in `tool_data_table_conf.xml.sample` and points to `tool-data/liana_resources.loc`; the `.loc.sample` file is only the installation template. For Planemo tests, `tool_data_table_conf.xml.test` points to `test-data/liana_resources.loc`, whose entries resolve local ligand-receptor, HCOP, and Metalinks fixtures through `${__HERE__}`. This mirrors the established IUC test-data-table pattern.
 
 Repeated spatial-annulus, cell-type, HCOP-download, MuData, separator, and result-key parameters are defined in `macros.xml` so `cross_pcf`, `lric`, and plotting branches share identical defaults and validation.
+
+## LIANA 1.8.1 Galaxy wrapper notes
+
+- The bivariate `global_name` control is intentionally scalar-only in Galaxy: select either `morans` or `lee` per invocation and run separate jobs when both are required.
+- User-entered text that is interpolated into generated Python is validated to reject backslashes, in addition to the existing quote sanitization and separator restrictions.
+- Regression tests are included for global-only bivariate output, custom/equal separators, cross-PCF, grouped and ungrouped LRIC, `adata_to_views`, `annulus_plot`, and `expand_coordinates`.
