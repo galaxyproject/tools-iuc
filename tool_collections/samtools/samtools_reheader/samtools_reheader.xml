@@ -1,5 +1,5 @@
-<tool id="samtools_reheader" name="Samtools reheader" version="2.0.6" profile="@PROFILE@">
-    <description>copy SAM/BAM header between datasets</description>
+<tool id="samtools_reheader" name="Samtools reheader" version="2.1.0" profile="@PROFILE@">
+    <description>copy SAM/BAM header between datasets or edit read groups</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -7,18 +7,102 @@
     <expand macro="stdio"/>
     <expand macro="version_command"/>
     <command><![CDATA[
-        samtools reheader
-            '${input_header}'
-            '${input_file}'
-            ${no_pg}
-            > '${output}'
+        #if str($job.job_type) == 'copy_header' and $input_header is None
+            echo 'Copying a header needs a source dataset. Select one, or switch to editing read groups.' >&2 && exit 1
+        #else
+            samtools reheader
+            #if str($job.job_type) == 'copy_header'
+                '${input_header}'
+            #else
+                ## The command handed to -c is built entirely from tool-directory and
+                ## job-directory paths. The user-supplied @RG values live in the
+                ## $rg_edits config file and are read as data by the awk script, so
+                ## they never reach a shell.
+                -c "awk -f '$__tool_directory__/edit_read_groups.awk' '$rg_edits' -"
+            #end if
+                '${input_file}'
+                ${no_pg}
+                > '${output}'
+        #end if
     ]]></command>
+    <configfiles>
+        <configfile name="rg_edits"><![CDATA[#slurp
+#if str($job.job_type) == 'edit_read_groups'
+#import re
+#for $field in $job.rg_fields
+#if str($field.value_source.value_from) == 'element_identifier'
+#set $rg_value = str($input_file.element_identifier)
+#set $rg_value = re.sub('(?i)[.](bam|sam|cram)$', '', $rg_value)
+#else
+#set $rg_value = str($field.value_source.value)
+#end if
+## The SAM specification restricts @RG field values to printable ASCII
+## ([ -~]+). Anything else -- most importantly tabs and newlines, which would
+## break both the header and this table -- is replaced.
+#set $rg_value = re.sub('[^ -~]', '_', $rg_value)
+${str($field.tag) + "\t" + $rg_value}
+#end for
+#end if
+]]></configfile>
+    </configfiles>
     <inputs>
-        <param name="input_header" type="data" format="sam,bam" label="Select source dataset" help="Header from this dataset will be used to replace header in the target dataset. May be either SAM or BAM dataset."/>
-        <param name="input_file" type="data" format="bam" label="Select target dataset" help="Header from the source dataset will be inserted here. Should be a BAM dataset."/>
+        <param name="input_file" type="data" format="bam" label="Select target dataset" help="The dataset whose header will be replaced or edited. Should be a BAM dataset."/>
+        <!-- Kept at the top level, rather than inside the conditional below, so that
+             the input keeps its name: moving it would silently break the connection
+             in every saved workflow that feeds this tool. -->
+        <param name="input_header" type="data" format="sam,bam" optional="true" label="Select source dataset" help="Only used when copying a header. Header from this dataset will be used to replace header in the target dataset. May be either SAM or BAM dataset."/>
+        <conditional name="job">
+            <param name="job_type" type="select" label="What do you want to do?">
+                <option value="copy_header">Copy the header of another dataset</option>
+                <option value="edit_read_groups">Edit read group (@RG) fields in place</option>
+            </param>
+            <when value="copy_header"/>
+            <when value="edit_read_groups">
+                <repeat name="rg_fields" title="@RG field to set" min="1" default="1">
+                    <param name="tag" type="select" label="Field to set" help="This field will be set on every @RG record of the header. Fields that are not listed here - in particular ID and PU - are left exactly as they are.">
+                        <option value="SM">SM: sample</option>
+                        <option value="LB">LB: library</option>
+                        <option value="PL">PL: platform</option>
+                        <option value="CN">CN: sequencing center</option>
+                        <option value="DS">DS: description</option>
+                    </param>
+                    <conditional name="value_source">
+                        <param name="value_from" type="select" label="Where should the value come from?">
+                            <option value="text">A value I type in</option>
+                            <option value="element_identifier">The name of the target dataset</option>
+                        </param>
+                        <when value="text">
+                            <param name="value" type="text" label="Value" help="The value to set this field to on every @RG record.">
+                                <!-- The default sanitizer would turn characters that are
+                                     perfectly legal in an @RG value into __sq__ and friends.
+                                     Everything the SAM specification allows is kept instead,
+                                     which is safe here because the value is written to a
+                                     config file and read back as data - it never reaches a
+                                     shell. Tabs and newlines are the only real hazard, and
+                                     they are dropped. -->
+                                <sanitizer invalid_char="_">
+                                    <valid initial="string.printable">
+                                        <remove value="&#9;"/>
+                                        <remove value="&#10;"/>
+                                        <remove value="&#13;"/>
+                                    </valid>
+                                </sanitizer>
+                                <validator type="empty_field"/>
+                                <validator type="regex" message="@RG field values must consist of printable ASCII characters (the SAM specification allows [ -~]+)">^[ -~]+\Z</validator>
+                            </param>
+                        </when>
+                        <when value="element_identifier">
+                            <!-- The name of the target dataset is its element identifier when
+                                 the tool is run over a collection, so the value varies per
+                                 element. A typed-in value would be identical for every element. -->
+                        </when>
+                    </conditional>
+                </repeat>
+            </when>
+        </conditional>
         <param argument="--no-PG" name="no_pg" type="boolean" truevalue="--no-PG" falsevalue=""
         label="Keep the new header unmodified?"
-        help="By default, samtools reheader will add itself to the chain of tools used to manipulate the target dataset, which will cause one or more @PG records to be inserted into the new header. If you want the output dataset to end up with the header of the source dataset exactly, you should activate this option." />
+        help="By default, samtools reheader will add itself to the chain of tools used to manipulate the target dataset, which will cause one or more @PG records to be inserted into the new header. Activate this option if you want the output to carry the source dataset's header exactly, or - when editing read groups - the edited header and nothing else." />
     </inputs>
     <outputs>
         <data format="bam" name="output" label="${tool.name} on ${on_string}" />
@@ -35,11 +119,148 @@
             <param name="no_pg" value="true"/>
             <output name="output" ftype="bam" file="reheader_out.bam" />
         </test>
+        <!-- Editing SM and LB must leave both @RG IDs, both PUs and every read's
+             RG:Z assignment untouched. The expected dataset holds two @RG records,
+             so a wrapper that collapsed the read groups into one would fail here. -->
+        <test>
+            <param name="input_file" ftype="bam" value="reheader_rg_input.bam"/>
+            <conditional name="job">
+                <param name="job_type" value="edit_read_groups"/>
+                <repeat name="rg_fields">
+                    <param name="tag" value="SM"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="text"/>
+                        <param name="value" value="patient1_tumour"/>
+                    </conditional>
+                </repeat>
+                <repeat name="rg_fields">
+                    <param name="tag" value="LB"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="text"/>
+                        <param name="value" value="lib1"/>
+                    </conditional>
+                </repeat>
+            </conditional>
+            <param name="no_pg" value="true"/>
+            <output name="output" ftype="bam" file="reheader_rg_out.bam"/>
+        </test>
+        <!-- The next two tests are identical apart from the input dataset. They
+             stand in for two elements of a collection: with SM bound to the dataset
+             name, each one must come out with its own SM, which is what a fixed
+             text value could not do. LB is not listed here, so the second @RG
+             record - which has no LB at all - must still come out without one. -->
+        <test>
+            <param name="input_file" ftype="bam" value="patient1-normal.bam"/>
+            <conditional name="job">
+                <param name="job_type" value="edit_read_groups"/>
+                <repeat name="rg_fields">
+                    <param name="tag" value="SM"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="element_identifier"/>
+                    </conditional>
+                </repeat>
+            </conditional>
+            <param name="no_pg" value="true"/>
+            <output name="output" ftype="bam" file="patient1-normal_auto_sm.bam"/>
+        </test>
+        <test>
+            <param name="input_file" ftype="bam" value="patient2-tumour.bam"/>
+            <conditional name="job">
+                <param name="job_type" value="edit_read_groups"/>
+                <repeat name="rg_fields">
+                    <param name="tag" value="SM"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="element_identifier"/>
+                    </conditional>
+                </repeat>
+            </conditional>
+            <param name="no_pg" value="true"/>
+            <output name="output" ftype="bam" file="patient2-tumour_auto_sm.bam"/>
+        </test>
+        <!-- Punctuation that is legal in an @RG value but that Galaxy's default text
+             sanitizer would mangle must survive intact. Nothing here reaches a shell,
+             so the semicolon and parentheses are inert. -->
+        <test>
+            <param name="input_file" ftype="bam" value="reheader_rg_input.bam"/>
+            <conditional name="job">
+                <param name="job_type" value="edit_read_groups"/>
+                <repeat name="rg_fields">
+                    <param name="tag" value="SM"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="text"/>
+                        <param name="value" value="patient1_tumour"/>
+                    </conditional>
+                </repeat>
+                <repeat name="rg_fields">
+                    <param name="tag" value="DS"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="text"/>
+                        <param name="value" value="Batch #7, lane 3 (re-run); 50% input"/>
+                    </conditional>
+                </repeat>
+            </conditional>
+            <param name="no_pg" value="true"/>
+            <output name="output" ftype="bam" file="reheader_rg_punctuation.bam"/>
+        </test>
+        <!-- Asking to edit read groups in a header that has none must fail loudly
+             rather than return the input unchanged. -->
+        <test expect_failure="true">
+            <param name="input_file" ftype="bam" value="reheader_input_file.bam"/>
+            <conditional name="job">
+                <param name="job_type" value="edit_read_groups"/>
+                <repeat name="rg_fields">
+                    <param name="tag" value="SM"/>
+                    <conditional name="value_source">
+                        <param name="value_from" value="text"/>
+                        <param name="value" value="patient1_tumour"/>
+                    </conditional>
+                </repeat>
+            </conditional>
+        </test>
     </tests>
-    <help>
+    <help><![CDATA[
 **What it does**
 
-Generates a new BAM dataset with the contents of *target* dataset, but the header of *source* dataset using the ``samtools reheader`` command.
-    </help>
+Rewrites the header of a BAM dataset using the ``samtools reheader`` command. The
+reads themselves are never touched, so read counts and per-read ``RG:Z`` tags are
+always preserved.
+
+Two modes are available.
+
+**Copy the header of another dataset**
+
+Generates a new BAM dataset with the contents of the *target* dataset, but the
+header of the *source* dataset.
+
+**Edit read group (@RG) fields in place**
+
+Sets the selected fields on *every* ``@RG`` record of the target dataset's header,
+adding a field to records that do not have it yet and replacing it on records that
+do. All other fields are left alone.
+
+This is the mode to use after merging per-lane BAM files into one per-sample BAM
+file. Aligners typically derive the whole read group from the name of their input,
+so a merged dataset ends up with one ``@RG`` record per lane whose ``SM`` is a
+per-lane name. Setting ``SM`` here makes every record agree on the sample while
+``ID`` and ``PU`` stay distinct per lane, which is what downstream variant callers
+expect. Note that this is *not* what tools such as *Picard AddOrReplaceReadGroups*
+do: those assign every read to a single new read group, which discards the
+per-lane information.
+
+``ID`` and ``PU`` are deliberately not offered here. They identify individual read
+groups, so setting them to one value across the header would defeat the purpose of
+this mode - and, in the case of ``ID``, produce an invalid header with duplicate
+identifiers.
+
+When this tool is run over a collection, choosing *The name of the target dataset*
+binds the value to each element's identifier, so every element gets its own value.
+A fixed text value would be applied unchanged to every element of the collection.
+A trailing ``.bam``, ``.sam`` or ``.cram`` is removed from the name before it is
+used, since collection elements often carry one.
+
+Listing the same field twice sets it to the value given last. Editing a header that
+contains no ``@RG`` records at all fails, rather than quietly returning the input
+unchanged.
+    ]]></help>
     <expand macro="citations"/>
 </tool>
