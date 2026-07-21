@@ -1,112 +1,92 @@
 LIANA+
 ======
 
-Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for cell-cell communication analysis.
+Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for cell-cell communication analysis. This wrapper targets LIANA **1.8.1**.
 
 ## Tools
 
-### 1. Single Cell Methods (`single_cell.xml`)
+### 1. LIANA Methods (`liana_methods.xml`)
 
-Ligand-receptor inference methods for single-cell data.
+The combined methods tool contains single-cell ligand-receptor inference and spatial methods.
 
 Method | Description
 --- | ---
 `cellchat` | CellChat ligand-receptor method
 `cellphonedb` | CellPhoneDB ligand-receptor method
 `connectome` | Connectome ligand-receptor method
-`logfc` | Log fold change ligand-receptor method
+`logfc` | Log fold-change ligand-receptor method
 `natmi` | NATMI ligand-receptor method
 `singlecellsignalr` | SingleCellSignalR ligand-receptor method
-`geometric_mean` | Geometric mean ligand-receptor method
+`geometric_mean` | Geometric-mean ligand-receptor method
 `rank_aggregate` | Aggregate rankings from multiple methods
+`bivariate` | Local/global bivariate spatial statistics for AnnData or paired MuData modalities; one or both global metrics can be selected
+`cross_pcf` | Distance-resolved cross pair-correlation for directed cell-type pairs
+`lric` | Expression-weighted Ligand-Receptor Interaction Correlation
+`compute_global_specificity` | Permutation-tested group specificity for global interactions
+`inflow` | Trivariate spatial source-group, ligand, and receptor scoring
 
-### 2. Spatial Methods (`spatial.xml`)
+`cross_pcf` and `lric` return both an updated AnnData file and a long-form spatial-curves table suitable for `lric_lineplot`.
 
-Spatial ligand-receptor analysis using bivariate metrics.
-
-Method | Description
---- | ---
-`bivariate` | Bivariate local spatial metrics for ligand-receptor analysis
-
-#### Bivariate Metrics
-
-**Local metrics:**
-
-Metric | Description
---- | ---
-`cosine` | Weighted cosine similarity
-`jaccard` | Weighted Jaccard similarity
-`pearson` | Weighted Pearson correlation
-`spearman` | Weighted Spearman correlation
-`masked_spearman` | Masked and weighted Spearman correlation
-`product` | Simple weighted product
-`norm_product` | Normalized weighted product
-`morans` | Moran's R
-
-**Global metrics:**
-
-Metric | Description
---- | ---
-`morans` | Moran's I (global spatial autocorrelation)
-`lee` | Lee's L (bivariate spatial association)
-
-### 3. Spatial Relationships (`spatial_relationships.xml`)
-
-Multi-view spatial modelling with MISTy.
+### 2. MISTy (`misty.xml`)
 
 Method | Description
 --- | ---
 `genericMistyData` | Generic MISTy multi-view modelling
 `lrMistyData` | Ligand-receptor MISTy modelling
 
-#### MISTy Models
+LIANA 1.8.1 includes improved preservation of MuData metadata (`uns`, `obsm`, `varm`, `obsp`, and `varp`) during MISTyData round-trips.
 
-Model | Description
+### 3. Multi-view Utilities (`multi.xml`)
+
+Wrappers for converting LIANA results to views/tensors and for NMF-based multi-view analysis. The Galaxy forms expose typed controls for `adata_to_views` pseudobulk and filtering options, `lrs_to_views` batch-aware variance filtering and missing-value filling, and stable NMF initialization/convergence controls.
+
+Method | Description
 --- | ---
-`RandomForestModel` | Random Forest (uses out-of-bag predictions)
-`LinearModel` | Linear regression (uses cross-validation)
-`RobustLinearModel` | Robust linear regression
-
-#### Kernel Functions
-
-Kernel | Description
---- | ---
-`misty_rbf` | MISTy RBF kernel (Gaussian derivative)
-`gaussian` | Gaussian kernel
-`exponential` | Exponential kernel
-`linear` | Linear kernel
+`to_tensor_c2c` | Convert LIANA results to a cell2cell-compatible tensor
+`lrs_to_views` | Convert sample-level interaction results into MuData views
+`adata_to_views` | Build cell-type pseudobulk MuData views
+`df_to_lr` | Combine differential-expression statistics with an interaction resource
+`lrdata_to_mudata` | Split LIANA feature data into paired MuData modalities
+`filter_view_markers` | Flag or retain view-specific marker features
+`nmf` | Non-negative matrix factorization with inclusive rank search bounds
 
 ### 4. Plotting (`plot.xml`)
-
-Visualization tools for LIANA results.
 
 Method | Description
 --- | ---
 `dotplot` | Dot plot of ligand-receptor interactions
+`dotplot_by_sample` | Dot plot grouped by sample
 `tileplot` | Tile plot of interactions
 `connectivity` | Spatial connectivity visualization
+`target_metrics` | MISTy target metrics
+`contributions` | MISTy view contributions
+`interactions` | MISTy interaction importances
+`annulus_plot` | Inspect the spatial annulus geometry used by cross-PCF/LRIC
+`lric_lineplot` | Plot distance-resolved g(r) curves from the methods output table
+`circle_plot` | Aggregate directed interactions as a circular network
+`feature_by_group` | Plot a spatial feature in group-specific panels
 
-### 5. Available Resources
+### 5. Utilities (`utils.xml`)
 
-Built-in ligand-receptor resources from `li.resource.show_resources()`:
+Includes spatial-neighbor construction, AnnData extraction helpers, factor/loadings extraction, `expand_coordinates`, MuData-to-AnnData conversion, spatial pair-proximity summaries, spatial interpolation between reference and target AnnData objects, and `query_bandwidth` diagnostics with plot and table outputs.
 
-- `consensus` (default)
-- `baccin2019`
-- `cellcall`
-- `cellchatdb`
-- `cellinker`
-- `cellphonedb`
-- `celltalkdb`
-- `connectomedb2020`
-- `embrace`
-- `guide2pharma`
-- `hpmr`
-- `icellnet`
-- `italk`
-- `kirouac2010`
-- `lrdb`
-- `mouseconsensus`
-- `ramilowski2015`
+### 6. Resources (`resource.xml`)
+
+Provides built-in or Data Manager-cached ligand-receptor resources, Metalinks retrieval/filtering, HCOP ortholog retrieval through the current target-organism API, and resource translation.
+
+## API coverage and Galaxy-specific constraints
+
+The wrappers call LIANA 1.8.1 directly for the exposed computations. Python-native outputs are converted only after computation into Galaxy-compatible AnnData, MuData, tabular, or image outputs. Applicable LIANA methods receive `n_jobs` from Galaxy's allocated `GALAXY_SLOTS` value rather than from a user-controlled field.
+
+The following Python-only extension points are intentionally not exposed:
+
+- arbitrary callables such as `lrs_to_views(inverse_fun=...)`;
+- callable or dictionary pseudobulk aggregation modes;
+- unrestricted `**kwargs` or user-entered Python/JSON dictionaries.
+
+Instead, stable options are represented with typed Galaxy parameters and conditionals. This keeps jobs reproducible, validates values before execution, and avoids evaluating user-supplied Python code.
+
+The deterministic local test fixtures include numerical reference assertions generated with LIANA 1.8.1. These complement structural HDF5 and tabular assertions and check that the wrapped calls retain expected numerical behavior.
 
 ## References
 
@@ -114,3 +94,15 @@ Built-in ligand-receptor resources from `li.resource.show_resources()`:
 - Tanevski, J., Flores, R.O.R., Gabor, A. et al. Explainable multiview framework for dissecting spatial relationships from highly multiplexed data. Genome Biol 23, 97 (2022).
 - [LIANA+ Documentation](https://liana-py.readthedocs.io/)
 - [LIANA+ GitHub](https://github.com/saezlab/liana-py)
+
+## Data Manager integration
+
+Galaxy administrators install and run `data_manager_liana_resources`. It registers ligand-receptor, HCOP, and Metalinks files in the shared `liana_resources` Tool Data Table. Regular users do not run the Data Manager: the LIANA tool forms expose those server-side entries through `from_data_table`.
+
+For `translate_resource`, the ligand-receptor source and the ortholog mapping source each support a cached mode. The ortholog selector also supports `builtin`, which invokes `li.resource.get_hcop_orthologs` for the selected target organism, and `history`, which accepts a user-supplied table.
+
+### Tool Data Table and tests
+
+The production table is declared in `tool_data_table_conf.xml.sample` and points to `tool-data/liana_resources.loc`; the `.loc.sample` file is only the installation template. For Planemo tests, `tool_data_table_conf.xml.test` points to `test-data/liana_resources.loc`, whose entries resolve local ligand-receptor, HCOP, and Metalinks fixtures through `${__HERE__}`. This mirrors the established IUC test-data-table pattern.
+
+Repeated spatial-annulus, cell-type, HCOP-download, MuData, separator, observation-key, view-key, and result-key parameters are defined in `macros.xml` so method categories share identical defaults and validation.
