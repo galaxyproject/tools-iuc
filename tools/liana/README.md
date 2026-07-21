@@ -22,6 +22,8 @@ Method | Description
 `bivariate` | Local/global bivariate spatial statistics for AnnData or paired MuData modalities; one or both global metrics can be selected
 `cross_pcf` | Distance-resolved cross pair-correlation for directed cell-type pairs
 `lric` | Expression-weighted Ligand-Receptor Interaction Correlation
+`compute_global_specificity` | Permutation-tested group specificity for global interactions
+`inflow` | Trivariate spatial source-group, ligand, and receptor scoring
 
 `cross_pcf` and `lric` return both an updated AnnData file and a long-form spatial-curves table suitable for `lric_lineplot`.
 
@@ -38,6 +40,16 @@ LIANA 1.8.1 includes improved preservation of MuData metadata (`uns`, `obsm`, `v
 
 Wrappers for converting LIANA results to views/tensors and for NMF-based multi-view analysis. The Galaxy forms expose typed controls for `adata_to_views` pseudobulk and filtering options, `lrs_to_views` batch-aware variance filtering and missing-value filling, and stable NMF initialization/convergence controls.
 
+Method | Description
+--- | ---
+`to_tensor_c2c` | Convert LIANA results to a cell2cell-compatible tensor
+`lrs_to_views` | Convert sample-level interaction results into MuData views
+`adata_to_views` | Build cell-type pseudobulk MuData views
+`df_to_lr` | Combine differential-expression statistics with an interaction resource
+`lrdata_to_mudata` | Split LIANA feature data into paired MuData modalities
+`filter_view_markers` | Flag or retain view-specific marker features
+`nmf` | Non-negative matrix factorization with inclusive rank search bounds
+
 ### 4. Plotting (`plot.xml`)
 
 Method | Description
@@ -51,10 +63,12 @@ Method | Description
 `interactions` | MISTy interaction importances
 `annulus_plot` | Inspect the spatial annulus geometry used by cross-PCF/LRIC
 `lric_lineplot` | Plot distance-resolved g(r) curves from the methods output table
+`circle_plot` | Aggregate directed interactions as a circular network
+`feature_by_group` | Plot a spatial feature in group-specific panels
 
 ### 5. Utilities (`utils.xml`)
 
-Includes spatial-neighbor construction, AnnData extraction helpers, factor/loadings extraction, and LIANA 1.8.1's `expand_coordinates` for laying out multiple spatial samples on a non-overlapping grid.
+Includes spatial-neighbor construction, AnnData extraction helpers, factor/loadings extraction, `expand_coordinates`, MuData-to-AnnData conversion, spatial pair-proximity summaries, spatial interpolation between reference and target AnnData objects, and `query_bandwidth` diagnostics with plot and table outputs.
 
 ### 6. Resources (`resource.xml`)
 
@@ -62,7 +76,7 @@ Provides built-in or Data Manager-cached ligand-receptor resources, Metalinks re
 
 ## API coverage and Galaxy-specific constraints
 
-The wrappers call LIANA 1.8.1 directly for the exposed computations. Python-native outputs are converted only after computation into Galaxy-compatible AnnData, MuData, tabular, or image outputs.
+The wrappers call LIANA 1.8.1 directly for the exposed computations. Python-native outputs are converted only after computation into Galaxy-compatible AnnData, MuData, tabular, or image outputs. Applicable LIANA methods receive `n_jobs` from Galaxy's allocated `GALAXY_SLOTS` value rather than from a user-controlled field.
 
 The following Python-only extension points are intentionally not exposed:
 
@@ -91,4 +105,4 @@ For `translate_resource`, the ligand-receptor source and the ortholog mapping so
 
 The production table is declared in `tool_data_table_conf.xml.sample` and points to `tool-data/liana_resources.loc`; the `.loc.sample` file is only the installation template. For Planemo tests, `tool_data_table_conf.xml.test` points to `test-data/liana_resources.loc`, whose entries resolve local ligand-receptor, HCOP, and Metalinks fixtures through `${__HERE__}`. This mirrors the established IUC test-data-table pattern.
 
-Repeated spatial-annulus, cell-type, HCOP-download, MuData, separator, and result-key parameters are defined in `macros.xml` so `cross_pcf`, `lric`, and plotting branches share identical defaults and validation.
+Repeated spatial-annulus, cell-type, HCOP-download, MuData, separator, observation-key, view-key, and result-key parameters are defined in `macros.xml` so method categories share identical defaults and validation.

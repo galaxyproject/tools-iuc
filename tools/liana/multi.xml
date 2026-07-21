@@ -5,15 +5,32 @@
     </macros>
     <expand macro="bio_tools"/>
     <expand macro="creators"/>
-    <expand macro="requirements"/>
+    <expand macro="requirements_multi"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-@CMD@
+#if $adata.ext == 'h5mu':
+ln -s '$adata' 'input_mudata.h5mu' &&
+#else:
+ln -s '$adata' 'input_anndata.h5ad' &&
+#end if
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output' &&
+ls . >> '$hidden_output' &&
+touch 'anndata_info.txt' &&
+cat 'anndata_info.txt' @CMD_PRETTIFY_STDOUT@
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
-@CMD_READ_INPUTS@
+import mudata as mu
+#if $adata.ext == 'h5mu':
+mdata_input = mu.read_h5mu('input_mudata.h5mu')
+#if str($method.method) != 'filter_view_markers':
+raise ValueError('MuData input is supported only by filter_view_markers in this Galaxy tool.')
+#end if
+#else:
+adata = sc.read_h5ad('input_anndata.h5ad')
+#end if
 
 def flatten_values(matrix):
     if hasattr(matrix, 'toarray'):
@@ -144,13 +161,103 @@ numeric_values = np.concatenate([
 print(f"adata_to_views_numeric_mean={float(np.nanmean(numeric_values)):.8f}")
 mdata.write_h5mu('mdata_output.h5mu')
 
+#else if str($method.method) == 'df_to_lr'
+dea_df = pd.read_csv('$method.dea_file', sep='\t', index_col=0)
+#if str($method.groupby_pairs.groupby_pairs_selector) == 'custom':
+groupby_pairs = pd.read_csv('$method.groupby_pairs.pairs_file', sep='\t')
+#else:
+groupby_pairs = None
+#end if
+lr_result = li.multi.df_to_lr(
+    adata=adata,
+    dea_df=dea_df,
+    groupby='$method.groupby',
+    stat_keys=[x.strip() for x in '$method.stat_keys'.split(',') if x.strip()],
+    @CMD_RESOURCE_FOR_METHODS@
+    groupby_pairs=groupby_pairs,
+#if str($method.layer) != '':
+    layer='$method.layer',
+#end if
+    use_raw=$method.use_raw,
+    expr_prop=$method.expr_prop,
+    min_cells=$method.min_cells,
+#if str($method.complex_col) != '':
+    complex_col='$method.complex_col',
+#end if
+    return_all_lrs=$method.return_all_lrs,
+#if str($method.source_labels) != '':
+    source_labels=[x.strip() for x in '$method.source_labels'.split(',') if x.strip()],
+#end if
+#if str($method.target_labels) != '':
+    target_labels=[x.strip() for x in '$method.target_labels'.split(',') if x.strip()],
+#end if
+    lr_sep='$method.lr_sep',
+    verbose=False)
+lr_result.to_csv('df_to_lr.tsv', sep='\t', index=False)
+print(f"df_to_lr_rows={len(lr_result)}")
+
+#else if str($method.method) == 'lrdata_to_mudata'
+mdata = li.multi.lrdata_to_mudata(
+    lrdata=adata,
+    xy_sep='$method.lr_sep',
+#if str($method.min_cells) != '':
+    min_cells=$method.min_cells,
+#else:
+    min_cells=None,
+#end if
+#if str($method.min_features) != '':
+    min_features=$method.min_features,
+#else:
+    min_features=None,
+#end if
+#if str($method.obs_keys) != '':
+    obs_keys=[x.strip() for x in '$method.obs_keys'.split(',') if x.strip()],
+#end if
+    verbose=False)
+print(f"lrdata_to_mudata_views={len(mdata.mod)}")
+mdata.write_h5mu('mdata_output.h5mu')
+
+#else if str($method.method) == 'filter_view_markers'
+markers_df = pd.read_csv('$method.markers', sep='\t')
+required_columns = {'view', 'marker'}
+missing = required_columns.difference(markers_df.columns)
+if missing:
+    raise ValueError(f"Marker table is missing required columns: {sorted(missing)}")
+markers = {
+    str(view): frame['marker'].dropna().astype(str).tolist()
+    for view, frame in markers_df.groupby('view', sort=False)
+}
+#if str($method.filter_settings.filter_mode) == 'flag':
+filtered_mdata = li.multi.filter_view_markers(
+    mdata=mdata_input,
+    markers=markers,
+    view_sep='$method.view_sep',
+    var_column='$method.filter_settings.var_column',
+    inplace=False)
+true_count = sum(int(filtered_mdata.mod[view].var['$method.filter_settings.var_column'].sum()) for view in filtered_mdata.mod)
+print(f"filter_view_markers_true={true_count}")
+#else:
+filtered_mdata = li.multi.filter_view_markers(
+    mdata=mdata_input,
+    markers=markers,
+    view_sep='$method.view_sep',
+    var_column=None,
+    inplace=False)
+print(f"filter_view_markers_features={sum(mod.n_vars for mod in filtered_mdata.mod.values())}")
+#end if
+filtered_mdata.write_h5mu('mdata_output.h5mu')
+
 #else if str($method.method) == 'nmf'
+#if str($method.n_components) == '':
+if $method.k_range_min > $method.k_range_max:
+    raise ValueError('K range minimum must be less than or equal to K range maximum')
+#end if
 li.multi.nmf(
     adata=adata,
 #if str($method.n_components) != ''
     n_components=$method.n_components,
 #else
-    k_range=range($method.k_range_min, $method.k_range_max),
+    k_range=range($method.k_range_min, $method.k_range_max + 1),
 #end if
    use_raw=$method.use_raw,
 #if str($method.layer) != '':
@@ -168,18 +275,22 @@ li.multi.nmf(
 #end if
 )
 print(f"nmf_w_numeric_mean={float(np.mean(adata.obsm['NMF_W'])):.8f}")
+print(f"nmf_rank={adata.uns['nmf_rank']}")
 adata.write_h5ad('anndata.h5ad', compression='gzip')
 
 #end if
         ]]></configfile>
     </configfiles>
     <inputs>
-        <expand macro="inputs_anndata"/>
+        <expand macro="inputs_anndata_or_mudata" HELP="AnnData is used by all methods except filter_view_markers, which requires MuData."/>
         <conditional name="method">
             <param name="method" type="select" label="Method">
                 <option value="to_tensor_c2c" selected="true">to_tensor_c2c - Convert LIANA results to tensor for cell2cell analysis</option>
                 <option value="lrs_to_views">lrs_to_views - Convert LIANA results to MuData views</option>
                 <option value="adata_to_views">adata_to_views - Convert AnnData to MuData views by cell type</option>
+                <option value="df_to_lr">df_to_lr - Combine differential-expression results with ligand-receptor resources</option>
+                <option value="lrdata_to_mudata">lrdata_to_mudata - Split LIANA feature data into MuData modalities</option>
+                <option value="filter_view_markers">filter_view_markers - Flag or retain view-specific marker features</option>
                 <option value="nmf">nmf - Non-negative matrix factorization</option>
             </param>
             <when value="to_tensor_c2c">
@@ -191,10 +302,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             <when value="lrs_to_views">
                 <expand macro="params_multi_keys"/>
                 <expand macro="param_sample_key" VALUE="sample"/>
-                <param argument="obs_keys" type="text" value="" optional="true" label="Observation keys" help="Comma-separated list of column names from adata.obs to include in the MuData object. Empty includes no extra columns.">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validator_optional_csv" FIELD="observation-key list"/>
-                </param>
+                <expand macro="param_obs_keys" HELP="Comma-separated columns from adata.obs to include in the MuData object."/>
                 <param argument="lr_prop" type="float" value="0.5" min="0" max="1" label="LR proportion" help="Minimum proportion of samples for an interaction to be considered."/>
                 <param argument="lr_fill" type="float" value="" optional="true" label="Missing interaction fill value" help="Optional value used to replace interactions missing from a sample. Empty preserves LIANA's NaN default."/>
                 <param argument="lrs_per_view" type="integer" value="20" min="1" label="LRs per view" help="Minimum number of interactions in a view."/>
@@ -214,22 +322,13 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                     <expand macro="sanitize_query"/>
                     <expand macro="validator_optional_separator" FIELD="cell-name separator"/>
                 </param>
-                <param argument="lr_sep" type="text" value="" label="Ligand and receptor separator" help="Separator to use when joining ligand and receptor names into interactions">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validator_optional_separator" FIELD="ligand-receptor separator"/>
-                </param>
+                <expand macro="param_lr_sep" VALUE="" OPTIONAL="true" HELP="Optional separator used when joining ligand and receptor names into interactions."/>
             </when>
             <when value="adata_to_views">
                 <expand macro="param_groupby"/>
                 <expand macro="param_sample_key" VALUE=""/>
-                <param argument="obs_keys" type="text" value="" optional="true" label="Observation keys" help="Comma-separated list of keys in adata.obs to include.">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validator_optional_csv" FIELD="observation-key list"/>
-                </param>
-                <param argument="view_sep" type="text" value=":" label="View feature separator" help="Separator inserted between the view name and feature names.">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validator_required_separator" FIELD="view feature separator"/>
-                </param>
+                <expand macro="param_obs_keys" HELP="Comma-separated columns from adata.obs to retain in the MuData object."/>
+                <expand macro="param_view_sep"/>
                 <param argument="keep_stats" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Keep stats" help="Keep pseudobulk statistics in mdata.uns."/>
                 <section name="pseudobulk_options" title="Pseudobulk options" expanded="false">
                     <param argument="mode" type="select" label="Aggregation mode">
@@ -287,6 +386,50 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                     </when>
                 </conditional>
             </when>
+            <when value="df_to_lr">
+                <param name="dea_file" type="data" format="tabular" label="Differential-expression table" help="Tabular differential-expression results. The first column must contain feature identifiers and is used as the row index."/>
+                <expand macro="param_groupby"/>
+                <param name="stat_keys" type="text" value="logfc,pval" label="Statistic columns" help="Comma-separated columns from the differential-expression table to attach to ligand and receptor features.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_csv" FIELD="statistic-column list"/>
+                </param>
+                <expand macro="param_resource_selection"/>
+                <conditional name="groupby_pairs">
+                    <param name="groupby_pairs_selector" type="select" label="Cell-type pair subset">
+                        <option value="all" selected="true">All source-target combinations</option>
+                        <option value="custom">Use a source/target table</option>
+                    </param>
+                    <when value="all"/>
+                    <when value="custom"><param name="pairs_file" type="data" format="tabular" label="Source-target pair table"/></when>
+                </conditional>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <param argument="expr_prop" type="float" value="0.1" min="0" max="1" label="Minimum expression proportion"/>
+                <expand macro="param_min_cells"/>
+                <param argument="complex_col" type="text" value="" optional="true" label="Complex statistic column"><expand macro="sanitize_query"/><expand macro="validator_optional_key" FIELD="complex statistic column"/></param>
+                <expand macro="param_return_all_lrs"/>
+                <expand macro="param_source_labels"/>
+                <expand macro="param_target_labels"/>
+                <expand macro="param_lr_sep"/>
+            </when>
+            <when value="lrdata_to_mudata">
+                <expand macro="param_lr_sep" HELP="Separator between the X and Y feature names in lrdata.var_names."/>
+                <param argument="min_cells" type="integer" value="5" optional="true" min="1" label="Minimum observations per modality"/>
+                <param argument="min_features" type="integer" value="10" optional="true" min="1" label="Minimum features per modality"/>
+                <expand macro="param_obs_keys"/>
+            </when>
+            <when value="filter_view_markers">
+                <param name="markers" type="data" format="tabular" label="View-marker table" help="Two-column tabular file with headers view and marker."/>
+                <expand macro="param_view_sep"/>
+                <conditional name="filter_settings">
+                    <param name="filter_mode" type="select" label="Marker operation">
+                        <option value="flag" selected="true">Flag markers in a variable annotation column</option>
+                        <option value="subset">Retain marker features only</option>
+                    </param>
+                    <when value="flag"><param argument="var_column" type="text" value="highly_variable" label="Marker flag column"><expand macro="sanitize_query"/><expand macro="validator_required_key" FIELD="marker flag column"/></param></when>
+                    <when value="subset"/>
+                </conditional>
+            </when>
             <when value="nmf">
                 <param argument="n_components" type="integer" value="" optional="true" label="Number of components" help="Number of NMF components. If empty, uses k_range to estimate."/>
                 <param name="k_range_min" type="integer" value="1" min="1" label="K range minimum" help="Minimum k for elbow estimation (used if n_components is empty)."/>
@@ -312,7 +455,10 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             <filter>method['method'] == 'to_tensor_c2c'</filter>
         </data>
         <data name="mdata_out" format="h5mu" from_work_dir="mdata_output.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MuData">
-            <filter>method['method'] in ['lrs_to_views', 'adata_to_views']</filter>
+            <filter>method['method'] in ['lrs_to_views', 'adata_to_views', 'lrdata_to_mudata', 'filter_view_markers']</filter>
+        </data>
+        <data name="lr_table_out" format="tabular" from_work_dir="df_to_lr.tsv" label="${tool.name} (${method.method}) on ${on_string}: Ligand-receptor table">
+            <filter>method['method'] == 'df_to_lr'</filter>
         </data>
         <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
             <filter>method['method'] == 'nmf'</filter>
@@ -467,6 +613,70 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                 </assert_contents>
             </output>
         </test>
+        <!-- NMF rank estimation uses an inclusive Galaxy maximum -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="nmf_rank_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="nmf"/>
+                <param name="k_range_min" value="1"/>
+                <param name="k_range_max" value="8"/>
+                <param name="init" value="nndsvda"/>
+                <param name="max_iter" value="300"/>
+                <param name="tol" value="0.0001"/>
+                <param name="random_state" value="42"/>
+                <param name="use_raw" value="false"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="anndata_out"><assert_contents><has_h5_keys keys="obsm/NMF_W,varm/NMF_H,uns/nmf_errors,uns/nmf_rank"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="k_range=range\(1, 8 \+ 1\)"/><has_text_matching expression="nmf_w_numeric_mean=[0-9]+\.[0-9]+"/><has_text_matching expression="nmf_rank=3"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 df_to_lr: typed DEA integration and semantic columns -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="spatial_deterministic.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="df_to_lr"/>
+                <param name="dea_file" value="df_to_lr_dea.tsv"/>
+                <param name="groupby" value="cell_type"/>
+                <param name="stat_keys" value="logfc,pval"/>
+                <conditional name="resource_selection"><param name="resource_type" value="interactions"/><param name="interactions" value="L1,R1&#10;L2,R2"/></conditional>
+                <conditional name="groupby_pairs"><param name="groupby_pairs_selector" value="all"/></conditional>
+                <param name="use_raw" value="false"/>
+                <param name="expr_prop" value="0"/>
+                <param name="min_cells" value="1"/>
+                <param name="return_all_lrs" value="true"/>
+                <param name="lr_sep" value="^"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="lr_table_out"><assert_contents><has_n_columns min="10"/><has_n_lines n="9"/><has_text text="source"/><has_text text="ligand_complex"/><has_text text="receptor_complex"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.multi.df_to_lr"/><has_text_matching expression="df_to_lr_rows=8"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 lrdata_to_mudata: modalities and observation metadata -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="inflow_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="lrdata_to_mudata"/>
+                <param name="lr_sep" value="^"/>
+                <param name="min_cells" value="1"/>
+                <param name="min_features" value="1"/>
+                <param name="obs_keys" value="cell_type"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="mdata_out"><assert_contents><has_h5_keys keys="mod/A,mod/B,obs/cell_type"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.multi.lrdata_to_mudata"/><has_text_matching expression="lrdata_to_mudata_views=2"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 filter_view_markers: flag markers in each view -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="marker_mudata_test.h5mu" ftype="h5mu"/>
+            <conditional name="method">
+                <param name="method" value="filter_view_markers"/>
+                <param name="markers" value="view_markers.tsv"/>
+                <param name="view_sep" value=":"/>
+                <conditional name="filter_settings"><param name="filter_mode" value="flag"/><param name="var_column" value="highly_variable"/></conditional>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="mdata_out"><assert_contents><has_h5_keys keys="mod/A/var/highly_variable,mod/B/var/highly_variable"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.multi.filter_view_markers"/><has_text_matching expression="filter_view_markers_true=4"/></assert_contents></output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
@@ -481,7 +691,13 @@ This tool provides multi-sample and multi-condition analysis functions from LIAN
 
 - **adata_to_views**: Converts AnnData to pseudobulk MuData views. Typed controls cover `view_sep`, pseudobulk aggregation, sample filtering, expression filtering, and expressing-cell proportion filtering.
 
-- **nmf**: Performs Non-negative Matrix Factorization with typed initialization, iteration, tolerance, and random-seed controls. Arbitrary scikit-learn keyword arguments are intentionally not accepted.
+- **df_to_lr** combines a differential-expression table with a LIANA interaction resource and returns a long-form ligand-receptor result table.
+
+**lrdata_to_mudata** splits LIANA interaction features into X/Y MuData modalities.
+
+**filter_view_markers** flags or retains view-specific marker features in MuData.
+
+**nmf**: Performs Non-negative Matrix Factorization with typed initialization, iteration, tolerance, and random-seed controls. Arbitrary scikit-learn keyword arguments are intentionally not accepted.
 
 **Inputs**
 
