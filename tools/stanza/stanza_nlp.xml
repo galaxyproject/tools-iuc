@@ -1,0 +1,306 @@
+<tool id="stanza_nlp" name="Stanza NLP Annotators" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <macros>
+        <token name="@TOOL_VERSION@">1.12.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">24.1</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.12">python</requirement>
+        <requirement type="package" version="1.12.0">stanza</requirement>
+        <requirement type="package" version="4.47.1">transformers</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+    python '$__tool_directory__/stanza_process.py'
+    --input '$input'
+    --output '$output_file'
+    --lang '${language_model.fields.lang}'
+    --model-dir '${language_model.fields.models_path}'
+    --package '${language_model.fields.package}'
+    --format '$format'
+    --annotators '$annotators'
+    #if str($download_models) == "true"
+    --download
+    #end if
+    ]]></command>
+    <environment_variables>
+        <!-- Point PyTorch's inductor cache at the job tmp dir. Otherwise torch
+             builds the default path from getpass.getuser(), which fails with
+             "getpwuid(): uid not found" in a container run as an unmapped uid. -->
+        <environment_variable name="TORCHINDUCTOR_CACHE_DIR">\$_GALAXY_JOB_TMP_DIR</environment_variable>
+    </environment_variables>
+    <inputs>
+        <param name="input" type="data" format="txt" label="Text"
+               help="Plain text file (UTF-8) to annotate. The text may be in any of Stanza's supported languages; choose the matching model below."/>
+        <param name="language_model" type="select" label="Language Model"
+               help="Which installed Stanza language model to use. Models are installed by an administrator via the Stanza Language Models data manager (Admin &gt; Local Data); the selected language must match the language of the input text.">
+            <options from_data_table="stanza_models">
+                <column name="value" index="0"/>
+                <column name="name" index="1"/>
+                <column name="lang" index="2"/>
+                <column name="package" index="3"/>
+                <column name="models_path" index="4"/>
+                <filter type="sort_by" column="1"/>
+            </options>
+        </param>
+        <param name="annotators" type="select" label="Annotation types"
+               help="Which Stanza processors to run. Stanza pipelines are cumulative: each selection includes the processors it depends on (for example part-of-speech also runs tokenization and multi-word expansion). NER and sentiment are only available for languages that ship those models. Constituency parsing additionally requires a language model installed with the default or default_accurate package (it is absent from default_fast); selecting it with a default_fast model fails with an explanatory error.">
+            <option value="tokenize" selected="true">Tokenization and sentence segmentation</option>
+            <option value="pos">Part of speech, lemmas, and morphological features</option>
+            <option value="ner">Named entity recognition</option>
+            <option value="parse">Dependency parsing</option>
+            <option value="sentiment">Sentiment analysis</option>
+            <option value="constituency">Constituency parsing</option>
+        </param>
+        <param name="format" type="select" label="Output format"
+               help="JSON gives the full structured annotation and is best for downstream tools. CoNLL/CoNLL-U are tab-separated Universal Dependencies formats. Text is a human-readable summary with statistics.">
+            <option value="json" selected="true">JSON</option>
+            <option value="conll">CoNLL</option>
+            <option value="conllu">CoNLL-U</option>
+            <option value="text">Text</option>
+        </param>
+        <!-- Test-only: download the required models on the fly instead of using
+             data-manager-installed models. Left as "false" in production. -->
+        <param name="download_models" type="hidden" value="false"/>
+    </inputs>
+    <outputs>
+        <data name="output_file" format="txt" label="${tool.name} (${annotators}) on ${on_string}">
+            <change_format>
+                <when input="format" value="json" format="json"/>
+                <when input="format" value="conllu" format="tabular"/>
+                <when input="format" value="conll" format="tabular"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Tokenization is exercised with real models. Only the small tokenize and
+             mwt models (~1 MB) are downloaded on the fly, so the tests stay fast and
+             self-contained without bundling model files. -->
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default_fast"/>
+            <param name="annotators" value="tokenize"/>
+            <param name="format" value="json"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="json">
+                <assert_contents>
+                    <has_text text="John Smith went to Walmart"/>
+                    <has_text text="&quot;sentences&quot;"/>
+                    <has_text text="&quot;tokens&quot;"/>
+                    <has_text text="&quot;text&quot;: &quot;John&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default_fast"/>
+            <param name="annotators" value="tokenize"/>
+            <param name="format" value="text"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="txt">
+                <assert_contents>
+                    <has_text text="Document Statistics"/>
+                    <has_text text="John Smith went to Walmart"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Part-of-speech exercises a heavier pipeline (tokenize, mwt, pos, lemma).
+             The default_fast models plus the shared word-vector pretrain are downloaded
+             on the fly (~130 MB); still far smaller than the full default package. -->
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default_fast"/>
+            <param name="annotators" value="pos"/>
+            <param name="format" value="json"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;upos&quot;: &quot;PROPN&quot;"/>
+                    <has_text text="&quot;xpos&quot;: &quot;VBD&quot;"/>
+                    <has_text text="&quot;lemma&quot;: &quot;go&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Named entity recognition exercises the NER pipeline (tokenize, mwt, ner).
+             The nocharlm NER model plus the shared word-vector pretrain are downloaded
+             on the fly (~146 MB). -->
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default_fast"/>
+            <param name="annotators" value="ner"/>
+            <param name="format" value="json"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;entities&quot;"/>
+                    <has_text text="&quot;text&quot;: &quot;John Smith&quot;"/>
+                    <has_text text="&quot;type&quot;: &quot;PERSON&quot;"/>
+                    <has_text text="&quot;text&quot;: &quot;IBM&quot;"/>
+                    <has_text text="&quot;type&quot;: &quot;ORG&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Dependency parsing exercises the parse pipeline (tokenize, mwt, pos,
+             lemma, depparse). The default_fast models plus the shared word-vector
+             pretrain are downloaded on the fly; still far smaller than the full
+             default package. -->
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default_fast"/>
+            <param name="annotators" value="parse"/>
+            <param name="format" value="text"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="txt">
+                <assert_contents>
+                    <has_text text="John Smith went to Walmart"/>
+                    <has_text text="lemma=go"/>
+                    <has_text text="deprel=nsubj"/>
+                    <has_text text="deprel=root"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Sentiment exercises the sentiment pipeline (tokenize, mwt, sentiment).
+             The default_fast sentiment and charlm models are downloaded on the fly. -->
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default_fast"/>
+            <param name="annotators" value="sentiment"/>
+            <param name="format" value="text"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="txt">
+                <assert_contents>
+                    <has_text text="John Smith went to Walmart"/>
+                    <has_text text="Sentiment: neutral"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Constituency parsing is not in default_fast; this test uses a model
+             installed with the full "default" package (en-default row). It is the
+             heaviest test: the constituency, charlm, and pretrain models are
+             downloaded on the fly (~308 MB). -->
+        <test>
+            <param name="input" value="input.txt"/>
+            <param name="language_model" value="en-default"/>
+            <param name="annotators" value="constituency"/>
+            <param name="format" value="text"/>
+            <param name="download_models" value="true"/>
+            <output name="output_file" ftype="txt">
+                <assert_contents>
+                    <has_text text="Constituency:"/>
+                    <has_text text="(ROOT"/>
+                    <has_text text="(NP (NNP John) (NNP Smith))"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Stanza NLP
+==========
+
+Galaxy wrapper for the `Stanza <https://stanfordnlp.github.io/stanza/>`_ natural language
+processing toolkit from Stanford NLP Group. Stanza provides pretrained neural models
+supporting 80+ human languages, using memory-efficient ``default_fast`` models configured
+for CPU-only execution.
+
+Inputs
+------
+
+A plain text file (UTF-8) in one of Stanza's supported languages, plus the language model
+to apply and the annotation types to run. The chosen language model must match the language
+of the input text.
+
+Annotation Types
+----------------
+
+Tokenization and sentence segmentation
+    Splits text into tokens and identifies sentence boundaries. Handles multi-word
+    token expansion for applicable languages.
+
+Part of speech, lemmas, and morphological features
+    Includes tokenization plus universal POS tagging (UPOS), treebank-specific POS
+    tagging (XPOS), lemmatization, and morphological feature analysis.
+
+Named entity recognition (NER)
+    Identifies named entities such as PERSON, ORG, GPE, DATE, etc. Available for
+    a subset of supported languages (8+ languages including English, Chinese, Spanish,
+    German, French, Dutch, Russian, and Ukrainian).
+
+Dependency parsing
+    Syntactic dependency parsing following Universal Dependencies annotation. Identifies
+    grammatical relationships (head and dependency relation) for each token.
+
+Sentiment analysis
+    Per-sentence sentiment scoring (0=negative, 1=neutral, 2=positive). Available for
+    languages with sentiment models.
+
+Constituency parsing
+    Phrase structure parse trees. Available for languages with constituency models.
+
+Output Formats
+--------------
+
+**JSON**
+    Comprehensive structured output with all annotations. Best for programmatic access.
+
+**CoNLL**
+    Tab-separated format suitable for dependency parsing tasks.
+
+**CoNLL-U**
+    Universal Dependencies format with morphological features.
+
+**Text**
+    Human-readable text output with statistics and annotations.
+
+A JSON result, for example, contains one entry per sentence with a list of tokens (id,
+text, lemma, upos, head, deprel) and, when NER is run, a list of entities (text, type,
+character offsets)::
+
+    {
+      "sentences": [
+        {
+          "tokens": [
+            {"id": 1, "text": "John", "lemma": "John", "upos": "PROPN", "head": 2, "deprel": "nsubj"}
+          ],
+          "entities": [
+            {"text": "John Smith", "type": "PERSON", "start_char": 0, "end_char": 10}
+          ]
+        }
+      ]
+    }
+
+Example Use Cases
+-----------------
+
+- Multilingual corpus analysis: process text in 80+ languages with consistent annotations.
+- Cross-lingual studies: compare linguistic phenomena across languages.
+- Digital humanities: multi-language support for international document collections.
+- Dependency syntax: Universal Dependencies parsing for computational linguistics.
+
+Language Models
+---------------
+
+Stanza uses pretrained neural models organized by language. Models are downloaded and
+managed by the Stanza data manager. Each language may include models for different
+tasks (tokenization, POS, NER, etc.) trained on Universal Dependencies v2.12.
+
+Install models using the data manager (Admin > Local Data > Stanza Language Models).
+
+Supported Languages
+-------------------
+
+Stanza supports 80+ languages including:
+
+- English, Spanish, German, French, Italian, Portuguese
+- Chinese, Japanese, Korean
+- Arabic, Hindi, Turkish
+- Russian, Ukrainian, Polish
+- Dutch, Greek, Swedish, Danish, Norwegian
+- And many more...
+
+See https://stanfordnlp.github.io/stanza/available_models.html for the complete list.
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.18653/v1/2020.acl-demos.14</citation>
+    </citations>
+</tool>
