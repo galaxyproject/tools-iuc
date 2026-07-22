@@ -10,28 +10,73 @@ pull request diff.
 
 This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/index.html) document.
 
-## AI-Assisted Reviews
-
-If AI assists any part of a review, identify the AI harness and model used in
-the submitted review or an accompanying review comment.
-
 ## Tool Version Updates
 
-For a version-bump pull request, also use the
-[Galaxy Tool Update Guide](guide_for_tool_updates.md) and verify:
+For a version-bump pull request, use the
+[Galaxy Tool Update Guide](guide_for_tool_updates.md). Review the complete tool
+directory, not only the changed lines: shared macros can affect sibling
+wrappers that are absent from the diff.
 
-* [ ] The requested upstream version, corresponding Conda package, and relevant
-      upstream release notes have been identified.
-* [ ] `@TOOL_VERSION@`, the main requirement, `@VERSION_SUFFIX@`, and every
-      affected wrapper version are consistent.
-* [ ] Upstream command, default, output, dependency, and license changes have
-      been reflected where relevant, without unrelated cleanup.
-* [ ] Test expectation or test-data changes are explained by upstream behavior
-      and retain meaningful assertions.
-* [ ] The complete tool directory passes the applicable Planemo lint and test
-      commands, or any unrun checks are explicitly documented.
-* [ ] A partial suite update and any `skip-version-check` label are intentional
-      and explained.
+### Scope and upstream evidence
+
+* [ ] Is the requested upstream version clear, and does the pull request update
+      that exact version rather than a newer version found by automation?
+* [ ] Does the requested version exist in the best-practice Conda channels?
+      Do not require its BioContainer before merge; that is checked after the
+      update reaches the main branch.
+* [ ] Have the upstream release notes for every intervening release and the new
+      executable's help been checked?
+* [ ] For a suite, have all wrappers and shared macros affected by the version
+      change been identified? Is any partial update explicit and justified?
+
+### Version metadata
+
+* [ ] Do `@TOOL_VERSION@` and the main Conda requirement contain the requested
+      upstream version?
+* [ ] Is `@VERSION_SUFFIX@` reset to `0` for an upstream update? For a
+      wrapper-only change, is the upstream version unchanged and the suffix
+      incremented instead?
+* [ ] Does every affected wrapper resolve to the intended
+      `<upstream-version>+galaxy0` version, with no stale version strings?
+* [ ] Is any `skip-version-check` label limited to an explained partial-suite
+      update rather than used to hide inconsistent metadata?
+
+### Wrapper compatibility
+
+* [ ] Does the wrapper still match upstream command-line arguments, defaults,
+      accepted values, required combinations, and exit behavior?
+* [ ] Are input and output formats, filenames, headers, ordering, and precision
+      still represented correctly?
+* [ ] Are changed dependencies, data files, environment variables, licensing,
+      help text, citations, and version reporting reflected where relevant?
+* [ ] Are changes to command construction, quoting, Cheetah expressions, and
+      the Galaxy tool `profile` intentional and tested?
+* [ ] Is the diff the smallest coherent adaptation, without unrelated cleanup
+      obscuring the update?
+
+### Tests and validation
+
+* [ ] Do tests cover newly exposed or changed behavior while preserving useful
+      coverage of unchanged behavior?
+* [ ] Are changed assertions and test-data differences explained by the
+      upstream release? Reject wholesale fixture regeneration or weakened
+      assertions without a specific reason.
+* [ ] Were linting and tests run against the complete tool directory so shared
+      macros and sibling wrappers are covered?
+* [ ] Are the exact validation commands and outcomes recorded? Environment-
+      specific Planemo options are acceptable; an unrun check must be reported
+      rather than presented as passing.
+* [ ] Does pull request CI pass, apart from failures that are understood,
+      documented, and unrelated to the update?
+
+### Review outcome
+
+Treat an incorrect target, inconsistent version graph, missed upstream
+interface change, invalid test expectation, or unexplained validation gap as a
+required change. Clearly separate those findings from optional cleanup or
+style suggestions. Do not approve a version-token-only diff unless upstream
+release notes, executable help, and tests support that the update is genuinely
+mechanical.
 
 ## Repository
 

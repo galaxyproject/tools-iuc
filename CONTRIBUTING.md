@@ -14,8 +14,7 @@ inclusion.
 * Make sure you have added the necessary tests for your changes and they pass.
 * Make sure submitted tools meet IUC [Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/)
 * If AI assisted the contribution, identify the AI harness and model used in
-  the pull request description. If AI assisted a review, identify the harness
-  and model in the submitted review or an accompanying review comment.
+  the pull request description.
 * Open a [pull request](https://help.github.com/articles/using-pull-requests)
   with these changes.
 
