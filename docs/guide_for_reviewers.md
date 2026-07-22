@@ -10,6 +10,11 @@ pull request diff.
 
 This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/index.html) document.
 
+## AI-Assisted Reviews
+
+If AI assists any part of a review, identify the AI harness and model used in
+the submitted review or an accompanying review comment.
+
 ## Tool Version Updates
 
 For a version-bump pull request, also use the
