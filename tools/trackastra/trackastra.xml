@@ -1,0 +1,204 @@
+<tool id="trackastra_track" name="Trackastra track" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>link segmented objects across a microscopy time series</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_3474</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_2944</edam_operation>
+    </edam_operations>
+    <xrefs>
+        <xref type="bio.tools">trackastra-galaxy</xref>
+    </xrefs>
+    <expand macro="requirements"/>
+    <required_files>
+        <include path="convert_tiff_compression.py"/>
+    </required_files>
+    <version_command>python -c "import importlib.metadata; print(importlib.metadata.version('trackastra'))"</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+mkdir -p 'ctc_output' &&
+#set $images_path = 'images'
+#set $masks_path = 'masks'
+
+#if $inputs.input_format == 'collections':
+    mkdir -p 'images' 'masks' &&
+    #for $i, $image in enumerate($inputs.images):
+        #set $frame = '%04d' % $i
+        ln -s '$image' 'images/image_${frame}.tif' &&
+    #end for
+    #for $i, $mask in enumerate($inputs.masks):
+        #set $frame = '%04d' % $i
+        ln -s '$mask' 'masks/mask_${frame}.tif' &&
+    #end for
+#else:
+    ln -s '$inputs.images_stack' 'images_stack.tif' &&
+    ln -s '$inputs.masks_stack' 'masks_stack.tif' &&
+    #set $images_path = 'images_stack.tif'
+    #set $masks_path = 'masks_stack.tif'
+#end if
+
+trackastra track 
+--imgs '$images_path' 
+--masks '$masks_path' 
+--output-ctc 'ctc_output' 
+--output-edge-table 'edge_table.csv' 
+--model-custom '$model.fields.path' 
+--mode '$mode' 
+--n-workers "\${GALAXY_SLOTS:-1}"
+--max-distance '$max_distance' &&
+python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ctc_output'
+    ]]></command>
+    <inputs>
+        <conditional name="inputs">
+            <param name="input_format" type="select" label="Input organization">
+                <option value="collections" selected="true">Ordered collections: one TIFF per time point</option>
+                <option value="stacks">Two multi-page TIFF time-series datasets</option>
+            </param>
+            <when value="collections">
+                <param name="images" type="data_collection" collection_type="list" format="tiff" label="Microscopy images" help="Ordered list collection containing one image TIFF per time point. List order defines time."/>
+                <param name="masks" type="data_collection" collection_type="list" format="tiff" label="Instance-segmentation masks" help="Ordered list collection containing one integer-labelled mask TIFF per time point. The number and order of elements must match the image collection."/>
+            </when>
+            <when value="stacks">
+                <param name="images_stack" type="data" format="tiff" label="Microscopy image time series" help="Multi-page TIFF with shape T,Y,X for 2D data or T,Z,Y,X for 3D data"/>
+                <param name="masks_stack" type="data" format="tiff" label="Instance-segmentation mask time series" help="Integer-labelled TIFF with shape T,Y,X or T,Z,Y,X, matching the microscopy image time series"/>
+            </when>
+        </conditional>
+        <param name="model" type="select" label="Installed Trackastra model" help="Models are installed by a Galaxy administrator using the Trackastra model data manager. Administrators can install supported official pretrained models or a complete trusted custom model archive.">
+            <options from_data_table="trackastra_models">
+                <filter type="sort_by" column="name"/>
+                <validator type="no_options" message="No Trackastra models are installed on this Galaxy server. Ask an administrator to run the Trackastra model data manager."/>
+            </options>
+        </param>
+        <param argument="--mode" type="select" label="Linking mode">
+            <option value="greedy" selected="true">Greedy linking with divisions</option>
+            <option value="greedy_nodiv">Greedy linking without divisions</option>
+        </param>
+        <param argument="--max-distance" type="float" value="128" min="0" label="Maximum linking distance" help="Maximum spatial distance, in pixels or voxels, considered while constructing candidate links."/>
+    </inputs>
+    <outputs>
+        <data name="edge_table" format="csv" from_work_dir="edge_table.csv" label="${tool.name} on ${on_string}: association edge table"/>
+        <data name="track_table" format="tabular" from_work_dir="ctc_output/man_track.txt" label="${tool.name} on ${on_string}: CTC track table"/>
+        <collection name="tracked_masks" type="list" label="${tool.name} on ${on_string}: tracked masks">
+            <discover_datasets pattern="man_track(?P&lt;designation&gt;[0-9]+)\.tif" format="tiff" directory="galaxy_ctc_output"/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Ordered list collections and linking without divisions. -->
+        <test expect_num_outputs="3">
+            <conditional name="inputs">
+                <param name="input_format" value="collections"/>
+                <param name="images">
+                    <collection type="list">
+                        <element name="t0000" ftype="tiff" value="image_0000.tif"/>
+                        <element name="t0001" ftype="tiff" value="image_0001.tif"/>
+                        <element name="t0002" ftype="tiff" value="image_0002.tif"/>
+                    </collection>
+                </param>
+                <param name="masks">
+                    <collection type="list">
+                        <element name="t0000" ftype="tiff" value="mask_0000.tif"/>
+                        <element name="t0001" ftype="tiff" value="mask_0001.tif"/>
+                        <element name="t0002" ftype="tiff" value="mask_0002.tif"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="model" value="tiny_test"/>
+            <param name="mode" value="greedy_nodiv"/>
+            <param name="max_distance" value="32"/>
+            <output name="edge_table">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="source_frame,source_label,target_frame,target_label,weight"/>
+                    <has_line_matching expression="^0,1,1,1,0\.99999[0-9]+$" n="1"/>
+                    <has_line_matching expression="^1,1,2,1,0\.99999[0-9]+$" n="1"/>
+                </assert_contents>
+            </output>
+            <output name="track_table">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_line line="1 0 2 0"/>
+                </assert_contents>
+            </output>
+            <output_collection name="tracked_masks" type="list" count="3">
+                <element name="0000" file="expected_linear_0000.tif" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
+                <element name="0001" file="expected_linear_0001.tif" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
+                <element name="0002" file="expected_linear_0002.tif" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
+            </output_collection>
+        </test>
+        <!-- Multi-page TIFF inputs and a true division lineage. -->
+        <test expect_num_outputs="3">
+            <conditional name="inputs">
+                <param name="input_format" value="stacks"/>
+                <param name="images_stack" value="division_images_stack.tif" ftype="tiff"/>
+                <param name="masks_stack" value="division_masks_stack.tif" ftype="tiff"/>
+            </conditional>
+            <param name="model" value="tiny_test"/>
+            <param name="mode" value="greedy"/>
+            <param name="max_distance" value="32"/>
+            <output name="edge_table">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="source_frame,source_label,target_frame,target_label,weight"/>
+                    <has_line_matching expression="^0,1,1,1,0\.99999[0-9]+$" n="1"/>
+                    <has_line_matching expression="^0,1,1,2,0\.99999[0-9]+$" n="1"/>
+                </assert_contents>
+            </output>
+            <output name="track_table">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="1 0 0 0"/>
+                    <has_line line="2 1 1 1"/>
+                    <has_line line="3 1 1 1"/>
+                </assert_contents>
+            </output>
+            <output_collection name="tracked_masks" type="list" count="3">
+                <element name="0000" file="expected_division_0000.tif" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
+                <element name="0001" file="expected_division_0001.tif" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
+                <element name="0002" file="expected_division_0002.tif" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Trackastra** associates objects that have already been segmented in a microscopy time series. It does not perform segmentation.
+
+Input organization
+==================
+
+Use either two ordered Galaxy list collections or two multi-page TIFF datasets. Images and masks must have matching time points and spatial dimensions. Masks must be integer-labelled instance segmentations; background is label 0. Trackastra currently supports one image channel.
+
+For list collections, Galaxy collection order defines time. The wrapper stages the inputs with deterministic numeric filenames and does not derive paths from collection element names.
+
+Models
+======
+
+Models are installed once by a Galaxy administrator with the accompanying Trackastra model data manager. The data manager installs the official models supported by the base Trackastra runtime, or a complete trusted custom archive containing ``model.pt``, ``config.yaml``, and ``train_config.yaml``. Analysis jobs do not download models and do not accept arbitrary user-supplied checkpoints.
+
+Linking modes
+=============
+
+- **greedy**: fast linking that permits cell divisions.
+- **greedy_nodiv**: fast linking without divisions.
+
+Upstream also provides an optional ILP mode. It is not exposed by this core wrapper because it requires Trackastra's separate ILP solver dependency stack.
+
+Resources
+=========
+
+Numerical-library thread limits follow the CPU allocation selected by the Galaxy job destination through ``GALAXY_SLOTS``. Trackastra's inference batch size, feature-extraction workers, and compute device use upstream defaults. CPU/GPU routing remains an administrator job-destination concern rather than a user-controlled tool parameter.
+
+TIFF compatibility
+==================
+
+Trackastra writes CTC masks using lossless ZSTD TIFF compression. Galaxy's TIFF metadata reader does not consistently provide that decoder. After Trackastra finishes, the wrapper rewrites only the compression layer to lossless Deflate and verifies that shape, data type, and every pixel label are unchanged. The scientific tracking result and CTC filenames are preserved. Use the companion **Trackastra CTC export** tool to create a portable CTC bundle plus Napari tracks and lineage files.
+
+Outputs
+=======
+
+- **Association edge table**: CSV containing source/target frame and label identifiers plus association weights.
+- **CTC track table**: space-delimited ``track_id start_frame end_frame parent_track_id`` records.
+- **Tracked masks**: ordered TIFF masks relabelled in Cell Tracking Challenge form.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
