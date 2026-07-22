@@ -26,6 +26,9 @@ inclusion.
 * Documentation improvements
 * New test cases
 
+When updating an existing wrapper or tool suite to a newer upstream software
+version, follow the [Galaxy Tool Update Guide](docs/guide_for_tool_updates.md).
+
 ### Abandoned Tools
 
 * For tools of general interest, the IUC is usually willing to adopt tools that

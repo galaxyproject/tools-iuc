@@ -4,9 +4,29 @@ This document describes a checklist suitable as a guide for reviewers of pull re
 
 **This document is a work in progress!**
 
-The comprehensive list is aimed at new tools. Obviously for tool updates just use the appropriate section of the checklist on the PR diffs.
+The comprehensive list is aimed at new tools. For version updates, start with
+the tool-update section below and then apply the other sections relevant to the
+pull request diff.
 
 This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/index.html) document.
+
+## Tool Version Updates
+
+For a version-bump pull request, also use the
+[Galaxy Tool Update Guide](guide_for_tool_updates.md) and verify:
+
+* [ ] The requested upstream version, corresponding Conda package, and relevant
+      upstream release notes have been identified.
+* [ ] `@TOOL_VERSION@`, the main requirement, `@VERSION_SUFFIX@`, and every
+      affected wrapper version are consistent.
+* [ ] Upstream command, default, output, dependency, and license changes have
+      been reflected where relevant, without unrelated cleanup.
+* [ ] Test expectation or test-data changes are explained by upstream behavior
+      and retain meaningful assertions.
+* [ ] The complete tool directory passes the applicable Planemo lint and test
+      commands, or any unrun checks are explicitly documented.
+* [ ] A partial suite update and any `skip-version-check` label are intentional
+      and explained.
 
 ## Repository
 
