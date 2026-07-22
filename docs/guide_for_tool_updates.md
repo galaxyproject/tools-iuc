@@ -20,7 +20,8 @@ Before editing files:
 3. Identify the main Conda requirement and how the suite defines
    `@TOOL_VERSION@` and `@VERSION_SUFFIX@`.
 4. Confirm that the requested package version exists in the best-practice Conda
-   channels and that a suitable BioContainer is available when applicable.
+   channels. Do not require a BioContainer for the new version before merge;
+   that image may only be built after the update lands on the main branch.
 5. Read the upstream release notes for every version between the current and
    requested versions.
 
@@ -113,9 +114,14 @@ Run linting and tests against the complete tool directory so shared macros and
 every affected wrapper are covered:
 
 ```sh
-planemo lint --biocontainers tools/<tool>
-planemo test --install_galaxy tools/<tool>
+planemo lint tools/<tool>
+planemo test tools/<tool>
 ```
+
+Use the Galaxy instance, profile, or other test-engine options appropriate for
+your local environment. Pull request CI runs the repository lint and test jobs;
+it does not require the new BioContainer to exist. The main-branch lint job adds
+the BioContainer check after the update has merged.
 
 Run any additional formatter or language-specific checks required by files in
 the directory. Review the final diff after testing and confirm that it contains
