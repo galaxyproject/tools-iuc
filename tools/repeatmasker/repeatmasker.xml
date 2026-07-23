@@ -1,38 +1,37 @@
-<tool id="repeatmasker_wrapper" name="RepeatMasker" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="20.01">
+<tool id="repeatmasker_wrapper" name="RepeatMasker" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="22.05">
     <description>screen DNA sequences for interspersed repeats and low complexity regions</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro='xrefs'/>
     <expand macro='edam_ontology' />
+    <expand macro='xrefs'/>
     <expand macro='requirements' />
-    <version_command>repeatmasker --version</version_command>
+    <version_command>RepeatMasker -v</version_command>
     <command detect_errors="exit_code"><![CDATA[
-    RM_PATH=\$(which RepeatMasker) &&
-    if [ -z "\$RM_PATH" ] ; then echo "Failed to find RepeatMasker in PATH (\$PATH)" >&2 ; exit 1 ; fi &&
-
-    if [ -z "\$RM_LIB_PATH" ] ; then RM_LIB_PATH=\$(dirname \$RM_PATH)/../share/RepeatMasker/Libraries ; fi &&
-    #if $repeat_source.source_type == "dfam_up":
-      mkdir lib/ &&
-      ln -s '${repeat_source.dfam_lib}' lib/RepeatMaskerLib.h5 &&
-      RM_LIB_PATH=\$(pwd)/lib &&
+    ## RepeatMasker 4.2.4 uses the partitioned FamDB (v3) library format and no
+    ## longer bundles a repeat library or accepts -libdir. For Dfam-based masking
+    ## we export the families for the requested clade from a cached FamDB library
+    ## (installed by the RepeatMasker Dfam data manager) with famdb.py, and pass
+    ## the result to RepeatMasker as a custom -lib.
+    #if $repeat_source.source_type == "cached":
+      famdb.py -i '${repeat_source.famdb.fields.path}'
+          families -a -d -f fasta_name --include-class-in-name
+          '${repeat_source.species_name}'
+      > repeats.fa &&
     #end if
 
     ln -s '${input_fasta}' rm_input.fasta &&
 
-    RepeatMasker -dir \$(pwd)
-    -libdir \$RM_LIB_PATH
-    #if $repeat_source.source_type == "library":
+    ## The RepeatMasker Conda package is configured with a FamDB directory but
+    ## ships no library data, and RepeatMasker probes it at startup even in -lib
+    ## mode. Clearing FAMDB_DIR skips that probe so masking runs from the -lib
+    ## library alone (the cached export above already used famdb.py directly).
+    FAMDB_DIR='' RepeatMasker -dir \$(pwd)
+    #if $repeat_source.source_type == "cached":
+      -lib repeats.fa
+    #else if $repeat_source.source_type == "library":
       -lib '${repeat_source.repeat_lib}'
       -cutoff '${repeat_source.cutoff}'
-    #else if $repeat_source.source_type == "dfam":
-      #if $repeat_source.species_source.species_from_list == 'yes':
-        -species $repeat_source.species_source.species_list
-      #else
-        -species '${repeat_source.species_source.species_name}'
-      #end if
-    #else if $repeat_source.source_type == "dfam_up":
-        -species '${repeat_source.species_name}'
     #end if
     -parallel \${GALAXY_SLOTS:-1}
     ${gff}
@@ -86,40 +85,23 @@
   <inputs>
     <param name="input_fasta" type="data" format="fasta" label="Genomic DNA" />
     <conditional name="repeat_source">
-      <param label="Repeat library source" name="source_type" type="select" help="To use RepBase, choose 'Custom library of repeats' and select a fasta version of this non-free database.">
-        <option selected="true" value="dfam">DFam (curated only, bundled with RepeatMasker)</option>
-        <option value="dfam_up">DFam (full/specific version)</option>
+      <param label="Repeat library source" name="source_type" type="select" help="Use a Dfam library installed by your administrator, or supply your own library of repeats as FASTA (e.g. a RepBase export or a RepeatModeler consensus library).">
+        <option selected="true" value="cached">Dfam library (installed via the RepeatMasker Dfam data manager)</option>
         <option value="library">Custom library of repeats</option>
       </param>
-      <when value="dfam">
-        <conditional name="species_source">
-          <param label="Select species name from a list?" name="species_from_list" type="select">
-            <option value="yes" selected="true">Yes</option>
-            <option value="no">No</option>
-          </param>
-          <when value="yes">
-            <param name="species_list" type="select" label="Species">
-              <option value="human" selected="true">Human (Homo sapiens)</option>
-              <option value="rodent">Rodent (Order Rodentia)</option>
-              <option value="mouse">Mouse (Mus musculus)</option>
-              <option value="rattus">Rat (Rattus sp.)</option>
-              <option value="danio">Danio (zebra fish)</option>
-              <option value="drosophila">Fruit fly (Drosophila melanogaster)</option>
-              <option value="elegans">Caenorhabditis elegans (nematode)</option>
-            </param>
-          </when>
-          <when value="no">
-            <param name="species_name" type="text" value="human" label="Repeat source species" help="Source species (or clade name) used to select repeats from DFam" />
-          </when>
-        </conditional>
-      </when>
-      <when value="dfam_up">
-          <param name="dfam_lib" type="data" format="h5" label="DFam library" help="The full DFam library can be downloaded from https://www.dfam.org/releases/current/families/Dfam.h5.gz" />
-          <param name="species_name" type="text" value="human" label="Repeat source species" help="Source species (or clade name) used to select repeats from DFam" />
+      <when value="cached">
+        <param name="famdb" type="select" label="Dfam library">
+          <options from_data_table="repeatmasker_famdb">
+            <validator type="no_options" message="No Dfam library is available. An administrator must install one using the RepeatMasker Dfam library data manager." />
+          </options>
+        </param>
+        <param name="species_name" type="text" value="" label="Repeat source species" help="Source species or clade name used to select repeats from the Dfam library (e.g. 'Homo sapiens', 'Mammalia', 'Drosophila'). Families for this taxon together with its ancestors and descendants are used for masking.">
+          <validator type="empty_field" />
+        </param>
       </when>
       <when value="library">
         <param name="repeat_lib" type="data" format="fasta" label="Custom library of repeats" />
-        <param name="cutoff" type="integer" argument="-cutoff" value="225" label="Cutoff score for masking repeats" />
+        <param argument="-cutoff" type="integer" value="225" label="Cutoff score for masking repeats" />
       </when>
     </conditional>
     <param type="boolean" argument="-gff" truevalue="-gff" falsevalue="" label="Output annotation of repeats in GFF format" checked="false" />
@@ -178,8 +160,10 @@
   <tests>
     <test expect_num_outputs="4">
       <param name="input_fasta" value="small.fasta" ftype="fasta" />
-      <param name="source_type" value="library" />
-      <param name="repeat_lib" value="repeats.fasta" ftype="fasta" />
+      <conditional name="repeat_source">
+        <param name="source_type" value="library" />
+        <param name="repeat_lib" value="repeats.fasta" ftype="fasta" />
+      </conditional>
       <output name="output_masked_genome" file="small.fasta.masked" />
       <output name="output_table" file="small.fasta.stats" lines_diff="6" />
       <output name="output_repeat_catalog" file="small.fasta.cat" lines_diff="2" />
@@ -187,11 +171,15 @@
     </test>
     <test expect_num_outputs="7">
       <param name="input_fasta" value="small.fasta" ftype="fasta" />
-      <param name="source_type" value="library" />
-      <param name="gff" value="-gff" />
-      <param name="keep_alignments" value="-ali" />
-      <param name="poly" value="-poly" />
-      <param name="repeat_lib" value="repeats.fasta" ftype="fasta" />
+      <conditional name="repeat_source">
+        <param name="source_type" value="library" />
+        <param name="repeat_lib" value="repeats.fasta" ftype="fasta" />
+      </conditional>
+      <param name="gff" value="true" />
+      <section name="advanced">
+        <param name="keep_alignments" value="true" />
+        <param name="poly" value="true" />
+      </section>
       <output name="output_masked_genome" file="small.fasta.masked" />
       <output name="output_table" file="small.fasta.stats" lines_diff="6" />
       <output name="output_repeat_catalog" file="small.fasta.cat" lines_diff="2" />
@@ -200,45 +188,42 @@
       <output name="output_polymorphic" file="small.fasta.poly" />
       <output name="output_gff" file="small.fasta.gff" lines_diff="4" />
     </test>
+    <!-- Cached Dfam library: the FamDB test fixture holds the same repeat
+         consensus sequences as repeats.fasta on clade 'Genus', so exporting
+         them and masking with -lib reproduces the library test's masked genome. -->
     <test expect_num_outputs="4">
       <param name="input_fasta" value="small.fasta" ftype="fasta" />
-      <param name="source_type" value="dfam" />
-      <param name="species_list" value="human" />
-      <output name="output_masked_genome" file="small_dfam.fasta.masked" />
-      <output name="output_table" file="small_dfam.fasta.stats" lines_diff="2" />
-      <output name="output_repeat_catalog" file="small_dfam.fasta.cat" lines_diff="2" />
-      <output name="output_log" file="small_dfam.fasta.log" lines_diff="2"/>
-    </test>
-    <test expect_num_outputs="4">
-      <param name="input_fasta" value="small.fasta" ftype="fasta" />
-      <param name="source_type" value="dfam_up" />
-      <param name="dfam_lib" value="Dfam_partial_test.h5" ftype="h5" />
-      <param name="species_name" value="rodent" />
-      <output name="output_masked_genome" file="small_dfam_up.fasta.masked" />
-      <output name="output_table" file="small_dfam_up.fasta.stats" lines_diff="2" />
-      <output name="output_repeat_catalog" file="small_dfam_up.fasta.cat" lines_diff="2" />
-      <output name="output_log" file="small_dfam_up.fasta.log" lines_diff="2"/>
-    </test>
-    <test expect_num_outputs="4">
-      <param name="input_fasta" value="small.fasta" ftype="fasta" />
-      <param name="source_type" value="dfam" />
-      <param name="species_list" value="rattus" />
-      <output name="output_masked_genome" file="small_dfam_rattus.fasta.masked" />
-      <output name="output_table" file="small_dfam_rattus.fasta.stats" lines_diff="2" />
-      <output name="output_repeat_catalog" file="small_dfam_rattus.fasta.cat" lines_diff="2" />
-      <output name="output_log" file="small_dfam_rattus.fasta.log" lines_diff="2"/>
+      <conditional name="repeat_source">
+        <param name="source_type" value="cached" />
+        <param name="famdb" value="famdb_test" />
+        <param name="species_name" value="Genus" />
+      </conditional>
+      <output name="output_masked_genome" file="small_cached.fasta.masked" />
+      <output name="output_table" file="small_cached.fasta.stats" lines_diff="2" />
+      <output name="output_repeat_catalog" file="small_cached.fasta.cat" lines_diff="2" />
+      <output name="output_log" file="small_cached.fasta.log" lines_diff="2"/>
     </test>
   </tests>
   <help><![CDATA[
 RepeatMasker is a program that screens DNA for interspersed repeats and low
-complexity DNA sequences. The database of repeats to screen for can be
-provided as a FASTA file or downloaded from RepBase_. If the RepBase option is
-chosen the RepBaseRepeatMaskerEdition file should be downloaded and
-unpacked, and the enclosed EMBL format file ('RMRBSeqs.embl') should
-be uploaded to Galaxy for use with this tool.
+complexity DNA sequences.
+
+**Repeat library source**
+
+- **Dfam library (cached)**: use a Dfam_ library that your Galaxy administrator
+  has installed with the *RepeatMasker Dfam library data manager*. Enter a
+  species or clade name (e.g. ``Homo sapiens``, ``Mammalia``); the families for
+  that taxon together with its ancestors and descendants are extracted from the
+  library with ``famdb.py`` and used to mask your sequence. RepeatMasker 4.2.4
+  no longer bundles a repeat library, so a cached Dfam library is required for
+  species-based masking.
+- **Custom library of repeats**: supply your own repeats as a FASTA file, for
+  example a RepeatModeler consensus library or a RepBase_ export
+  (RepBaseRepeatMaskerEdition, unpacked to FASTA).
 
 Further documentation is available on the RepeatMasker homepage_.
 
+.. _Dfam: https://www.dfam.org/
 .. _RepBase: http://www.girinst.org/repbase/
 .. _homepage: http://www.repeatmasker.org/webrepeatmaskerhelp.html
     ]]>
