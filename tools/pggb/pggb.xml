@@ -1,0 +1,393 @@
+<tool id="pggb" name="PGGB" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>build a pangenome variation graph</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+mkdir -p pggb_out pggb_tmp &&
+#set $delim_map = {'hash': '#', 'pipe': '|', 'underscore': '_', 'dot': '.'}
+#set $delim_char = $delim_map[str($exclude_delim)]
+
+## pggb requires a bgzip-compressed input with samtools .fai/.gzi indices.
+## Re-compress if user uploaded a plain-gzip or uncompressed FASTA.
+#if str($input_fasta.ext).endswith('gz')
+    gunzip -c '$input_fasta' | bgzip -c -@ "\${GALAXY_SLOTS:-1}" > input.fa.gz &&
+#else
+    bgzip -c -@ "\${GALAXY_SLOTS:-1}" '$input_fasta' > input.fa.gz &&
+#end if
+samtools faidx input.fa.gz &&
+
+## Run pggb. Do not && to the next steps - vg deconstruct may fail
+## (e.g. when --vcf-spec doesn't match graph sample names), and we
+## still want to ship the GFA + .og which were produced earlier in
+## the pipeline. The if-then-fi blocks below hard-error if the
+## critical outputs are actually missing.
+pggb
+    --input-fasta input.fa.gz
+    --output-dir pggb_out
+    --temp-dir pggb_tmp
+    --threads "\${GALAXY_SLOTS:-1}"
+    --segment-length $segment_length
+    --map-pct-id $map_pct_id
+    --n-haplotypes $n_haplotypes
+    --min-match-len $min_match_len
+    --n-mappings $n_mappings
+    --mash-kmer $mash_kmer
+    --exclude-delim '$delim_char'
+    #if str($block_length).strip()
+        --block-length $block_length
+    #end if
+    $no_splits
+    #if str($poa_length_target).strip()
+        --poa-length-target '$poa_length_target'
+    #end if
+    #if str($poa_params_cond.poa_params) == "manual"
+        --poa-params '$poa_params_cond.poa_match,$poa_params_cond.poa_mismatch,$poa_params_cond.poa_gap1,$poa_params_cond.poa_ext1,$poa_params_cond.poa_gap2,$poa_params_cond.poa_ext2'
+    #else
+        --poa-params '$poa_params_cond.poa_params'
+    #end if
+    #if str($poa_padding).strip()
+        --poa-padding $poa_padding
+    #end if
+    $run_abpoa
+    $global_poa
+    $skip_normalization
+    $skip_viz
+    $stats
+    $write_maf
+    $multiqc
+    #if str($vcf_spec).strip()
+        --vcf-spec '$vcf_spec'
+    #end if
+    --names-with-params
+    > pggb.log 2>&1 ;
+
+pggb_exit=\$? ;
+
+## Locate output files (filenames carry hashes / params).
+## pggb writes exactly one of each type per run, so globbing is sufficient.
+echo "--- pggb exit=\$pggb_exit ---" ;
+ls -la pggb_out/ 2>/dev/null || true ;
+
+cp pggb.log '$output_log' ;
+
+## GFA and .og are critical outputs — hard-fail if missing.
+gzip -c pggb_out/*.smooth.final.gfa 2>/dev/null > '$output_gfa' || gzip -c pggb_out/*.smooth.fix.gfa > '$output_gfa' ;
+cp pggb_out/*.smooth.final.og 2>/dev/null '$output_og' || cp pggb_out/*.smooth.fix.og '$output_og' ;
+
+#if not $skip_viz
+cp pggb_out/*.lay '$output_lay' 2>/dev/null || true ;
+cp pggb_out/*.draw.png '$output_layout_png' 2>/dev/null || true ;
+cp pggb_out/*viz_multiqc.png 2>/dev/null '$output_viz_png' || cp pggb_out/*.viz_O*.png '$output_viz_png' 2>/dev/null || true ;
+#end if
+
+#if str($vcf_spec).strip()
+cp pggb_out/*.vcf '$output_vcf' 2>/dev/null || true ;
+#end if
+
+#if $multiqc
+cp pggb_out/multiqc_report.html '$output_multiqc' 2>/dev/null || true ;
+#end if
+
+#if $write_maf
+cp pggb_out/*.smooth.maf '$output_maf' 2>/dev/null || true ;
+#end if
+
+echo "DONE"
+    ]]></command>
+    <inputs>
+        <param argument="--input-fasta" type="data" format="fasta,fasta.gz" label="Input multi-FASTA (PanSN-renamed)" help="A single FASTA (typically bgzipped) of all haplotypes, with PanSN-spec headers (SAMPLE#HAP#CONTIG)."/>
+        <param argument="--n-haplotypes" type="integer" min="2" value="8" label="Number of haplotypes" help="Total haplotypes in the input. Automatically computed if names follow PanSN-spec."/>
+        <param argument="--segment-length" type="integer" min="100" value="5000" label="wfmash segment length" help="Minimum mapping seed length."/>
+        <param argument="--map-pct-id" type="float" min="50" max="100" value="90" label="Mapping identity %" help="90 intra-species, 70-80 inter-species."/>
+        <param argument="--min-match-len" type="integer" min="1" value="23" label="seqwish min match length" help="Filter exact matches below this length during graph induction. Default 23 is optimal up to ~5% divergence."/>
+        <param argument="--n-mappings" type="integer" min="1" value="1" label="Mappings per segment" help="Number of mappings retained per segment in wfmash. Defaults to 1; raise for highly diverse panels."/>
+        <param argument="--mash-kmer" type="integer" min="5" max="31" value="19" label="MashMap k-mer"/>
+        <param argument="--exclude-delim" type="select" label="PanSN exclude-delimiter" help="Skip mappings where query and target share a prefix before this delimiter. Must match the delimiter used in PanSN-renamed headers.">
+            <option value="hash" selected="true">#  (PanSN default)</option>
+            <option value="pipe">|  (pipe)</option>
+            <option value="underscore">_  (underscore)</option>
+            <option value="dot">.  (dot)</option>
+        </param>
+        <param argument="--block-length" type="integer" value="" optional="true" min="1" label="Block length filter" help="Minimum mapping block length filter. If not set, defaults to 5x segment-length."/>
+        <param argument="--no-splits" type="boolean" truevalue="--no-splits" falsevalue="" checked="false" label="Disable mapping splits"/>
+        <param argument="--poa-length-target" type="text" value="700,900,1100" label="POA target lengths" help="Comma-separated POA target lengths; smoothxg iterates once per length. pggb default: 700,900,1100.">
+            <validator type="regex" message="Comma-separated integers">[0-9]+(,[0-9]+)*</validator>
+        </param>
+        <conditional name="poa_params_cond">
+            <param argument="--poa-params" type="select" display="radio" label="POA score parameters" help="Scoring parameters for partial order alignment. Presets follow minimap2 conventions.">
+                <option value="1,19,39,3,81,1" selected="true">asm5 (default: 1,19,39,3,81,1) — for &lt;5% divergence</option>
+                <option value="1,9,16,5,41,1">asm10 (1,9,16,5,41,1) — for &lt;10% divergence</option>
+                <option value="1,4,6,2,26,1">asm15 (1,4,6,2,26,1) — for &lt;15% divergence</option>
+                <option value="1,4,1,4,64,1">asm20 (1,4,1,4,64,1) — for &lt;20% divergence</option>
+                <option value="manual">Manual — specify 6 integer parameters</option>
+            </param>
+            <when value="1,19,39,3,81,1"/>
+            <when value="1,9,16,5,41,1"/>
+            <when value="1,4,6,2,26,1"/>
+            <when value="1,4,1,4,64,1"/>
+            <when value="manual">
+                <param name="poa_match" type="integer" value="1" min="0" label="POA match score" help="Score for matching bases in POA alignment."/>
+                <param name="poa_mismatch" type="integer" value="19" min="0" label="POA mismatch penalty" help="Penalty for mismatched bases."/>
+                <param name="poa_gap1" type="integer" value="39" min="0" label="POA gap-open penalty (first gap)" help="Gap-opening penalty for the first gap."/>
+                <param name="poa_ext1" type="integer" value="3" min="0" label="POA gap-extension penalty (first gap)" help="Gap-extension penalty for the first gap."/>
+                <param name="poa_gap2" type="integer" value="81" min="0" label="POA gap-open penalty (second gap)" help="Gap-opening penalty for the second gap."/>
+                <param name="poa_ext2" type="integer" value="1" min="0" label="POA gap-extension penalty (second gap)" help="Gap-extension penalty for the second gap."/>
+            </when>
+        </conditional>
+        <param argument="--poa-padding" type="float" value="" optional="true" min="0" label="POA padding ratio" help="Flanking sequence length as fraction of average sequence length per block. If not set, uses pggb default of 0.001."/>
+        <param argument="--run-abpoa" type="boolean" truevalue="--run-abpoa" falsevalue="" checked="false" label="Use abPOA" help="Default SPOA."/>
+        <param argument="--global-poa" type="boolean" truevalue="--global-poa" falsevalue="" checked="false" label="Run POA in global mode" help="Default is local mode."/>
+        <param argument="--write-maf" type="boolean" truevalue="--write-maf" falsevalue="" checked="false" label="Write MAF output" help="Multi-Alignment Format representing merged POA blocks."/>
+        <param argument="--multiqc" type="boolean" truevalue="--multiqc" falsevalue="" checked="false" label="Generate MultiQC report" help="Automatically runs odgi stats and produces a MultiQC report."/>
+        <param argument="--skip-normalization" type="boolean" truevalue="--skip-normalization" falsevalue="" checked="false" label="Skip final graph normalization"/>
+        <param argument="--skip-viz" type="boolean" truevalue="--skip-viz" falsevalue="" checked="false" label="Skip 1D/2D viz" help="Suppresses layout PNG and viz outputs. Speeds up small test runs."/>
+        <param argument="--stats" type="boolean" truevalue="--stats" falsevalue="" checked="false" label="Emit odgi stats"/>
+        <param argument="--vcf-spec" type="text" value="" label="VCF spec" help="Reference path prefix(es) for vg deconstruct, e.g. 'ref:1000'. Multiple comma-separated. Leave blank to skip VCF generation.">
+            <sanitizer invalid_char="">
+                <valid initial="string.printable">
+                    <remove value="'"/>
+                </valid>
+            </sanitizer>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="output_gfa" format="gfa1.gz" label="${tool.name} on ${on_string}: smoothed GFA (gz)"/>
+        <data name="output_og" format="odgi" label="${tool.name} on ${on_string}: odgi .og"/>
+        <data name="output_lay" format="binary" label="${tool.name} on ${on_string}: layout (.og.lay)">
+            <filter>not skip_viz</filter>
+        </data>
+        <data name="output_layout_png" format="png" label="${tool.name} on ${on_string}: layout PNG">
+            <filter>not skip_viz</filter>
+        </data>
+        <data name="output_viz_png" format="png" label="${tool.name} on ${on_string}: viz PNG">
+            <filter>not skip_viz</filter>
+        </data>
+        <data name="output_log" format="txt" label="${tool.name} on ${on_string}: log"/>
+        <data name="output_vcf" format="vcf" label="${tool.name} on ${on_string}: deconstruct VCF">
+            <filter>vcf_spec.strip() != ""</filter>
+        </data>
+        <data name="output_multiqc" format="html" label="${tool.name} on ${on_string}: MultiQC report">
+            <filter>multiqc</filter>
+        </data>
+        <data name="output_maf" format="maf" label="${tool.name} on ${on_string}: MAF alignment">
+            <filter>write_maf</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="input_fasta" value="toy.fa.gz" ftype="fasta.gz"/>
+            <param name="n_haplotypes" value="3"/>
+            <param name="segment_length" value="500"/>
+            <param name="map_pct_id" value="90"/>
+            <param name="min_match_len" value="11"/>
+            <param name="skip_viz" value="true"/>
+            <output name="output_gfa" decompress="true">
+                <assert_contents>
+                    <has_line_matching expression="^H\tVN:Z:1\.\d+.*"/>
+                    <has_line_matching expression="^S\t.+"/>
+                    <has_line_matching expression="^P\t.+"/>
+                </assert_contents>
+            </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="pggb"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--skip-viz"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="7">
+            <param name="input_fasta" value="toy.fa.gz" ftype="fasta.gz"/>
+            <param name="n_haplotypes" value="3"/>
+            <param name="segment_length" value="500"/>
+            <param name="map_pct_id" value="90"/>
+            <param name="min_match_len" value="11"/>
+            <param name="multiqc" value="true"/>
+            <param name="stats" value="true"/>
+            <output name="output_gfa" decompress="true">
+                <assert_contents>
+                    <has_line_matching expression="^H\tVN:Z:1\.\d+.*"/>
+                    <has_line_matching expression="^S\t.+"/>
+                    <has_line_matching expression="^P\t.+"/>
+                </assert_contents>
+            </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="output_lay">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="output_layout_png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="100"/>
+                </assert_contents>
+            </output>
+            <output name="output_viz_png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_multiqc">
+                <assert_contents>
+                    <has_text text="MultiQC"/>
+                    <has_text text="report"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--multiqc"/>
+                <has_text text="--stats"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="4">
+            <param name="input_fasta" value="toy.fa.gz" ftype="fasta.gz"/>
+            <param name="n_haplotypes" value="3"/>
+            <param name="segment_length" value="500"/>
+            <param name="map_pct_id" value="90"/>
+            <param name="min_match_len" value="11"/>
+            <param name="skip_viz" value="true"/>
+            <param name="vcf_spec" value="PvA#1#chr1"/>
+            <output name="output_gfa" decompress="true">
+                <assert_contents>
+                    <has_line_matching expression="^H\tVN:Z:1\.\d+.*"/>
+                    <has_line_matching expression="^S\t.+"/>
+                    <has_line_matching expression="^P\t.+"/>
+                </assert_contents>
+            </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="output_vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCF"/>
+                    <has_text text="#CHROM"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--vcf-spec"/>
+                <has_text text="PvA#1#chr1"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="7">
+            <param name="input_fasta" value="toy.fa.gz" ftype="fasta.gz"/>
+            <param name="n_haplotypes" value="3"/>
+            <param name="segment_length" value="500"/>
+            <param name="map_pct_id" value="90"/>
+            <param name="min_match_len" value="11"/>
+            <param name="no_splits" value="true"/>
+            <param name="write_maf" value="true"/>
+            <output name="output_gfa" decompress="true">
+                <assert_contents>
+                    <has_line_matching expression="^H\tVN:Z:1\.\d+.*"/>
+                    <has_line_matching expression="^S\t.+"/>
+                    <has_line_matching expression="^P\t.+"/>
+                </assert_contents>
+            </output>
+            <output name="output_og">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="output_lay">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="output_layout_png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="100"/>
+                </assert_contents>
+            </output>
+            <output name="output_viz_png">
+                <assert_contents>
+                    <has_image_channels channels="1"/>
+                    <has_image_width min="100"/>
+                    <has_image_height min="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_maf">
+                <assert_contents>
+                    <has_text text="##maf"/>
+                    <has_text text="a"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--no-splits"/>
+                <has_text text="--write-maf"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**PGGB** — PanGenome Graph Builder.
+
+Builds a variation graph from a PanSN-renamed multi-FASTA via the
+standard pangenome pipeline:
+
+    wfmash (mapping) -> seqwish (graph induction) -> smoothxg (POA smoothing)
+                   -> gfaffix (affix collapse) -> odgi (final binary graph)
+
+This wrapper invokes the upstream `pggb` orchestrator as-is,
+preserving its internal smoothxg-iteration loop. The wrapper exposes
+the most commonly tuned parameters; full advanced control is available
+by running the underlying tools (`wfmash`, `seqwish`, `smoothxg`,
+`gfaffix`, `odgi`) directly.
+
+-----
+
+**Inputs**
+
+- `Input multi-FASTA` — a *single* file (typically bgzipped) containing
+  all haplotypes. Headers MUST follow PanSN-spec: `SAMPLE#HAP#CONTIG`.
+- `Number of haplotypes` — total haplotype count. Automatically computed
+  if names follow PanSN-spec.
+
+**Key parameters**
+
+- `--segment-length` (`-s`): wfmash seed length (default 5000).
+- `--map-pct-id` (`-p`): identity threshold (90 intra-species; 70-80
+  inter-species).
+- `--min-match-len` (`-k`): seqwish minimum match length (default 23).
+- `--exclude-delim` (`-Y`): PanSN delimiter; must match input headers.
+- `--vcf-spec` (`-V`): set to a reference accession prefix to emit a
+  VCF via `vg deconstruct`.
+
+**Outputs**
+
+- Smoothed GFA1 (gzipped).
+- odgi binary graph (.og).
+- 2D layout (.og.lay) and layout/viz PNGs (unless `--skip-viz`).
+- Run log.
+- (Optional) deconstruct VCF if `--vcf-spec` is set.
+- (Optional) MultiQC report if `--multiqc` is enabled.
+- (Optional) MAF alignment if `--write-maf` is enabled.
+
+-----
+
+**Resource notes**
+
+`pggb` is the heavy step in the pipeline. The wrapper tags OOM-style
+failures so Galaxy admins can auto-resubmit to a larger runner.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
