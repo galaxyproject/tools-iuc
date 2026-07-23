@@ -237,6 +237,7 @@ def install_wheel(wheel_url, dest_dir):
     return {
         "value": f"{model_name}_{version}",
         "name": f"{desc} v{version}",
+        "model": metadata["name"],
         "lang": metadata["lang"],
         "version": version,
         # Relative to extra_files_path; data_manager_conf.xml moves it into
@@ -322,6 +323,7 @@ def main():
             data_table_entries.append({
                 "value": f"{model_name}_{version}",
                 "name": f"{display_name} v{version}",
+                "model": model_name[3:],
                 "lang": language,
                 "version": version,
                 # Relative to extra_files_path; data_manager_conf.xml moves it into
