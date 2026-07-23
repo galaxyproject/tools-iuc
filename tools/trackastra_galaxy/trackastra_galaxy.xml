@@ -1,0 +1,170 @@
+<tool id="trackastra_galaxy" name="Perform object tracking" version="@TOOL_VERSION@+galaxyy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>with Trackastra Galaxy pipeline</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+
+mkdir -p result_directory &&
+
+#if $method.input_source.input_source == "file"
+    ln -s '$method.input_source.zarr_path' ./file.zarr &&
+#end if
+
+trackastra-galaxy $method.mode 
+    #if $method.input_source.input_source == "file"
+    --zarr-path ./file.zarr
+    #else
+    --zarr-path '$method.input_source.zarr_path'
+    #end if
+    --scale-level $method.scale_level 
+    --raw-channel-coords '$method.raw_channel_coords' 
+    #if $method.mode == 'track'
+    --seg-channel-coords '$method.seg_channel_coords' 
+    #end if
+    --result-path ./result_directory 
+    --downscale-x $method.downscale_x 
+    --downscale-y $method.downscale_y 
+    --downscale-z $method.downscale_z 
+    --start-tp $method.start_tp 
+    --end-tp $method.end_tp 
+    --tracking-model '$method.tracking_model' 
+    #if $method.mode == 'segment-and-track'
+    --segmentation-model '$method.segmentation_model' 
+    --objects-diameter-px $method.objects_diameter_px 
+    #end if
+&& awk 'BEGIN{OFS="\t"} {print $1,$2,$3,$4}' result_directory/man_track.txt > result_directory/man_track.tsv
+&&
+#raw
+find result_directory -name 'man_track*.tif' -exec sh -c 'mv "$1" "${1%.tif}.tiff"' _ {} \; || true
+#end raw
+    ]]></command>
+    <inputs>
+        <conditional name="method">
+            <param name="mode" type="select" label="Processing mode" help="Choose between segmentation+tracking or tracking only">
+                <option value="segment-and-track" selected="true">Segment cells and track (Cellpose v3 + Trackastra)</option>
+                <option value="track">Track only (requires pre-segmented data)</option>
+            </param>
+            <when value="segment-and-track">
+                <expand macro="input_source_params" />
+                <expand macro="common_tracking_params" />
+                <param name="segmentation_model" type="select" label="Segmentation model" help="Cellpose v3 model to use for cell/nuclei detection">
+                    <option value="cyto3" selected="true">cyto3 - Cytoplasm</option>
+                    <option value="cyto2">cyto2 - Cytoplasm (older model)</option>
+                    <option value="nuclei">nuclei - Nuclei only</option>
+                </param>
+                <param name="objects_diameter_px" type="integer" value="25" min="1" label="Object diameter (px)" help="Expected object diameter in pixels for Cellpose v3 segmentation"/>
+            </when>
+            <when value="track">
+                <expand macro="input_source_params" />
+                <expand macro="common_tracking_params" />
+                <param name="seg_channel_coords" type="text" value="1" label="Segmentation channel coordinate" help="For multi-dimensional zarr, specify coordinates to select the segmentation channel. Space or comma-separated. Example: '1' or '0 1' for 6D data">
+                    <sanitizer>
+                        <valid initial="string.printable" />
+                    </sanitizer>
+                    <validator type="empty_field" message="Please provide a Zarr dataset URL."/>
+                    <validator type="regex" message="Use one or more non-negative integers separated by spaces or commas, for example: 1 or 0 1 or 0,1">^\s*\d+(\s*[, ]\s*\d+)*\s*$</validator>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output_ctc_tracklog" format="tsv" from_work_dir="result_directory/man_track.tsv" label='${tool.name} on ${on_string}: CTC track log'/>
+        <collection name="output_ctc_masks" type="list" label='${tool.name} on ${on_string}: CTC mask images'>
+            <discover_datasets
+                pattern="(?P&lt;designation&gt;man_track\d+)\.tiff"
+                format="tiff"
+                visible="true"
+                directory="result_directory" />
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="mode" value="segment-and-track"/>
+                <conditional name="input_source">
+                    <param name="input_source" value="url"/>
+                    <param name="zarr_path" value="https://s3.cl2.du.cesnet.cz/35b9fef6_a5c7_4724_b7ad_0db97899a356:public/CTC_trif_01_cropped_2channels_v04.zarr"/>
+                </conditional>
+                <param name="scale_level" value="3"/>
+                <param name="downscale_x" value="1.0"/>
+                <param name="downscale_y" value="1.0"/>
+                <param name="downscale_z" value="1.0"/>
+                <param name="start_tp" value="0"/>
+                <param name="end_tp" value="2"/>
+                <param name="raw_channel_coords" value="0"/>
+                <param name="segmentation_model" value="cyto3"/>
+                <param name="objects_diameter_px" value="25"/>
+                <param name="tracking_model" value="ctc"/>
+            </conditional>
+            <output name="output_ctc_tracklog" file="segment_and_track/man_track.tsv" ftype="tsv">
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_text text="1" />
+                </assert_contents>
+            </output>
+            <output_collection name="output_ctc_masks" type="list" count="3"/>
+        </test>
+
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="mode" value="track"/>
+                <conditional name="input_source">
+                    <param name="input_source" value="url"/>
+                    <param name="zarr_path" value="https://s3.cl2.du.cesnet.cz/35b9fef6_a5c7_4724_b7ad_0db97899a356:public/CTC_trif_01_cropped_2channels_v04.zarr"/>
+                </conditional>
+                <param name="scale_level" value="3"/>
+                <param name="downscale_x" value="1.0"/>
+                <param name="downscale_y" value="1.0"/>
+                <param name="downscale_z" value="1.0"/>
+                <param name="start_tp" value="0"/>
+                <param name="end_tp" value="2"/>
+                <param name="raw_channel_coords" value="0"/>
+                <param name="seg_channel_coords" value="1"/>
+                <param name="tracking_model" value="ctc"/>
+            </conditional>
+            <output name="output_ctc_tracklog" file="track_only/man_track.tsv" ftype="tsv">
+            <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_text text="1" />
+                </assert_contents>
+            </output>
+            <output_collection name="output_ctc_masks" type="list" count="3"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Trackastra: Deep Learning-based Cell Tracking in Zarr Datasets**
+
+This tool performs automated cell instance tracking in time-lapse OME-Zarr (NGFF) datasets. It supports two workflows:
+
+1. **Segment and Track**: Automatically segments cell instances using Cellpose v3, then performs tracking using Trackastra
+2. **Track Only**: Performs tracking on pre-segmented data (segmentation provided by other tools)
+
+**Input Sources**
+
+Choose between URL or local Zarr dataset:
+
+- **URL**: HTTP/HTTPS or S3 path to remote OME-Zarr dataset
+- **Local file**: Upload or select a local Zarr dataset directory
+
+**Key Parameters**
+
+- **scale_level**: Pyramid resolution level. 0 is finest resolution.
+- **Downscale factors (x, y, z)**: Additional spatial downscaling to speed up processing.
+- **Time point range**: start_tp and end_tp select the processed frames.
+- **Raw/segmentation channel coordinates**: Use space- or comma-separated coordinates for non-tzyx dimensions.
+
+**Outputs**
+
+The tool writes its results into an internal result directory named `result_directory`.
+Galaxy exposes the key result files from this directory as outputs:
+
+- **man_track.tsv**: CTC track log converted to tab-separated format
+- **man_trackNNNN.tiff**: Frame-wise mask images
+
+These are exposed as Galaxy outputs for downstream analysis.
+    ]]></help>
+    <expand macro="citations" />
+</tool>
