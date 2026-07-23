@@ -19,7 +19,6 @@ import shutil
 import urllib.request
 import zipfile
 from pathlib import Path
-import sys
 
 # GitHub releases base URL for spaCy models
 SPACY_MODELS_BASE_URL = "https://github.com/explosion/spacy-models/releases/download"
@@ -163,6 +162,7 @@ def get_model_version(model_name):
     print(f"Found compatible version: {version}")
     return version
 
+
 def install_wheel(wheel_url, dest_dir):
     """Download a spaCy model wheel and extract its data directory into dest_dir.
 
@@ -206,7 +206,9 @@ def install_wheel(wheel_url, dest_dir):
 
     # get the lang, name, and version from the metadat and
     # build the appropriate variables we want later
-    model_name = f"{metadata["lang"]}_{metadata["name"]}"
+    base_name = metadata["name"]
+    lang = metadata["lang"]
+    model_name = f"{lang}_{base_name}"
     version = metadata["version"]
 
     print(f"Extracting {model_name} v{version}")
@@ -233,18 +235,18 @@ def install_wheel(wheel_url, dest_dir):
     desc = SPACY_MODELS[model_name][0] if model_name in SPACY_MODELS else model_name
 
     print(f"Successfully installed {desc} v{version}")
-    
+
     return {
         "value": f"{model_name}_{version}",
         "name": f"{desc} v{version}",
-        "model": metadata["name"],
-        "lang": metadata["lang"],
+        "model": base_name,
+        "lang": lang,
         "version": version,
         # Relative to extra_files_path; data_manager_conf.xml moves it into
         # ${GALAXY_DATA_MANAGER_DATA_PATH}/spacy_models/${value}/
         "model_path": f"{model_name}_{version}"
     }
-    
+
 
 def install_model(model_name, dest_dir):
     """Download a standard spaCy model wheel and extract its data directory into dest_dir.
@@ -296,11 +298,11 @@ def main():
     parser = argparse.ArgumentParser(description="Download and register spaCy language models")
     parser.add_argument("data_manager_json",
                         help="Galaxy data manager JSON file (prepopulated with output paths)")
-    
+
     parser.add_argument("--model", action="append", choices=SPACY_MODELS.keys(),
                         help="spaCy model(s) to download (can be specified multiple times)")
     parser.add_argument("--wheel", action="append", help="spaCy model wheel(s) to download (can be specified multiple times)")
-    
+
     args = parser.parse_args()
 
     # Galaxy prepopulates the data manager JSON with the output dataset's extra
@@ -332,7 +334,7 @@ def main():
             })
 
             print(f"Successfully installed {display_name} v{version}")
-    
+
     if args.wheel:
         for wheel_url in args.wheel:
             print(f"\n{'=' * 60}\nProcessing...\n{'=' * 60}")
