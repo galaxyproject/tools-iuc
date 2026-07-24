@@ -81,67 +81,81 @@ def run(args):
     vcf_reader = cyvcf2.VCF(args.input)
 
     stats = {"total": 0, "scored": 0, "errors": 0, "skipped": 0}
-    all_rows = []
+    row_count = 0
+    output_columns = None
+    wrote_header = False
 
-    try:
-        for variant_num, record in enumerate(vcf_reader):
-            stats["total"] += 1
+    with open(args.output, "w", newline="") as outfile:
+        try:
+            for variant_num, record in enumerate(vcf_reader):
+                stats["total"] += 1
 
-            if variant_num >= args.max_variants:
-                stats["skipped"] += 1
-                continue
+                if variant_num >= args.max_variants:
+                    stats["skipped"] += 1
+                    continue
 
-            if variant_num > 0 and variant_num % 10 == 0:
-                logging.info(
-                    "Progress: %d/%d variants processed (%d scored, %d errors)",
-                    variant_num, args.max_variants, stats["scored"], stats["errors"],
-                )
+                if variant_num > 0 and variant_num % 10 == 0:
+                    logging.info(
+                        "Progress: %d/%d variants processed (%d scored, %d errors)",
+                        variant_num, args.max_variants, stats["scored"], stats["errors"],
+                    )
 
-            chrom = record.CHROM
-            pos = record.POS
-            ref = record.REF
+                chrom = record.CHROM
+                pos = record.POS
+                ref = record.REF
 
-            if not record.ALT:
-                continue
+                if not record.ALT:
+                    continue
 
-            alt = record.ALT[0]
-            variant_id = f"{chrom}:{pos}:{ref}>{alt}"
+                alt = record.ALT[0]
+                variant_id = f"{chrom}:{pos}:{ref}>{alt}"
 
-            try:
-                variant = genome.Variant(
-                    chromosome=chrom,
-                    position=pos,
-                    reference_bases=ref,
-                    alternate_bases=alt,
-                )
-                interval = variant.reference_interval.resize(seq_length)
+                try:
+                    variant = genome.Variant(
+                        chromosome=chrom,
+                        position=pos,
+                        reference_bases=ref,
+                        alternate_bases=alt,
+                    )
+                    interval = variant.reference_interval.resize(seq_length)
 
-                scores = model.score_variant(
-                    interval, variant, selected_scorers, organism=organism,
-                )
+                    scores = model.score_variant(
+                        interval, variant, selected_scorers, organism=organism,
+                    )
 
-                df = tidy_scores(scores)
-                all_rows.append(df)
-                stats["scored"] += 1
+                    df = tidy_scores(scores)
+                    columns = list(df.columns)
+                    if output_columns is None:
+                        output_columns = columns
+                    elif columns != output_columns:
+                        raise ValueError(
+                            "tidy_scores output columns changed from "
+                            f"{output_columns} to {columns}"
+                        )
+                    df.to_csv(
+                        outfile,
+                        sep="\t",
+                        index=False,
+                        header=not wrote_header,
+                    )
+                    wrote_header = True
+                    row_count += len(df)
+                    stats["scored"] += 1
 
-                logging.debug("Scored %s: %d rows", variant_id, len(df))
+                    logging.debug("Scored %s: %d rows", variant_id, len(df))
 
-            except Exception as e:
-                logging.error("Error scoring %s: %s", variant_id, e)
-                stats["errors"] += 1
+                except Exception as e:
+                    logging.error("Error scoring %s: %s", variant_id, e)
+                    stats["errors"] += 1
 
-    finally:
-        vcf_reader.close()
+        finally:
+            vcf_reader.close()
 
-    if all_rows:
-        import pandas as pd
-        combined = pd.concat(all_rows, ignore_index=True)
-        combined.to_csv(args.output, sep="\t", index=False)
-        logging.info("Wrote %d rows to %s", len(combined), args.output)
-    else:
-        with open(args.output, "w") as f:
-            f.write("variant_id\n")
-        logging.warning("No variants scored successfully")
+        if wrote_header:
+            logging.info("Wrote %d rows to %s", row_count, args.output)
+        else:
+            outfile.write("variant_id\n")
+            logging.warning("No variants scored successfully")
 
     logging.info("=" * 50)
     logging.info("DONE — %d total, %d scored, %d errors, %d skipped (over limit)",

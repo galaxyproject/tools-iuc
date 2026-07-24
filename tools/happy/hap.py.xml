@@ -2,8 +2,8 @@
     <description>Comparison of somatic callsets based only on chromosome, position, and allele identity</description>
     <macros>
         <token name="@TOOL_VERSION@">0.3.15</token>
-        <token name="@PROFILE@">24.1</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.0</token>
+        <token name="@VERSION_SUFFIX@">1</token>
     </macros>
     <xrefs>
         <xref type="bio.tools">hap.py</xref>
@@ -21,7 +21,7 @@
     #set $ref_genome = $reference_genome.index.fields.path
 #end if
     export HGREF='$ref_genome' &&
-    #if $program_select == 'som.py':
+    #if $program.program_select == 'som.py':
         som.py
     #else:
         hap.py
@@ -30,14 +30,51 @@
         '$query'
         -r '$ref_genome'
         -o output
+    #if $program.program_select == 'hap.py':
+        --engine '$program.engine'
+        #if $program.false_positives:
+            --false-positives '$program.false_positives'
+        #end if
+        #if $program.restrict_regions:
+            --restrict-regions '$program.restrict_regions'
+        #end if
+        #if str($program.location):
+            --location '$program.location'
+        #end if
+        $program.pass_only
+    #end if
         | sed 's/\s\+/\t/g' | tail -n+2 > results.tsv
     ]]>
     </command>
     <inputs>
-        <param name="program_select" type="select" label="Comparison method" help="Select the comparison method to use.">
-            <option value="som.py">som.py: Genotype-level comparison</option>
-            <option value="hap.py">hap.py: Allele-based comparison (chromosome, position, allele)</option>
-        </param>
+        <conditional name="program">
+            <param name="program_select" type="select" label="Comparison method" help="Select the comparison method to use.">
+                <option value="som.py">som.py: Genotype-level comparison</option>
+                <option value="hap.py">hap.py: Allele-based comparison (chromosome, position, allele)</option>
+            </param>
+            <when value="som.py"/>
+            <when value="hap.py">
+                <param argument="--engine" type="select" label="Comparison engine" help="Comparison engine to use">
+                    <option value="xcmp" selected="true">xcmp</option>
+                    <option value="vcfeval">vcfeval</option>
+                    <option value="scmp-somatic">scmp-somatic</option>
+                    <option value="scmp-distance">scmp-distance</option>
+                </param>
+                <param argument="--false-positives" type="data" format="bed" optional="true" label="False positive / confident call regions" help="Calls outside these regions will be labelled as UNK"/>
+                <param argument="--restrict-regions" type="data" format="bed" optional="true" label="Restrict regions" help="BED to restrict comparison against TRUTH_VCF to"/>
+                <param argument="--location" type="text" optional="true" label="Location" help="Contig or region to restrict evaluation to (e.g. chr1 or chr1:1000-2000)">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="_"/>
+                            <add value=":"/>
+                            <add value="-"/>
+                            <add value=","/>
+                        </valid>
+                    </sanitizer>
+                </param>
+                <param argument="--pass-only" type="boolean" truevalue="--pass-only" falsevalue="" checked="false" label="Keep only PASS variants"/>
+            </when>
+        </conditional>
         <conditional name="reference_genome">
             <param name="source" type="select" label="Source for the reference genome" help="Built-in references were created using default options.">
                 <option value="indexed" selected="true">Use a built-in genome</option>
@@ -61,22 +98,24 @@
     <outputs>
         <data name="results" label="${tool.name} on ${on_string}" format="tabular" from_work_dir="results.tsv"/>
         <data name="sompy_metrics" label="${tool.name} on ${on_string}: som.py metrics" format="json" from_work_dir="output.metrics.json">
-            <filter>'som.py' in program_select </filter>
+            <filter>program['program_select'] == 'som.py'</filter>
         </data>
         <data name="happy_metrics" label="${tool.name} on ${on_string}: hap.py metrics" format="json" from_work_dir="output.metrics.json.gz">
-            <filter>'hap.py' in program_select </filter>
+            <filter>program['program_select'] == 'hap.py'</filter>
         </data>
         <data name="stats" label="${tool.name} on ${on_string}: som.py comparison stats" format="csv" from_work_dir="output.stats.csv">
-            <filter>'som.py' in program_select </filter>
+            <filter>program['program_select'] == 'som.py'</filter>
         </data>
         <data name="summary" label="${tool.name} on ${on_string}: hap.py summary" format="csv" from_work_dir="output.summary.csv">
-            <filter>'hap.py' in program_select </filter>
+            <filter>program['program_select'] == 'hap.py'</filter>
         </data>
     </outputs>
     <tests>
         <!-- Testing som.py -->
         <test expect_num_outputs="3">
-            <param name="program_select" value="som.py"/>
+            <conditional name="program">
+                <param name="program_select" value="som.py"/>
+            </conditional>
             <conditional name="reference_genome">
                 <param name="source" value="history"/>
                 <param name="history_item" value="chr21.fa"/>
@@ -104,7 +143,9 @@
         </test>
         <!-- Testing hap.py -->
         <test expect_num_outputs="3">
-            <param name="program_select" value="hap.py"/>
+            <conditional name="program">
+                <param name="program_select" value="hap.py"/>
+            </conditional>
             <conditional name="reference_genome">
                 <param name="source" value="history"/>
                 <param name="history_item" value="reference.fasta"/>
@@ -116,6 +157,32 @@
                     <has_n_lines n="6"/>
                 </assert_contents>
             </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_text text="SNP,PASS,5,4,1,6,2,0,0,0,0.8,0.666667,0.0,0.727273,0.25,0.5,0.0,0.0"/>
+                </assert_contents>
+            </output>
+            <output name="happy_metrics" decompress="true">
+                <assert_contents>
+                    <has_json_property_with_text property="name" text="hap.py.comparison"/>
+                    <has_text text="hap.py.comparison"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Testing hap.py with comparison options -->
+        <test expect_num_outputs="3">
+            <conditional name="program">
+                <param name="program_select" value="hap.py"/>
+                <param name="engine" value="xcmp"/>
+                <param name="pass_only" value="true"/>
+            </conditional>
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="truth" value="hap_py_truth.vcf.gz"/>
+            <param name="query" value="hap_py_query.vcf.gz"/>
             <output name="summary">
                 <assert_contents>
                     <has_n_lines n="5"/>
@@ -143,9 +210,20 @@
 ---
 
 ## Outputs
-- **Summary CSV / JSON:** Precision, recall, and F1 metrics.  
-- **ROC and stratified metrics:** Optional, for detailed performance breakdowns.  
+- **Summary CSV / JSON:** Precision, recall, and F1 metrics.
+- **ROC and stratified metrics:** Optional, for detailed performance breakdowns.
 - **Annotated VCFs:** Optional lists of matched and unmatched variants.
+---
+
+## Comparison options (hap.py)
+These options are available when **hap.py** is selected as the comparison method:
+
+- **Comparison engine (`--engine`):** Engine used to compare variants - one of `xcmp` (default), `vcfeval`, `scmp-somatic`, or `scmp-distance`.
+- **False positive / confident call regions (`--false-positives`):** BED of confident-call regions. Calls outside these regions will be labelled as UNK.
+- **Restrict regions (`--restrict-regions`):** BED to restrict the comparison against the truth VCF to.
+- **Location (`--location`):** Contig or region to restrict evaluation to (e.g. `chr1` or `chr1:1000-2000`).
+- **Keep only PASS variants (`--pass-only`):** Include only variants that pass all filters in the comparison.
+
 ---
 
 ## Notes
