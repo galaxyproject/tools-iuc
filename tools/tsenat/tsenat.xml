@@ -7,15 +7,10 @@
 
     <expand macro="biotools_xref"/>
     <expand macro="requirements"/>
-
-    <stdio>
-        <regex match="Execution halted" source="both" level="fatal" description="Execution halted." />
-        <regex match="Error in" source="both" level="fatal" description="An undefined error occurred, please check your input carefully and contact your administrator." />
-        <regex match="Fatal error" source="both" level="fatal" description="An undefined error occurred, please check your input carefully and contact your administrator." />
-    </stdio>
+    <expand macro="stdio"/>
 
     <version_command><![CDATA[
-echo $(R --version | grep version | head -n 1) && Rscript -e "library('TSENAT'); cat('TSENAT', as.character(packageVersion('TSENAT')), sep='\\n')"
+echo $(R --version | grep version | head -n 1) && Rscript -e "library('TSENAT'); cat('TSENAT', as.character(packageVersion('TSENAT')), sep='\\n'); library('S4Vectors'); cat('S4Vectors', as.character(packageVersion('S4Vectors')), sep='\\n'); library('optparse'); cat('optparse', as.character(packageVersion('optparse')), sep='\\n')"
     ]]></version_command>
 
     <command detect_errors="exit_code"><![CDATA[
@@ -32,14 +27,10 @@ mkdir -p './salmon_input' &&
     ln -sf '${f}' './salmon_input/${sample_id}/quant.sf' &&
 #end for
 
-## Handle annotation file - create symlink with proper extension for gzipped files
-#if $annotation.is_of_type("gff3.gz"):
-    ln -s '${annotation}' './annotation.gff3.gz' &&
-    #set $annotation_path = './annotation.gff3.gz'
-#else
-    ln -s '${annotation}' './annotation.gff3' &&
-    #set $annotation_path = './annotation.gff3'
-#end if
+## Handle annotation file - create symlink preserving original extension
+#set $ann_ext = $annotation.ext
+ln -s '${annotation}' './annotation.${ann_ext}' &&
+#set $annotation_path = './annotation.${ann_ext}'
 
 Rscript '${__tool_directory__}/tsenat.R'
   --salmon_dir './salmon_input'
@@ -67,9 +58,7 @@ Rscript '${__tool_directory__}/tsenat.R'
 #if str($data_filtering.min_isoform_abundance) != ''
   --min_isoform_abundance $data_filtering.min_isoform_abundance
 #end if
-#if str($normalization_options.norm_method) != 'none'
   --norm_method '${normalization_options.norm_method}'
-#end if
 #if str($normalization_options.pseudocount) != ''
   --pseudocount $normalization_options.pseudocount
 #end if
@@ -98,13 +87,13 @@ Rscript '${__tool_directory__}/tsenat.R'
 #if str($sait_testing.multicorr_method) != 'default'
   --multicorr '${sait_testing.multicorr_method}'
 #end if
-#if $scheirer_ray_hare.srh_advanced
-#if str($scheirer_ray_hare.srh_options.configure_srh) == 'yes'
-  --wy_randomizations $scheirer_ray_hare.srh_options.wy_randomizations
-  --eta2_threshold_moderate $scheirer_ray_hare.srh_options.eta2_threshold_moderate
-  --eta2_threshold_strong $scheirer_ray_hare.srh_options.eta2_threshold_strong
-  --min_nperm $scheirer_ray_hare.srh_options.min_nperm
-  --max_nperm $scheirer_ray_hare.srh_options.max_nperm
+#if $rank_test.rank_advanced
+#if str($rank_test.rank_options.configure_rank) == 'yes'
+  --wy_randomizations $rank_test.rank_options.wy_randomizations
+  --eta2_threshold_moderate $rank_test.rank_options.eta2_threshold_moderate
+  --eta2_threshold_strong $rank_test.rank_options.eta2_threshold_strong
+  --min_nperm $rank_test.rank_options.min_nperm
+  --max_nperm $rank_test.rank_options.max_nperm
 #end if
 #end if
 #if str($jackknife_switching.jis_use_sait_fdr) == 'true'
@@ -120,7 +109,7 @@ Rscript '${__tool_directory__}/tsenat.R'
   --fdr_threshold $statistical_thresholds.fdr_threshold
   --significance_threshold $statistical_thresholds.significance_threshold
   --divergence_ci $divergence_testing.divergence_ci
-  --assumptions_checks 'all'
+  --assumptions_checks '${qc_options.assumptions_checks}'
   --nthreads "\${GALAXY_SLOTS:-2}"
   --output_prefix 'tsenat'
 #if str($advanced_options.enabled) == 'yes'
@@ -136,6 +125,7 @@ Rscript '${__tool_directory__}/tsenat.R'
     ]]></command>
 
     <inputs>
+        <!-- ===== INPUT DATA ===== -->
         <conditional name="salmon_input">
             <param name="input_type" type="select" label="Salmon input format"
                 help="Choose how to provide Salmon quantification files: individual files or a dataset collection">
@@ -151,22 +141,17 @@ Rscript '${__tool_directory__}/tsenat.R'
                     help="Select a dataset collection containing Salmon .sf files. Element names must match sample IDs in the sample sheet."/>
             </when>
         </conditional>
-        
-        <!-- Sample Sheet Section -->
+
         <param name="sample_sheet" type="data" format="tabular,tsv" label="Sample sheet (metadata file)"
             help="Tab-separated file with sample information. Must contain columns for sample IDs, experimental conditions, and optionally subject/pairing information. See help section for format details."/>
         <param name="annotation" type="data" format="gff3,gff,gff3.gz" label="Transcript annotation"
             help="GFF3 annotation file with transcript ID to gene ID mapping (e.g., GENCODE GFF3). Used to group transcripts by gene and map annotation information."/>
 
-        <!-- Sample Sheet Column Selectors -->
+        <!-- ===== STUDY DESIGN ===== -->
         <param name="sample_col" type="data_column" data_ref="sample_sheet" use_header_names="true" multiple="false" optional="false" label="Sample ID column"
             help="Select column containing sample identifiers. Values must match Salmon file names (element identifiers if using collection)."/>
         <param name="condition_col" type="data_column" data_ref="sample_sheet" use_header_names="true" multiple="false" optional="false" label="Condition column"
             help="Select column containing experimental conditions/treatment groups (e.g., normal, tumor, control, treatment)."/>
-        <param name="control" type="text" value="" label="Reference condition"
-            help="Reference/control condition value for contrast specification. Must match a value in the condition column. Typically the untreated or normal condition."/>
-
-        <!-- Paired Design Section -->
         <conditional name="paired_design">
             <param name="paired" type="select" label="Study design">
                 <option value="no">Unpaired samples</option>
@@ -178,8 +163,21 @@ Rscript '${__tool_directory__}/tsenat.R'
             </when>
             <when value="no"/>
         </conditional>
+        <param name="control" type="text" value="" label="Reference condition"
+            help="Reference/control condition value for contrast specification. Must match a value in the condition column. Typically the untreated or normal condition.">
+            <sanitizer>
+                <valid initial="string.letters,string.digits">
+                    <add value="_"/>
+                    <add value="-"/>
+                    <add value="."/>
+                </valid>
+            </sanitizer>
+            <validator type="regex" message="Only letters, digits, underscores, hyphens, and dots allowed">[A-Za-z0-9_\-\.]+</validator>
+        </param>
 
-        <section name="data_filtering" title="Data Filtering &amp; Preprocessing" expanded="true">
+        <!-- ===== PREPROCESSING ===== -->
+        <section name="data_filtering" title="Data Filtering" expanded="true"
+            help="Remove low-abundance transcripts to reduce noise. Filtered transcripts are excluded from entropy calculation, so this directly affects which isoforms contribute to diversity estimates.">
             <param name="filter_stringency" type="select" label="Low-abundance filter stringency"
                 help="Filter strategy for low-abundance transcripts. Soft: ≥25% presence in samples (preserve isoform diversity). Medium: ≥50% presence with TPM above median (balances noise reduction and diversity, recommended). Severe: ≥75% presence with high TPM (focus on abundant isoforms only). Choice affects entropy estimates: severe reduces noise but may miss rare isoforms and reduce diversity signal.">
                 <option value="soft">Soft (keep more transcripts)</option>
@@ -192,18 +190,19 @@ Rscript '${__tool_directory__}/tsenat.R'
                 help="(Optional) Relative abundance threshold for isoforms within each gene (0-1 scale). Default: 0.05 (5%). Set to 0 to skip per-isoform filtering. For example, 0.05 means retain isoforms comprising &gt;5% of the gene's total expression." />
         </section>
 
-        <section name="normalization_options" title="Data Normalization &amp; Preprocessing" expanded="false">
+        <section name="normalization_options" title="Data Normalization" expanded="false"
+            help="Transform entropy values for cross-gene and cross-q comparability. Normalization is recommended to make entropy scores comparable across genes with different numbers of isoforms.">
             <param name="norm" type="boolean" checked="true" label="Enable normalization"
                 help="Normalize entropy estimates to [0,1] range for comparable cross-q assessment. Recommended (default: enabled) for comparing entropy across different q-values and between genes. Disable only if raw unnormalized entropy is needed."/>
             <param name="norm_method" type="select" label="Normalization method"
-                help="Method for normalization. Default (automatic): chooses algorithm based on data. Range: [0,1] scaling. Z-score: centered and scaled. Quantile: quantile normalization for cross-sample comparison.">
-                <option value="none" selected="true">Default (automatic)</option>
-                <option value="range">Range scaling [0-1]</option>
+                help="Method for normalization. Default (automatic): chooses algorithm based on data. Z-score: centered and scaled. Log odds ratio: robust ratio-based normalization. Relative reference: normalized relative to a reference group mean.">
+                <option value="default" selected="true">Default (automatic)</option>
                 <option value="zscore">Z-score normalization</option>
-                <option value="quantile">Quantile normalization</option>
+                <option value="log_odds_ratio">Log odds ratio</option>
+                <option value="relative_reference">Relative to reference group</option>
             </param>
             <param name="pseudocount" type="float" value="" optional="true" min="0" max="10" label="Pseudocount"
-                help="Add pseudocount to break ties and handle zeros in sparse RNA-seq data. Leave blank (default) for no regularization (pseudocount=0), or specify a numeric value between 0-10 for fixed pseudocount. Typical values: 0.5, 1.0. To use automatic estimation based on library size, set to a very small value like 0.001. Critical for rank-based non-parametric tests (e.g., Scheirer-Ray-Hare) which require unique orderings.">
+                help="Add pseudocount to break ties and handle zeros in sparse RNA-seq data. Leave blank (default) for no regularization (pseudocount=0), or specify a numeric value between 0-10 for fixed pseudocount. Typical values: 0.5, 1.0. To use automatic estimation based on library size, set to a very small value like 0.001. Critical for rank-based non-parametric tests which require unique orderings.">
             </param>
             <param name="shrinkage" type="select" label="Shrinkage method"
                 help="Shrinkage estimation for robust variance estimation. None: direct estimation. James-Stein: empirical Bayes shrinkage toward grand mean. Use James-Stein for small sample sizes or high-variance data.">
@@ -213,7 +212,16 @@ Rscript '${__tool_directory__}/tsenat.R'
             <param name="min_valid_frac" type="float" value="0.75" min="0" max="1" label="Minimum valid fraction"
                 help="Minimum fraction of valid (non-missing) values required to retain a transcript or gene (default: 0.75 = 75%). Transcripts with &lt;75% valid samples are excluded due to insufficient data quality. Increase for stringent filtering; decrease to retain more transcripts."/>
             <param name="reference_group" type="text" value="" optional="true" label="Reference group for normalization"
-                help="(Optional) Reference group identifier for 'relative_reference' normalization method. Entropy values will be normalized relative to this group's mean. If empty, uses first condition group." />
+                help="Reference group identifier for 'relative_reference' normalization method. Entropy values will be normalized relative to this group's mean. If empty, uses first condition group.">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits">
+                        <add value="_"/>
+                        <add value="-"/>
+                        <add value="."/>
+                    </valid>
+                </sanitizer>
+                <validator type="regex" message="Only letters, digits, underscores, hyphens, and dots allowed">[A-Za-z0-9_\-\.]+</validator>
+            </param>
             <param name="what_output" type="select" label="Diversity output type (advanced)"
                 help="Output type for diversity calculation: 'S' = entropy (default) or 'D' = diversity (Hill numbers). Most users should use default entropy ('S'). Choose 'D' only if you specifically need diversity measures.">
                 <option value="S" selected="true">Entropy (S) - default</option>
@@ -221,26 +229,46 @@ Rscript '${__tool_directory__}/tsenat.R'
             </param>
         </section>
 
-        <section name="bootstrap_options" title="Bootstrap Confidence Intervals" expanded="false">
-            <param name="bootstrap" type="boolean" checked="false" label="Enable bootstrap"
-                help="Enable bootstrap resampling to compute robust confidence intervals for entropy estimates. Adds computational cost but provides non-parametric uncertainty quantification. Recommended for small sample sizes or non-normal data."/>
-            <param name="nboot" type="integer" value="1000" min="100" max="10000" label="Bootstrap replicates"
-                help="Number of bootstrap resampling iterations (default: 1000). Larger values (e.g., 5000) improve CI precision but increase runtime. Use ≥1000 for final analyses; 100-500 for exploratory work."/>
-            <param name="bootstrap_method" type="select" label="Bootstrap method"
-                help="Bootstrap CI method. Percentile: simple, fast, less accurate for skewed distributions. BCa: bias-corrected &amp; accelerated, more accurate and recommended for entropy estimates which may be skewed.">
-                <option value="percentile" selected="true">Percentile (faster)</option>
-                <option value="bca">BCa (bias-corrected and accelerated, recommended)</option>
+        <!-- ===== ENTROPY PARAMETERS ===== -->
+        <conditional name="advanced_options">
+            <param name="enabled" type="select" label="Tsallis entropy q-spectrum parameters" display="radio">
+                <option value="no" selected="true">Use defaults (q: 0–2, step: 0.05)</option>
+                <option value="yes">Customize q-spectrum</option>
             </param>
-            <param name="bootstrap_ci" type="float" value="0.95" min="0.80" max="0.99" label="Bootstrap CI level"
-                help="Confidence level for CIs (0.95 = 95% CI). Narrower intervals (e.g., 0.90) are easier to achieve; wider intervals (e.g., 0.99) provide stronger confidence."/>
-            <param name="bootstrap_include_diagnostics" type="boolean" checked="true" label="Include bootstrap diagnostics"
-                help="Save bootstrap diagnostics including convergence checks, variance ratios, and CI coverage validations. Useful for assessing bootstrap stability and data quality."/>
+            <when value="yes">
+                <section name="q_parameters" title="Tsallis Entropy q-spectrum Parameters" expanded="true">
+                    <param name="q_min" type="float" value="0" min="0" max="3" label="Minimum q value"
+                        help="Minimum entropic index q. q=0 emphasizes rare isoforms (richness); q=1 gives Shannon entropy (balanced diversity); q→0 detects if diversity is maintained or collapsed across rare variants."/>
+                    <param name="q_max" type="float" value="2" min="0" max="3" label="Maximum q value"
+                        help="Maximum entropic index q. q=2 emphasizes dominant isoforms (Simpson index); high q is robust to rare variants and detects dominance shifts. Examine q-curves showing how results change across scales."/>
+                    <param name="q_step" type="float" value="0.05" min="0.01" max="0.5" label="q step size"
+                        help="Resolution of q-spectrum (smaller = more q-values, higher resolution curves, slower). Default 0.05 creates 41 q-values from 0 to 2. Smaller steps (e.g., 0.02) provide smoother q-curves for visualizing scale-dependent patterns."/>
+                </section>
+                <param name="save_intermediates" type="boolean" checked="false" label="Save analysis object"
+                    help="Save the TSENATAnalysis object as RDS for downstream R analysis"/>
+                <param name="skip_unmapped" type="boolean" checked="true" label="Skip unmapped transcripts"
+                    help="Skip transcripts not found in the annotation file (recommended: enabled). If disabled, analysis will fail if unmapped transcripts are present in Salmon files."/>
+            </when>
+            <when value="no"/>
+        </conditional>
+
+        <!-- ===== STATISTICAL SIGNIFICANCE ===== -->
+        <section name="statistical_thresholds" title="Statistical Significance Thresholds" expanded="true"
+            help="Set the significance cutoffs applied across all downstream tests (SAIT, rank-based, and isoform switching). Lower thresholds = more stringent.">
+            <param name="p_threshold" type="float" value="0.05" min="0" max="1" label="P-value threshold"
+                help="Uncorrected p-value threshold for statistical tests. Typical: 0.05. Used before multiple testing correction in parametric (SAIT) and rank-based (ART/RT) analyses."/>
+            <param name="fdr_threshold" type="float" value="0.05" min="0" max="1" label="FDR threshold"
+                help="False Discovery Rate (FDR) adjusted p-value threshold for controlling Type I error across multiple tests. Benjamini-Hochberg correction recommended. Typical: 0.05. Genes with adjusted p &lt; FDR threshold are considered significant at specified false discovery rate."/>
+            <param name="significance_threshold" type="float" value="0.05" min="0" max="1" label="General significance threshold"
+                help="General significance level applied across all statistical tests when no specific correction is specified. Typical: 0.05 (5% Type I error rate). May also apply to interaction tests (q × condition effects)."/>
         </section>
 
-        <section name="sait_testing" title="SAIT (Parametric Interaction Testing)" expanded="false">
+        <!-- ===== STATISTICAL TESTS ===== -->
+        <section name="sait_testing" title="SAIT — Parametric Interaction Testing" expanded="false"
+            help="Scale-Adaptive Interaction Testing: detects genes where the q × condition interaction is significant. This is the primary test for isoform complexity changes between conditions.">
             <param name="sait_method" type="select" label="SAIT fitting method"
                 help="Statistical method for Scale-Adaptive Interaction Testing (SAIT) of q × condition effects. GAM (recommended): Semi-parametric model with flexible smooth functions; best for non-linear q-curves. LMM: Linear mixed model with AR(1) correlation; good for repeated measures. FPCA: Functional PCA; reduces dimensionality for high q-resolution. GEE: Generalized estimating equations; robust to misspecified correlation structure.">
-                <option value="gam" selected="true">GAM (Generalized Additive Model, recommended)</option>
+                <option value="gam" selected="true">GAM/GAMM (Generalized Additive Model, recommended)</option>
                 <option value="lmm">LMM (Linear Mixed Model)</option>
                 <option value="fpca">FPCA (Functional Principal Component Analysis)</option>
                 <option value="gee">GEE (Generalized Estimating Equations)</option>
@@ -276,17 +304,18 @@ Rscript '${__tool_directory__}/tsenat.R'
             </conditional>
         </section>
 
-        <section name="scheirer_ray_hare" title="Scheirer-Ray-Hare (Non-Parametric Testing)" expanded="false">
-            <param name="srh_advanced" type="boolean" checked="false" label="Enable Scheirer-Ray-Hare advanced options"
-                help="Enable advanced tuning for Scheirer-Ray-Hare rank-based test (Westfall-Young permutations, effect size thresholds, permutation bounds)."/>
-            <conditional name="srh_options">
-                <param name="configure_srh" type="select" label="SRH tuning" display="radio">
+        <section name="rank_test" title="Rank-Based Testing (Non-Parametric)" expanded="false"
+            help="Distribution-free alternative to SAIT. Uses Aligned Rank Transform with Westfall-Young permutation correction. Recommended as a complementary test when parametric assumptions may not hold.">
+            <param name="rank_advanced" type="boolean" checked="false" label="Enable rank test advanced options"
+                help="Enable advanced tuning for non-parametric rank-based tests (Aligned Rank Transform / Rank Transform) with Westfall-Young permutation correction, effect size thresholds, and permutation bounds. These tests detect q × condition interactions without distributional assumptions."/>
+            <conditional name="rank_options">
+                <param name="configure_rank" type="select" label="Rank test tuning" display="radio">
                     <option value="no" selected="true">Use defaults</option>
                     <option value="yes">Customize parameters</option>
                 </param>
                 <when value="yes">
                     <param name="wy_randomizations" type="integer" value="500" min="100" max="10000" label="Westfall-Young randomizations"
-                        help="Number of permutations for Westfall-Young multiple testing correction (default: 500). Higher values improve statistical accuracy but increase computation time. Use 'auto' mode to estimate from data."/>
+                        help="Number of permutations for Westfall-Young multiple testing correction (default: 500). Higher values improve statistical accuracy but increase computation time."/>
                     <param name="eta2_threshold_moderate" type="float" value="0.01" min="0" max="1" label="Moderate effect size threshold"
                         help="Effect size (eta-squared) threshold for moderate effects (default: 0.01). Used to classify interaction strength: &lt;0.01 = small, 0.01-0.1 = moderate, &gt;0.1 = strong."/>
                     <param name="eta2_threshold_strong" type="float" value="0.1" min="0" max="1" label="Strong effect size threshold"
@@ -300,7 +329,8 @@ Rscript '${__tool_directory__}/tsenat.R'
             </conditional>
         </section>
 
-        <section name="jackknife_switching" title="Jackknife Isoform Switching (JIS) Detection" expanded="false">
+        <section name="jackknife_switching" title="Jackknife Isoform Switching (JIS) Detection" expanded="false"
+            help="Identifies individual transcripts whose inclusion/exclusion drives the observed entropy changes. Uses leave-one-out jackknife to quantify each isoform's influence on gene-level diversity.">
             <param name="jis_use_sait_fdr" type="boolean" checked="true" label="Use SAIT FDR for jackknife switching detection"
                 help="Use SAIT FDR threshold to filter genes before jackknife isoform switching analysis. Enables two-stage approach: (1) identify genes with significant q × condition interaction, (2) detect transcripts with robust switching patterns within those genes. Recommended for specificity."/>
             <param name="jis_advanced" type="boolean" checked="false" label="Enable JIS advanced options"
@@ -320,457 +350,566 @@ Rscript '${__tool_directory__}/tsenat.R'
             </conditional>
         </section>
 
-        <section name="statistical_thresholds" title="Statistical Significance Thresholds" expanded="false">
-            <param name="p_threshold" type="float" value="0.05" min="0" max="1" label="P-value threshold"
-                help="Uncorrected p-value threshold for statistical tests. Typical: 0.05. Note: Used before multiple testing correction in parametric (SAIT) and rank-based (Scheirer-Ray-Hare) analyses."/>
-            <param name="fdr_threshold" type="float" value="0.05" min="0" max="1" label="FDR threshold"
-                help="False Discovery Rate (FDR) adjusted p-value threshold for controlling Type I error across multiple tests. Benjamini-Hochberg correction recommended. Typical: 0.05. Genes with adjusted p &lt; FDR threshold are considered significant at specified false discovery rate."/>
-            <param name="significance_threshold" type="float" value="0.05" min="0" max="1" label="General significance threshold"
-                help="General significance level applied across all statistical tests when no specific correction is specified. Typical: 0.05 (5% Type I error rate). May also apply to interaction tests (q × condition effects)."/>
-        </section>
-
-        <section name="divergence_testing" title="Divergence Analysis" expanded="false">
+        <!-- ===== SECONDARY ANALYSES ===== -->
+        <section name="divergence_testing" title="Divergence Analysis" expanded="false"
+            help="Computes Tsallis divergence — an information-theoretic measure of how different the isoform distributions are between conditions. Complements the interaction tests with effect magnitude estimates.">
             <param name="divergence_ci" type="float" value="0.95" min="0.80" max="0.99" label="Divergence CI level"
                 help="Confidence level for Tsallis divergence estimates measuring information-theoretic distance between conditions (default: 0.95 = 95% CI). Divergence measures scale-dependent differences in isoform complexity between groups."/>
         </section>
 
-        <section name="quality_control" title="Quality Control &amp; Sample Assessment" expanded="false">
-            <param name="enable_m_estimator" type="boolean" checked="false" label="Enable M-estimator robust sample QC"
-                help="Enable M-estimator based sample quality assessment to detect influential outlier samples that may skew analyses. M-estimation provides robust quality metrics independent of distributional assumptions."/>
+        <section name="qc_options" title="Quality Control &amp; Assumptions" expanded="false"
+            help="Validate statistical assumptions and assess data quality. Assumptions checks verify that the chosen statistical methods are appropriate for your data.">
+            <param name="assumptions_checks" type="select" label="Assumptions checks"
+                help="Which statistical assumptions to validate. 'All' runs all checks (recommended). 'Essential' runs only critical checks (normality, variance homogeneity). 'None' skips validation (not recommended for publication).">
+                <option value="all" selected="true">All checks (recommended)</option>
+                <option value="essential">Essential only</option>
+                <option value="none">Skip validation</option>
+            </param>
         </section>
 
-        <conditional name="advanced_options">
-            <param name="enabled" type="select" label="Tsallis entropy calculation advanced options" display="radio">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
+        <section name="bootstrap_options" title="Bootstrap Confidence Intervals" expanded="false"
+            help="Adds non-parametric uncertainty quantification via resampling. Enabling bootstrap provides confidence intervals for entropy estimates but increases runtime ~nboot-fold.">
+            <param name="bootstrap" type="boolean" checked="false" label="Enable bootstrap"
+                help="Enable bootstrap resampling to compute robust confidence intervals for entropy estimates. Adds computational cost but provides non-parametric uncertainty quantification. Recommended for small sample sizes or non-normal data."/>
+            <param name="nboot" type="integer" value="1000" min="100" max="10000" label="Bootstrap replicates"
+                help="Number of bootstrap resampling iterations (default: 1000). Larger values (e.g., 5000) improve CI precision but increase runtime. Use ≥1000 for final analyses; 100-500 for exploratory work."/>
+            <param name="bootstrap_method" type="select" label="Bootstrap method"
+                help="Bootstrap CI method. Percentile: simple, fast, less accurate for skewed distributions. BCa: bias-corrected &amp; accelerated, more accurate and recommended for entropy estimates which may be skewed.">
+                <option value="percentile" selected="true">Percentile (faster)</option>
+                <option value="bca">BCa (bias-corrected and accelerated, recommended)</option>
             </param>
-            <when value="yes">
-                <section name="q_parameters" title="Tsallis Entropy q-spectrum Parameters" expanded="true">
-                    <param name="q_min" type="float" value="0" min="0" max="3" label="Minimum q value"
-                        help="Minimum entropic index q. q=0 emphasizes rare isoforms (richness); q=1 gives Shannon entropy (balanced diversity); q→0 detects if diversity is maintained or collapsed across rare variants."/>
-                    <param name="q_max" type="float" value="2" min="0" max="3" label="Maximum q value"
-                        help="Maximum entropic index q. q=2 emphasizes dominant isoforms (Simpson index); high q is robust to rare variants and detects dominance shifts. Examine q-curves showing how results change across scales."/>
-                    <param name="q_step" type="float" value="0.05" min="0.01" max="0.5" label="q step size"
-                        help="Resolution of q-spectrum (smaller = more q-values, higher resolution curves, slower). Default 0.05 creates 41 q-values from 0 to 2. Smaller steps (e.g., 0.02) provide smoother q-curves for visualizing scale-dependent patterns."/>
-                </section>
-                <param name="save_intermediates" type="boolean" checked="false" label="Save analysis object"
-                    help="Save the TSENATAnalysis object as RDS for downstream R analysis"/>
-                <param name="skip_unmapped" type="boolean" checked="true" label="Skip unmapped transcripts"
-                    help="Skip transcripts not found in the annotation file (recommended: enabled). If disabled, analysis will fail if unmapped transcripts are present in Salmon files."/>
-            </when>
-            <when value="no"/>
-        </conditional>
+            <param name="bootstrap_ci" type="float" value="0.95" min="0.80" max="0.99" label="Bootstrap CI level"
+                help="Confidence level for CIs (0.95 = 95% CI). Narrower intervals (e.g., 0.90) are easier to achieve; wider intervals (e.g., 0.99) provide stronger confidence."/>
+            <param name="bootstrap_include_diagnostics" type="boolean" checked="true" label="Include bootstrap diagnostics"
+                help="Save bootstrap diagnostics including convergence checks, variance ratios, and CI coverage validations. Useful for assessing bootstrap stability and data quality."/>
+        </section>
     </inputs>
 
     <outputs>
-        <!-- Diversity Analysis Results -->
-        <data name="diversity_results" format="tabular" label="TSENAT on ${on_string}: Diversity q-spectrum"
-            from_work_dir="diversity_results.tsv"/>
-        <data name="diversity_spectrum" format="tabular" label="TSENAT on ${on_string}: Diversity q-spectrum summary"
-            from_work_dir="diversity_results_spectrum.tsv"/>
-        
-        <!-- SAIT (Scale-Adaptive Interaction Testing) -->
-        <data name="sait_results" format="tabular" label="TSENAT on ${on_string}: SAIT results"
-            from_work_dir="sait_interaction_results.tsv"/>
-        
-        <!-- Rank-based Tests -->
-        <data name="srh_results" format="tabular" label="TSENAT on ${on_string}: Scheirer-Ray-Hare test"
-            from_work_dir="srh_results.tsv"/>
-        
-        <!-- Agreement & Effect Sizes -->
-        <data name="concordance_results" format="txt" label="TSENAT on ${on_string}: Concordance (LM vs rank-based)"
-            from_work_dir="concordance_results.tsv.txt"/>
-        <data name="effect_sizes" format="tabular" label="TSENAT on ${on_string}: Effect sizes"
-            from_work_dir="effect_sizes.tsv"/>
-        
-        <!-- Divergence Analysis -->
-        <data name="divergence_results" format="tabular" label="TSENAT on ${on_string}: Divergence results"
-            from_work_dir="divergence_results.tsv"/>
-        
-        <!-- Jackknife Isoform Switching Analysis -->
-        <data name="jis_switching" format="tabular" label="TSENAT on ${on_string}: Jackknife isoform switching"
-            from_work_dir="jackknife_isoform_switching.tsv"/>
-        <data name="jis_switching_transcripts" format="tabular" label="TSENAT on ${on_string}: Switching isoforms"
-            from_work_dir="jackknife_isoform_switching_transcripts.tsv"/>
-        
-        <!-- QC & Assumptions -->
-        <data name="m_estimate_qc" format="tabular" label="TSENAT on ${on_string}: Sample influence QC"
-            from_work_dir="m_estimate_qc.tsv"/>
-        <data name="assumptions_check" format="tabular" label="TSENAT on ${on_string}: Assumptions check"
-            from_work_dir="assumptions_check.tsv"/>
+        <collection name="diversity_outputs" type="list" label="TSENAT on ${on_string}: Diversity results">
+            <element name="diversity_results" format="tabular" label="Diversity q-spectrum"
+                from_work_dir="diversity_results.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,sample,condition,q_value,diversity"/>
+                </actions>
+            </element>
+            <element name="diversity_spectrum" format="tabular" label="Diversity q-spectrum summary"
+                from_work_dir="diversity_results_spectrum.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,condition,q_value,mean_diversity,se_diversity"/>
+                </actions>
+            </element>
+            <element name="qspectrum_plot" format="png" label="Diversity q-spectrum plot"
+                from_work_dir="q_curve_plot.png"/>
+        </collection>
 
-        <!-- Visualizations (PNG format) -->
-        <data name="qspectrum_plot" format="png" label="TSENAT on ${on_string}: Diversity q-spectrum plot"
-            from_work_dir="q_curve_plot.png"/>
-        <data name="sait_plot" format="png" label="TSENAT on ${on_string}: SAIT interaction plot"
-            from_work_dir="sait_interaction_gam_plot.png"/>
-        <data name="influence_heatmap" format="png" label="TSENAT on ${on_string}: Isoform influence heatmap"
-            from_work_dir="influence_heatmap.png"/>
-        <data name="divergence_distribution_plot" format="png" label="TSENAT on ${on_string}: Divergence distribution"
-            from_work_dir="divergence_distribution_plot.png"/>
-        <data name="divergence_spectrum_plot" format="png" label="TSENAT on ${on_string}: Divergence q-spectrum"
-            from_work_dir="divergence_spectrum_plot.png"/>
-        <data name="divergence_spectrum_plot_top" format="png" label="TSENAT on ${on_string}: Top genes divergence spectrum"
-            from_work_dir="divergence_spectrum_plot_top_genes.png"/>
-        <data name="top_transcripts_plot" format="png" label="TSENAT on ${on_string}: Top transcripts expression"
-            from_work_dir="top_transcripts.png"/>
+        <collection name="statistical_results" type="list" label="TSENAT on ${on_string}: Statistical tests">
+            <element name="sait_results" format="tabular" label="SAIT results"
+                from_work_dir="sait_interaction_results.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,p_interaction,p_adj_interaction,significant"/>
+                </actions>
+            </element>
+            <element name="srh_results" format="tabular" label="Aligned Rank Transform test"
+                from_work_dir="rank_transform_results.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,f_statistic,p_value,p_adj,eta_squared,effect_category"/>
+                </actions>
+            </element>
+            <element name="concordance_results" format="tabular" label="Concordance (SAIT vs ART)"
+                from_work_dir="concordance_results.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,sait_significant,rank_significant,agreement"/>
+                </actions>
+            </element>
+            <element name="effect_sizes" format="tabular" label="Effect sizes"
+                from_work_dir="effect_sizes.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,eta_squared,effect_size_category"/>
+                </actions>
+            </element>
+            <element name="sait_plot" format="png" label="SAIT interaction plot"
+                from_work_dir="sait_interaction_gam_plot.png"/>
+        </collection>
+
+        <collection name="divergence_outputs" type="list" label="TSENAT on ${on_string}: Divergence analysis">
+            <element name="divergence_results" format="tabular" label="Divergence results"
+                from_work_dir="divergence_results.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,q_value,divergence,ci_lower,ci_upper"/>
+                </actions>
+            </element>
+            <element name="divergence_distribution_plot" format="png" label="Divergence distribution"
+                from_work_dir="divergence_distribution_plot.png"/>
+            <element name="divergence_spectrum_plot" format="png" label="Divergence q-spectrum"
+                from_work_dir="divergence_spectrum_plot.png"/>
+            <element name="divergence_spectrum_plot_top" format="png" label="Top genes divergence spectrum"
+                from_work_dir="divergence_spectrum_plot_top_genes.png"/>
+        </collection>
+
+        <collection name="isoform_switching_outputs" type="list" label="TSENAT on ${on_string}: Isoform switching">
+            <element name="jis_switching" format="tabular" label="Jackknife isoform switching"
+                from_work_dir="jackknife_isoform_switching.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,switching_score,p_value,significant"/>
+                </actions>
+            </element>
+            <element name="jis_switching_transcripts" format="tabular" label="Switching isoforms"
+                from_work_dir="jackknife_isoform_switching_transcripts.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="gene,transcript,influence,is_switching"/>
+                </actions>
+            </element>
+            <element name="influence_heatmap" format="png" label="Isoform influence heatmap"
+                from_work_dir="influence_heatmap.png"/>
+            <element name="top_transcripts_plot" format="png" label="Top transcripts expression"
+                from_work_dir="top_transcripts.png"/>
+        </collection>
+
+        <collection name="qc_outputs" type="list" label="TSENAT on ${on_string}: QC diagnostics">
+            <element name="m_estimate_qc" format="tabular" label="Sample influence QC"
+                from_work_dir="m_estimate_qc.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="sample,influence_score,outlier"/>
+                </actions>
+            </element>
+            <element name="assumptions_check" format="tabular" label="Assumptions check"
+                from_work_dir="assumptions_check.tsv">
+                <actions>
+                    <action name="column_names" type="metadata" default="check,test,result,passed,notes"/>
+                </actions>
+            </element>
+        </collection>
     </outputs>
 
     <tests>
         <!-- Basic test - minimal parameters -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="yes"/>
-                <param name="subject_col" value="3"/>
+                <param name="subject_col" value="paired_samples"/>
             </conditional>
-            <!-- Tabular outputs should exist and have content -->
-            <output name="diversity_results">
-                <assert_contents>
-                    <has_n_lines n="49857" delta="5000"/>
-                    <has_text text="gene"/>
-                    <has_text text="sample"/>
-                    <has_text text="q_value"/>
-                    <has_text text="diversity"/>
-                </assert_contents>
-            </output>
-            <output name="sait_results">
-                <assert_contents>
-                    <has_n_lines n="77" delta="50"/>
-                    <has_text text="gene"/>
-                    <has_text text="p_interaction"/>
-                </assert_contents>
-            </output>
-            <output name="srh_results">
-                <assert_contents>
-                    <has_n_lines n="78" delta="50"/>
-                    <has_text text="gene"/>
-                    <has_text text="f_statistic"/>
-                    <has_text text="p_value"/>
-                </assert_contents>
-            </output>
-            <output name="assumptions_check">
-                <assert_contents>
-                    <has_n_lines n="18" delta="5"/>
-                    <has_text text="check"/>
-                    <has_text text="test"/>
-                    <has_text text="result"/>
-                </assert_contents>
-            </output>
-            <!-- PNG plots should exist and have minimum size -->
-            <output name="qspectrum_plot">
-                <assert_contents>
-                    <has_size min="50000"/>
-                </assert_contents>
-            </output>
-            <output name="sait_plot">
-                <assert_contents>
-                    <has_size min="100000"/>
-                </assert_contents>
-            </output>
-            <output name="influence_heatmap">
-                <assert_contents>
-                    <has_size min="50000"/>
-                </assert_contents>
-            </output>
-            <output name="divergence_distribution_plot">
-                <assert_contents>
-                    <has_size min="50000"/>
-                </assert_contents>
-            </output>
-            <output name="divergence_spectrum_plot">
-                <assert_contents>
-                    <has_size min="100000"/>
-                </assert_contents>
-            </output>
-            <output name="divergence_spectrum_plot_top">
-                <assert_contents>
-                    <has_size min="200000"/>
-                </assert_contents>
-            </output>
-            <output name="top_transcripts_plot">
-                <assert_contents>
-                    <has_size min="70000"/>
-                </assert_contents>
-            </output>
-            <!-- Additional tabular outputs -->
-            <output name="concordance_results">
-                <assert_contents>
-                    <has_n_lines n="103" delta="50"/>
-                </assert_contents>
-            </output>
-            <output name="effect_sizes">
-                <assert_contents>
-                    <has_n_lines n="60" delta="30"/>
-                </assert_contents>
-            </output>
-            <output name="divergence_results">
-                <assert_contents>
-                    <has_n_lines n="89" delta="50"/>
-                    <has_text text="q_0.01"/>
-                </assert_contents>
-            </output>
-            <output name="jis_switching">
-                <assert_contents>
-                    <has_n_lines n="296" delta="100"/>
-                </assert_contents>
-            </output>
-            <output name="jis_switching_transcripts">
-                <assert_contents>
-                    <has_n_lines n="1271" delta="200"/>
-                </assert_contents>
-            </output>
-            <output name="m_estimate_qc">
-                <assert_contents>
-                    <has_n_lines n="17" delta="5"/>
-                </assert_contents>
-            </output>
+            <output_collection name="diversity_outputs" type="list" count="3">
+                <element name="diversity_results">
+                    <assert_contents>
+                        <has_n_lines n="49857" delta="5000"/>
+                        <has_text text="gene"/>
+                        <has_text text="sample"/>
+                        <has_text text="q_value"/>
+                        <has_text text="diversity"/>
+                    </assert_contents>
+                </element>
+                <element name="qspectrum_plot">
+                    <assert_contents>
+                        <has_size min="50000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="statistical_results" type="list" count="5">
+                <element name="sait_results">
+                    <assert_contents>
+                        <has_n_lines n="77" delta="50"/>
+                        <has_text text="gene"/>
+                        <has_text text="p_interaction"/>
+                        <not_has_text text="ERROR"/>
+                    </assert_contents>
+                </element>
+                <element name="srh_results">
+                    <assert_contents>
+                        <has_n_lines n="78" delta="50"/>
+                        <has_text text="gene"/>
+                        <has_text text="f_statistic"/>
+                        <has_text text="p_value"/>
+                        <not_has_text text="ERROR"/>
+                    </assert_contents>
+                </element>
+                <element name="concordance_results">
+                    <assert_contents>
+                        <has_n_lines n="103" delta="50"/>
+                    </assert_contents>
+                </element>
+                <element name="effect_sizes">
+                    <assert_contents>
+                        <has_n_lines n="60" delta="30"/>
+                    </assert_contents>
+                </element>
+                <element name="sait_plot">
+                    <assert_contents>
+                        <has_size min="100000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="divergence_outputs" type="list" count="4">
+                <element name="divergence_results">
+                    <assert_contents>
+                        <has_n_lines n="89" delta="50"/>
+                        <has_text text="q_0.01"/>
+                    </assert_contents>
+                </element>
+                <element name="divergence_distribution_plot">
+                    <assert_contents>
+                        <has_size min="50000"/>
+                    </assert_contents>
+                </element>
+                <element name="divergence_spectrum_plot">
+                    <assert_contents>
+                        <has_size min="100000"/>
+                    </assert_contents>
+                </element>
+                <element name="divergence_spectrum_plot_top">
+                    <assert_contents>
+                        <has_size min="200000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="isoform_switching_outputs" type="list" count="4">
+                <element name="jis_switching">
+                    <assert_contents>
+                        <has_n_lines n="296" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="jis_switching_transcripts">
+                    <assert_contents>
+                        <has_n_lines n="1271" delta="200"/>
+                    </assert_contents>
+                </element>
+                <element name="influence_heatmap">
+                    <assert_contents>
+                        <has_size min="50000"/>
+                    </assert_contents>
+                </element>
+                <element name="top_transcripts_plot">
+                    <assert_contents>
+                        <has_size min="70000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="qc_outputs" type="list" count="2">
+                <element name="assumptions_check">
+                    <assert_contents>
+                        <has_n_lines n="18" delta="5"/>
+                        <has_text text="check"/>
+                        <has_text text="test"/>
+                        <has_text text="result"/>
+                    </assert_contents>
+                </element>
+                <element name="m_estimate_qc">
+                    <assert_contents>
+                        <has_n_lines n="17" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 2: Unpaired design (no subject_col) -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="no"/>
             </conditional>
-            <output name="diversity_results">
-                <assert_contents>
-                    <has_n_lines n="49857" delta="5000"/>
-                    <has_text text="gene"/>
-                    <has_text text="sample"/>
-                    <has_text text="q_value"/>
-                    <has_text text="diversity"/>
-                </assert_contents>
-            </output>
-            <output name="sait_results">
-                <assert_contents>
-                    <has_n_lines n="77" delta="50"/>
-                    <has_text text="gene"/>
-                    <has_text text="p_interaction"/>
-                </assert_contents>
-            </output>
-            <output name="qspectrum_plot">
-                <assert_contents>
-                    <has_size min="50000"/>
-                </assert_contents>
-            </output>
-            <output name="sait_plot">
-                <assert_contents>
-                    <has_size min="100000"/>
-                </assert_contents>
-            </output>
+            <output_collection name="diversity_outputs" type="list" count="3">
+                <element name="diversity_results">
+                    <assert_contents>
+                        <has_n_lines n="49857" delta="5000"/>
+                        <has_text text="gene"/>
+                        <has_text text="sample"/>
+                        <has_text text="q_value"/>
+                        <has_text text="diversity"/>
+                    </assert_contents>
+                </element>
+                <element name="qspectrum_plot">
+                    <assert_contents>
+                        <has_size min="50000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="statistical_results" type="list" count="5">
+                <element name="sait_results">
+                    <assert_contents>
+                        <has_n_lines n="77" delta="50"/>
+                        <has_text text="gene"/>
+                        <has_text text="p_interaction"/>
+                    </assert_contents>
+                </element>
+                <element name="sait_plot">
+                    <assert_contents>
+                        <has_size min="100000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 3: Paired with normalization enabled -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="yes"/>
-                <param name="subject_col" value="3"/>
+                <param name="subject_col" value="paired_samples"/>
             </conditional>
             <section name="normalization_options">
                 <param name="norm" value="true"/>
             </section>
-            <output name="diversity_results">
-                <assert_contents>
-                    <has_n_lines n="49857" delta="5000"/>
-                    <has_text text="gene"/>
-                    <has_text text="sample"/>
-                    <has_text text="q_value"/>
-                    <has_text text="diversity"/>
-                </assert_contents>
-            </output>
-            <output name="srh_results">
-                <assert_contents>
-                    <has_n_lines n="78" delta="50"/>
-                    <has_text text="gene"/>
-                </assert_contents>
-            </output>
+            <output_collection name="diversity_outputs" type="list" count="3">
+                <element name="diversity_results">
+                    <assert_contents>
+                        <has_n_lines n="49857" delta="5000"/>
+                        <has_text text="gene"/>
+                        <has_text text="sample"/>
+                        <has_text text="q_value"/>
+                        <has_text text="diversity"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="statistical_results" type="list" count="5">
+                <element name="srh_results">
+                    <assert_contents>
+                        <has_n_lines n="78" delta="50"/>
+                        <has_text text="gene"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 4: Reduced samples (4 samples) -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="no"/>
             </conditional>
-            <output name="diversity_results">
-                <assert_contents>
-                    <has_n_lines n="49857" delta="5000"/>
-                    <has_text text="gene"/>
-                    <has_text text="sample"/>
-                    <has_text text="diversity"/>
-                </assert_contents>
-            </output>
-            <output name="assumptions_check">
-                <assert_contents>
-                    <has_n_lines n="18" delta="5"/>
-                </assert_contents>
-            </output>
+            <output_collection name="diversity_outputs" type="list" count="3">
+                <element name="diversity_results">
+                    <assert_contents>
+                        <has_n_lines n="49857" delta="5000"/>
+                        <has_text text="gene"/>
+                        <has_text text="sample"/>
+                        <has_text text="diversity"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="qc_outputs" type="list" count="2">
+                <element name="assumptions_check">
+                    <assert_contents>
+                        <has_n_lines n="18" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 5: Medium stringency filter -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="yes"/>
-                <param name="subject_col" value="3"/>
+                <param name="subject_col" value="paired_samples"/>
             </conditional>
             <section name="data_filtering">
                 <param name="filter_stringency" value="medium"/>
             </section>
-            <output name="diversity_results">
-                <assert_contents>
-                    <has_n_lines n="49857" delta="5000"/>
-                    <has_text text="gene"/>
-                    <has_text text="sample"/>
-                    <has_text text="diversity"/>
-                </assert_contents>
-            </output>
-            <output name="divergence_results">
-                <assert_contents>
-                    <has_n_lines n="89" delta="50"/>
-                </assert_contents>
-            </output>
+            <output_collection name="diversity_outputs" type="list" count="3">
+                <element name="diversity_results">
+                    <assert_contents>
+                        <has_n_lines n="49857" delta="5000"/>
+                        <has_text text="gene"/>
+                        <has_text text="sample"/>
+                        <has_text text="diversity"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="divergence_outputs" type="list" count="4">
+                <element name="divergence_results">
+                    <assert_contents>
+                        <has_n_lines n="89" delta="50"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 6: Bootstrap enabled -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="yes"/>
-                <param name="subject_col" value="3"/>
+                <param name="subject_col" value="paired_samples"/>
             </conditional>
             <section name="bootstrap_options">
                 <param name="bootstrap" value="true"/>
                 <param name="nboot" value="100"/>
             </section>
-            <output name="diversity_results">
-                <assert_contents>
-                    <has_n_lines n="49857" delta="5000"/>
-                    <has_text text="gene"/>
-                    <has_text text="sample"/>
-                    <has_text text="diversity"/>
-                </assert_contents>
-            </output>
-            <output name="m_estimate_qc">
-                <assert_contents>
-                    <has_n_lines n="17" delta="5"/>
-                </assert_contents>
-            </output>
+            <output_collection name="diversity_outputs" type="list" count="3">
+                <element name="diversity_results">
+                    <assert_contents>
+                        <has_n_lines n="49857" delta="5000"/>
+                        <has_text text="gene"/>
+                        <has_text text="sample"/>
+                        <has_text text="diversity"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="qc_outputs" type="list" count="2">
+                <element name="m_estimate_qc">
+                    <assert_contents>
+                        <has_n_lines n="17" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 7: LMM method -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="yes"/>
-                <param name="subject_col" value="3"/>
+                <param name="subject_col" value="paired_samples"/>
             </conditional>
             <section name="sait_testing">
                 <param name="sait_method" value="lmm"/>
             </section>
-            <output name="sait_results">
-                <assert_contents>
-                    <has_n_lines n="77" delta="50"/>
-                    <has_text text="gene"/>
-                    <has_text text="p_interaction"/>
-                </assert_contents>
-            </output>
-            <output name="effect_sizes">
-                <assert_contents>
-                    <has_n_lines n="18" delta="5"/>
-                </assert_contents>
-            </output>
+            <output_collection name="statistical_results" type="list" count="5">
+                <element name="sait_results">
+                    <assert_contents>
+                        <has_n_lines n="77" delta="50"/>
+                        <has_text text="gene"/>
+                        <has_text text="p_interaction"/>
+                    </assert_contents>
+                </element>
+                <element name="effect_sizes">
+                    <assert_contents>
+                        <has_n_lines n="18" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
 
         <!-- Test 8: Strict p-value threshold -->
-        <test expect_num_outputs="18">
+        <test expect_num_outputs="5">
             <conditional name="salmon_input">
                 <param name="input_type" value="individual"/>
-                <param name="salmon_files" value="salmon_output/SRR14800475.sf,salmon_output/SRR14800476.sf,salmon_output/SRR14800477.sf,salmon_output/SRR14800478.sf,salmon_output/SRR14800479.sf,salmon_output/SRR14800480.sf,salmon_output/SRR14800481.sf,salmon_output/SRR14800482.sf,salmon_output/SRR14800483.sf,salmon_output/SRR14800484.sf,salmon_output/SRR14800485.sf,salmon_output/SRR14800486.sf,salmon_output/SRR14800487.sf,salmon_output/SRR14800488.sf,salmon_output/SRR14800489.sf,salmon_output/SRR14800490.sf"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
             </conditional>
             <param name="sample_sheet" value="metadata.tsv"/>
             <param name="annotation" value="annotation.gff3.gz"/>
-            <param name="sample_col" value="1"/>
-            <param name="condition_col" value="2"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
             <param name="control" value="normal"/>
             <conditional name="paired_design">
                 <param name="paired" value="yes"/>
-                <param name="subject_col" value="3"/>
+                <param name="subject_col" value="paired_samples"/>
             </conditional>
             <section name="statistical_thresholds">
                 <param name="p_threshold" value="0.01"/>
                 <param name="fdr_threshold" value="0.01"/>
             </section>
-            <output name="sait_results">
-                <assert_contents>
-                    <has_n_lines n="77" delta="50"/>
-                    <has_text text="gene"/>
-                    <has_text text="p_interaction"/>
-                </assert_contents>
-            </output>
-            <output name="jis_switching">
-                <assert_contents>
-                    <has_n_lines n="296" delta="100"/>
-                </assert_contents>
-            </output>
+            <output_collection name="statistical_results" type="list" count="5">
+                <element name="sait_results">
+                    <assert_contents>
+                        <has_n_lines n="77" delta="50"/>
+                        <has_text text="gene"/>
+                        <has_text text="p_interaction"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="isoform_switching_outputs" type="list" count="4">
+                <element name="jis_switching">
+                    <assert_contents>
+                        <has_n_lines n="296" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- Test 9: Missing annotation (failure expected) -->
+        <test expect_failure="true">
+            <conditional name="salmon_input">
+                <param name="input_type" value="individual"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
+            </conditional>
+            <param name="sample_sheet" value="metadata.tsv"/>
+            <!-- Intentionally omitting annotation to test error handling -->
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
+            <param name="control" value="normal"/>
+            <conditional name="paired_design">
+                <param name="paired" value="no"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Error"/>
+            </assert_stderr>
+        </test>
+
+        <!-- Test 10: Missing sample sheet (failure expected) -->
+        <test expect_failure="true">
+            <conditional name="salmon_input">
+                <param name="input_type" value="individual"/>
+                <param name="salmon_files" value="@SALMON_TEST_FILES@"/>
+            </conditional>
+            <!-- Intentionally omitting sample_sheet -->
+            <param name="annotation" value="annotation.gff3.gz"/>
+            <param name="sample_col" value="sample"/>
+            <param name="condition_col" value="condition"/>
+            <param name="control" value="normal"/>
+            <conditional name="paired_design">
+                <param name="paired" value="no"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Error"/>
+            </assert_stderr>
         </test>
 
     </tests>
@@ -815,10 +954,10 @@ TSENAT executes a comprehensive analysis pipeline:
 - **Q-spectrum Visualization**: Plot diversity q-curves showing complexity patterns across q-values
 - **SAIT Parametric Testing**: Fit Scale-Adaptive Interaction Testing models (GAM, LMM, FPCA, or GEE) for q × condition effects
 - **Jackknife Isoform Switching**: Detect transcript-level switching patterns with jackknife resampling validation
-- **Rank-based Testing**: Scheirer-Ray-Hare non-parametric test for q × condition interaction with Westfall-Young correction
+- **Rank-based Testing**: Aligned Rank Transform (ART/Conover-Iman) non-parametric test for q × condition interaction with Westfall-Young correction
 - **Divergence Analysis**: Compute Tsallis divergence measuring information-theoretic distance between conditions
-- **Concordance Analysis**: Compare parametric (SAIT) vs rank-based (SRH) test agreement
-- **Quality Control**: M-estimator sample influence assessment and statistical assumptions validation
+- **Concordance Analysis**: Compare parametric (SAIT) vs non-parametric (ART) test agreement
+- **Quality Control**: M-estimator sample influence assessment (runs automatically) and statistical assumptions validation
 - **Visualization**: Comprehensive plots including influence heatmaps, top transcripts patterns, and divergence distributions
 
 -----
