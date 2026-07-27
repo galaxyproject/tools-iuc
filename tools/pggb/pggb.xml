@@ -20,11 +20,13 @@ mkdir -p pggb_out pggb_tmp &&
 #end if
 samtools faidx input.fa.gz &&
 
-## Run pggb. Do not && to the next steps - vg deconstruct may fail
-## (e.g. when --vcf-spec doesn't match graph sample names), and we
-## still want to ship the GFA + .og which were produced earlier in
-## the pipeline. The if-then-fi blocks below hard-error if the
-## critical outputs are actually missing.
+## Run pggb. Output is teed to pggb.log so that stderr reaches the
+## job's stderr (enabling OOM regex detection / auto-resubmit) while
+## also preserving a log file. Do not && to the next steps - vg
+## deconstruct may fail (e.g. when --vcf-spec doesn't match graph
+## sample names), and we still want to ship the GFA + .og which were
+## produced earlier in the pipeline. An explicit guard below
+## hard-errors if the critical GFA output is missing.
 pggb
     --input-fasta input.fa.gz
     --output-dir pggb_out
@@ -63,18 +65,23 @@ pggb
         --vcf-spec '$vcf_spec'
     #end if
     --names-with-params
-    > pggb.log 2>&1 ;
+    2>&1 | tee pggb.log ;
 
-pggb_exit=\$? ;
+pggb_exit=\${PIPESTATUS[0]} ;
 
 ## Locate output files (filenames carry hashes / params).
 ## pggb writes exactly one of each type per run, so globbing is sufficient.
 echo "--- pggb exit=\$pggb_exit ---" ;
 ls -la pggb_out/ 2>/dev/null || true ;
 
+## Hard-fail if pggb produced no critical GFA output.
+if ! ls pggb_out/*.smooth.final.gfa pggb_out/*.smooth.fix.gfa >/dev/null 2>&1; then
+    echo "pggb produced no final GFA (exit=\$pggb_exit)" >&2 ; exit 1 ;
+fi
+
 cp pggb.log '$output_log' ;
 
-## GFA and .og are critical outputs — hard-fail if missing.
+## GFA and .og are critical outputs.
 gzip -c pggb_out/*.smooth.final.gfa 2>/dev/null > '$output_gfa' || gzip -c pggb_out/*.smooth.fix.gfa > '$output_gfa' ;
 cp pggb_out/*.smooth.final.og 2>/dev/null '$output_og' || cp pggb_out/*.smooth.fix.og '$output_og' ;
 
