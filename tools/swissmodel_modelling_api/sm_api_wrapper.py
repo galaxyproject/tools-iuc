@@ -209,7 +209,7 @@ def _defastarise_targets(fasta_file):
                     current_seq = []
             else:
                 if line:
-                    current_seq.append(line)
+                    current_seq.append("".join(line.split()))
         if current_seq:
             targets.append("".join(current_seq))
 
