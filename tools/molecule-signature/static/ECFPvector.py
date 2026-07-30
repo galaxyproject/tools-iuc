@@ -1,7 +1,7 @@
 import sys
 
-from molsig.SignatureAlphabet import load_alphabet
 from molsig.enumerate_signature import enumerate_molecule_from_morgan
+from molsig.SignatureAlphabet import load_alphabet
 
 ecfp_text, alphabet_path, output_path = sys.argv[1], sys.argv[2], sys.argv[3]
 

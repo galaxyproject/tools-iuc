@@ -1,15 +1,16 @@
 import sys
-from rdkit import Chem
+
 from molsig.enumerate_utils import get_first_stereoisomer
-from molsig.SignatureAlphabet import (SignatureAlphabet,merge_alphabets,load_alphabet)
+from molsig.SignatureAlphabet import (load_alphabet, merge_alphabets, SignatureAlphabet)
+from rdkit import Chem
 
 RADIUS = 2
 NBITS = 2048
 USE_STEREO = True
 
 alphabet_path = sys.argv[1]
-output_path   = sys.argv[2]
-smiles_0        = sys.argv[3]
+output_path = sys.argv[2]
+smiles_0 = sys.argv[3]
 
 Alphabet = load_alphabet(alphabet_path)
 
