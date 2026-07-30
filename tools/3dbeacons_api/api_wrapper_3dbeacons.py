@@ -1,12 +1,12 @@
 """Wrapper for the 3D-Beacons API."""
 
-from pathlib import Path
-from urllib.parse import urlsplit
 import argparse
 import csv
 import json
 import re
 import sys
+from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
@@ -60,8 +60,8 @@ def _validate_sequence_range(value):
     """Validate sequence range format."""
     if not re.match(r"^\d+-\d+$", value):
         raise ValueError(
-            f"invalid sequence_range '{value}' - must be in format 'start-end' "
-            + "(e.g., '1-100')"
+            f"invalid sequence_range '{value}' - must be in format "
+            + "'start-end' (e.g., '1-100')"
         )
     return value
 
@@ -84,7 +84,10 @@ def _parse_args():
     subparsers = parser.add_subparsers(dest="mode", required=True)
 
     # Single query mode
-    single_parser = subparsers.add_parser("single", help="Query a single entry")
+    single_parser = subparsers.add_parser(
+        "single",
+        help="Query a single entry",
+    )
     single_parser.add_argument(
         "qualifier",
         help="ID/AC to search for",
