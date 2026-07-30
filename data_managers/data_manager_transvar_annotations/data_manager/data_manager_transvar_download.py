@@ -21,7 +21,21 @@ import os
 import shutil
 import sys
 import tempfile
+import time
+from urllib.error import HTTPError
 from urllib.request import urlopen
+
+# A full annotation set is ~35 files and a few hundred megabytes from a single
+# academic server, so a transient failure part way through is expected.
+ATTEMPTS = 3
+TIMEOUT = 60
+
+PROXY_HINT = (
+    "If this Galaxy server reaches the internet through an HTTP proxy, note "
+    "that Galaxy strips the environment of a job down to HOME, LC_CTYPE, PATH "
+    "and TMPDIR, so http_proxy/https_proxy have to be set for the job "
+    "destination in job_conf.yml."
+)
 
 # TransVar config key -> the "transvar {g,c,p}anno" flag that takes the
 # database. Only annotation sets that are openly licensed and freely
@@ -94,23 +108,41 @@ def download(url, target_path, test=False):
         # from an external server.
         open(target_path, "w").close()
         return True
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(target_path))
-    os.close(tmp_fd)
-    try:
-        with urlopen(url) as response, open(tmp_path, "wb") as out:
-            shutil.copyfileobj(response, out)
-    except Exception as e:
-        os.remove(tmp_path)
-        # The per-database ID mapping indices only exist for some sources and
-        # TransVar works without them, so their absence is not an error.
-        if target_path.endswith(".idmap_idx"):
-            return False
-        sys.exit("Failed to download %s: %s" % (url, e))
-    # mkstemp creates the file 0600, but the databases end up in a shared
-    # data directory that every job user has to be able to read.
-    os.chmod(tmp_path, 0o644)
-    os.rename(tmp_path, target_path)
-    return True
+
+    # The per-database ID mapping indices only exist for some sources and
+    # TransVar works without them, so their absence is not an error.
+    optional = target_path.endswith(".idmap_idx")
+    last_error = None
+
+    for attempt in range(1, ATTEMPTS + 1):
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(target_path))
+        os.close(tmp_fd)
+        try:
+            with urlopen(url, timeout=TIMEOUT) as response, open(tmp_path, "wb") as out:
+                shutil.copyfileobj(response, out)
+        except HTTPError as e:
+            os.remove(tmp_path)
+            last_error = e
+            if e.code < 500:
+                break  # the file is not there, retrying will not help
+        except Exception as e:
+            os.remove(tmp_path)
+            last_error = e
+        else:
+            # mkstemp creates the file 0600, but the databases end up in a
+            # shared data directory every job user has to be able to read.
+            os.chmod(tmp_path, 0o644)
+            os.rename(tmp_path, target_path)
+            return True
+        if attempt < ATTEMPTS:
+            time.sleep(2 ** attempt)
+
+    if optional:
+        return False
+    sys.exit(
+        "Failed to download %s after %d attempt(s): %s\n%s"
+        % (url, attempt, last_error, PROXY_HINT)
+    )
 
 
 def main():
