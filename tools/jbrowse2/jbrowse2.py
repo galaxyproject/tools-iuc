@@ -139,6 +139,7 @@ class JbrowseConnector(object):
         self.enable_workspaces = enable_workspaces
         self.show_legends = show_legends 
 
+        # This is the id of the current assembly
         self.tracksToIndex = {}
         self.assembly_ids = {}
         self.default_views = {}
@@ -194,7 +195,7 @@ class JbrowseConnector(object):
 
     def _prepare_track_style(self, xml_conf):
         style_data = {
-            "type": "LinearBasicDisplay",
+            "type": "LinearBasicDisplay", # No ideal default, but should be overwritten anyway
         }
 
         if "display" in xml_conf["style"]:
@@ -210,6 +211,8 @@ class JbrowseConnector(object):
         style_data = {}
 
         if display_type in ("LinearBasicDisplay",):
+
+            # Doc: https://jbrowse.org/jb2/docs/config/arcrenderer/         
             style_data["renderer"] = {
                 "type": "CanvasFeatureRenderer",
                 "showLabels": xml_conf.get("show_labels", True),
@@ -243,6 +246,8 @@ class JbrowseConnector(object):
                 style_data["minScore"] = xml_conf["min_score"]
             if "max_score" in xml_conf:
                 style_data["maxScore"] = xml_conf["max_score"]
+
+            # Doc: https://jbrowse.org/jb2/docs/config/snpcoveragerenderer/
 
         return style_data
 
@@ -766,6 +771,9 @@ class JbrowseConnector(object):
         )
 
     def add_gtf(self, parent, data, format, trackData, gffOpts, **kwargs):
+        # Not a super recommended format
+        # https://github.com/GMOD/jbrowse-components/pull/2389
+        # https://github.com/GMOD/jbrowse-components/issues/3876
         if trackData['remote']:
             rel_dest = data
         else:
@@ -794,7 +802,6 @@ class JbrowseConnector(object):
         track_metadata = self._prepare_track_metadata(trackData)
         style_json.update(track_metadata)
 
-        # ✅ Forcer CanvasFeatureRenderer
         if "displays" in style_json:
             for display in style_json["displays"]:
                 if "renderer" in display and display["renderer"]["type"] == "SvgFeatureRenderer":
@@ -1499,7 +1506,6 @@ class JbrowseConnector(object):
         with open(config_path, "r") as config_file:
             config_json = json.load(config_file)
 
-        # ✅ Mettre à jour la session par défaut
         if "defaultSession" not in config_json:
             config_json["defaultSession"] = {}
         config_json["defaultSession"].update(session_spec)
@@ -1570,6 +1576,7 @@ class JbrowseConnector(object):
             log.error(f"Error: {e.filename} - {e.strerror}.")
 
         if not os.path.exists(os.path.join(destination, "data")):
+            # It can already exist if upgrading an instance
             os.makedirs(os.path.join(destination, "data"))
             log.info(f"makedir {os.path.join(destination, 'data')}")
 
