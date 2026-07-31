@@ -1,0 +1,151 @@
+<tool id="vardictcpp" name="VarDict (C++)" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>calls SNVs and indels from a single BAM (C++ port of VarDict)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <!-- The C++ port does the variant calling. NOTE: vardictcpp is not yet on Bioconda; this
+             requirement anticipates the recipe. -->
+        <requirement type="package" version="@TOOL_VERSION@">vardictcpp</requirement>
+        <!-- vardict-java ships the teststrandbias.R + var2vcf_valid.pl post-processing scripts that
+             turn VarDict's TSV into VCF; the C++ output is column-compatible with them. -->
+        <requirement type="package" version="1.8.3">vardict-java</requirement>
+        <requirement type="package" version="5.1.0">gawk</requirement>
+        <requirement type="package" version="1.14">samtools</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ln -s '$select_mode.tumor' ./tumor.bam &&
+        ln -s '$select_mode.tumor.metadata.bam_index' ./tumor.bam.bai &&
+
+        ## INDEX REFERENCE FASTA FILE IF FROM HISTORY
+        #if $reference_source.reference_source_selector == "history":
+            ln -s '$reference_source.ref_file' ./ref.fa &&
+            samtools faidx ./ref.fa 2>&1 || echo 'Error running samtools faidx for indexing fasta reference for vardictcpp' >&2 &&
+        #else if $reference_source.reference_source_selector == "cached"
+            ln -s '$reference_source.ref_file.fields.path' ./ref.fa &&
+            ln -s '${reference_source.ref_file.fields.path}.fai' ./ref.fa.fai &&
+        #end if
+
+        ## Build a whole-chromosome region BED (chr, 1, length, chr). vardictcpp does bounded internal
+        ## chunking (--chunk) with a correct realignment halo, so there is no need to pre-tile the target
+        ## into small overlapping windows: the C++ core keeps memory bounded on large regions itself.
+        #if $interval_file:
+            grep -w -f '$interval_file' ./ref.fa.fai > ./chromosomes.fa.fai &&
+        #else
+            ln -s ./ref.fa.fai ./chromosomes.fa.fai &&
+        #end if
+        awk 'BEGIN{OFS="\t"} {print \$1, 1, \$2, \$1}' ./chromosomes.fa.fai > ./regions.bed &&
+
+        vardictcpp
+        -b "./tumor.bam"
+        -N 'Sample'
+        -G ./ref.fa
+        -z
+        -th \${GALAXY_SLOTS:-1}
+        ## Split any region longer than this many bp into internal windows to bound peak memory.
+        --chunk \${VARDICTCPP_CHUNKSIZE:-50000}
+
+        -f '$advancedsettings.f'
+        $advancedsettings.k
+        -r '$advancedsettings.r'
+        -B '$advancedsettings.B'
+        -q '$advancedsettings.q'
+        -X '$advancedsettings.X'
+        -P '$advancedsettings.P'
+        -o '$advancedsettings.o'
+        -O '$advancedsettings.O'
+
+        ## construct VCF table
+        -c 1 -S 2 -E 3 -g 4
+        ./regions.bed
+
+        ## postprocessing (scripts from the vardict-java package)
+        | teststrandbias.R
+        | var2vcf_valid.pl
+        -N 'Sample'
+        -E
+        -f '$advancedsettings.f'
+
+        > '$all_variants' &&
+
+        ## Filter for PASS variants
+        awk 'BEGIN {FS=OFS="\t"} substr(\$0, 1, 1) == "#" {print \$0; next} \$7 == "PASS" {print \$0}' '$all_variants' > '$passed_variants'
+    ]]></command>
+    <inputs>
+        <conditional name="select_mode">
+            <param name="mode" type="select" label="Choose run mode">
+                <option value="single" selected="true">Single sample mode</option>
+            </param>
+            <when value="single">
+                <expand macro="input_default" />
+            </when>
+        </conditional>
+        <section name="advancedsettings" title="Advanced Settings" expanded="false">
+            <param argument="-f" type="float" min="0.0" max="1.0" value="0.01" label="Minimum variant allele fraction" />
+            <param argument="-k" type="boolean" truevalue="" falsevalue="-k" checked="true" label="Perform local realignment" help="Local realignment rescues long indels from soft-clipped reads. Uncheck to disable." />
+            <param argument="-r" type="integer" min="0" value="2" label="Minimum number of reads supporting the variant" />
+            <param argument="-B" type="integer" min="0" value="2" label="Minimum number of reads for determining strand bias" />
+            <param argument="-P" type="integer" value="5" label="Maximum average read position for a variant to be considered." />
+            <param argument="-X" type="integer" value="3" label="Maximum number of extended bases after indel to look for mismatches" />
+            <param argument="-q" type="integer" value="25" label="Minimum phred score for a base to be considered a good call" />
+            <param argument="-o" type="float" value="1.5" label="Minimum quality ratio [(good_quality_reads)/(bad_quality_reads+0.5)] (based on definition of a good call; see previous option)" />
+            <param argument="-O" type="float" min="0" value="0" label="Minimum average mapping quality" />
+        </section>
+        <expand macro="ref_select" />
+    </inputs>
+    <outputs>
+        <data name="all_variants" format="vcf" label="VarDict (C++) SNVs and Indels (All)" />
+        <data name="passed_variants" format="vcf" label="VarDict (C++) SNVs and Indels (Passed)" />
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="select_mode">
+                <param name="mode" value="single" />
+                <param name="tumor" ftype="bam" value="tumor.bam" />
+            </conditional>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="genome.fasta" />
+            </conditional>
+            <output name="all_variants" compare="re_match_multiline" file="all_variants_single.vcf" />
+            <output name="passed_variants" compare="re_match_multiline" file="passed_variants_single.vcf" />
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+VarDict (C++)
+=============
+
+**vardictcpp** is a C++ port of the VarDict variant caller. On single-sample calling it reproduces the
+variants of the Java implementation (VarDictJava) while using a fraction of the memory and running
+faster, because it holds native per-position counters instead of the JVM object graph and needs no
+Java heap.
+
+This wrapper runs single-sample SNV and indel calling and converts the result to VCF with VarDict's own
+``teststrandbias.R`` and ``var2vcf_valid.pl`` post-processing scripts, so the output columns match the
+regular VarDict tool.
+
+Memory and large regions
+-------------------------
+
+VarDict's memory scales with how large a single work unit (region) is: one big region is processed on
+one thread and holds that whole span's tables at once. vardictcpp splits any region longer than
+``VARDICTCPP_CHUNKSIZE`` bp (default ``50000``) into internal windows with a correct realignment
+halo, so peak memory stays bounded even on whole-chromosome targets while the emitted calls are
+unchanged. Lower the value further for extremely deep data or when calling at ``-f 0``.
+
+Scope
+-----
+
+Only **single-sample** mode is wrapped here. Paired/somatic and amplicon calling exist in the C++ port
+but are not yet exposed by this wrapper; use the Java VarDict tool for those modes.
+
+For more information see the VarDict documentation_.
+
+.. _documentation: https://github.com/AstraZeneca-NGS/VarDictJava
+        ]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkw227</citation>
+    </citations>
+</tool>
