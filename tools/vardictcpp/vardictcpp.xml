@@ -26,15 +26,20 @@
             ln -s '${reference_source.ref_file.fields.path}.fai' ./ref.fa.fai &&
         #end if
 
-        ## Build a whole-chromosome region BED (chr, 1, length, chr). vardictcpp does bounded internal
-        ## chunking (--chunk) with a correct realignment halo, so there is no need to pre-tile the target
-        ## into small overlapping windows: the C++ core keeps memory bounded on large regions itself.
-        #if $interval_file:
-            grep -w -f '$interval_file' ./ref.fa.fai > ./chromosomes.fa.fai &&
-        #else
-            ln -s ./ref.fa.fai ./chromosomes.fa.fai &&
+        ## Build the target regions as a 3-column BED (chrom, start, end): the whole genome, a chosen
+        ## list of chromosomes, a single user region, or a user-supplied regions BED. vardictcpp does
+        ## bounded internal chunking (--chunk) with a correct realignment halo, so there is no need to
+        ## pre-tile the target into small overlapping windows: the C++ core keeps memory bounded itself.
+        ## vardictcpp needs the 4th (gene) column for -g 4, so emit chrom (or the BED's own name) as it.
+        #if $restrict.restrict_source == "genome"
+            awk 'BEGIN{OFS="\t"} {print \$1, 1, \$2, \$1}' ./ref.fa.fai > ./regions.bed &&
+        #else if $restrict.restrict_source == "chromosomes"
+            grep -w -f '$restrict.interval_file' ./ref.fa.fai | awk 'BEGIN{OFS="\t"} {print \$1, 1, \$2, \$1}' > ./regions.bed &&
+        #else if $restrict.restrict_source == "region"
+            echo '$restrict.region' | tr -d ',' | awk -F: 'BEGIN{OFS="\t"} {split(\$2, r, "-"); print \$1, r[1], r[2], \$1}' > ./regions.bed &&
+        #else if $restrict.restrict_source == "bed"
+            awk 'BEGIN{OFS="\t"} {print \$1, \$2, \$3, (NF>=4 ? \$4 : \$1)}' '$restrict.region_bed' > ./regions.bed &&
         #end if
-        awk 'BEGIN{OFS="\t"} {print \$1, 1, \$2, \$1}' ./chromosomes.fa.fai > ./regions.bed &&
 
         vardictcpp
         -b "./tumor.bam"
@@ -80,6 +85,7 @@
                 <expand macro="input_default" />
             </when>
         </conditional>
+        <expand macro="regions_conditional" />
         <section name="advancedsettings" title="Advanced Settings" expanded="false">
             <param argument="-f" type="float" min="0.0" max="1.0" value="0.01" label="Minimum variant allele fraction" />
             <param argument="-k" type="boolean" truevalue="" falsevalue="-k" checked="true" label="Perform local realignment" help="Local realignment rescues long indels from soft-clipped reads. Uncheck to disable." />
@@ -110,6 +116,22 @@
             <output name="all_variants" compare="re_match_multiline" file="all_variants_single.vcf" />
             <output name="passed_variants" compare="re_match_multiline" file="passed_variants_single.vcf" />
         </test>
+        <test expect_num_outputs="2">
+            <conditional name="select_mode">
+                <param name="mode" value="single" />
+                <param name="tumor" ftype="bam" value="tumor.bam" />
+            </conditional>
+            <conditional name="restrict">
+                <param name="restrict_source" value="region" />
+                <param name="region" value="chrM:1-16571" />
+            </conditional>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="genome.fasta" />
+            </conditional>
+            <output name="all_variants" compare="re_match_multiline" file="all_variants_single.vcf" />
+            <output name="passed_variants" compare="re_match_multiline" file="passed_variants_single.vcf" />
+        </test>
     </tests>
     <help>
         <![CDATA[
@@ -124,6 +146,9 @@ Java heap.
 This wrapper runs single-sample SNV and indel calling and converts the result to VCF with VarDict's own
 ``teststrandbias.R`` and ``var2vcf_valid.pl`` post-processing scripts, so the output columns match the
 regular VarDict tool.
+
+Calls can be restricted to the whole genome, a list of chromosomes, a single region (``chr:start-end``),
+or the regions in a BED file with the *Regions to call variants in* option.
 
 Memory and large regions
 -------------------------
