@@ -7,7 +7,9 @@ components are split by curation status (curated/uncurated) and model type
 (consensus sequences, used by the rmblast search engine, or profile HMMs, used
 by nhmmer).  This data manager downloads the root partition (always) together
 with whichever components the admin selects, laying the ``*.h5`` files out in a
-single directory that RepeatMasker (>= 4.2.4) can consume via ``-libdir``.
+single directory that RepeatMasker (>= 4.2.4) can consume via ``-libdir``.  The
+selected components, and the search engines they support, are recorded in the
+data table so consuming tools can filter on them.
 
 See https://www.dfam.org/releases/current/families/FamDB/README.txt
 """
@@ -33,13 +35,18 @@ RELEASES = {
 
 BASE_URL = "https://www.dfam.org/releases/{dir}/families/FamDB/"
 
-# component key -> FamDB file-name infix
+# component key -> FamDB file-name infix and the search engine that can use it.
+# Consensus sequences are searched with rmblast, profile HMMs with nhmmer, so the
+# selected components determine which engines the installed library supports.
 COMPONENTS = {
-    "curated_consensus": "curated.consensus",
-    "uncurated_consensus": "uncurated.consensus",
-    "curated_hmm": "curated.hmm",
-    "uncurated_hmm": "uncurated.hmm",
+    "curated_consensus": {"infix": "curated.consensus", "engine": "rmblast"},
+    "uncurated_consensus": {"infix": "uncurated.consensus", "engine": "rmblast"},
+    "curated_hmm": {"infix": "curated.hmm", "engine": "nhmmer"},
+    "uncurated_hmm": {"infix": "uncurated.hmm", "engine": "nhmmer"},
 }
+
+# Search engines, in the order they are reported in the data table.
+ENGINES = ("rmblast", "nhmmer")
 
 # A tiny (~0.3 MB) real partition used to exercise the full download / gunzip /
 # checksum / registration path quickly during automated testing.
@@ -131,7 +138,7 @@ def download(release, components, test, out_file):
         # Exercise the real code path cheaply: fetch only the smallest partition
         # of a single component, and skip the large root/curated downloads.
         components = [TEST_COMPONENT]
-        infix = COMPONENTS[TEST_COMPONENT]
+        infix = COMPONENTS[TEST_COMPONENT]["infix"]
         installed = [
             download_and_extract(
                 "{}{}.{}.0.h5.gz".format(base_url, prefix, infix), target_directory
@@ -145,16 +152,25 @@ def download(release, components, test, out_file):
             )
         ]
         for component in components:
-            infix = COMPONENTS[component]
+            infix = COMPONENTS[component]["infix"]
             for url in iter_partition_urls(base_url, prefix, infix):
                 installed.append(download_and_extract(url, target_directory))
 
     today = date.today().strftime("%Y-%m-%d")
-    selected = "+".join(components) if components else "root"
+    selected = "+".join(components)
+    # Record what was installed so consuming tools can filter on it, e.g. offer a
+    # library only for a search engine its components actually support.
+    engines = [
+        engine
+        for engine in ENGINES
+        if any(COMPONENTS[c]["engine"] == engine for c in components)
+    ]
     entry = {
         "value": "dfam_{}_{}_{}".format(release, selected, today).replace(".", "_"),
-        "name": "Dfam {} ({}) [{}]".format(release, ", ".join(components) or "root only", today),
+        "name": "Dfam {} ({}) [{}]".format(release, ", ".join(components), today),
         "version": release,
+        "components": ",".join(components),
+        "engines": ",".join(engines),
         "path": target_directory,
     }
     data_manager_json = {"data_tables": {"repeatmasker_famdb": [entry]}}
@@ -182,7 +198,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    components = [c for c in args.components.split(",") if c]
+    # Cheetah renders an empty multi-select as the string "None".
+    components = [c for c in args.components.split(",") if c and c != "None"]
+    if not components:
+        sys.exit(
+            "No components selected. Select at least one of: {}".format(
+                ", ".join(sorted(COMPONENTS))
+            )
+        )
     unknown = [c for c in components if c not in COMPONENTS]
     if unknown:
         sys.exit("Unknown component(s): {}".format(", ".join(unknown)))
