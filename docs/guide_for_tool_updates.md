@@ -115,12 +115,12 @@ planemo lint tools/<tool>
 planemo test tools/<tool>
 ```
 
-Use the Galaxy instance, profile, dependency resolver, or other test-engine
-options appropriate for your local environment; `--biocontainers` is one option
-when a container for the new version already exists, but it is not required.
-Pull request CI runs the repository lint and test jobs;
-it does not require the new BioContainer to exist. The main-branch lint job adds
-the BioContainer check after the update has merged.
+Use the Galaxy instance, profile, or other test-engine options appropriate for
+your local environment. CI tests with `--biocontainers` (except for the paths
+listed in `.tt_biocontainer_skip`), so use it locally too when you can and test
+what CI tests. Pull request CI runs the repository lint and test jobs; it does
+not require the new BioContainer to exist. The main-branch lint job adds the
+BioContainer check after the update has merged.
 
 Run any additional formatter or language-specific checks required by files in
 the directory. Review the final diff after testing and confirm that it contains
