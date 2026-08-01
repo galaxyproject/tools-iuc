@@ -15,22 +15,19 @@ evidence as one change.
 
 Before editing files:
 
-1. Identify the requested upstream version and the wrapper directory.
+1. Identify the target upstream version and the wrapper directory.
 2. Find every tool XML file and macro file in the tool suite.
 3. Identify the main Conda requirement and how the suite defines
    `@TOOL_VERSION@` and `@VERSION_SUFFIX@`.
-4. Confirm that the requested package version exists in the best-practice Conda
+4. Confirm that the target package version exists in the best-practice Conda
    channels. Do not require a BioContainer for the new version before merge;
    that image may only be built after the update lands on the main branch.
 5. Read the upstream release notes for every version between the current and
-   requested versions.
+   target versions.
 
-Keep an explicitly requested target version. Do not silently update to a newer
-release merely because it is the newest version available from Conda.
-
-Stop and report the blocker when the requested package is unavailable, the
-upstream release is incompatible with the wrapper's supported interface, or the
-required behavior cannot be verified.
+Keep the pull request description and the diff in agreement about the target
+version. If the target changes while the pull request is open, say so instead
+of silently retargeting it.
 
 ## 2. Perform the mechanical update
 
@@ -56,7 +53,7 @@ planemo autoupdate --dry-run --recursive tools/<tool>
 planemo autoupdate --recursive tools/<tool>
 ```
 
-If the requested version is not the newest version selected by `autoupdate`,
+If the target version is not the newest version selected by `autoupdate`,
 edit the version tokens and requirements deliberately instead.
 
 After an upstream software update:
@@ -118,8 +115,10 @@ planemo lint tools/<tool>
 planemo test tools/<tool>
 ```
 
-Use the Galaxy instance, profile, or other test-engine options appropriate for
-your local environment. Pull request CI runs the repository lint and test jobs;
+Use the Galaxy instance, profile, dependency resolver, or other test-engine
+options appropriate for your local environment; `--biocontainers` is one option
+when a container for the new version already exists, but it is not required.
+Pull request CI runs the repository lint and test jobs;
 it does not require the new BioContainer to exist. The main-branch lint job adds
 the BioContainer check after the update has merged.
 

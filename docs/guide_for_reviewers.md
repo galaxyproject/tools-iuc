@@ -19,9 +19,9 @@ wrappers that are absent from the diff.
 
 ### Scope and upstream evidence
 
-* [ ] Is the requested upstream version clear, and does the pull request update
-      that exact version rather than a newer version found by automation?
-* [ ] Does the requested version exist in the best-practice Conda channels?
+* [ ] Is the target upstream version clear, and do the pull request
+      description and the diff agree on it?
+* [ ] Does the target version exist in the best-practice Conda channels?
       Do not require its BioContainer before merge; that is checked after the
       update reaches the main branch.
 * [ ] Have the upstream release notes for every intervening release and the new
@@ -31,7 +31,7 @@ wrappers that are absent from the diff.
 
 ### Version metadata
 
-* [ ] Do `@TOOL_VERSION@` and the main Conda requirement contain the requested
+* [ ] Do `@TOOL_VERSION@` and the main Conda requirement contain the target
       upstream version?
 * [ ] Is `@VERSION_SUFFIX@` reset to `0` for an upstream update? For a
       wrapper-only change, is the upstream version unchanged and the suffix
