@@ -164,13 +164,15 @@ def _parse_args():
             single_parser.error(
                 "Argument of '<QUALIFIER>' can not be an empty string"
             )
-        # check provider & exclude-provider to be different (404es)
+        # provider takes precedence over exclude-provider (warning if conflict)
         if opts.provider is not None and opts.exclude_provider is not None:
             if opts.provider == opts.exclude_provider:
-                single_parser.error(
-                    "--provider and --exclude-provider must have different "
-                    + "values"
+                print(
+                    "Warning: --provider takes precedence over "
+                    + f"--exclude-provider (both set to '{opts.provider}')",
+                    file=sys.stderr,
                 )
+                opts.exclude_provider = None
         # validate template format (PDB ID with optional chain/assembly)
         if opts.template is not None:
             try:
@@ -275,16 +277,20 @@ def _parse_query_file(filepath):
                     except ValueError as e:
                         raise ValueError(f"Row {row_num}: {e}") from e
 
-                # Check provider != exclude_provider
+                # provider takes precedence over exclude-provider (warning if
+                # conflict)
                 if (
                     "provider" in params
                     and "exclude_provider" in params
                     and params["provider"] == params["exclude_provider"]
                 ):
-                    raise ValueError(
-                        f"Row {row_num}: provider and exclude_provider cannot "
-                        + f"have the same value ('{params['provider']}')"
+                    print(
+                        f"Warning: Row {row_num}: provider takes precedence "
+                        + "over exclude_provider (both set to "
+                        + f"'{params['provider']}')",
+                        file=sys.stderr,
                     )
+                    del params["exclude_provider"]
 
                 yield (qualifier, params)
 
