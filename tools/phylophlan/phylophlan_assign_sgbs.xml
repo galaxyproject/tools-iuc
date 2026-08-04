@@ -1,0 +1,174 @@
+<tool id="phylophlan_assign_sgbs" name="PhyloPhlAn: Assign SGBs and taxonomy" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+         to metagenome-assembled genomes.
+    </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements_assign_sgbs"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        #import os
+
+        mkdir -p 'input/' &&
+        #for $i in $input
+            #set $identifier = re.sub('[^\w\-\._]', '_', str($i.element_identifier))
+            ln -s '$i' 'input/${identifier}' &&
+        #end for
+
+        #if $analysis.type != "matrix"
+            mkdir -p 'database/' &&
+
+            #if $reference.source == "cache"
+                #set $database_path = $reference.db_name.fields.path
+                #set $database_filename = os.path.basename($database_path)
+            #else if $reference.source == "history"
+                #set $database_path = $reference.db_file
+                #set $database_filename = $reference.db_file.element_identifier
+            #end if
+
+            #set $sanitized_name = re.sub('[^\w\-\._]', '', str($database_filename))
+            #if $database_filename != $sanitized_name or $sanitized_name[-4:] != ".tar"
+                exit 1 &&
+            #end if
+            #set $database_name = $sanitized_name[:-4]
+
+            ln -s '$database_path' 'database/${sanitized_name}' &&
+            cd database &&
+            tar -xf '${sanitized_name}' &&
+            md5sum '${sanitized_name}' > '${database_name}.md5' &&
+            cd .. &&
+        #end if
+
+        phylophlan_assign_sgbs
+            -i input
+            -o output
+            --database_folder database
+            #if $analysis.type == "closest"
+                -d '$database_name'
+                #if $analysis.assign_all
+                    -n all
+                #else
+                    -n $analysis.n
+                #end if
+            #else if $analysis.type == "taxonomy"
+                -d '$database_name'
+                --add_ggb_fgb
+            #else if $analysis.type == "matrix"
+                --only_input
+            #end if
+
+            --overwrite
+            --nproc \${GALAXY_SLOTS:-1}
+            --verbose
+    ]]></command>
+    <inputs>
+        <param name="input" type="data_collection" collection_type="list" format="fasta" label="Input Dataset"/>
+        <conditional name="reference">
+            <param name="source" type="select" label="Select a reference database">
+                <option value="cache">Locally cached</option>
+                <option value="history">From history</option>
+            </param>
+            <when value="cache">
+                <param name="db_name" type="select" label="Cached database">
+                    <options from_data_table="phylophlan_sgb_database"/>
+                    <validator type="no_options" message="No database is available"/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="db_file" type="data" format="tar" label="Reference database"/>
+            </when>
+        </conditional>
+        <conditional name="analysis">
+            <param name="type" type="select" label="Output type">
+                <option value="closest">Closest n SGBs</option>
+                <option value="taxonomy">Single closest SGB, GGB, FGB and reference genome</option>
+                <!-- This option is broken in the current PhyloPhlAn release. -->
+                <!-- <option value="matrix">Pairwise mash distances of the inputs</option> -->
+            </param>
+            <when value="closest">
+                <param argument="-n" type="integer" min="1" value="1" label="How many SGBs to assign to each input genome"/>
+                <param name="assign_all" type="boolean" label="Assign all SGBs instead" argument="-n all"/>
+            </when>
+            <when value="taxonomy"/>
+            <!-- <when value="matrix"/> -->
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" from_work_dir="output.tsv"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input">
+                <collection type="list">
+                    <element name="CM_ethiopia__CM_A06_M0_18__bin.34.fna" ftype="fasta" value="CM_ethiopia__CM_A06_M0_18__bin.34.fna"/>
+                </collection>
+            </param>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="db_file" ftype="tar" value="ethiopia_tutorial.tar"/>
+            </conditional>
+            <conditional name="analysis">
+                <param name="type" value="closest"/>
+            </conditional>
+            <output name="output" file="output.tsv" compare="diff"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input">
+                <collection type="list">
+                    <element name="CM_ethiopia__CM_A06_M0_18__bin.34.fna" ftype="fasta" value="CM_ethiopia__CM_A06_M0_18__bin.34.fna"/>
+                </collection>
+            </param>
+            <conditional name="reference">
+                <param name="source" value="cache"/>
+                <param name="db_name" ftype="tar" value="ethiopia_tutorial_filtered"/>
+            </conditional>
+            <conditional name="analysis">
+                <param name="type" value="closest"/>
+            </conditional>
+            <output name="output" file="output.tsv" compare="diff"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+This tool reports the closest species-level genome bins (SGBs) for each bin from a metagenomic assembly analysis.
+Alternatively, it can find the closest SGB, GGB, FGB, and reference genomes for each input genome.
+
+Required Inputs
+===============
+
+- **Input dataset**: A collection of metagenomic bins as (compressed) FASTA files.
+- **Reference database**: A database of precomputed Mash sketches for fast genome and metagenome distance estimation.
+
+Main Parameters
+===============
+
+- **Output type**: Output the closest n SGBs OR the closest SGB and associated GGB, FGB and reference genomes.
+- **n**: How many SGBs (sorted by increasing average genomic distance) to report.
+
+Generated Outputs
+=================
+
+Each line of the output reports the bin name, followed by a list of SGBs with increasing average Mash distance, separated by tabs.
+The information for each SGB is separated by **:**. For example::
+
+    my_bin	(k|u)SGB_ID:taxa_level:taxonomy:average_mash_distance	[(k|u)SGB_ID:taxa_level:taxonomy:average_mash_distance]
+
+- `my_bin`: Input bin name
+- `(k|u)SGB_ID`: Known or unknown SGB
+- `taxa_level`: Species, Genus, Family, or Phylum, depending at which taxonomic level the SGB has been assigned to.
+- `taxonomy`: Full taxonomic label
+- `average_mash_distance`: Average Mash distance of the input bin w.r.t. all the genomes in the SGB.
+
+Additional Resources
+====================
+
+PhyloPhlAn GitHub: https://github.com/biobakery/phylophlan
+
+For further analysis you might consider the other tools of the PhyloPhlAn tool suite:
+
+- phylophlan_draw_metagenomic: Visualize reported SGBs using heatmaps.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
