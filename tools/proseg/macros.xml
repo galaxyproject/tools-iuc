@@ -2,58 +2,58 @@
     <token name="@TOOL_VERSION@">3.1.1</token>
     <token name="@VERSION_SUFFIX@">0</token>
     <token name="@PROFILE@">25.0</token>
-    <!-- Platform prep: shell-side column-name resolution for manual mapping
-         in table mode. This MUST run as separate statements before "proseg"
-         is invoked; this token is expanded in the command block before
-         proseg starts, unlike @PLATFORM_CMD@ below which is expanded as
-         proseg's arguments and therefore can't contain statements of its
-         own (function defs / variable assignments aren't valid mid-argument
-         list). See the comment inside for why this shell resolution exists
-         at all instead of resolving names in Cheetah. -->
+    <!-- Platform prep: resolves manual-mode column-INDEX params (gene_col,
+         x_col, etc.) to actual column-NAME strings before proseg runs.
+
+         Why this is needed: gene_col/x_col/etc. are data_column params, so
+         Galaxy stores a 1-based column INDEX, not the header text, even
+         with use_header_names="true" (that only changes the dropdown
+         label users see, not the stored value). ProSeg's CLI needs the
+         real column NAME, not an index. We cannot resolve the index to a
+         name in Cheetah (the templating language used elsewhere in this
+         file): the transcripts dataset's column_names metadata is exposed
+         to Cheetah as an opaque wrapped object that does not behave like a
+         normal Python string/list under str()/int()/.strip()/.split()
+         (confirmed by direct testing). So instead we resolve it here, in
+         the shell, by reading the real file's header row with awk. This
+         only works for CSV; Parquet is a binary columnar format plain
+         shell tools can't read (Parquet manual-mapping is blocked at the
+         form level; see the validator on the "transcripts" param).
+
+         This token is expanded separately from, and before, @PLATFORM_CMD@
+         below: @PLATFORM_CMD@ is expanded directly into proseg's argument
+         list and so cannot contain shell statements of its own (function
+         definitions / variable assignments are not valid mid-argument-list
+         syntax); this token runs first, as its own statement chain, to set
+         up the shell variables that @PLATFORM_CMD@ then reads. -->
     <token name="@PLATFORM_PREP_CMD@"><![CDATA[
 #if $input_mode.mode == "table" and $input_mode.platform.preset == "manual"
-    ## gene_col/x_col/etc. are data_column params: the value Galaxy stores
-    ## is a 1-based column INDEX, not the header text, even with
-    ## use_header_names="true" (that attribute only changes the dropdown
-    ## label). ProSeg's CLI needs the actual column NAME. We tried resolving
-    ## the index to a name inside the Cheetah template via the transcripts
-    ## dataset's column_names metadata, but that metadata is exposed here as
-    ## an opaque wrapped object whose str()/int()/.strip()/multi-char
-    ## .split() do not behave like real Python operations (confirmed by
-    ## direct testing across several approaches). So instead we resolve the
-    ## index to a name in the shell, against the real file, here, before
-    ## proseg runs. This only works for CSV (read via awk on the header
-    ## line); Parquet is a binary columnar format that plain shell tools
-    ## can't read, so manual mapping with a Parquet transcript file fails
-    ## fast with a clear message rather than silently producing wrong
-    ## results. ("tabular" input is not accepted at all -- see the note
-    ## above the input-preparation step in proseg.xml.)
-#if $input_mode.transcripts.ext == "parquet"
+    #if $input_mode.transcripts.ext == "parquet"
 echo "ERROR: Manual column mapping does not support Parquet transcript files (column names can't be read from a Parquet file with plain shell tools). Please convert your file to CSV, or use one of the platform presets instead of Manual column mapping." >&2 && exit 1 &&
-#else
+    #else
 _get_col_name() { head -1 '$input_mode.transcripts' | awk -F',' -v c="\$1" '{print \$c}' | tr -d '\r"'; } &&
-#end if
+    #end if
 GENE_COL_NAME="\$(_get_col_name '$input_mode.platform.gene_col')" &&
 X_COL_NAME="\$(_get_col_name '$input_mode.platform.x_col')" &&
 Y_COL_NAME="\$(_get_col_name '$input_mode.platform.y_col')" &&
-#if $input_mode.platform.z_col
+    #if $input_mode.platform.z_col
 Z_COL_NAME="\$(_get_col_name '$input_mode.platform.z_col')" &&
-#end if
+    #end if
 CELL_ID_COL_NAME="\$(_get_col_name '$input_mode.platform.cell_id_col')" &&
-#if $input_mode.platform.fov_col
+    #if $input_mode.platform.fov_col
 FOV_COL_NAME="\$(_get_col_name '$input_mode.platform.fov_col')" &&
-#end if
-#if $input_mode.platform.transcript_id_col
+    #end if
+    #if $input_mode.platform.transcript_id_col
 TRANSCRIPT_ID_COL_NAME="\$(_get_col_name '$input_mode.platform.transcript_id_col')" &&
-#end if
+    #end if
 #end if
 #if $input_mode.mode == "table" and $input_mode.qv.qv_col and $input_mode.qv.min_qv
     ## Same shell-side resolution, for the QV column filter.
-#if $input_mode.transcripts.ext == "parquet"
+    #if $input_mode.transcripts.ext == "parquet"
 echo "ERROR: QV column filtering does not support Parquet transcript files. Please convert your file to CSV, or leave the QV column field empty." >&2 && exit 1 &&
-#else
+    #else
 _get_qv_col_name() { head -1 '$input_mode.transcripts' | awk -F',' -v c="\$1" '{print \$c}' | tr -d '\r"'; } &&
-#end if
+    #end if
 QV_COL_NAME="\$(_get_qv_col_name '$input_mode.qv.qv_col')" &&
 #end if
     ]]></token>
@@ -76,7 +76,11 @@ QV_COL_NAME="\$(_get_qv_col_name '$input_mode.qv.qv_col')" &&
     --y-column "\$Y_COL_NAME"
 #if $input_mode.platform.z_col
     --z-column "\$Z_COL_NAME"
-#else
+#elif not $ignore_z
+    ## z_col is empty and the "Treat as 2D" checkbox wasn't already
+    ## checked (which would add --ignore-z-coord via @CORE_PARAMS_CMD@
+    ## on its own) -- add it here so proseg still runs correctly. Guarded
+    ## to avoid passing the flag twice when both conditions are true.
     --ignore-z-coord
 #end if
     --cell-id-column "\$CELL_ID_COL_NAME"
@@ -93,7 +97,8 @@ QV_COL_NAME="\$(_get_qv_col_name '$input_mode.qv.qv_col')" &&
     --y-column '$input_mode.platform.y_col'
 #if $input_mode.platform.z_col
     --z-column '$input_mode.platform.z_col'
-#else
+#elif not $ignore_z
+    ## Same guard as the table-mode branch above -- see comment there.
     --ignore-z-coord
 #end if
     --cell-id-column '$input_mode.platform.cell_id_col'
@@ -221,7 +226,7 @@ $advanced.no_diffusion
         <conditional name="platform">
             <param name="preset" type="select" label="Platform preset" help="Select the spatial transcriptomics platform that generated your data.">
                 <option value="xenium">10x Xenium</option>
-                <option value="cosmx">NanoString CosMx (pixel coordinates)</option>
+                <option value="cosmx">NanoString CosMx (pixel coordinates) [output will still be in microns]</option>
                 <option value="cosmx_micron">NanoString CosMx (micron coordinates)</option>
                 <option value="merscope">Vizgen MERSCOPE / MERFISH</option>
                 <option value="visiumhd">10x Visium HD</option>
@@ -232,14 +237,14 @@ $advanced.no_diffusion
             <when value="cosmx_micron"/>
             <when value="merscope"/>
             <when value="visiumhd">
-                <param name="spaceranger_map" type="data" format="parquet" optional="true" label="SpaceRanger barcode mappings" help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
+                <param name="spaceranger_map" type="data" format="parquet" optional="false" label="SpaceRanger barcode mappings" help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
             </when>
             <when value="manual">
-                <param name="gene_col" type="data_column" data_ref="transcripts" use_header_names="true" label="Gene column" help="Column containing gene names. Note: only supported for CSV transcript files, not Parquet -- see help below."/>
-                <param name="x_col" type="data_column" data_ref="transcripts" use_header_names="true" label="X coordinate column" help="Column containing the X coordinate."/>
-                <param name="y_col" type="data_column" data_ref="transcripts" use_header_names="true" label="Y coordinate column" help="Column containing the Y coordinate."/>
-                <param name="z_col" type="data_column" data_ref="transcripts" use_header_names="true" optional="true" label="Z coordinate column" help="Optional. Leave unset and enable 2D mode if z-coordinates are unavailable."/>
-                <param name="cell_id_col" type="data_column" data_ref="transcripts" use_header_names="true" label="Cell ID column" help="Column containing preliminary cell assignments from the instrument."/>
+                <param name="gene_col" type="data_column" data_ref="transcripts" use_header_names="true" label="Gene column" help="Column containing gene names. IMPORTANT: this defaults to the first column regardless of your file's actual layout -- column order varies between platforms and Xenium software versions, so you must verify/select the correct column yourself. Note: only supported for CSV transcript files, not Parquet -- see help below."/>
+                <param name="x_col" type="data_column" data_ref="transcripts" use_header_names="true" label="X coordinate column" help="Column containing the X coordinate. IMPORTANT: this defaults to the first column regardless of your file's actual layout -- verify/select the correct column yourself."/>
+                <param name="y_col" type="data_column" data_ref="transcripts" use_header_names="true" label="Y coordinate column" help="Column containing the Y coordinate. IMPORTANT: this defaults to the first column regardless of your file's actual layout -- verify/select the correct column yourself."/>
+                <param name="z_col" type="data_column" data_ref="transcripts" use_header_names="true" optional="true" label="Z coordinate column" help="Optional. Leave unset and enable 2D mode if z-coordinates are unavailable. If set, this defaults to the first column -- verify/select the correct column yourself."/>
+                <param name="cell_id_col" type="data_column" data_ref="transcripts" use_header_names="true" label="Cell ID column" help="Column containing preliminary cell assignments from the instrument. IMPORTANT: this defaults to the first column regardless of your file's actual layout -- verify/select the correct column yourself."/>
                 <param name="unassigned_id" type="text" label="Unassigned cell ID" help="Value used to mark transcripts not assigned to any cell in this file. Varies by platform/export: raw Xenium CSV commonly uses the string 'UNASSIGNED', while some other exports use '0' or '-1'. Check your file's cell ID column before running -- an incorrect value here will silently cause every transcript to be treated as pre-assigned."/>
                 <param name="fov_col" type="data_column" data_ref="transcripts" use_header_names="true" optional="true" label="Field of view column" help="Optional. Column containing the field of view identifier."/>
                 <param name="transcript_id_col" type="data_column" data_ref="transcripts" use_header_names="true" optional="true" label="Transcript ID column" help="Optional. Column containing transcript IDs."/>
@@ -250,7 +255,7 @@ $advanced.no_diffusion
         <conditional name="platform">
             <param name="preset" type="select" label="Platform preset" help="Select the spatial transcriptomics platform that generated your data.">
                 <option value="xenium">10x Xenium</option>
-                <option value="cosmx">NanoString CosMx (pixel coordinates)</option>
+                <option value="cosmx">NanoString CosMx (pixel coordinates) [output will still be in microns]</option>
                 <option value="cosmx_micron">NanoString CosMx (micron coordinates)</option>
                 <option value="merscope">Vizgen MERSCOPE / MERFISH</option>
                 <option value="visiumhd">10x Visium HD</option>
@@ -261,7 +266,7 @@ $advanced.no_diffusion
             <when value="cosmx_micron"/>
             <when value="merscope"/>
             <when value="visiumhd">
-                <param name="spaceranger_map" type="data" format="parquet" optional="true" label="SpaceRanger barcode mappings" help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
+                <param name="spaceranger_map" type="data" format="parquet" optional="false" label="SpaceRanger barcode mappings" help="barcode_mappings.parquet from SpaceRanger output. Required for VisiumHD."/>
             </when>
             <when value="manual">
                 <param name="gene_col" type="text" value="feature_name" label="Gene column name" help="Name of the column containing gene names. Must match a column name in your input file exactly.">
@@ -287,7 +292,7 @@ $advanced.no_diffusion
     </xml>
     <!-- QV filtering inputs -->
     <xml name="qv_inputs">
-        <section name="qv" title="Quality filtering" expanded="false">
+        <section name="qv" title="Quality value" expanded="false">
             <param name="min_qv" type="integer" value="20" min="0" max="40" optional="true" label="Minimum quality value (QV)" help="Transcripts below this QV threshold are excluded. Default 20 recommended for Xenium. Range: 0-40."/>
             <param name="qv_col" type="data_column" data_ref="transcripts" use_header_names="true" optional="true" label="QV column" help="Optional. Column containing per-transcript quality values. Not supported for Parquet transcript files."/>
         </section>
@@ -295,8 +300,8 @@ $advanced.no_diffusion
     <!-- CellPose inputs -->
     <xml name="cellpose_inputs">
         <section name="cellpose" title="CellPose initialisation (optional)" expanded="false">
-            <param name="masks" type="data" format="npy" optional="true" label="CellPose masks (.npy)" help="2D uint32 array where 0 = unassigned and 1..N = cell assignments."/>
-            <param name="probs" type="data" format="npy" optional="true" label="CellPose cell probabilities (.npy)" help="Float32 array of segmentation uncertainty, same dimensions as masks."/>
+            <param name="masks" type="data" format="npy" optional="true" label="Cellpose cell masks matrix" help="2D uint32 array where 0 = unassigned and 1..N = cell assignments."/>
+            <param name="probs" type="data" format="npy" optional="true" label="Cellpose cell probabilities matrix" help="Float32 array of segmentation uncertainty, same dimensions as masks."/>
             <param name="scale" type="float" optional="true" min="0.001" max="100.0" label="CellPose scale (microns per pixel)" help="Conversion factor from mask pixel coordinates to micron coordinates. Typical range: 0.1-10.0."/>
             <param name="x_transform" type="text" optional="true" label="CellPose X affine transform (a b c)" help="Three space-separated floats: x_micron = a*x_pixel + b*y_pixel + c">
                 <sanitizer>
@@ -363,25 +368,25 @@ $advanced.no_diffusion
     <xml name="advanced_inputs">
         <section name="advanced" title="Advanced model parameters" expanded="false">
             <param name="morph_steps" type="integer" value="4000" min="100" max="100000" label="Morphology steps per iteration"/>
-            <param name="ncomponents" type="integer" value="10" min="1" max="100" label="Expression mixture components"/>
-            <param name="diffusion_prob" type="float" value="0.2" min="0.0" max="1.0" label="Diffusion probability"/>
+            <param name="ncomponents" type="integer" value="10" min="1" max="100" label="Number of components in the mixture model of cellular gene expression"/>
+            <param name="diffusion_prob" type="float" value="0.2" min="0.0" max="1.0" label="Transcript diffusion probability"/>
             <param name="nuclear_reassign" type="float" value="0.2" min="0.0" max="1.0" label="Nuclear reassignment probability"/>
-            <param name="recorded_samples" type="integer" value="10" min="1" max="500" label="Recorded samples"/>
-            <param name="no_diffusion" type="boolean" truevalue="--no-diffusion" falsevalue="" checked="false" label="Disable diffusion model"/>
-            <param name="diff_sigma_near" type="float" optional="true" min="0.1" max="10.0" label="Diffusion sigma near (microns)" help="Leave empty for ProSeg default (1 micron)."/>
-            <param name="diff_sigma_far" type="float" optional="true" min="0.1" max="20.0" label="Diffusion sigma far (microns)" help="Leave empty for ProSeg default (4 microns)."/>
+            <param name="recorded_samples" type="integer" value="100" min="1" max="500" label="Number of samples at the end of the schedule used to compute expectations and uncertainty"/>
+            <param name="no_diffusion" type="boolean" truevalue="--no-diffusion" falsevalue="" checked="false" label="Disable transcript diffusion model"/>
+            <param name="diff_sigma_near" type="float" value="1.0" min="0.1" max="10.0" label="Stddev parameter for repositioning of un-diffused transcripts"/>
+            <param name="diff_sigma_far" type="float" value="4.0" min="0.1" max="20.0" label="Stddev parameter for repositioning of diffused transcripts"/>
         </section>
     </xml>
     <!-- Output toggle inputs -->
     <xml name="output_toggle_inputs">
         <section name="outputs" title="Optional outputs" expanded="false">
-            <param name="counts" type="boolean" checked="false" label="Count matrix" help="Cell-by-gene integer count matrix in Apache Parquet format."/>
-            <param name="expected" type="boolean" checked="false" label="Expected count matrix" help="Non-integer expected counts averaged over posterior samples."/>
-            <param name="cellmeta" type="boolean" checked="false" label="Cell metadata" help="Per-cell centroids, volume, and geometry summary."/>
-            <param name="txmeta" type="boolean" checked="false" label="Transcript metadata" help="Per-transcript revised positions and assignment probabilities."/>
-            <param name="gene" type="boolean" checked="false" label="Gene metadata" help="Per-gene summary statistics."/>
-            <param name="polygons" type="boolean" checked="false" label="Cell polygons" help="2D consensus cell boundary polygons in GeoJSON format."/>
-            <param name="polygon_layers" type="boolean" checked="false" label="Cell polygon layers" help="Separate polygon per z-layer preserving 3D segmentation."/>
+            <param name="counts" type="boolean" checked="false" label="Output count matrix in Parquet format?"/>
+            <param name="expected" type="boolean" checked="false" label="Output expected count matrix in parquet format?"/>
+            <param name="cellmeta" type="boolean" checked="false" label="Output cell metadata in parquet format" help="Per-cell centroids, volume, and geometry summary."/>
+            <param name="txmeta" type="boolean" checked="false" label="Output transcript metadata in parquet format?" help="Per-transcript revised positions and assignment probabilities."/>
+            <param name="gene" type="boolean" checked="false" label="Output gene metadata in parquet format?"/>
+            <param name="polygons" type="boolean" checked="false" label="Output cell polygons in geojson.gz format"/>
+            <param name="polygon_layers" type="boolean" checked="false" label="Output cell polygon layers in geojson.gz format"/>
         </section>
     </xml>
     <!-- Optional data outputs
