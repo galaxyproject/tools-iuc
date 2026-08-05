@@ -126,29 +126,44 @@ jobs:
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Find Pull Request
-      id: find-pr
-      uses: sharesight/find-github-pull-request@v1.3.0
-      with:
-        allowClosed: true
-        failIfNotFound: true
-    - name: Get labels of the PR
-      uses: snnaplab/get-labels-action@v1
-      with:
-        number: ${{ steps.find-pr.outputs.number }}
-    - name: Print PR and label info
+    # On pull_request the number is in the payload, so look the labels up
+    # directly. On push there is no number, so fall back to the PR the commit
+    # came from -- the merged PR's labels must still be honoured here, or a tool
+    # merged with skip-url-check fails lint on main and blocks the ToolShed
+    # deploy. A push with no associated PR yields no labels, i.e. full checks,
+    # rather than failing the job as the previous action did.
+    # Fetching at run time (not from the event payload) means a label added after
+    # a failed run is picked up when that run is retried.
+    - name: Get PR labels
+      id: pr-labels
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        SHA: ${{ github.sha }}
       run: |
-        echo number: ${{ steps.find-pr.outputs.number }}
-        echo labels: ${{ env.LABELS }}
+        # Assign first so a failing `gh api` fails the step: inside a command
+        # substitution its exit status would be masked by `echo`, leaving an
+        # empty output that silently reads as "no labels".
+        if [ "$EVENT_NAME" = "pull_request" ]; then
+          labels=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '[.labels[].name] | @json')
+        else
+          # A direct push with no associated PR yields [], i.e. full checks.
+          labels=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[0].labels[]?.name] | @json')
+        fi
+        echo "json=$labels" >> "$GITHUB_OUTPUT"
     - name: Conditionally skip URL/version linter
+      env:
+        PR_LABELS: ${{ steps.pr-labels.outputs.json }}
       run: |
           set -x
 
           to_skip=()
-          if echo '${{ env.LABELS }}' | jq -e --arg s "skip-url-check" 'index($s)' > /dev/null; then
+          if echo "$PR_LABELS" | jq -e --arg s "skip-url-check" 'index($s)' > /dev/null; then
             to_skip+=("tool_urls")
           fi
-          if echo '${{ env.LABELS }}' | jq -e --arg s "skip-version-check" 'index($s)' > /dev/null; then
+          if echo "$PR_LABELS" | jq -e --arg s "skip-version-check" 'index($s)' > /dev/null; then
             to_skip+=("version_bumped")
           fi
 
@@ -438,9 +453,12 @@ jobs:
       with:
         sha: ${{ github.event.after }}
     - name: Create comment
+      if: steps.getpr.outputs.pr_found == 'true'
       uses: peter-evans/create-or-update-comment@v5
       with:
-        token: ${{ secrets.PAT }}
+        # An explicitly empty token overrides the action's github.token default,
+        # so fall back rather than passing secrets.PAT straight through.
+        token: ${{ secrets.PAT || github.token }}
         issue-number: ${{ steps.getpr.outputs.number }}
         body: |
           Deployment status: **${{ needs.deploy.result }}**
