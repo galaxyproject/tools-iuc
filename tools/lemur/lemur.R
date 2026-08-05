@@ -98,16 +98,6 @@ if (opt$use_harmony == "yes") {
   message("Harmony alignment skipped.")
 }
 
-# ---- Check and fix embedding dimensions ----
-embedding <- reducedDim(fit, "embedding")
-
-if (nrow(embedding) < ncol(embedding)) {
-  message("Embedding appears to have shape [cells, components]. Transposing...")
-  reducedDim(fit, "embedding") <- t(embedding)
-} else {
-  message("Embedding shape is correct [components, cells].")
-}
-
 # ---- Differential expression contrast ----
 contrast_expr <- substitute(
   cond(condition = A) - cond(condition = B),
@@ -127,11 +117,11 @@ print(unique(colData(fit)[[condition_name]]))
 cat("First values:\n")
 print(head(colData(fit)[[condition_name]]))
 
-fit <- test_de(fit, contrast = contrast_expr)
+fit <- test_de(fit, contrast = !!contrast_expr)
 cat("Differential expression test completed.\n")
 
 # ---- UMAP plot ----
-umap <- uwot::umap(t(reducedDim(fit, "embedding")))
+umap <- uwot::umap(reducedDim(fit, "embedding"))
 umap_df <- as_tibble(fit$colData) |> mutate(UMAP1 = umap[,1], UMAP2 = umap[,2])
 p_umap <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
   geom_point(aes(color = if (!is.null(batch_name)) .data[[batch_name]] else NULL, shape = .data[[condition_name]]), size = 0.5, na.rm=TRUE) +
@@ -170,8 +160,8 @@ if (!is.null(opt$output_chr_scatter) || !is.null(opt$output_tumor_umap) || !is.n
     row_data <- rowData(fit)
     chr1_expr <- colMeans(logcounts(fit)[row_data[[tumor_col]] == opt$chrom1_name, ])
     chr2_expr <- colMeans(logcounts(fit)[row_data[[tumor_col]] == opt$chrom2_name, ])
-    tumor_label_df <- tibble(cell_id = colnames(fit), chrom1_expr, chr2_expr) |>
-      mutate(is_tumor = chrom1_expr > opt$chrom1_thresh & chr2_expr < opt$chrom2_thresh)
+    tumor_label_df <- tibble(cell_id = colnames(fit), chrom1_expr = chr1_expr, chrom2_expr = chr2_expr) |>
+      mutate(is_tumor = chrom1_expr > opt$chrom1_thresh & chrom2_expr < opt$chrom2_thresh)
 
     if (!is.null(opt$output_chr_scatter)) {
       p_chr <- ggplot(tumor_label_df, aes(x = chrom2_expr, y = chrom1_expr)) +
