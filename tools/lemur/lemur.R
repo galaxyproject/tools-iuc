@@ -9,6 +9,8 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
+set.seed(42)
+
 save_plot <- function(filename, plot, format = "pdf", width = NULL, height = NULL, dpi = 300) {
   ext <- tolower(format)
   out <- sub("\\.pdf$", paste0(".", ext), filename)
