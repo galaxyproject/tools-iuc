@@ -48,6 +48,7 @@ option_list <- list(
     make_option(c("--plot_format"), type = "character", default = "pdf"),
     make_option(c("--plot_width"), type = "double", default = 6),
     make_option(c("--plot_height"), type = "double", default = 5),
+    make_option(c("--run_tumor_analysis"), type = "character", default = "no"),
     make_option(c("--tumor_annotation_column"), type = "character", default = "chromosome")
 )
 
@@ -161,8 +162,8 @@ if (!is.null(opt$sel_gene)) {
     }
 }
 
-# ---- Tumor-specific plots ----
-if (!is.null(opt$output_chr_scatter) || !is.null(opt$output_tumor_umap) || !is.null(opt$output_tumor_neigh)) {
+# ---- Tumor-specific plots (optional, GBM chromosome gain/loss example) ----
+if (opt$run_tumor_analysis == "yes") {
     tumor_col <- opt$tumor_annotation_column
     if (tumor_col %in% colnames(rowData(fit))) {
         row_data <- rowData(fit)
