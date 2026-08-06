@@ -198,7 +198,14 @@ if (!is.null(opt$output_chr_scatter) || !is.null(opt$output_tumor_umap) || !is.n
             write.table(as.data.frame(tumor_neigh), opt$output_tumor_neigh, sep = "\t", quote = FALSE, row.names = FALSE)
         }
     } else {
-        message("The specified tumor annotation column is not present in rowData. Skipping tumor plots.")
+        stop(paste0(
+            "The tumor annotation column '", tumor_col, "' does not exist ",
+            "in the input data. Available columns in rowData: ",
+            paste(colnames(rowData(fit)), collapse = ", "),
+            ". Check that your input file has the correct format and contains ",
+            "this column, or adjust the 'Tumor annotation column' parameter to ",
+            "match your data."
+        ))
     }
 }
 
