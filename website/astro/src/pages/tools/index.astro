@@ -17,15 +17,8 @@ const outputTypes = [...new Set(tools.flatMap(t => t.output_types || []))].sort(
     Search by tool name, identifier, description, EDAM metadata, or input/output datatype.
   </p>
 
-  <!-- Client-side filter -->
-  <div class="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
-    <input id="filter" type="search" placeholder="Filter by name or id…"
-      class="w-full rounded-md border border-slate-300 px-3 py-2 sm:max-w-xs" />
-    <span class="text-sm text-slate-500" id="count"></span>
-  </div>
-
   <!-- Datatype filters -->
-  <div class="mt-4 flex flex-col gap-4 sm:flex-row">
+  <div class="mt-6 flex flex-col gap-4 sm:flex-row">
     <div class="flex flex-col gap-1">
       <label class="text-sm font-medium text-slate-600" for="input-filter">Input datatype</label>
       <select id="input-filter" class="rounded-md border border-slate-300 px-3 py-2 text-sm">
@@ -42,19 +35,25 @@ const outputTypes = [...new Set(tools.flatMap(t => t.output_types || []))].sort(
     </div>
   </div>
 
+  <p class="mt-4 text-sm text-slate-500">Or filter the listing below by name or id.</p>
+
+  <!-- Client-side filter -->
+  <div class="mt-2 flex flex-col gap-4 sm:flex-row sm:items-center">
+    <input id="filter" type="search" placeholder="Filter by name or id…"
+      class="w-full rounded-md border border-slate-300 px-3 py-2 sm:max-w-xs" />
+    <span class="text-sm text-slate-500" id="count"></span>
+  </div>
+
   <!-- Pagefind full-text search -->
   <div class="mt-4">
     <link rel="stylesheet" href={`${base}/pagefind/pagefind-ui.css`} />
     <div id="pagefind-search"></div>
   </div>
 
-  <p class="mt-2 text-sm text-slate-500">Or filter the listing below by name or id.</p>
-
   <ul id="tool-list" class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {tools.map(t => (
-      <li class="card" data-name={t.name.toLowerCase()} data-id={t.id.toLowerCase()} data-desc={t.description.toLowerCase()}
-          data-inputs={(t.input_types || []).join(',')} data-outputs={(t.output_types || []).join(',')}>
-        <a href={`${base}/tools/${t.owner}/${t.repo}/${t.id}/`} class="font-semibold no-underline">{t.name}</a>
+      <li class="card" data-id={t.id.toLowerCase()} data-inputs={(t.input_types || []).join(',')} data-outputs={(t.output_types || []).join(',')}>
+        <a href={`${base}/tools/${t.owner}/${t.repo}/${t.slug}/`} class="font-semibold no-underline">{t.name}</a>
         <p class="mt-1 text-sm text-slate-600 line-clamp-2">{t.description}</p>
         <div class="mt-2 flex flex-wrap gap-1">
           {t.biotools && <a class="badge badge-purple no-underline" href={`https://bio.tools/${t.biotools}`} target="_blank" rel="noopener">bio.tools</a>}
@@ -65,40 +64,55 @@ const outputTypes = [...new Set(tools.flatMap(t => t.output_types || []))].sort(
   </ul>
 </Base>
 
-<script is:inline define:vars={{ base }}>
-  const input = document.getElementById('filter');
-  const inputFilter = document.getElementById('input-filter');
-  const outputFilter = document.getElementById('output-filter');
-  const list = document.getElementById('tool-list');
-  const items = [...list.querySelectorAll('li')];
-  const countEl = document.getElementById('count');
+  <script>
+    import { searchStateFromUrl, toolMatchesSearch } from '../../lib/toolSearch.mjs';
 
-  // Read ?q= from URL (runtime, since this is a static site)
-  const params = new URLSearchParams(window.location.search);
-  const initialQuery = params.get('q') ?? '';
-  if (initialQuery) input.value = initialQuery;
+    const input = document.getElementById('filter') as HTMLInputElement | null;
+    const inputFilter = document.getElementById('input-filter') as HTMLSelectElement | null;
+    const outputFilter = document.getElementById('output-filter') as HTMLSelectElement | null;
+    const list = document.getElementById('tool-list');
+    const countEl = document.getElementById('count');
 
-  function apply() {
-    const q = (input.value || '').toLowerCase();
-    const inType = inputFilter.value;
-    const outType = outputFilter.value;
-    let n = 0;
-    for (const li of items) {
-      const inList = li.dataset.inputs ? li.dataset.inputs.split(',') : [];
-      const outList = li.dataset.outputs ? li.dataset.outputs.split(',') : [];
-      const match = (!q || li.dataset.name.includes(q) || li.dataset.id.includes(q) || li.dataset.desc.includes(q))
-        && (!inType || inList.includes(inType))
-        && (!outType || outList.includes(outType));
-      li.style.display = match ? '' : 'none';
-      if (match) n++;
+    if (!input || !inputFilter || !outputFilter || !list || !countEl) {
+      throw new Error('Tool search controls are missing');
     }
-    countEl.textContent = `${n} tools`;
-  }
-  input.addEventListener('input', apply);
-  inputFilter.addEventListener('change', apply);
-  outputFilter.addEventListener('change', apply);
-  apply();
-</script>
+
+    const searchInput = input;
+    const inputSelect = inputFilter;
+    const outputSelect = outputFilter;
+    const resultCount = countEl;
+    const items = [...list.querySelectorAll('li')];
+
+    // Read query/filter state from URL at runtime, since this is a static site.
+    const initialState = searchStateFromUrl(window.location.search);
+    if (initialState.query) searchInput.value = initialState.query;
+    if (initialState.inputType) inputSelect.value = initialState.inputType;
+    if (initialState.outputType) outputSelect.value = initialState.outputType;
+
+    function apply() {
+      const state = {
+        query: searchInput.value || '',
+        inputType: inputSelect.value,
+        outputType: outputSelect.value,
+      };
+      let n = 0;
+      for (const li of items) {
+        const match = toolMatchesSearch({
+          searchableText: `${li.textContent || ''} ${li.dataset.id || ''}`,
+          id: li.dataset.id,
+          inputTypes: li.dataset.inputs ? li.dataset.inputs.split(',') : [],
+          outputTypes: li.dataset.outputs ? li.dataset.outputs.split(',') : [],
+        }, state);
+        li.style.display = match ? '' : 'none';
+        if (match) n++;
+      }
+      resultCount.textContent = `${n} tools`;
+    }
+    searchInput.addEventListener('input', apply);
+    inputSelect.addEventListener('change', apply);
+    outputSelect.addEventListener('change', apply);
+    apply();
+  </script>
 
 <script is:inline define:vars={{ base }}>
   import(`${base}/pagefind/pagefind-ui.js`).then(({ PagefindUI }) => {

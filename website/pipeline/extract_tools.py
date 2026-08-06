@@ -11,7 +11,7 @@ We do NOT write a new XML parser. Flow:
      ``ToolIndexEntry`` per tool — the same object Galaxy's toolbox consumes,
      with curated EDAM/xref expansion via ``expand_ontology_data``.
   4. We re-parse a few detail-page-only fields (creators, inputs, outputs,
-     help) off the ``ToolSource`` and emit:
+     rendered help) off the ``ToolSource`` and emit:
        - data/tools/<owner>/<repo>/<id>.yaml   (full per-tool metadata)
        - data/tools_index.yaml                 (slim aggregate)
 """
@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import datetime
 import html
+import re
 import warnings
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 # whoosh (a transitive dep of Galaxy's source_store) emits SyntaxWarnings on
 # Python 3.12+ for invalid regex escapes in its source. They're harmless and
@@ -64,6 +65,32 @@ TOOLS_METADATA_PATH = DATA_DIR / "tools_metadata.yaml"
 # Populated once in extract_tools(); maps biotoolsID → {edam_id: label}.
 # Used by _entry_to_full() to add human-readable labels to EDAM terms.
 _EDAM_LABELS: dict[str, dict[str, str]] = {}
+
+
+def _slug_id(tool_id: str) -> str:
+    """Convert a tool ID into a filesystem/URL-safe slug.
+
+    Replaces colons, spaces, and any char not in [a-zA-Z0-9_-] with ``_``.
+    e.g. ``EMBOSS: antigenic1`` → ``EMBOSS__antigenic1``
+    """
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", tool_id)
+
+
+def _check_slug_collision(
+    slug_keys: dict[tuple[str, str, str], str],
+    owner: str,
+    repo: str,
+    tool_id: str,
+) -> str:
+    slug = _slug_id(tool_id)
+    key = (owner, repo, slug)
+    existing = slug_keys.get(key)
+    if existing and existing != tool_id:
+        raise ValueError(
+            f"Tool IDs {existing!r} and {tool_id!r} both map to slug {slug!r} in {owner}/{repo}"
+        )
+    slug_keys[key] = tool_id
+    return slug
 
 # Populated once in extract_tools(); maps file path → last commit ISO date.
 _COMMIT_DATES: dict[str, str] = {}
@@ -219,12 +246,12 @@ def _compute_container_links(requirements: list[dict[str, Any]]) -> dict[str, An
     # Multi-package: compute the mulled-v2 name for the exact combined container.
     if len(pkg_reqs) == 1:
         name = pkg_reqs[0]["name"]
-        docker_url = f"https://quay.io/biocontainers/{name}"
+        docker_url = _quay_biocontainer_url(name)
         singularity_url = f"https://depot.galaxyproject.org/singularity/{name}"
     else:
         mulled_name = _mulled_v2_name(pkg_reqs)
         if mulled_name:
-            docker_url = f"https://quay.io/biocontainers/{mulled_name}"
+            docker_url = _quay_biocontainer_url(mulled_name)
             singularity_url = f"https://depot.galaxyproject.org/singularity/{mulled_name}"
         else:
             docker_url = "https://quay.io/biocontainers/"
@@ -235,6 +262,14 @@ def _compute_container_links(requirements: list[dict[str, Any]]) -> dict[str, An
         "docker": docker_url,
         "singularity": singularity_url,
     }
+
+
+def _quay_biocontainer_url(container_name: str) -> str:
+    repository, _, tag = container_name.partition(":")
+    url = f"https://quay.io/repository/biocontainers/{repository}"
+    if tag:
+        url += f"?tab=tags&tag={quote(tag, safe='')}"
+    return url
 
 
 def _mulled_v2_name(pkg_reqs: list[dict[str, Any]]) -> str | None:
@@ -325,7 +360,6 @@ def _detail_fields(ts) -> dict[str, Any]:
         "creators": creators,
         "inputs": inputs,
         "outputs": outputs,
-        "help": help_text,
         "help_html": help_html,
         "help_format": help_format,
         "license": _safe(ts.parse_license),
@@ -398,7 +432,6 @@ def _entry_to_full(entry: ToolIndexEntry, tool_dir: Path, ts) -> dict[str, Any]:
         "container_requirements": list(entry.container_requirements or []),
         "container_links": _compute_container_links(list(entry.requirements or [])),
         "creators": detail["creators"],
-        "help": detail["help"],
         "help_html": detail["help_html"],
         "help_format": detail["help_format"],
         "inputs": detail["inputs"],
@@ -414,6 +447,7 @@ def _slim(full: dict[str, Any]) -> dict[str, Any]:
     output_types = sorted({o.get("format") for o in full.get("outputs", []) if o.get("format")})
     return {
         "id": full["id"],
+        "slug": full["slug"],
         "name": full["name"],
         "version": full["version"],
         "description": full["description"],
@@ -554,6 +588,7 @@ def extract_tools(conf_path: Path | None = None) -> tuple[int, int]:
     n = 0
     n_errors = 0
     seen: set[str] = set()
+    slug_keys: dict[tuple[str, str, str], str] = {}
     index_rows: list[dict[str, Any]] = []
 
     # Batch-fetch last commit dates for all tool files (one git log call
@@ -602,8 +637,10 @@ def extract_tools(conf_path: Path | None = None) -> tuple[int, int]:
             index.add_entry(entry)
             seen.add(tool_id)
             full = _entry_to_full(entry, fpath.parent, ts)
+            slug = _check_slug_collision(slug_keys, owner, repo, tool_id)
+            full["slug"] = slug
             full["source_dependency_hash"] = _tool_dependency_hash(fpath)
-            write_yaml(tools_out / owner / repo / f"{tool_id}.yaml", full)
+            write_yaml(tools_out / owner / repo / f"{slug}.yaml", full)
             index_rows.append(_slim(full))
             n += 1
         except Exception as e:

@@ -19,6 +19,12 @@ export function loadConfig<T = any>(name: string): T {
   return YAML.parse(raw) as T;
 }
 
+export function withBase(path: string): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const cleanPath = path.replace(/^\//, '');
+  return `${base}/${cleanPath}`;
+}
+
 export interface EdamTerm {
   uri: string;
   label: string;
@@ -26,6 +32,7 @@ export interface EdamTerm {
 
 export interface ToolIndexEntry {
   id: string;
+  slug: string;
   name: string;
   version: string;
   description: string;
@@ -64,7 +71,6 @@ export interface ToolFull extends ToolIndexEntry {
     singularity: string | null;
   };
   creators: any[];
-  help: string;
   help_html: string;
   help_format: string | null;
   inputs: any[];
@@ -83,6 +89,7 @@ export interface Contributor {
   url: string | null;
   tools: string[];
   is_member: boolean;
+  is_alumni: boolean;
   tool_count: number;
   commits: number;
   first_commit: string | null;
@@ -138,6 +145,9 @@ export interface ServerConfig {
     galaxy_hub: string;
     galaxy_hub_iuc: string;
     galaxy_tools: string;
+    planemo: string;
+    galaxy_language_server: string;
+    gtn_tool_training: string;
     iwc: string;
     chat: string;
   };
@@ -183,9 +193,10 @@ export function gtnHallOfFameUrl(handle: string | null): string | null {
   return handle ? `${GTN_HOF_URL}/${handle}/` : null;
 }
 
-/** Get the Galaxy Hub hall-of-fame URL for a handle. */
+/** Get the Galaxy Hub hall-of-fame URL for a handle.
+ * The Hub lowercases all slugs (unlike GTN which preserves case). */
 export function hubHallOfFameUrl(handle: string | null): string | null {
-  return handle ? `${HUB_HOF_URL}/${handle}/` : null;
+  return handle ? `${HUB_HOF_URL}/${handle.toLowerCase()}/` : null;
 }
 
 /** Get the URL for an affiliation by its handle from GTN organisations. */
@@ -228,7 +239,7 @@ export function runOnUrl(server: { url: string }, owner: string, repo: string, i
 }
 
 // Read a per-tool YAML file by owner/repo/id.
-export function loadTool(owner: string, repo: string, id: string): ToolFull {
-  const raw = readFileSync(join(DATA_DIR, 'tools', owner, repo, `${id}.yaml`), 'utf-8');
+export function loadTool(owner: string, repo: string, slug: string): ToolFull {
+  const raw = readFileSync(join(DATA_DIR, 'tools', owner, repo, `${slug}.yaml`), 'utf-8');
   return YAML.parse(raw) as ToolFull;
 }

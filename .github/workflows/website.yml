@@ -22,12 +22,16 @@ concurrency:
   group: "website"
   cancel-in-progress: true
 
+env:
+  DEPLOY_PAGES: >-
+    ${{
+      (github.repository == 'galaxyproject/tools-iuc' && github.ref == 'refs/heads/main') ||
+      (github.repository == 'bgruening/tools-iuc' && github.ref == 'refs/heads/website')
+    }}
+
 jobs:
-  build-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +48,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: website/astro/package.json
 
@@ -120,35 +124,32 @@ jobs:
         run: npx astro preview --host 127.0.0.1 --port 4325 --strictPort & pid=$!; sleep 5; PORT=4325 npm run links:internal; status=$?; kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true; exit $status
 
       - name: Upload artifact
+        if: env.DEPLOY_PAGES == 'true'
         uses: actions/upload-pages-artifact@v4
         with:
           path: website/astro/dist
 
+  deploy-pages:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.repository == 'galaxyproject/tools-iuc' && github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          timeout: 600000
 
-  # Commit the regenerated data/ to the gh-pages branch for auditability.
-  commit-data:
+  deploy-pages-fork:
     runs-on: ubuntu-latest
-    needs: build-deploy
-    if: github.event_name != 'pull_request'
-    permissions:
-      contents: write
+    needs: build
+    if: github.repository == 'bgruening/tools-iuc' && github.ref == 'refs/heads/website'
     steps:
-      - uses: actions/checkout@v4
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
         with:
-          fetch-depth: 0
-      - name: Download generated data
-        uses: actions/download-artifact@v4
-        with:
-          name: website-data
-          path: website/data
-      - name: Commit data to gh-pages
-        run: |
-          git checkout --orphan gh-pages-temp
-          git rm -rf . 2>/dev/null || true
-          cp -r website/data ./data
-          git add data
-          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" commit -m "data: regenerate $(date -u +%Y-%m-%d)"
-          git push origin HEAD:gh-pages --force
+          timeout: 600000

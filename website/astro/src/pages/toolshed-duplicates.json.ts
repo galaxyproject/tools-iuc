@@ -3,7 +3,6 @@ import { loadYaml } from '../lib/data';
 type ToolShedRepo = {
   name?: string;
   owner?: string;
-  description?: string;
 };
 
 function normalize(value: string | undefined): string {
@@ -18,7 +17,6 @@ export function GET() {
       normalize(repo.name),
       repo.owner,
       repo.name,
-      (repo.description || '').slice(0, 120),
     ]);
 
   return new Response(JSON.stringify(repos), {

@@ -282,13 +282,15 @@ def extract_people() -> tuple[int, int]:
     aliases = _load_aliases()
     alias_gh, alias_name = _build_alias_maps(aliases)
 
-    # Load IUC members
+    # Load IUC members (current + alumni)
     members_path = WEBSITE_DIR / "config" / "iuc_members.yaml"
     members = read_yaml(members_path) if members_path.exists() else []
     member_githubs = {m.get("github", "").lower() for m in (members or []) if m.get("github")}
+    alumni_githubs = {m.get("github", "").lower() for m in (members or []) if m.get("alumni") and m.get("github")}
     # Expand member set with alias canonical handles so that, e.g., erasche
     # being a member also marks hexylena as a member.
     member_githubs |= {alias_gh.get(g, g) for g in member_githubs}
+    alumni_githubs |= {alias_gh.get(g, g) for g in alumni_githubs}
 
     # Each contributor keyed by canonical key
     contribs: dict[str, dict[str, Any]] = {}
@@ -305,6 +307,8 @@ def extract_people() -> tuple[int, int]:
                 "tools": [],
                 "commits": 0,
                 "first_commit": None,
+                "is_member": False,
+                "is_alumni": False,
                 # GTN handle — frontend joins gtn_people.yaml for full metadata
                 "gtn_handle": None,
             }
@@ -428,7 +432,8 @@ def extract_people() -> tuple[int, int]:
     for key, c in sorted(contribs.items(), key=lambda kv: kv[1]["name"].lower()):
         gh = (c.get("github") or "").lower() if c.get("github") else ""
         c["id"] = key
-        c["is_member"] = gh in member_githubs
+        c["is_member"] = gh in member_githubs and gh not in alumni_githubs
+        c["is_alumni"] = gh in alumni_githubs
         c["tool_count"] = len(c["tools"])
         contrib_list.append(c)
 
