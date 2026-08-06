@@ -1,0 +1,271 @@
+---
+import Base from '../../../../layouts/Base.astro';
+import { loadYaml, loadTool, siteConfig, toolShedUrl, runOnUrl, isToolInstalled, type ToolIndexEntry, type Contributor } from '../../../../lib/data';
+
+// getStaticPaths builds one page per tool.
+export function getStaticPaths() {
+  const tools = loadYaml<ToolIndexEntry[]>('tools_index.yaml');
+  // Build GitHub handle → contributor ID lookup once (not per-page)
+  const allContributors = loadYaml<Contributor[]>('contributors.yaml');
+  const contributorByGithub: Record<string, string> = {};
+  for (const c of allContributors) {
+    if (c.github) contributorByGithub[c.github.toLowerCase()] = c.id;
+  }
+  return tools.map(t => ({
+    params: { owner: t.owner, repo: t.repo, id: t.id },
+    props: { slim: t, contributorByGithub },
+  }));
+}
+
+const { slim, contributorByGithub } = Astro.props as { slim: ToolIndexEntry; contributorByGithub: Record<string, string> };
+const tool = loadTool(slim.owner, slim.repo, slim.id);
+
+const base = import.meta.env.BASE_URL;
+const tsUrl = toolShedUrl(tool.owner, tool.repo);
+const xmlUrl = `https://github.com/galaxyproject/tools-iuc/blob/main/${tool.source_path}`;
+
+// EDAM: check if any ontology is defined
+const hasEdam = (tool.edam_operations?.length || 0) > 0 || (tool.edam_topics?.length || 0) > 0;
+const edamTopicLabel = (e: any) => e.label || e.uri.split('/').pop() || e.uri;
+const edamOpLabel = (e: any) => e.label || e.uri.split('/').pop() || e.uri;
+
+// schema.org JSON-LD
+const creators = (tool.creators || []).map(c => {
+  const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || c.name || '';
+  const o: any = { '@type': c.class === 'Organization' ? 'Organization' : 'Person', name };
+  if (c.url) o.url = c.url;
+  if (c.orcid || c.identifier) o.identifier = c.orcid || c.identifier;
+  return o;
+});
+const identifiers: any[] = [];
+if (tool.biotools) identifiers.push({ '@type': 'PropertyValue', propertyID: 'bio.tools', value: tool.biotools });
+if (tool.doi) identifiers.push({ '@type': 'PropertyValue', propertyID: 'doi', value: tool.doi });
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': ['SoftwareApplication', 'SoftwareSourceCode'],
+  name: tool.name,
+  description: tool.description,
+  softwareVersion: tool.version,
+  codeRepository: tool.xrefs.find(x => x.type === 'github' || (x.value || '').includes('github.com'))?.value || undefined,
+  author: creators,
+  license: tool.license || undefined,
+  identifier: identifiers.length ? identifiers : undefined,
+  applicationCategory: tool.edam_topics.map((t: any) => t.label || t.uri),
+  featureList: tool.edam_operations.map((o: any) => o.label || o.uri),
+  url: tsUrl,
+};
+
+const cl = tool.container_links;
+const installedServers = siteConfig.servers
+  .filter(s => isToolInstalled(s.name, tool.owner, tool.repo, tool.id))
+  .sort((a, b) => a.name.localeCompare(b.name));
+---
+
+<Base title={`${tool.name} — IUC`} description={tool.description}>
+  <slot name="head">
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </slot>
+
+  <nav class="text-sm text-slate-500">
+    <a href={`${base}/tools/`}>Tools</a>
+    <span class="mx-1">/</span>
+    <span>{tool.name}</span>
+  </nav>
+
+  <div class="mt-4 flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold">{tool.name}</h1>
+      <p class="mt-1 text-lg text-slate-600">{tool.description}</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <span class="badge badge-blue">v{tool.version}</span>
+      <span class="badge badge-slate">profile {tool.profile}</span>
+      {tool.test_count > 0 && <span class="badge badge-green">{tool.test_count} tests</span>}
+      {tool.biotools && <a class="badge badge-purple no-underline" href={`https://bio.tools/${tool.biotools}`} target="_blank" rel="noopener">bio.tools</a>}
+      {tool.doi && <a class="badge badge-purple no-underline" href={`https://doi.org/${tool.doi}`} target="_blank" rel="noopener">DOI</a>}
+    </div>
+  </div>
+
+  <!-- Run on + ToolShed -->
+  <section class="mt-6 grid gap-6 lg:grid-cols-3">
+    <div class="card lg:col-span-2">
+      <h2 class="text-lg font-semibold">Run on a Galaxy instance</h2>
+      {installedServers.length > 0 ? (
+        <>
+          <p class="text-sm text-slate-500">This tool is installed on {installedServers.length} public Galaxy server{installedServers.length !== 1 ? 's' : ''}.</p>
+          <div class="mt-3 grid gap-2 sm:grid-cols-2">
+            {installedServers.map(s => (
+              <a href={runOnUrl(s, tool.owner, tool.repo, tool.id, tool.version)} class="card flex items-center justify-between !p-3 no-underline" target="_blank" rel="noopener">
+                <span class="font-medium">{s.name}</span>
+                <span class="text-galaxy-600">→</span>
+              </a>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p class="mt-2 text-sm text-slate-500">This tool is not currently installed on any monitored public Galaxy server. You can still install it from the ToolShed.</p>
+      )}
+    </div>
+    <div class="card">
+      <h2 class="text-lg font-semibold">Tool Info</h2>
+      <p class="text-sm text-slate-500">Install this tool from the Galaxy Main ToolShed.</p>
+      <a href={tsUrl} class="mt-3 btn btn-primary w-full" target="_blank" rel="noopener">View on ToolShed</a>
+      <a href={xmlUrl} class="mt-2 block rounded-md border border-slate-200 px-3 py-2 text-sm no-underline hover:border-galaxy-400 hover:bg-galaxy-50" target="_blank" rel="noopener">
+        View source on GitHub
+      </a>
+      <dl class="mt-3 space-y-1 text-sm">
+        <div class="flex justify-between"><dt class="text-slate-500">Owner</dt><dd class="font-mono">{tool.owner}</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">Repository</dt><dd class="font-mono">{tool.repo}</dd></div>
+        {tool.doi && <div class="flex justify-between"><dt class="text-slate-500">DOI</dt><dd><a href={`https://doi.org/${tool.doi}`} class="font-mono no-underline hover:underline" target="_blank" rel="noopener">{tool.doi}</a></dd></div>}
+        <div class="flex justify-between"><dt class="text-slate-500">Last updated</dt><dd>{tool.updated?.slice(0,10)}</dd></div>
+      </dl>
+      <a href={`https://stats.galaxyproject.eu/d/ff4luhvlla1oga/tool-usage-stats?orgId=1&var-tool_id=${encodeURIComponent(tool.id)}`} class="mt-4 flex items-center justify-center gap-2.5 rounded-md border border-slate-200 px-3 py-2.5 text-sm no-underline hover:border-galaxy-400 hover:bg-galaxy-50" target="_blank" rel="noopener">
+        <span class="text-lg">📊</span> Usage statistics on UseGalaxy.eu
+      </a>
+    </div>
+  </section>
+
+  <!-- Metadata grid -->
+  <section class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="card">
+      <h2 class="text-lg font-semibold">EDAM & bio.tools</h2>
+      {hasEdam ? (
+        <div class="mt-2">
+          {tool.edam_topics.length > 0 && (
+            <>
+              <p class="text-sm font-medium text-slate-500">Topics</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                {tool.edam_topics.map(e => <a class="badge badge-slate no-underline" href={e.uri} target="_blank" rel="noopener" title={e.uri}>{edamTopicLabel(e)}</a>)}
+              </div>
+            </>
+          )}
+          {tool.edam_operations.length > 0 && (
+            <>
+              <p class={`text-sm font-medium text-slate-500${tool.edam_topics.length > 0 ? ' mt-3' : ''}`}>Operations</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                {tool.edam_operations.map(e => <a class="badge badge-slate no-underline" href={e.uri} target="_blank" rel="noopener" title={e.uri}>{edamOpLabel(e)}</a>)}
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div class="mt-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+          <p class="font-semibold">No EDAM ontology defined</p>
+          <p class="mt-1">This tool lacks EDAM topic/operation annotations, which help users discover it.</p>
+          <a href={xmlUrl} class="mt-2 inline-block font-medium underline" target="_blank" rel="noopener">Add bio.tools or EDAM ontology to the tool metadata →</a>
+        </div>
+      )}
+    </div>
+    <div class="card">
+      <h2 class="text-lg font-semibold">Requirements</h2>
+      <ul class="mt-2 space-y-1 text-sm">
+        {tool.requirements.map(r => (
+          <li class="flex items-center justify-between">
+            {r.type === "package" && cl?.conda ? (
+              <a href={cl.conda.find(c => c.name === r.name)?.url || `https://anaconda.org/bioconda/${r.name}`} class="font-mono no-underline" target="_blank" rel="noopener">{r.name}</a>
+            ) : (
+              <span class="font-mono">{r.name}</span>
+            )}
+            <span class="text-slate-500">{r.type}{r.version ? ` · ${r.version}` : ''}</span>
+          </li>
+        ))}
+        {tool.requirements.length === 0 && <li class="text-sm text-slate-400">None declared</li>}
+      </ul>
+
+      {/* Container links */}
+      {cl?.docker && (
+        <div class="mt-4 space-y-2">
+          <p class="text-sm font-medium text-slate-500">Containers</p>
+          <a href={cl.docker} class="block rounded-md border border-slate-200 px-3 py-1.5 text-sm no-underline hover:border-galaxy-400 hover:bg-galaxy-50" target="_blank" rel="noopener">
+            🐳 Docker — quay.io/biocontainers
+          </a>
+          <a href={cl.singularity} class="block rounded-md border border-slate-200 px-3 py-1.5 text-sm no-underline hover:border-galaxy-400 hover:bg-galaxy-50" target="_blank" rel="noopener">
+            📦 Singularity — depot.galaxyproject.org
+          </a>
+        </div>
+      )}
+
+      {tool.container_requirements.length > 0 && (
+        <p class="mt-3 text-sm font-medium text-slate-500">Declared containers</p>
+      )}
+      {tool.container_requirements.length > 0 && (
+        <ul class="mt-1 space-y-1 text-sm">
+          {tool.container_requirements.map(c => (
+            <li class="font-mono">{c.identifier ?? JSON.stringify(c)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </section>
+
+  <!-- Creators -->
+  {tool.creators.length > 0 && (
+    <section class="mt-6 card">
+      <h2 class="text-lg font-semibold">Creators</h2>
+      <p class="mt-1 text-sm text-slate-500">People and organisations annotated as creators in the tool metadata.</p>
+      <div class="mt-2 flex flex-wrap gap-2">
+        {tool.creators.map(c => {
+          const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || c.name || 'Unknown';
+          const gh = c.url && c.url.includes('github.com') ? c.url.split('/').filter(Boolean).pop() : null;
+          const cid = gh ? contributorByGithub[gh.toLowerCase()] ?? null : null;
+          return cid
+            ? <a class="badge badge-blue no-underline" href={`${base}/contributors/${cid}/`}>{name}</a>
+            : c.url
+              ? <a class="badge badge-slate no-underline" href={c.url}>{name}</a>
+              : <span class="badge badge-slate">{name}</span>;
+        })}
+      </div>
+    </section>
+  )}
+
+  <!-- Inputs / Outputs -->
+  <section class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="card">
+      <h2 class="text-lg font-semibold">Inputs <span class="text-slate-400">({tool.inputs.length})</span></h2>
+      {tool.inputs.length > 0 ? (
+        <ul class="mt-2 space-y-1 text-sm">
+          {tool.inputs.map(i => (
+            <li>
+              <span class="font-medium">{i.name}</span>
+              {i.extensions?.length > 0 && <span class="text-slate-400"> ({i.extensions.join(', ')})</span>}
+              {i.optional && <span class="badge badge-slate ml-1">optional</span>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p class="mt-2 text-sm text-slate-400">No data inputs</p>
+      )}
+    </div>
+    <div class="card">
+      <h2 class="text-lg font-semibold">Outputs <span class="text-slate-400">({tool.outputs.length})</span></h2>
+      <ul class="mt-2 space-y-1 text-sm">
+        {tool.outputs.map(o => (
+          <li><span class="font-medium">{o.name}</span> {o.format && <span class="text-slate-400">({o.format})</span>}</li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <!-- Help -->
+  {tool.help_html && (
+    <section class="mt-6 card">
+      <h2 class="text-lg font-semibold">Galaxy Tool Help</h2>
+      <div class="form-help form-text mt-2 max-w-none text-sm" set:html={tool.help_html} />
+    </section>
+  )}
+</Base>
+
+<style is:global>
+  .form-help .document { max-width: none; }
+  .form-help h1 { font-size: 1.5rem; font-weight: bold; margin: 0.5em 0; }
+  .form-help h2 { font-size: 1.25rem; font-weight: bold; margin: 0.5em 0; }
+  .form-help h3 { font-size: 1.1rem; font-weight: bold; margin: 0.5em 0; }
+  .form-help p { margin: 0.5em 0; line-height: 1.6; }
+  .form-help ul, .form-help ol { margin: 0.5em 0; padding-left: 1.5em; }
+  .form-help li { margin: 0.25em 0; }
+  .form-help pre { background: #f4f4f4; padding: 0.5em; border-radius: 4px; overflow-x: auto; }
+  .form-help code { font-family: monospace; font-size: 0.9em; }
+  .form-help table { border-collapse: collapse; margin: 0.5em 0; }
+  .form-help th, .form-help td { border: 1px solid #ddd; padding: 0.25em 0.5em; }
+  .form-help a { color: #1a55f0; text-decoration: underline; }
+</style>

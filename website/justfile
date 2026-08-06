@@ -1,0 +1,75 @@
+# website/justfile — convenience targets for the IUC website
+# Run from repo root via the proxy justfile, or directly with `just -f website/justfile ...`
+#
+# Galaxy packages (galaxy-tool-util, galaxy-app) are installed from the upstream
+# git repo's packages/ subdirectories as declared in pyproject.toml. `uv sync`
+# handles everything — no manual bootstrap needed.
+
+# Show all available targets with descriptions
+default:
+    @just --list
+
+# One-time setup: install Python deps (incl. Galaxy from git) + Node deps
+setup:
+    uv sync
+    cd astro && npm ci
+
+# Extract all data into website/data/ (tools, ToolShed, stats, people, recent)
+extract:
+    uv run python -m pipeline.build_tool_conf
+    uv run python -m pipeline.extract_tools
+    uv run python -m pipeline.extract_toolshed
+    uv run python -m pipeline.extract_tool_availability
+    uv run python -m pipeline.extract_stats
+    uv run python -m pipeline.fetch_gtn
+    uv run python -m pipeline.extract_people
+    uv run python -m pipeline.extract_releases
+
+# Extract only tool metadata via Galaxy source_store (no ToolShed/stats/people)
+extract-tools:
+    uv run python -m pipeline.build_tool_conf
+    uv run python -m pipeline.extract_tools
+
+# Full build: extract all data + build static site + Pagefind search index
+build:
+    just extract
+    cd astro && npm run build
+    npx pagefind --site astro/dist
+
+# Start Astro dev server with hot reload (extracts tool data first)
+dev:
+    just extract-tools
+    cd astro && npm run dev
+
+# Preview the built site locally
+preview:
+    cd astro && npm run preview
+
+# Full build then preview the site locally
+serve:
+    just build
+    cd astro && npm run preview
+
+# Lint Python (ruff) + typecheck Astro (astro check)
+check:
+    just test
+    uv run ruff check pipeline
+    cd astro && npx astro check
+
+# Run Python unit tests
+test:
+    uv run python -m unittest discover -s tests
+
+# Check internal links (requires built site + preview server)
+link-check:
+    npx pagefind --site astro/dist
+    cd astro && (npx astro preview --host 127.0.0.1 --port 4325 --strictPort & pid=$!; sleep 5; PORT=4325 npm run links:internal; status=$?; kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true; exit $status)
+
+# Run linters only
+lint:
+    uv run ruff check pipeline
+    cd astro && npm run lint
+
+# Remove all generated data and build artifacts
+clean:
+    rm -rf data astro/dist astro/.astro .rse-content
