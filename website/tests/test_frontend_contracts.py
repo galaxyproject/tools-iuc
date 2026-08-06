@@ -34,6 +34,17 @@ class FrontendContractsTests(unittest.TestCase):
         self.assertIn("npx pagefind --site astro/dist", justfile)
         self.assertIn("cd astro && (npx astro preview", justfile)
 
+    def test_ecosystem_links_are_exposed_in_frontend(self) -> None:
+        header = (ROOT / "astro" / "src" / "components" / "Header.astro").read_text(encoding="utf-8")
+        footer = (ROOT / "astro" / "src" / "components" / "Footer.astro").read_text(encoding="utf-8")
+        homepage = (ROOT / "astro" / "src" / "pages" / "index.astro").read_text(encoding="utf-8")
+
+        for source in (header, footer, homepage):
+            self.assertIn("siteConfig.ecosystem", source)
+        self.assertIn("Galaxy Hub", homepage)
+        self.assertIn("IWC", homepage)
+        self.assertIn("ToolShed", homepage)
+
 
 if __name__ == "__main__":
     unittest.main()

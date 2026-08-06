@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from pipeline.extract_people import _merge_local_key
+from pipeline.extract_people import _build_alias_maps, _merge_local_key, _resolve_key
 
 
 class PeopleIdentityTests(unittest.TestCase):
@@ -36,4 +36,17 @@ class PeopleIdentityTests(unittest.TestCase):
         self.assertEqual(
             _merge_local_key("gtn-handle", "gtn-handle", orcid_keys, orcid="0000-0001-6431-3442"),
             "gtn-handle",
+        )
+
+    def test_reviewed_name_alias_resolves_to_canonical_key(self) -> None:
+        alias_gh, alias_name = _build_alias_maps({"apetkau": {"github": [], "name": ["aaron-petkau"]}})
+
+        self.assertEqual(
+            _resolve_key(
+                {"by_handle": {}, "by_name": {}, "by_orcid": {}},
+                alias_gh,
+                alias_name,
+                name="Aaron Petkau",
+            ),
+            ("apetkau", None),
         )

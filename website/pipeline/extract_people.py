@@ -109,7 +109,7 @@ def _build_gtn_maps(gtn_data: dict[str, Any]) -> dict[str, dict[str, str]]:
 def _load_aliases() -> dict[str, dict[str, list[str]]]:
     """Load curated alias mappings from config/contributor_aliases.yaml.
 
-    Returns ``{canonical_handle: {"github": [...]}}``
+    Returns ``{canonical_handle: {"github": [...], "name": [...]}}``
     with all values lowercased. Returns ``{}`` if the file is absent.
     """
     if not _ALIASES_PATH.exists():
@@ -121,27 +121,32 @@ def _load_aliases() -> dict[str, dict[str, list[str]]]:
             continue
         out[handle.lower()] = {
             "github": [g.lower() for g in (v.get("github") or [])],
+            "name": [_name_slug(str(n)) for n in (v.get("name") or [])],
         }
     return out
 
 
 def _build_alias_maps(
     aliases: dict[str, dict[str, list[str]]],
-) -> dict[str, str]:
+) -> tuple[dict[str, str], dict[str, str]]:
     """Build reverse-lookup maps from the alias config.
 
-    Returns ``github_alias→canonical`` with all keys lowercased.
+    Returns ``(github_alias→canonical, name_alias→canonical)``.
     """
     gh_map: dict[str, str] = {}
+    name_map: dict[str, str] = {}
     for canonical, v in aliases.items():
         for gh in v.get("github", []):
             gh_map[gh] = canonical
-    return gh_map
+        for name in v.get("name", []):
+            name_map[name] = canonical
+    return gh_map, name_map
 
 
 def _resolve_key(
     gtn_maps: dict[str, dict[str, str]],
     alias_gh: dict[str, str],
+    alias_name: dict[str, str],
     gh: str | None = None,
     orcid: str | None = None,
     name: str | None = None,
@@ -161,6 +166,13 @@ def _resolve_key(
         if canonical in gtn_maps["by_handle"]:
             return gtn_maps["by_handle"][canonical], gtn_maps["by_handle"][canonical]
         return canonical, None
+    if name:
+        name_alias = _name_slug(name)
+        if name_alias in alias_name:
+            canonical = alias_name[name_alias]
+            if canonical in gtn_maps["by_handle"]:
+                return gtn_maps["by_handle"][canonical], gtn_maps["by_handle"][canonical]
+            return canonical, None
 
     # 1. GitHub handle → GTN by_handle
     if gh_lower and gh_lower in gtn_maps["by_handle"]:
@@ -260,7 +272,7 @@ def extract_people() -> tuple[int, int]:
 
     # Load curated aliases (public handle changes → canonical handle)
     aliases = _load_aliases()
-    alias_gh = _build_alias_maps(aliases)
+    alias_gh, alias_name = _build_alias_maps(aliases)
 
     # Load IUC members
     members_path = WEBSITE_DIR / "config" / "iuc_members.yaml"
@@ -320,7 +332,7 @@ def extract_people() -> tuple[int, int]:
                     if not gh:
                         gh = s
 
-            key, gtn_handle = _resolve_key(gtn_maps, alias_gh, gh=gh, orcid=orcid, name=name)
+            key, gtn_handle = _resolve_key(gtn_maps, alias_gh, alias_name, gh=gh, orcid=orcid, name=name)
             if not key:
                 continue
             key = _merge_local_key(key, gtn_handle, local_orcid_keys, orcid=orcid)
@@ -355,7 +367,7 @@ def extract_people() -> tuple[int, int]:
         if m:
             gh = m.group(1)
 
-        key, gtn_handle = _resolve_key(gtn_maps, alias_gh, gh=gh, name=name)
+        key, gtn_handle = _resolve_key(gtn_maps, alias_gh, alias_name, gh=gh, name=name)
         if not key:
             continue
         key = _merge_local_key(key, gtn_handle, local_orcid_keys)

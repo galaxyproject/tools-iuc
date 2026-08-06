@@ -136,6 +136,13 @@ export interface ServerConfig {
   servers: { name: string; url: string }[];
   toolshed: { base: string; host: string; view: string };
   iuc: { repo: string; issues: string; guides: string };
+  ecosystem: {
+    galaxy_hub: string;
+    galaxy_hub_iuc: string;
+    galaxy_tools: string;
+    iwc: string;
+    chat: string;
+  };
 }
 
 export interface ToolAvailability {
@@ -224,7 +231,6 @@ export function runOnUrl(server: { url: string }, owner: string, repo: string, i
 
 // Read a per-tool YAML file by owner/repo/id.
 export function loadTool(owner: string, repo: string, id: string): ToolFull {
-  const slug = `${owner}/${repo}/${id}`;
   const raw = readFileSync(join(DATA_DIR, 'tools', owner, repo, `${id}.yaml`), 'utf-8');
   return YAML.parse(raw) as ToolFull;
 }

@@ -78,6 +78,59 @@ Contributors are auto-discovered from `<creator>` tags + git commit history; thi
 file only flags which contributors are active IUC members (shown with a badge on
 the contributors page). Keep alphabetical by GitHub handle.
 
+## Contributor identity and duplicates
+
+Contributors are merged only by public, stable identity signals:
+
+- GitHub handle from a `<creator>` URL or a GitHub noreply commit address.
+- ORCID from a `<creator>` identifier or ORCID URL.
+- GTN `CONTRIBUTORS.yaml` handle, ORCID, or exact GTN name.
+- Explicit public GitHub-handle aliases in
+  [`config/contributor_aliases.yaml`](config/contributor_aliases.yaml).
+
+Email addresses from git history and `<creator>` tags may be retained as
+metadata, but they are not used as identity keys. Do not add normal/private
+email addresses to `contributor_aliases.yaml`.
+
+To avoid duplicate contributor pages, prefer fixing the upstream public
+metadata:
+
+1. Add the contributor's GitHub URL to the relevant `<creator>` XML entry.
+2. Add the contributor's ORCID to the relevant `<creator>` XML entry.
+3. Add/update the contributor in GTN `CONTRIBUTORS.yaml` with GitHub/ORCID data.
+4. If the person changed GitHub handles, add only the old public handle under
+   the canonical handle in `contributor_aliases.yaml`.
+
+After changing identity metadata, regenerate contributors and inspect duplicate
+name clusters:
+
+```bash
+cd website
+uv run python -m pipeline.extract_people
+python - <<'PY'
+import re, unicodedata, yaml
+from collections import defaultdict
+
+contributors = yaml.safe_load(open("data/contributors.yaml"))
+
+def normalise(name):
+    ascii_name = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "", ascii_name.lower())
+
+groups = defaultdict(list)
+for contributor in contributors:
+    groups[normalise(contributor.get("name"))].append(contributor)
+
+for key, group in sorted(groups.items()):
+    if len(group) > 1:
+        print(key, [(c["id"], c.get("github"), c.get("orcid")) for c in group])
+PY
+```
+
+With the current public-identifier-only policy, the generated data has 20
+duplicate normalized-name clusters. `config/contributor_aliases.yaml` documents
+the unresolved clusters and what public metadata is needed to merge them.
+
 ## Other Galaxy tool repositories
 
 The front page lists other Galaxy tool repositories beyond the IUC. To add one,
