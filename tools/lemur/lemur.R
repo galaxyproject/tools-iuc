@@ -129,7 +129,7 @@ p_umap <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
     geom_point(aes(color = if (!is.null(batch_name)) .data[[batch_name]] else NULL, shape = .data[[condition_name]]), size = 0.5, na.rm = TRUE) +
     coord_fixed() +
     theme_minimal()
-save_plot(opt$output_umap, p_umap, format = opt$plot_format)
+save_plot(opt$output_umap, p_umap, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
 
 # ---- Volcano plot ----
 group_vars <- if (!is.null(batch_name)) vars(!!sym(batch_name), !!sym(condition_name)) else vars(!!sym(condition_name))
@@ -139,7 +139,7 @@ p_volcano <- neighborhoods |>
     ggplot(aes(x = lfc, y = -log10(pval))) +
     geom_point(aes(color = adj_pval < 0.1)) +
     theme_minimal()
-save_plot(opt$output_volcano, p_volcano, format = opt$plot_format)
+save_plot(opt$output_volcano, p_volcano, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
 neigh_out <- neighborhoods |> select(-neighborhood)
 write.table(as.data.frame(neigh_out), opt$output_de, sep = "\t", quote = FALSE, row.names = FALSE)
 
@@ -152,12 +152,12 @@ if (!is.null(opt$sel_gene)) {
             scale_color_gradient2(low = "#FFD800", high = "#0056B9") +
             coord_fixed() +
             theme_minimal()
-        save_plot(opt$output_gene_umap, p_gene_umap, format = opt$plot_format)
+        save_plot(opt$output_gene_umap, p_gene_umap, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
     }
     if (!is.null(opt$output_gene_hist)) {
         p_hist <- ggplot(df, aes(x = de)) +
             geom_histogram(bins = 100)
-        save_plot(opt$output_gene_hist, p_hist, format = opt$plot_format)
+        save_plot(opt$output_gene_hist, p_hist, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
     }
 }
 
@@ -178,7 +178,7 @@ if (!is.null(opt$output_chr_scatter) || !is.null(opt$output_tumor_umap) || !is.n
                 geom_vline(xintercept = opt$chrom2_thresh) +
                 labs(x = paste0(opt$chrom2_name, " expr"), y = paste0(opt$chrom1_name, " expr")) +
                 theme_minimal()
-            save_plot(opt$output_chr_scatter, p_chr, format = opt$plot_format)
+            save_plot(opt$output_chr_scatter, p_chr, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
         }
 
         if (!is.null(opt$output_tumor_umap)) {
@@ -189,7 +189,7 @@ if (!is.null(opt$output_chr_scatter) || !is.null(opt$output_tumor_umap) || !is.n
                 facet_wrap(vars(is_tumor)) +
                 coord_fixed() +
                 theme_minimal()
-            save_plot(opt$output_tumor_umap, p_tumor_umap, format = opt$plot_format)
+            save_plot(opt$output_tumor_umap, p_tumor_umap, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
         }
 
         if (!is.null(opt$output_tumor_neigh)) {
