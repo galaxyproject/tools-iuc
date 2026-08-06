@@ -2,15 +2,15 @@
 ``ORGANISATIONS.yaml`` — the canonical source of truth for contributor
 metadata across the Galaxy ecosystem (the Galaxy Hub mirrors these).
 
-Both files are keyed by GitHub handle (userid) and contain curated name,
-email, ORCID, bio, affiliations, location, and social-media links.  We use
-them as the identity authority for de-duplicating IUC contributors.
+Both files are keyed by GitHub handle (userid) and contain curated name, ORCID,
+bio, affiliations, location, and social-media links.  We use them as the
+identity authority for de-duplicating IUC contributors.
 
 Output: ``data/gtn_people.yaml``
 
   fetched_at: 2026-08-05T12:00:00+00:00
   contributors:
-    <handle>: { name, email, orcid, bio, affiliations, ... }
+    <handle>: { name, orcid, bio, affiliations, ... }
   organisations:
     <handle>: { name, url, avatar, ror, ... }
 
@@ -78,7 +78,9 @@ def _clean_contributors(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
         # Skip entries without a name (can't display meaningfully).
         if not v.get("name"):
             continue
-        out[handle] = v
+        cleaned = dict(v)
+        cleaned.pop("email", None)
+        out[handle] = cleaned
     return out
 
 
@@ -92,7 +94,9 @@ def _clean_organisations(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         if not v.get("name"):
             continue
-        out[handle] = v
+        cleaned = dict(v)
+        cleaned.pop("email", None)
+        out[handle] = cleaned
     return out
 
 
@@ -106,6 +110,9 @@ def fetch_gtn_people() -> dict[str, Any]:
     if _is_cache_fresh(OUT_PATH):
         step("Fetching GTN people (cached)")
         cached = read_yaml(OUT_PATH)
+        cached["contributors"] = _clean_contributors(cached.get("contributors", {}))
+        cached["organisations"] = _clean_organisations(cached.get("organisations", {}))
+        write_yaml(OUT_PATH, cached)
         n_c = len(cached.get("contributors", {}))
         n_o = len(cached.get("organisations", {}))
         step_done("Fetching GTN people (cached)", f"{n_c} contributors, {n_o} organisations")
@@ -119,7 +126,11 @@ def fetch_gtn_people() -> dict[str, Any]:
         # Fall back to existing cache if the fetch failed but we have one.
         if OUT_PATH.exists():
             print("    Using stale cache (fetch failed).", flush=True)
-            return read_yaml(OUT_PATH)
+            cached = read_yaml(OUT_PATH)
+            cached["contributors"] = _clean_contributors(cached.get("contributors", {}))
+            cached["organisations"] = _clean_organisations(cached.get("organisations", {}))
+            write_yaml(OUT_PATH, cached)
+            return cached
         raise SystemExit(
             "Could not fetch GTN CONTRIBUTORS.yaml and no cache available. "
             f"Check connectivity to {GTN_CONTRIBUTORS_URL}"

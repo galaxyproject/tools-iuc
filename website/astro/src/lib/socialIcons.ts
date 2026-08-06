@@ -48,10 +48,6 @@ export const socialIcons: Record<string, SocialIcon> = {
     viewBox: "0 0 24 24",
     path: "M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 22c-5.514 0-10-4.486-10-10S6.486 2 12 2s10 4.486 10 10-4.486 10-10 10zm-1-19.5C8.1 3.4 5.5 7 5.5 12s2.6 8.6 5.5 9.5V2.5zm2 0v19c2.9-.9 5.5-4.5 5.5-9.5S15.9 3.4 13 2.5z",
   },
-  email: {
-    viewBox: "0 0 24 24",
-    path: "M0 3v18h24V3H0zm21.518 2L12 12.713 2.482 5h19.036zM2 19V7.287l10 8.5 10-8.5V19H2z",
-  },
 };
 
 export function socialLink(type: string, value: string): string | null {
@@ -80,8 +76,6 @@ export function socialLink(type: string, value: string): string | null {
     case "website":
     case "url":
       return value;
-    case "email":
-      return `mailto:${value}`;
     default:
       return null;
   }

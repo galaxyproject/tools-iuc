@@ -85,12 +85,13 @@ Contributors are merged only by public, stable identity signals:
 - GitHub handle from a `<creator>` URL or a GitHub noreply commit address.
 - ORCID from a `<creator>` identifier or ORCID URL.
 - GTN `CONTRIBUTORS.yaml` handle, ORCID, or exact GTN name.
-- Explicit public GitHub-handle aliases in
+- Explicit public GitHub-handle and reviewed name-slug aliases in
   [`config/contributor_aliases.yaml`](config/contributor_aliases.yaml).
 
-Email addresses from git history and `<creator>` tags may be retained as
-metadata, but they are not used as identity keys. Do not add normal/private
-email addresses to `contributor_aliases.yaml`.
+Email addresses from git history and `<creator>` tags are not written to the
+contributor output and are not used as identity keys. GitHub noreply addresses
+are parsed transiently only to recover the public GitHub handle. Do not add
+normal/private email addresses to `contributor_aliases.yaml`.
 
 To avoid duplicate contributor pages, prefer fixing the upstream public
 metadata:
@@ -99,7 +100,11 @@ metadata:
 2. Add the contributor's ORCID to the relevant `<creator>` XML entry.
 3. Add/update the contributor in GTN `CONTRIBUTORS.yaml` with GitHub/ORCID data.
 4. If the person changed GitHub handles, add only the old public handle under
-   the canonical handle in `contributor_aliases.yaml`.
+   `github:` for the canonical handle in `contributor_aliases.yaml`.
+5. If no upstream public identifier is available, a maintainer may add a
+   generated name slug under `name:` after personally verifying the identity.
+   This is a fallback for legacy git authors or creator records; prefer
+   GitHub/ORCID metadata when it can be added upstream.
 
 After changing identity metadata, regenerate contributors and inspect duplicate
 name clusters:
@@ -127,9 +132,10 @@ for key, group in sorted(groups.items()):
 PY
 ```
 
-With the current public-identifier-only policy, the generated data has 20
-duplicate normalized-name clusters. `config/contributor_aliases.yaml` documents
-the unresolved clusters and what public metadata is needed to merge them.
+With the current reviewed alias file, the generated data has 0 duplicate
+normalized-name clusters. If the check above prints new clusters, they need
+human review before adding any `name:` alias. Do not merge by private email or
+by fuzzy name matching.
 
 ## Other Galaxy tool repositories
 

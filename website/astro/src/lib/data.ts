@@ -80,7 +80,6 @@ export interface Contributor {
   name: string;
   github: string | null;
   orcid: string | null;
-  email: string | null;
   url: string | null;
   tools: string[];
   is_member: boolean;
@@ -92,7 +91,6 @@ export interface Contributor {
 
 export interface GtnContributor {
   name: string;
-  email?: string;
   orcid?: string;
   bio?: string;
   affiliations?: string[];

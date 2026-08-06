@@ -3,11 +3,11 @@ using the GTN ``CONTRIBUTORS.yaml`` as the canonical identity authority.
 
 Sources (in order of authority):
   1. GTN CONTRIBUTORS.yaml (fetched by ``fetch_gtn``) — keyed by GitHub handle,
-     contains curated name, email, ORCID, bio, affiliations, location, socials.
+     contains curated name, ORCID, bio, affiliations, location, socials.
   2. ``<creator>`` elements in tool XML (parsed by extract_tools) — structured
-     metadata: name, GitHub URL, ORCID/handle identifier, email.
-  3. ``git shortlog -sne`` over the tools-iuc history — all commit authors with
-     name + email + commit count.
+     metadata: name, GitHub URL, ORCID/handle identifier.
+  3. Git log over the tools-iuc history — all commit authors with name,
+     transient email for GitHub noreply handle extraction, and commit count.
 
 The GTN file is the source of truth for contributor metadata (bio, socials,
 affiliations, location).  We do NOT duplicate that data — instead we store
@@ -226,6 +226,14 @@ def _merge_local_key(
     return key
 
 
+def _canonical_github(key: str, gh: str | None, name: str | None) -> str | None:
+    """Return the public GitHub handle to expose for a resolved contributor."""
+    if key != _name_slug(name):
+        return key
+    return gh
+
+
+
 def _git_authors() -> list[dict[str, Any]]:
     """Return [{name, email, commits, first_commit}] from git log over tools/ history.
 
@@ -293,7 +301,6 @@ def extract_people() -> tuple[int, int]:
                 "name": "",
                 "github": None,
                 "orcid": None,
-                "email": None,
                 "url": None,
                 "tools": [],
                 "commits": 0,
@@ -318,7 +325,6 @@ def extract_people() -> tuple[int, int]:
             name = _full_name(c)
             gh = _extract_github(c.get("url"))
             orcid = _extract_orcid(c.get("identifier")) or _extract_orcid(c.get("url"))
-            email = (c.get("email") or "").lower() or None
             url = c.get("url")
             # If URL is an ORCID URL, don't store it as a website
             if url and _extract_orcid(url):
@@ -345,9 +351,8 @@ def extract_people() -> tuple[int, int]:
                 entry["gtn_handle"] = gtn_handle
             else:
                 entry["name"] = name or entry["name"]
-                entry["github"] = gh or entry["github"]
+                entry["github"] = _canonical_github(key, gh, name) or entry["github"]
                 entry["orcid"] = orcid or entry["orcid"]
-                entry["email"] = email or entry["email"]
                 entry["url"] = url or entry["url"]
 
             if tid and tid not in entry["tools"]:
@@ -385,9 +390,7 @@ def extract_people() -> tuple[int, int]:
             if not entry["name"]:
                 entry["name"] = name
             if not entry["github"]:
-                entry["github"] = gh
-            if not entry["email"]:
-                entry["email"] = email.lower()
+                entry["github"] = _canonical_github(key, gh, name)
 
         entry["commits"] += commits
         if first_commit:
