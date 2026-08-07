@@ -9,22 +9,34 @@
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 export NUMBA_CACHE_DIR="\${TEMP:-/tmp}";
-@PREP_ADATA@
+#if $method.method == 'tl.marker_regions' and str($method.enrichment_condi.motif_enrichment) == "yes":
+    gunzip -c '$method.enrichment_condi.motifs.fields.path' > 'input.meme' &&
+#end if
+#if $method.method == 'tl.marker_regions' and str($method.enrichment_condi.motif_enrichment) == "yes":
+@CMD_GET_FASTA@
+#end if
+#if $method.method != 'pp.merge_peaks'
+@CMD_PREP_ADATA@
+#end if
 @CMD@
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
-@CMD_imports@
-@CMD_read_inputs@
+@CONF_IMPORTS@
+#if $method.method != 'pp.merge_peaks'
+@CONF_READ_INPUTS@
+#end if
 
 #if $method.method == 'tl.macs3'
 if __name__ == '__main__': ## a temporary fix https://github.com/kaizhang/SnapATAC2/issues/298
-    sa.tl.macs3(
+    snap.tl.macs3(
         adata,
         #if $method.groupby != ''
         groupby = '$method.groupby',
         #end if
         qvalue = $method.qvalue,
+        call_broad_peaks = $method.call_broad_peaks,
+        broad_cutoff = $method.broad_cutoff,
         #if $method.replicate
         replicate = '$method.replicate',
         #end if
@@ -46,53 +58,86 @@ if __name__ == '__main__': ## a temporary fix https://github.com/kaizhang/SnapAT
         key_added = '$method.key_added',
         inplace = True,
         tempdir = '.',
-        n_jobs = 1
+        n_jobs = 1 ## it is set to 1 to avoid the issues with multiple threads in Galaxy. check here: https://github.com/galaxyproject/tools-iuc/pull/7078#discussion_r2376140575
     )
 
 #else if $method.method == 'tl.merge_peaks'
-import json
 import pandas as pd
-import csv
-with open('$method.chrom_sizes') as f:
-    chr_sizes = {x[0]:int(x[1]) for x in csv.reader(f, delimiter='\t')}
 
-peaks = sa.tl.merge_peaks(
+chrom_sizes = {}
+with open('$method.chrom_sizes', 'r') as f:
+    for line in f:
+        chrom, size = line.strip().split('\t')
+        chrom_sizes[chrom] = int(size)
+
+peaks = snap.tl.merge_peaks(
     adata.uns['$method.macs_key'],
-    chrom_sizes = chr_sizes,
+    chrom_sizes = chrom_sizes,
     half_width = $method.half_width
 )
+adata.uns['$method.merged_peaks_key'] = peaks.to_pandas()
 peaks.write_csv('merged_peaks.tabular', separator = '\t')
 
 #else if $method.method == 'pp.make_peak_matrix'
-import polars
-peaks = polars.read_csv('$method.merged_peaks', separator='\t')
-adata = sa.pp.make_peak_matrix(
+peak_mat = snap.pp.make_peak_matrix(
     adata,
-    use_rep = peaks['Peaks'],
+    #if $method.peaks_condi.peaks == 'uns' and $method.peaks_condi.use_rep != ''
+    use_rep = '$method.use_rep',
+    #end if
+    #if $method.peaks_condi.peaks == 'bed' and str($method.peaks_condi.peak_file) != 'None'
+    peak_file = '$method.peak_file',
+    #end if
     chunk_size = $method.chunk_size,
     use_x = $method.use_x,
-    #if $method.min_frag_size
+    #if $method.max_frag_size
     min_frag_size = $method.min_frag_size,
     #end if
     #if $method.max_frag_size
     max_frag_size = $method.max_frag_size,
     #end if
-    counting_strategy = '$method.counting_strategy'
+    counting_strategy = '$method.counting_strategy',
+    value_type = '$method.value_type',
+    summary_type = '$method.summary_type'
 )
+adata = peak_mat.copy()
+del peak_mat
 
 #else if $method.method == 'tl.marker_regions'
-marker_peaks = sa.tl.marker_regions(
+marker_peaks = snap.tl.marker_regions(
     adata,
     groupby = '$method.groupby',
     pvalue = $method.pvalue
 )
-sa.pl.regions(
+snap.pl.regions(
     adata,
     groupby = '$method.groupby',
     peaks = marker_peaks,
-    @CMD_params_render_plot@
+    @CONF_PARAMS_RENDER_PLOT@
 )
-
+    #if str($method.enrichment_condi.motif_enrichment) == "yes"
+## import motifs
+from snapatac2._snapatac2 import read_motifs, PyDNAMotif
+#if $method.enrichment_condi.motifs == 'cisbp':
+@CONF_IMPORT_MEME@
+#end if
+motifs = snap.tl.motif_enrichment(
+    motifs = motifs,
+    regions = marker_peaks,
+    genome_fasta = 'fasta.fa',
+    background = None, # will update if requested
+    method = None # automatic based on background
+)
+snap.pl.motif_enrichment(
+    enrichment = motifs,
+    min_log_fc = $method.enrichment_condi.min_log_fc,
+    max_fdr = $method.enrichment_condi.max_fdr,
+    width = $method.enrichment_condi.width,
+    height = $method.enrichment_condi.height,
+    show = False,
+    interactive = False,
+    out_file = 'plot_enrichment.$method.enrichment_condi.out_file',
+)
+    #end if
 
 #else if $method.method == 'tl.diff_test'
 import numpy as np
@@ -121,7 +166,7 @@ group2_cells = np.concatenate(group2_cells)
 peaks_selected = peaks[group1].to_numpy()
     #end if
 
-diff_peaks = sa.tl.diff_test(
+diff_peaks = snap.tl.diff_test(
     adata,
     cell_group1 = group1_cells,
     cell_group2 = group2_cells,
@@ -145,15 +190,17 @@ peaks_to_plot = {
     }
     #end if
 
-sa.pl.regions(
+snap.pl.regions(
     adata,
     groupby = group_key,
     peaks = peaks_to_plot,
-    @CMD_params_render_plot@
+    @CONF_PARAMS_RENDER_PLOT@
 )
 
 #end if
-@CMD_anndata_write_outputs@
+#if $method.method != 'pp.merge_peaks' and $method.method != 'tl.marker_regions' and $method.method != 'tl.diff_test'
+@CONF_ANNDATA_WRITE_OUTPUTS@
+#end if
     ]]></configfile>
     </configfiles>
     <inputs>
@@ -166,9 +213,11 @@ sa.pl.regions(
                 <option value="tl.diff_test">Identify differentially accessible regions,using 'tl.diff_test'</option>
             </param>
             <when value="tl.macs3">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="groupby" type="text" value="" optional="true" label="Group cells before peak calling based on key in `.obs`"/>
                 <param argument="qvalue" type="float" value="0.05" label="qvalue cutoff used in MACS3"/>
+                <param argument="call_broad_peaks" type="boolean" checked="false" truevalue="True" falsevalue="False" label="If True, MACS3 will call broad peaks"/>
+                <param argument="broad_cutoff" type="float" value="0.1" label="qvalue cutoff used in MACS3 for calling broad peaks"/>
                 <param argument="replicate" type="text" value="" optional="true" label="Replicate information based on key in `.obs`"/>
                 <param argument="replicate_qvalue" type="float" value="" optional="true" label="qvalue cutoff used in MACS3 for calling peaks in replicates"/>
                 <param argument="max_frag_size" type="integer" value="" optional="true" label="Maximum fragment size"
@@ -182,30 +231,63 @@ sa.pl.regions(
                 <param argument="key_added" type="text" value="macs3"  label="`.uns` key under which to add peak information"/>
             </when>
             <when value="tl.merge_peaks">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param name="macs_key" type="text" value="macs3" label="`.uns` key under which peak information was added while peak calling"/>
-                <param argument="chrom_sizes" type="data" format="tabular" label="Chromosome sizes"/>
+                <param name="merged_peaks_key" type="text" value="macs3_merged" label="`.uns` key under which merged peak information will be added. This can be used later for pp.make_peak_matrix"/>
+                <expand macro="param_chrom_sizes"/>
                 <param argument="half_width" type="integer" value="250" label="Half width of the merged peaks"/>
             </when>
             <when value="pp.make_peak_matrix">
-                <expand macro="inputs_anndata"/>
-                <param argument="use_rep" type="text" optional="true" value="" label="Used to read peak information from .uns[use_rep]">
-                    <expand macro="sanitize_query"/>
-                </param>
-                <param argument="merged_peaks" type="data" format="tabular" label="Merged peaks file"/>
+                <expand macro="param_inputs_anndata"/>
+                <conditional name="peaks_condi">
+                    <param name="peaks" type="select" label="Use peaks from a bed file or a key in .uns" help="To save the peaks in a key in `.uns`, you can use 'tl.merge_peaks' first to generate merged peaks and save them in a key in `.uns`.">
+                        <option value="uns">Key in `.uns`</option>
+                        <option value="bed">Bed file</option>
+                    </param>
+                    <when value="uns">
+                        <param argument="use_rep" type="text" value="" optional="true" label="Used to read peak information from .uns"/>
+                    </when>
+                    <when value="bed">
+                        <param argument="peak_file" type="data" format="bed" optional="true" label="Bed file containing the peaks"/>
+                    </when>
+                </conditional>
                 <expand macro="param_chunk_size" size="500"/>
-                <param argument="use_x" type="boolean" truevalue="True" falsevalue="False" checked="false" label="If True, use the matrix stored in .X as raw counts"/>
-                <expand macro="min_max_frag_size"/>
+                <param argument="use_x" type="boolean" truevalue="True" falsevalue="False" checked="false" label="If True, use the matrix stored in .X as raw counts. Otherwise the .obsm['insertion'] is used."/>
+                <expand macro="param_min_max_frag_size"/>
                 <expand macro="param_counting_strategy"/>
+                <param argument="value_type" type="select" label="Value type" help="Only available when data is imported using import_values">
+                    <option value="target">Number of methylated bases</option>
+                    <option value="total">Number of methylated bases plus unmethylated bases</option>
+                    <option value="fraction">The fraction of methylated bases</option>
+                </param>
+                <param argument="summary_type" type="select" label="Summary type" help="Only available when data is imported using import_values">
+                    <option value="sum">Sum</option>
+                    <option value="mean">Mean</option>
+                </param>
             </when>
             <when value="tl.marker_regions">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <expand macro="param_groupby"/>
                 <param argument="pvalue" type="float" value="0.01" label="P-value threshold"/>
-                <expand macro="params_render_plot"/>
+                <expand macro="param_render_plot"/>
+                <conditional name="enrichment_condi">
+                    <param name="motif_enrichment" type="select" label="Perform motif enrichment analysis?">
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </param>
+                    <when value="yes">
+                        <expand macro="param_meme_table"/>
+                        <expand macro="param_genome_fasta"/>
+                        <param argument="--min_log_fc" type="float" value="1" label="Retain motifs with log2-fold-change more than min_log_fc"/>
+                        <param argument="--max_fdr" type="float" min="0.0" value="0.01" label="Retain motifs with FDR less than max_fdr"/>
+                        <expand macro="param_render_plot"/>
+                    </when>
+                    <when value="no">
+                    </when>
+                </conditional>
             </when>
             <when value="tl.diff_test">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="merged_peaks" type="data" format="tabular" label="Merged peaks file"/>
                 <param name="group_key" type="text" value="cell_type" label="key in `.obs` to select cell groups" help="for eg. cell_type"/>
                 <conditional name="compare">
@@ -214,12 +296,12 @@ sa.pl.regions(
                         <option value="background_group">Background cell group built from random selection of cells from all other the groups</option>
                     </param>
                     <when value="single_group">
-                        <param name="group1_value" type="text" value="Naive B" label="name of the group 1 stored in .obs"/>
-                        <param name="group2_value" type="text" value="Memory B" label="name of the group 2 stored in .obs"/>
+                        <param name="group1_value" type="text" value="" optional="false" label="name of the group 1 stored in .obs"/>
+                        <param name="group2_value" type="text" value="" optional="false" label="name of the group 2 stored in .obs"/>
                     </when>
                     <when value="background_group">
-                        <param name="group1_value" type="text" value="Naive B" label="name of the group 1 stored in .obs"/>
-                        <param name="number_of_cells" type="integer" min="1" value="30" label="Number of cells to subsample from ther other groups"/>
+                        <param name="group1_value" type="text" value="" optional="false" label="name of the group 1 stored in .obs"/>
+                        <param name="number_of_cells" type="integer" min="1" value="30" label="Number of cells to subsample from the other groups"/>
                     </when>
                 </conditional>
                 <param argument="direction" type="select" label="“positive”: return features that are enriched in group 1. “negative”: return features that are enriched in group 2">
@@ -229,15 +311,17 @@ sa.pl.regions(
                 </param>
                 <param argument="min_log_fc" type="float" value="0.25" label="Limit testing to features which show, on average, at least this difference (log2-scale) between the two groups of cells"/>
                 <param argument="min_pct" type="float" value="0.05" label="Only test features that are detected in a minimum fraction of min_pct cells in either of the two population"/>
-                <expand macro="params_render_plot"/>
+                <expand macro="param_render_plot"/>
                 <param name="cutoff_p_adj" type="float" value="0.01" label="Adjusted p-value cutoff for plotting" help="This cutoff is applied for plotting only"/>
                 <param name="cutoff_l2fc" type="float" value="1" label="Log2 fold change cutoff for plotting" help="This cutoff is applied for plotting only"/>
             </when>
         </conditional>
-        <expand macro="inputs_common_advanced"/>
+        <expand macro="param_common_advanced"/>
     </inputs>
     <outputs>
-        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix"/>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad.gz" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix">
+            <filter>method['method'] != 'tl.marker_regions' and method['method'] != 'tl.diff_test'</filter>
+        </data>
         <data name="hidden_output" format="txt" label="Log file" >
             <filter>advanced_common['show_log']</filter>
         </data>
@@ -253,6 +337,21 @@ sa.pl.regions(
         <data name="out_svg" format="svg" from_work_dir="plot.svg" label="SVG plot from ${tool.name} (${method.method}) on ${on_string}">
             <filter>(method['method'] == 'tl.marker_regions' or method['method'] == 'tl.diff_test') and method['out_file'] == 'svg'</filter>
         </data>
+        <data name="out_html" format="html" from_work_dir="plot.html" label="HTML plot from ${tool.name} (${method.method}) on ${on_string}">
+            <filter>(method['method'] == 'tl.marker_regions' or method['method'] == 'tl.diff_test') and method['out_file'] == 'html'</filter>
+        </data>
+        <data name="out_png_motifs" format="png" from_work_dir="plot_enrichment.png" label="PNG plot from ${tool.name} (${method.method}) on ${on_string} - motif_enrichment">
+            <filter>(method['method'] == 'tl.marker_regions' and method['enrichment_condi']['motif_enrichment'] == 'yes') and method['enrichment_condi']['out_file'] == 'png'</filter>
+        </data>
+        <data name="out_pdf_motifs" format="pdf" from_work_dir="plot_enrichment.pdf" label="PDF plot from ${tool.name} (${method.method}) on ${on_string} - motif_enrichment">
+            <filter>(method['method'] == 'tl.marker_regions' and method['enrichment_condi']['motif_enrichment'] == 'yes') and method['enrichment_condi']['out_file'] == 'pdf'</filter>
+        </data>
+        <data name="out_svg_motifs" format="svg" from_work_dir="plot_enrichment.svg" label="SVG plot from ${tool.name} (${method.method}) on ${on_string} - motif_enrichment">
+            <filter>(method['method'] == 'tl.marker_regions' and method['enrichment_condi']['motif_enrichment'] == 'yes') and method['enrichment_condi']['out_file'] == 'svg'</filter>
+        </data>
+        <data name="out_html_motifs" format="html" from_work_dir="plot_enrichment.html" label="HTML plot from ${tool.name} (${method.method}) on ${on_string} - motif_enrichment">
+            <filter>(method['method'] == 'tl.marker_regions' and method['enrichment_condi']['motif_enrichment'] == 'yes') and method['enrichment_condi']['out_file'] == 'html'</filter>
+        </data>
         <data name="diff_peaks" format="tabular" from_work_dir="diff_peaks.tabular" label="${tool.name} on ${on_string}: Differential peaks" >
             <filter>method['method'] == 'tl.diff_test'</filter>
         </data>
@@ -262,7 +361,7 @@ sa.pl.regions(
             <!-- tl.macs3 -->
             <conditional name="method">
                 <param name="method" value="tl.macs3"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.leiden.modularity.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.leiden.modularity.pbmc_500_chr21.h5ad"/>
                 <param name="groupby" value="leiden"/>
                 <param name="qvalue" value="0.1"/>
                 <param name="shift" value="-100"/>
@@ -275,7 +374,7 @@ sa.pl.regions(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.macs3"/>
+                    <has_text_matching expression="snap.tl.macs3"/>
                     <has_text_matching expression="groupby = 'leiden'"/>
                     <has_text_matching expression="qvalue = 0.1"/>
                     <has_text_matching expression="shift = -100"/>
@@ -284,14 +383,18 @@ sa.pl.regions(
                     <has_text_matching expression="key_added = 'macs3'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta="20000" location="https://zenodo.org/records/11260316/files/tl.macs3.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="uns/macs3"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="3">
             <!-- tl.merge_peaks -->
             <conditional name="method">
                 <param name="method" value="tl.merge_peaks"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.macs3.pbmc_500_chr21.h5ad"/>
-                <param name="chrom_sizes" location="https://zenodo.org/records/11260316/files/chr21_size.tabular"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.macs3.pbmc_500_chr21.h5ad"/>
+                <param name="chrom_sizes" location="https://zenodo.org/records/17512085/files/chrom_size.tabular"/>
                 <param name="half_width" value="250"/>
                 </conditional>
             <section name="advanced_common">
@@ -299,11 +402,15 @@ sa.pl.regions(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.merge_peaks"/>
+                    <has_text_matching expression="snap.tl.merge_peaks"/>
                     <has_text_matching expression="half_width = 250"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" location="https://zenodo.org/records/11260316/files/tl.merge_peaks.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="uns/macs3_merged"/>
+                </assert_contents>
+            </output>
             <output name="merged_peaks" >
                 <assert_contents>
                     <has_text_matching expression="chr21:5063027-5063528"/>
@@ -315,29 +422,67 @@ sa.pl.regions(
             </output>
         </test>
         <test expect_num_outputs="2">
-            <!-- pp.make_peak_matrix -->
+            <!-- pp.make_peak_matrix with bed-->
             <conditional name="method">
                 <param name="method" value="pp.make_peak_matrix"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.merge_peaks.pbmc_500_chr21.h5ad"/>
-                <param name="merged_peaks" location="https://zenodo.org/records/11260316/files/merged_peaks.tabular"/>
-                <param name="chunk_size" value="500"/>
-                <param name="use_x" value="False"/>
-                <param name="counting_strategy" value="insertion"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl_macs3_merged.h5ad.gz"/>
+                <conditional name="peaks_condi">
+                    <param name="peaks" value="bed"/>
+                    <param name="peak_file" location="https://zenodo.org/records/17512085/files/cre_hea.bed"/>
                 </conditional>
+            </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true" />
             </section>
+            <assert_stdout>
+                <has_text_matching expression="500 × 1154611"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.make_peak_matrix"/>
+                    <has_text_matching expression="snap.pp.make_peak_matrix"/>
                     <has_text_matching expression="chunk_size = 500"/>
                     <has_text_matching expression="use_x = False"/>
-                    <has_text_matching expression="counting_strategy = 'insertion'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" location="https://zenodo.org/records/12800783/files/pp.make_peak_matrix.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="obs/n_fragment"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="2">
+            <!-- pp.make_peak_matrix with uns-->
+            <conditional name="method">
+                <param name="method" value="pp.make_peak_matrix"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl_macs3_merged.h5ad.gz"/>
+                <conditional name="peaks_condi">
+                    <param name="peaks" value="uns"/>
+                    <param name="use_rep" value="macs3_merged"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="500 × 110942"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.pp.make_peak_matrix"/>
+                    <has_text_matching expression="chunk_size = 500"/>
+                    <has_text_matching expression="use_rep"/>
+                    <has_text_matching expression="macs3_merged"/>
+                    <not_has_text text="peak_file"/>
+                    <has_text_matching expression="use_x = False"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="obs/n_fragment"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
             <!-- tl.marker_regions -->
             <conditional name="method">
                 <param name="method" value="tl.marker_regions"/>
@@ -345,29 +490,111 @@ sa.pl.regions(
                 <param name="groupby" value="leiden"/>
                 <param name="pvalue" value="0.1"/>
                 <param name="out_file" value="png"/>
-                <expand macro="render_plot_test"/>
+                <expand macro="test_param_render_plot"/>
+                <conditional name="enrichment_condi">
+                    <param name="motif_enrichment" value="no"/>
+                </conditional>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true" />
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.marker_regions"/>
-                    <has_text_matching expression="sa.pl.regions"/>
+                    <has_text_matching expression="snap.tl.marker_regions"/>
+                    <has_text_matching expression="snap.pl.regions"/>
                     <has_text_matching expression="groupby = 'leiden'"/>
                     <has_text_matching expression="pvalue = 0.1"/>
-                    <expand macro="render_plot_matching_text"/>
+                    <expand macro="test_render_plot_matching_text"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" location="https://zenodo.org/records/12800783/files/tl.marker_regions.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
-            <output name="out_png" location="https://zenodo.org/records/12800783/files/tl.marker_regions.pbmc_500_chr21.png" ftype="png" compare="sim_size" delta_frac="0.1"/>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="335,220" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="450"/>
+                    <has_image_width width="650"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="3">
+            <!-- tl.marker_regions + motif_enrichment - history -->
+            <conditional name="method">
+                <param name="method" value="tl.marker_regions"/>
+                <param name="adata" location="https://zenodo.org/records/12800783/files/pp.make_peak_matrix.pbmc_500_chr21.h5ad"/>
+                <param name="groupby" value="leiden"/>
+                <param name="pvalue" value="0.1"/>
+                <param name="out_file" value="png"/>
+                <expand macro="test_param_render_plot"/>
+                <conditional name="enrichment_condi">
+                    <param name="motif_enrichment" value="yes"/>
+                    <param name="motifs" value="cisbp"/>
+                    <conditional name="fasta_file_condi">
+                        <param name="fastaSource" value="history"/>
+                        <param name="fasta_history" location="https://zenodo.org/records/17512085/files/chr21.fasta.gz"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.tl.marker_regions"/>
+                    <has_text_matching expression="snap.pl.regions"/>
+                    <has_text_matching expression="groupby = 'leiden'"/>
+                    <has_text_matching expression="pvalue = 0.1"/>
+                    <expand macro="test_render_plot_matching_text"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="335,220" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="450"/>
+                    <has_image_width width="650"/>
+                </assert_contents>
+            </output>
+            <output name="out_png_motifs">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="300,200" eps="50"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="400"/>
+                    <has_image_width width="600"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <!-- tl.marker_regions + motif_enrichment - cached -->
+            <conditional name="method">
+                <param name="method" value="tl.marker_regions"/>
+                <param name="adata" location="https://zenodo.org/records/12800783/files/pp.make_peak_matrix.pbmc_500_chr21.h5ad"/>
+                <param name="groupby" value="leiden"/>
+                <param name="pvalue" value="0.1"/>
+                <param name="out_file" value="png"/>
+                <expand macro="test_param_render_plot"/>
+                <conditional name="enrichment_condi">
+                    <param name="motif_enrichment" value="yes"/>
+                    <param name="motifs" value="cisbp"/>
+                    <conditional name="fasta_file_condi">
+                        <param name="fastaSource" value="indexed"/>
+                        <param name="fasta_pre_installed" value="hg38"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <assert_stderr>
+                <has_text text="Using built-in FASTA: 'Human (hg38)'"/>
+                <has_text text="NameError: sequence fetch error: expected length: 501, but got 0."/>
+            </assert_stderr>
+        </test>
+        <test expect_num_outputs="3">
             <!-- tl.diff_test single_group -->
             <conditional name="method">
                 <param name="method" value="tl.diff_test"/>
                 <param name="adata" location="https://zenodo.org/records/12800783/files/tl.marker_regions.pbmc_500_chr21.h5ad"/>
-                <param name="merged_peaks" location="https://zenodo.org/records/11260316/files/merged_peaks.tabular"/>
+                <param name="merged_peaks" location="https://zenodo.org/records/17512085/files/merged_peaks.tabular"/>
                 <param name="group_key" value="leiden"/>
                 <conditional name="compare">
                     <param name="with" value="single_group"/>
@@ -383,28 +610,34 @@ sa.pl.regions(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.diff_test"/>
+                    <has_text_matching expression="snap.tl.diff_test"/>
                     <has_text_matching expression="group_key = 'leiden'"/>
                     <has_text_matching expression="group1 = '1'"/>
                     <has_text_matching expression="group2 = '2'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" location="https://zenodo.org/records/12800783/files/tl.diff_test.single_group.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
             <output name="diff_peaks" >
+                    <assert_contents>
+                        <has_text_matching expression="chr21:17512734-17513235\t-4.0297.*\t4.3826.*\t0.0016.*"/>
+                        <has_text_matching expression="chr21:33384757-33385258\t0.278.*\t0.1502.*\t0.2644.*"/>
+                        <has_text_matching expression="chr21:42683799-42684300\t-0.438.*\t0.99.*\t0.99.*"/>
+                    </assert_contents>
+            </output>
+            <output name="out_png">
                 <assert_contents>
-                    <has_text_matching expression="chr21:17512734-17513235\t-4.0297.*\t4.3713.*\t0.0016.*"/>
-                    <has_text_matching expression="chr21:33384757-33385258\t0.278.*\t0.1502.*\t0.2644.*"/>
-                    <has_text_matching expression="chr21:42683799-42684300\t-0.438.*\t0.992.*\t0.992.*"/>
+                    <has_image_center_of_mass center_of_mass="330,200" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="400"/>
+                    <has_image_width width="600"/>
                 </assert_contents>
             </output>
-            <output name="out_png" location="https://zenodo.org/records/12800783/files/tl.diff_test.single_group.pbmc_500_chr21.png" ftype="png" compare="sim_size" delta_frac="0.1"/>
         </test>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="3">
             <!-- tl.diff_test background_group -->
             <conditional name="method">
                 <param name="method" value="tl.diff_test"/>
                 <param name="adata" location="https://zenodo.org/records/12800783/files/tl.marker_regions.pbmc_500_chr21.h5ad"/>
-                <param name="merged_peaks" location="https://zenodo.org/records/11260316/files/merged_peaks.tabular"/>
+                <param name="merged_peaks" location="https://zenodo.org/records/17512085/files/merged_peaks.tabular"/>
                 <param name="group_key" value="leiden"/>
                 <conditional name="compare">
                     <param name="with" value="background_group"/>
@@ -422,20 +655,25 @@ sa.pl.regions(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.diff_test"/>
+                    <has_text_matching expression="snap.tl.diff_test"/>
                     <has_text_matching expression="group_key = 'leiden'"/>
                     <has_text_matching expression="group1 = '1'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" location="https://zenodo.org/records/12800783/files/tl.diff_test.background_group.pbmc_500_chr21.h5ad" ftype="h5ad" compare="sim_size" delta_frac="0.1" />
             <output name="diff_peaks" >
                 <assert_contents>
                     <has_text_matching expression="chr21:5123633-5124134"/>
                     <has_text_matching expression="chr21:32403055-32403556"/>
-                    <has_text_matching expression="chr21:36156247-36156748"/>
                 </assert_contents>
             </output>
-            <output name="out_png" location="https://zenodo.org/records/12800783/files/tl.diff_test.background_group.pbmc_500_chr21.png" ftype="png" compare="sim_size" delta_frac="0.5"/>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="300,200" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="400"/>
+                    <has_image_width width="600"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -445,7 +683,7 @@ Call peaks using MACS3, using `tl.macs3`
 Call peaks using MACS3.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.macs3.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.macs3.html>`__
 
 Merge peaks from different groups, using `tl.merge_peaks`
 =========================================================
@@ -457,19 +695,16 @@ Merge peaks from different groups. It is typically used to merge results from `m
 This function initially expands the summits of identified peaks by `half_width` on both sides. Following this expansion, it addresses the issue of overlapping peaks through an iterative process. The procedure begins by prioritizing the most significant peak, determined by the smallest p-value. This peak is retained, and any peak that overlaps with it is excluded. Subsequently, the same method is applied to the next most significant peak. This iteration continues until all peaks have been evaluated, resulting in a final list of non-overlapping peaks, each with a fixed width determined by the initial extension.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.merge_peaks.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.merge_peaks.html>`__
 
-Generate cell by bin count matrix, using `pp.add_tile_matrix`
-=============================================================
+Generate cell by peak count matrix, using `pp.make_peak_matrix`
+===============================================================
 
-Generate cell by bin count matrix.
-
-This function is used to generate and add a cell by bin count matrix to the AnnData object.
-
-`import_data` must be ran first in order to use this function.
+This function will generate a cell by peak count matrix.
+`import_fragments` must be ran first in order to use this function.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.add_tile_matrix.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.pp.make_peak_matrix.html>`__
 
 A quick-and-dirty way to get marker regions, using `tl.marker_regions`
 ======================================================================
@@ -477,7 +712,7 @@ A quick-and-dirty way to get marker regions, using `tl.marker_regions`
 A quick-and-dirty way to get marker regions.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.marker_regions.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.marker_regions.html>`__
 
 Identify differentially accessible regions, using `tl.diff_test`
 ====================================================================
@@ -485,7 +720,7 @@ Identify differentially accessible regions, using `tl.diff_test`
 Identify differentially accessible regions.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.diff_test.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.diff_test.html>`__
     ]]></help>
     <expand macro="citations"/>
 </tool>

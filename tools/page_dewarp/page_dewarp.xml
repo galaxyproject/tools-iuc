@@ -1,0 +1,376 @@
+<tool id="page_dewarp" name="Page dewarp" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>flatten and threshold warped document images</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command><![CDATA[python -c "import importlib.metadata as m; print(m.version('page-dewarp'))" 2>/dev/null ]]></version_command>
+    <command detect_errors="aggressive"><![CDATA[
+        mkdir -p inputs results &&
+        #import re
+        #if str($mode.processing) == "batch"
+            #set $images = $mode.input_images
+        #else
+            #set $images = [$mode.input_image]
+        #end if
+        #for $img in $images:
+            #set $safe = re.sub('[^A-Za-z0-9._-]', '_', str($img.element_identifier))
+            cp '$img' 'inputs/${safe}.${img.ext}' &&
+        #end for
+        cd results &&
+        page-dewarp
+            --debug-level $debug.debug_level
+            --debug-dest file
+            #if str($mode.processing) == "batch"
+                --batch on
+            #else
+                --batch off
+            #end if
+            --device cpu
+            #if str($optim.method) != "auto"
+                --method '$optim.method'
+            #end if
+            #if str($optim.max_iter):
+                --max-iter $optim.max_iter
+            #end if
+            #if str($optim.max_corrections):
+                --max-corrections $optim.max_corrections
+            #end if
+            #if str($page_detection.x_margin):
+                --x-margin $page_detection.x_margin
+            #end if
+            #if str($page_detection.y_margin):
+                --y-margin $page_detection.y_margin
+            #end if
+            #if str($text_detection.min_text_width):
+                --min-text-width $text_detection.min_text_width
+            #end if
+            #if str($text_detection.min_text_height):
+                --min-text-height $text_detection.min_text_height
+            #end if
+            #if str($text_detection.min_text_aspect):
+                --min-text-aspect $text_detection.min_text_aspect
+            #end if
+            #if str($text_detection.max_text_thickness):
+                --max-text-thickness $text_detection.max_text_thickness
+            #end if
+            #if str($text_detection.adaptive_winsz):
+                --adaptive-winsz $text_detection.adaptive_winsz
+            #end if
+            #if str($span_edge.min_span_width):
+                --min-span-width $span_edge.min_span_width
+            #end if
+            #if str($span_edge.span_spacing):
+                --span-spacing $span_edge.span_spacing
+            #end if
+            #if str($span_edge.max_edge_overlap):
+                --max-edge-overlap $span_edge.max_edge_overlap
+            #end if
+            #if str($span_edge.max_edge_length):
+                --max-edge-length $span_edge.max_edge_length
+            #end if
+            #if str($span_edge.max_edge_angle):
+                --max-edge-angle $span_edge.max_edge_angle
+            #end if
+            #if str($span_edge.edge_angle_cost):
+                --edge-angle-cost $span_edge.edge_angle_cost
+            #end if
+            #if str($camera.focal_length):
+                --focal-length $camera.focal_length
+            #end if
+            #if str($camera.shear_cost):
+                --shear-cost $camera.shear_cost
+            #end if
+            #if str($output_options.output_zoom):
+                --output-zoom $output_options.output_zoom
+            #end if
+            #if str($output_options.output_dpi):
+                --output-dpi $output_options.output_dpi
+            #end if
+            $output_options.no_binary
+            ../inputs/*
+        #if str($mode.processing) == "single"
+            ## In single mode the result is exposed as a plain dataset, so
+            ## rename the lone *_thresh.png to a fixed name from_work_dir
+            ## can pick up.
+            && mv *_thresh.png dewarped_output.png
+        #end if
+    ]]></command>
+    <inputs>
+        <conditional name="mode">
+            <param name="processing" type="select" label="Processing mode" help="Batch dewarps several images in a single page-dewarp invocation, amortising startup cost - recommended when you already have a collection or a handful of images. Per-image dewarps a single dataset; map the tool over a collection if you want one job per image (gives per-image error isolation and cluster parallelism).">
+                <option value="batch" selected="true">Batch - many images in one job (collection-friendly)</option>
+                <option value="single">Per-image - one image per job</option>
+            </param>
+            <when value="batch">
+                <param name="input_images" type="data" format="jpg,png,tiff,bmp" multiple="true" label="Input images" help="Select one or more datasets, or a list collection. All selected images are dewarped in one job and returned as a list collection."/>
+            </when>
+            <when value="single">
+                <param name="input_image" type="data" format="jpg,png,tiff,bmp" label="Input image" help="A single document page image. To run on many images at once, switch to batch mode or map this tool over a collection."/>
+            </when>
+        </conditional>
+        <section name="output_options" title="Output options" expanded="false">
+            <param argument="--output-zoom" type="float" value="1.0" min="0.1" max="10.0" label="Output zoom factor" help="Zoom of output relative to original image. 2.0 roughly doubles the dimensions."/>
+            <param argument="--output-dpi" type="integer" value="300" min="50" max="1200" label="Output PNG DPI" help="Stated DPI metadata of the output PNG (does not affect appearance)."/>
+            <param argument="--no-binary" type="boolean" truevalue="--no-binary 1" falsevalue="--no-binary 0" checked="false" label="Disable binary thresholding" help="If enabled, output the remapped grayscale image without adaptive thresholding."/>
+        </section>
+        <section name="optim" title="Optimisation options" expanded="false">
+            <param argument="--method" type="select" label="Optimisation method" help="auto picks L-BFGS-B if JAX is available, otherwise Powell.">
+                <option value="auto" selected="true">auto</option>
+                <option value="L-BFGS-B">L-BFGS-B</option>
+                <option value="Powell">Powell</option>
+                <option value="Nelder-Mead">Nelder-Mead</option>
+                <option value="CG">CG</option>
+                <option value="BFGS">BFGS</option>
+            </param>
+            <param argument="--max-iter" type="integer" value="600000" min="1" max="10000000" label="Maximum iterations" help="Maximum optimiser iterations. Set to 1 for a fast draft preview."/>
+            <param argument="--max-corrections" type="integer" value="100" min="1" max="1000" label="L-BFGS-B max corrections" help="Maximum corrections used to approximate the inverse Hessian (L-BFGS-B only)."/>
+        </section>
+        <section name="page_detection" title="Page detection" expanded="false">
+            <param argument="--x-margin" type="integer" value="50" min="0" max="2000" label="Horizontal margin (px)" help="Pixels to ignore near the left and right page edge. Set to 0 if text reaches the edges."/>
+            <param argument="--y-margin" type="integer" value="20" min="0" max="2000" label="Vertical margin (px)" help="Pixels to ignore near the top and bottom page edge."/>
+        </section>
+        <section name="text_detection" title="Text detection" expanded="false">
+            <param argument="--min-text-width" type="integer" value="15" min="1" max="500" label="Minimum text contour width (reduced px)" help="Contours narrower than this are filtered out."/>
+            <param argument="--min-text-height" type="integer" value="2" min="1" max="500" label="Minimum text contour height (reduced px)" help="Contours shorter than this are filtered out."/>
+            <param argument="--min-text-aspect" type="float" value="1.5" min="0.1" max="10.0" label="Minimum text aspect ratio (w/h)" help="Filter out text contours below this width/height ratio."/>
+            <param argument="--max-text-thickness" type="integer" value="10" min="1" max="100" label="Maximum text contour thickness (reduced px)" help="Contours thicker than this are filtered out."/>
+            <param argument="--adaptive-winsz" type="integer" value="55" min="3" max="999" label="Adaptive threshold window size" help="Window size for adaptive thresholding. Must be an odd number."/>
+        </section>
+        <section name="span_edge" title="Span and edge detection" expanded="false">
+            <param argument="--min-span-width" type="integer" value="30" min="1" max="500" label="Minimum span width (reduced px)"/>
+            <param argument="--span-spacing" type="integer" value="20" min="1" max="500" label="Span sampling spacing (reduced px)"/>
+            <param argument="--max-edge-overlap" type="float" value="1.0" min="0.0" max="100.0" label="Maximum edge overlap (reduced px)" help="Maximum horizontal overlap of contours within a span."/>
+            <param argument="--max-edge-length" type="float" value="100.0" min="1.0" max="10000.0" label="Maximum edge length (reduced px)" help="Maximum length of edges connecting contours."/>
+            <param argument="--max-edge-angle" type="float" value="7.5" min="0.1" max="180.0" label="Maximum edge angle change (degrees)"/>
+            <param argument="--edge-angle-cost" type="float" value="10.0" min="0.0" max="1000.0" label="Edge angle cost" help="Tradeoff between edge angle and edge length."/>
+        </section>
+        <section name="camera" title="Camera and geometry" expanded="false">
+            <param argument="--focal-length" type="float" value="1.2" min="0.1" max="10.0" label="Normalised focal length"/>
+            <param argument="--shear-cost" type="float" value="0.0" min="0.0" max="1000.0" label="Shear cost" help="Penalty against camera tilt. Increase if output appears sheared."/>
+        </section>
+        <section name="debug" title="Debug" expanded="false">
+            <param argument="--debug-level" type="select" label="Debug level" help="Higher values save more intermediate images. The debug images are emitted as a separate output collection.">
+                <option value="0" selected="true">0 - none</option>
+                <option value="1">1 - basic</option>
+                <option value="2">2 - detailed</option>
+                <option value="3">3 - all stages</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="dewarped" type="list" label="${tool.name} on ${on_string}: dewarped pages">
+            <filter>mode['processing'] == 'batch'</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_thresh\.png$" format="png" directory="results"/>
+        </collection>
+        <data name="dewarped_single" format="png" from_work_dir="results/dewarped_output.png" label="${tool.name} on ${on_string}: dewarped page">
+            <filter>mode['processing'] == 'single'</filter>
+        </data>
+        <collection name="debug_images" type="list" label="${tool.name} on ${on_string}: debug images">
+            <filter>debug['debug_level'] != "0"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+_debug_.+)\.png$" format="png" directory="results"/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Test 1: per-image mode, draft preview (low max_iter) for speed.-->
+        <test expect_num_outputs="1">
+            <conditional name="mode">
+                <param name="processing" value="single"/>
+                <param name="input_image" value="boston_cooking_a.jpg" ftype="jpg"/>
+            </conditional>
+            <section name="optim">
+                <param name="max_iter" value="1"/>
+            </section>
+            <output name="dewarped_single" file="boston_cooking_a_thresh.png" ftype="png" compare="sim_size" delta="15000">
+                <assert_contents>
+                    <has_image_width width="960" delta="32"/>
+                    <has_image_height height="1536" delta="48"/>
+                    <has_image_channels channels="1"/>
+                    <!-- Binary thresholded image: mostly white background, so
+                         mean intensity is high. Eps is generous because
+                         optimisation is non-deterministic across platforms. -->
+                    <has_image_mean_intensity mean_intensity="0.90" eps="0.05"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: batch mode over multiple individual images in a single job.
+             Round-trips two distinct element identifiers and asserts the
+             expected output dimensions per image. -->
+        <test expect_num_outputs="1">
+            <conditional name="mode">
+                <param name="processing" value="batch"/>
+                <param name="input_images" value="boston_cooking_a.jpg,finnish_cooking_a.jpg" ftype="jpg"/>
+            </conditional>
+            <section name="optim">
+                <param name="max_iter" value="1"/>
+            </section>
+            <output_collection name="dewarped" type="list" count="2">
+                <element name="boston_cooking_a.jpg" ftype="png">
+                    <assert_contents>
+                        <has_image_width width="960" delta="32"/>
+                        <has_image_height height="1536" delta="48"/>
+                        <has_image_channels channels="1"/>
+                        <has_image_mean_intensity mean_intensity="0.90" eps="0.05"/>
+                    </assert_contents>
+                </element>
+                <element name="finnish_cooking_a.jpg" ftype="png">
+                    <assert_contents>
+                        <has_image_width width="832" delta="32"/>
+                        <has_image_height height="1264" delta="48"/>
+                        <has_image_channels channels="1"/>
+                        <has_image_mean_intensity mean_intensity="0.92" eps="0.05"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Test 3: per-image mode emits debug images at debug_level=1.
+             Three debug images are written at this level (keypoints_before,
+             keypoints_after, output) - assert that all three appear in the
+             collection and that the final 'output' debug image has roughly the
+             expected dimensions. -->
+        <test expect_num_outputs="2">
+            <conditional name="mode">
+                <param name="processing" value="single"/>
+                <param name="input_image" value="boston_cooking_a.jpg" ftype="jpg"/>
+            </conditional>
+            <section name="optim">
+                <param name="max_iter" value="1"/>
+            </section>
+            <section name="debug">
+                <param name="debug_level" value="1"/>
+            </section>
+            <output name="dewarped_single" ftype="png">
+                <assert_contents>
+                    <has_image_width width="960" delta="32"/>
+                    <has_image_height height="1536" delta="48"/>
+                    <has_image_channels channels="1"/>
+                </assert_contents>
+            </output>
+            <output_collection name="debug_images" type="list" count="3">
+                <element name="boston_cooking_a.jpg_debug_4_keypoints_before" ftype="png">
+                    <assert_contents>
+                        <has_image_channels channels="3"/>
+                        <has_image_height height="544" delta="16"/>
+                    </assert_contents>
+                </element>
+                <element name="boston_cooking_a.jpg_debug_5_keypoints_after" ftype="png">
+                    <assert_contents>
+                        <has_image_channels channels="3"/>
+                    </assert_contents>
+                </element>
+                <element name="boston_cooking_a.jpg_debug_6_output" ftype="png">
+                    <assert_contents>
+                        <has_image_channels channels="1"/>
+                        <has_image_height height="544" delta="16"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Test 4: per-image mode, no_binary keeps the grayscale remap.
+             Distinguished from the binary path by a substantially lower mean
+             intensity (continuous greys around the text rather than a binary
+             page on white). -->
+        <test expect_num_outputs="1">
+            <conditional name="mode">
+                <param name="processing" value="single"/>
+                <param name="input_image" value="boston_cooking_a.jpg" ftype="jpg"/>
+            </conditional>
+            <section name="optim">
+                <param name="max_iter" value="1"/>
+            </section>
+            <section name="output_options">
+                <param name="no_binary" value="true"/>
+            </section>
+            <output name="dewarped_single" ftype="png">
+                <assert_contents>
+                    <has_image_width width="960" delta="32"/>
+                    <has_image_height height="1536" delta="48"/>
+                    <has_image_channels channels="1"/>
+                    <!-- Grayscale (continuous) mean is well below the binary
+                         page's ~225, with eps wide enough to absorb optimiser
+                         drift but tight enough to fail if the binary path was
+                         taken accidentally (which would land at ~225). -->
+                    <has_image_mean_intensity mean_intensity="180" eps="20"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: identifier round-trip via comma-separated multi-input.
+             A dotted element identifier ("finnish.cooking.scan.jpg") must
+             survive page-dewarp's Path.stem step and reappear unchanged as
+             the output collection's element identifier. -->
+        <test expect_num_outputs="1">
+            <conditional name="mode">
+                <param name="processing" value="batch"/>
+                <param name="input_images" value="finnish.cooking.scan.jpg,boston_cooking_a.jpg" ftype="jpg"/>
+            </conditional>
+            <section name="optim">
+                <param name="max_iter" value="1"/>
+            </section>
+            <output_collection name="dewarped" type="list" count="2">
+                <element name="boston_cooking_a.jpg" ftype="png">
+                    <assert_contents>
+                        <has_image_width width="960" delta="32"/>
+                        <has_image_channels channels="1"/>
+                    </assert_contents>
+                </element>
+                <element name="finnish.cooking.scan.jpg" ftype="png">
+                    <assert_contents>
+                        <has_image_width width="832" delta="32"/>
+                        <has_image_channels channels="1"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**page-dewarp**
+
+page-dewarp flattens warped photographs of document pages and produces a clean,
+thresholded image that is much easier to read and to feed into OCR pipelines.
+It detects text spans on the page, fits a cubic sheet model that approximates
+the curvature of the paper, and then remaps the original image to a flat plane.
+
+-----
+
+**Inputs and processing modes**
+
+The tool offers two processing modes:
+
+- **Batch (collection-friendly):** select several individual datasets or a
+  list collection of JPEG / PNG / TIFF / BMP images. They are all dewarped in
+  a single page-dewarp invocation - much faster than running one image at a
+  time because page-dewarp's startup cost is paid once instead of N times.
+  The output is a list collection whose element identifiers are the input
+  identifiers (a collection in is a structurally matching collection out).
+- **Per-image:** select a single image and get back a single dewarped PNG
+  dataset. To dewarp many images this way (one Galaxy job per image, giving
+  per-image error isolation and cluster parallelism), map this tool over a
+  collection.
+
+-----
+
+**Outputs**
+
+- ``dewarped pages`` (batch mode) - a list collection of thresholded PNGs,
+  one per input image, with element identifiers matching the inputs.
+- ``dewarped page`` (per-image mode) - a single thresholded PNG dataset.
+- ``debug images`` - only produced when **Debug level** is greater than 0.
+  page-dewarp writes intermediate visualisations of contour detection,
+  span assembly and the optimised cubic sheet model. These are useful when a
+  page fails to dewarp cleanly and you need to understand which step misfired.
+
+-----
+
+**Tips**
+
+- For a fast preview while tuning parameters, set **Maximum iterations** to a
+  small value such as 1.
+- If the output looks sheared (parallelogram shaped), try raising the **Shear
+  cost** in the *Camera and geometry* section.
+- If text is cropped from the page edges, set the **Horizontal margin** and
+  **Vertical margin** to 0.
+- The **Adaptive threshold window size** must be odd. Increase it for pages
+  with mixed text sizes.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

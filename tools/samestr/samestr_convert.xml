@@ -1,0 +1,123 @@
+<tool id="samestr_convert" name="SameStr Convert" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>MetaPhlAn or mOTUS marker alignments to nucleotide variant profiles</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    ## The command line tool turns input file names into sample names carried along during
+    ## the entire samestr analysis workflow.
+    ## We either rely on users naming inputs more or less correctly, in which case we still try to prevent
+    ## common problems like using characters that aren't compatible with samestr sample names or
+    ## keeping a redundant file suffix in the input name.
+    ## Alternatively, if the user provided an explicit sample name, we want to name files accordingly.
+    #import re
+    #set $aln_suffix = '.' + $alignment.ext
+    #if str($sample_name):
+        #set $aln_basename = $sample_name
+    #else:
+        #set $aln_basename = re.sub('[^\w\-\.]', '_', $alignment.element_identifier.split($aln_suffix)[0])
+    #end if
+    ln -s '$alignment' '${aln_basename}${aln_suffix}' &&
+    ## tool discovers profile input by identical base name and .profile.txt suffix
+    ln -s '$profile' '${aln_basename}.profile.txt' &&
+
+    samestr convert
+    --input-files '${aln_basename}${aln_suffix}'
+    --marker-dir '$database.fields.path'
+    --min-vcov $alignment_param.min_vcov
+    --min-aln-identity $alignment_param.min_aln_identity
+    --min-aln-len $alignment_param.min_aln_len
+    --min-base-qual $alignment_param.min_base_qual
+    --min-aln-qual $alignment_param.min_aln_qual
+    ]]></command>
+    <inputs>
+        <param name="alignment" type="data" format="bam" label="Aligned reads" help="MetaPhlAn or mOTUS marker alignment."/>
+        <param name="profile" type="data" format="txt" label="Taxonomic profile" help="MetaPhlAn or mOTUS taxonomic profile."/>
+        <param name="sample_name" type="text" optional="true" label="Sample name"
+        help="If specified, this is used as the name of the sample described by the alignment and profile input above. When left empty, the name of the alignment input dataset (or colection element) will be used.">
+            <validator type="regex" message="Only alphanumeric characters and any of _, -, . are allowed in sample names.">^[\w\-\.]*$</validator>
+        </param>
+        <param name="database" type="select" label="SameStr database" help="SameStr database built from MetaPhlAn or mOTUS markers">
+        <options from_data_table="samestr_db">
+                <filter type="sort_by" column="2" />
+                <filter type="static_value" column="4" value="1" />
+            </options>
+        </param>
+
+        <section name="alignment_param" title="Alignment Parameters">
+            <param argument="--min-aln-identity" type="float" value="0.9" min="0" max="1" label="Percent identity" help="Minimum percent identity in alignment." />
+            <param argument="--min-aln-len" type="integer" min="0" value="40" label="Minimum alignment length" help="Minimum alignment length." />
+            <param argument="--min-base-qual" type="integer" min="0" value="20" label="Minimum base quality" help="Minimum base call quality." />
+            <param argument="--min-aln-qual" type="integer" min="0" value="0" label="Minimum alignment quality" help="Increasing this threshold can drastically reduce the number of considered variants." />
+            <param argument="--min-vcov" type="integer" min="0" value="3" label="Minimum vertical coverage" help="Minimum vertical coverage." />
+        </section>
+
+    </inputs>
+    <outputs>
+        <data name="stats_file" format="tabular" from_work_dir="out_convert/*/*.aln_stats.txt" label="${tool.name} on ${on_string}: Alignment statistics"/>
+        <collection name="npz_files" type="list" label="${tool.name} on ${on_string}: per-clade SNV profiles">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.npz$" directory="out_convert" recurse="true" format="npz"/>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="alignment" value="phage_padded.bam" ftype="bam" />
+            <param name="profile" value="phage_padded.profile.txt" ftype="txt" />
+            <param name="database" value="mpa_test-db-without-one-marker"/>
+            <section name="alignment_param">
+                <param name="min_vcov" value="1"/>
+                <param name="min_aln_identity" value="0.9"/>
+                <param name="min_aln_len" value="40"/>
+                <param name="min_base_qual" value="20"/>
+                <param name="min_aln_qual" value="0"/>
+            </section>
+            <output name="stats_file" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="alignment\s+genome\s+mean_cov\s+median_cov\s+n_sites\s+n_gaps\s+n_covered\s+n_mono\s+n_duo\s+n_tri\s+n_quat\s+n_poly\s+f_covered\s+f_mono\s+f_duo\s+f_tri\s+f_quat\s+f_poly" />
+                    <has_text_matching expression="t__Propionibacterium_phage_PAS50\.phage_padded\s+t__Propionibacterium_phage_PAS50\s+0\.0995\s+0\.0\s+663\s+597\s+66\s+66\s+0\s+0\s+0\s+0\s+0\.0995\s+1\.0\s+0\.0\s+0\.0\s+0\.0\s+0\.0" />
+                    <has_n_lines n="2" />
+                </assert_contents>
+            </output>
+            <output_collection name="npz_files" type="list" count="1">
+                <element name="t__Propionibacterium_phage_PAS50.phage_padded" ftype="npz">
+                    <assert_contents>
+                        <has_size min="100" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+@SAMESTR_INTRO@
+
+SameStr Convert
+...............
+
+SameStr Convert processes marker gene alignments from taxonomic profiling tools (MetaPhlAn or mOTUS) to nucleotide variant profiles
+for strain-level analysis. It outputs per-clade SNV profiles that can be used in downstream SameStr workflow steps.
+
+**Input Requirements**
+
+The following inputs must be provided:
+
+- A BAM dataset containing marker alignments generated by MetaPhlAn or mOTUS.
+- A taxonomic profile file corresponding to the alignment.
+
+**Alignment Parameters**
+
+- Marker database: A SameStr database generated from a MetaPhlAn or mOTUS clade marker database; the underlying MetaPhlAn or mOTUS database must be the one used to generate the input alignments.
+- Percent identity: Minimum percent identity between read and marker sequence; alignments with lower identity are filtered out.
+- Minimum alignment length: Minimum number of aligned bases required; shorter alignments are discarded.
+
+**Results and Outputs**
+
+The tool generates two outputs:
+
+- A table of alignment statistics
+- A collection of per-clade SNV profiles in compressed NumPy (NPZ) format, i.e. each element of the collection contains the SNV profile for the sample with respect to one clade from the sample's taxonomic profile.
+
+  Element identifiers follow the scheme <Clade>.<Sample>, which is the naming scheme expected by SameStr Merge.
+    ]]></help>
+    <expand macro="citations" />
+</tool>

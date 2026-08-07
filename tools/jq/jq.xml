@@ -1,120 +1,532 @@
-<?xml version="1.0"?>
-<tool id="jq" name="JQ" version="1.0">
-    <description>process JSON</description>
-    <requirements>
-        <requirement type="package" version="1.5">jq</requirement>
-    </requirements>
+<tool id="jq" name="jq" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>query and transform JSON documents</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
     <command detect_errors="aggressive"><![CDATA[
-JQ_BIN=`which jq` &&
-cat '$input' | env -i JQ_BIN=\$JQ_BIN \$JQ_BIN -r -S '$filter $tsv' > '$output'
+set -euo pipefail;
+env -i "`command -v jq`"
+#if $input_source.mode == "null"
+    --null-input
+#end if
+#if $input_options.raw_input
+    '$input_options.raw_input'
+#end if
+#if $input_options.slurp
+    '$input_options.slurp'
+#end if
+#if $output_options.raw_output or $output_options.tsv_output
+    --raw-output
+#end if
+#if $output_options.compact_output
+    '$output_options.compact_output'
+#end if
+#if $output_options.ascii_output
+    '$output_options.ascii_output'
+#end if
+#if $output_options.sort_keys
+    '$output_options.sort_keys'
+#end if
+#if $output_options.indentation.mode == "tabs"
+    --tab
+#else if $output_options.indentation.mode == "spaces"
+    --indent '$output_options.indentation.width'
+#end if
+#if $output_options.exit_status
+    '$output_options.exit_status'
+#end if
+#for $arg in $arguments.named_args
+    --arg '$arg.name' '$arg.value'
+#end for
+#for $arg in $arguments.named_json_args
+    --argjson '$arg.name' '$arg.value'
+#end for
+    --from-file '$jq_filter'
+#if $arguments.positional_arguments.mode == "strings"
+    --args
+    #for $value in $arguments.positional_arguments.string_values
+    '$value.value'
+    #end for
+#else if $arguments.positional_arguments.mode == "json"
+    --jsonargs
+    #for $value in $arguments.positional_arguments.json_values
+    '$value.value'
+    #end for
+#end if
+#if $input_source.mode == "dataset"
+    < '$input_source.input'
+#end if
+    > '$output'
     ]]></command>
+    <configfiles>
+        <configfile name="jq_filter"><![CDATA[
+$filter
+#if $output_options.tsv_output
+| @tsv
+#end if
+]]></configfile>
+    </configfiles>
     <inputs>
-        <param name="input" label="JSON Input" type="data" format="json" />
-        <param name="filter" label="jq filter" type="text">
-            <sanitizer>
-                <valid>
-                    <add value='"'/>
-                    <add value="@"/>
-                    <add value="|"/>
-                    <add value="!"/>
-                    <add value="="/>
-                    <add value="$"/>
-                    <add value="["/>
-                    <add value="]"/>
-                    <add value="{"/>
-                    <add value="}"/>
-                    <add value="("/>
-                    <add value=")"/>
-                    <add value="&lt;"/>
-                    <add value="&gt;"/>
-                </valid>
-            </sanitizer>
+        <conditional name="input_source">
+            <param name="mode" type="select" label="Input source">
+                <option value="dataset" selected="true">Use a dataset as jq input</option>
+                <option value="null">Start from scratch and generate a new file</option>
+            </param>
+            <when value="dataset">
+                <param name="input" type="data" format="json,txt" label="Input dataset" help="Provide JSON input, or plain text when using raw-input mode."/>
+            </when>
+            <when value="null"/>
+        </conditional>
+
+        <param name="filter" type="text" area="true" value="." label="jq filter" help="The filter expression to run. Multiline jq programs are supported.">
+            <expand macro="printable_text_sanitizer"/>
+            <validator type="regex" negate="true" message="jq module loading is disabled in Galaxy. Remove import/include directives from the filter.">(?ims)(^|;)\s*(import|include)\s+"</validator>
         </param>
-        <param name="tsv" label="Convert output to tabular" type="boolean" truevalue="| @tsv" falsevalue="" help="@tsv can be used normally, but this will automatically mark the output as tabular"/>
+
+        <section name="input_options" title="Input options" expanded="false">
+            <param argument="--raw-input" type="boolean" truevalue="--raw-input" falsevalue="" checked="false" label="Read input as plain text" help="Read each input line as a string instead of parsing JSON."/>
+            <param argument="--slurp" type="boolean" truevalue="--slurp" falsevalue="" checked="false" label="Slurp all inputs" help="Read all input values and pass them to the filter as a single array or string."/>
+        </section>
+
+        <section name="output_options" title="Output options" expanded="true">
+            <param argument="--raw-output" type="boolean" truevalue="--raw-output" falsevalue="" checked="false" label="Emit plain-text output" help="Write strings without JSON quotes or escaping. The output dataset datatype switches to txt."/>
+            <param argument="--compact-output" type="boolean" truevalue="--compact-output" falsevalue="" checked="false" label="Compact JSON output" help="Emit one JSON value per line without pretty-print indentation."/>
+            <param argument="--ascii-output" type="boolean" truevalue="--ascii-output" falsevalue="" checked="false" label="Escape non-ASCII characters" help="Write non-ASCII characters using JSON escape sequences."/>
+            <param argument="--sort-keys" type="boolean" truevalue="--sort-keys" falsevalue="" checked="false" label="Sort object keys" help="Sort keys alphabetically in each output object."/>
+            <conditional name="indentation">
+                <param name="mode" type="select" label="Indentation">
+                    <option value="default" selected="true">Use jq default indentation</option>
+                    <option value="tabs">Indent with tabs</option>
+                    <option value="spaces">Indent with a custom number of spaces</option>
+                </param>
+                <when value="default"/>
+                <when value="tabs"/>
+                <when value="spaces">
+                    <param argument="--indent" name="width" type="integer" value="4" min="0" max="7" label="Number of spaces" help="jq accepts indentation widths from 0 to 7."/>
+                </when>
+            </conditional>
+            <param argument="--exit-status" type="boolean" truevalue="--exit-status" falsevalue="" checked="false" label="Fail when the last result is false or null" help="Propagate jq's exit-status semantics to the Galaxy job."/>
+            <param name="tsv_output" type="boolean" truevalue="true" falsevalue="" checked="false" label="Append @tsv and mark the output as tabular" help="Adds '| @tsv' to the supplied filter and automatically enables raw output so the resulting dataset is tabular rather than quoted JSON strings."/>
+        </section>
+
+        <section name="arguments" title="Arguments" expanded="false">
+            <repeat name="named_args" title="Named string argument">
+                <param name="name" type="text" label="Argument name" help="Accessible inside jq as $name.">
+                    <expand macro="identifier_sanitizer"/>
+                    <validator type="regex">[A-Za-z_][A-Za-z0-9_]*</validator>
+                </param>
+                <param name="value" type="text" label="String value" help="Passed to jq with --arg. Single quotes are not supported in this field.">
+                    <expand macro="printable_text_sanitizer"/>
+                    <validator type="regex" message="Single quotes are not supported in jq argument values.">^[^']*$</validator>
+                </param>
+            </repeat>
+            <repeat name="named_json_args" title="Named JSON argument">
+                <param name="name" type="text" label="Argument name" help="Accessible inside jq as $name.">
+                    <expand macro="identifier_sanitizer"/>
+                    <validator type="regex">[A-Za-z_][A-Za-z0-9_]*</validator>
+                </param>
+                <param name="value" type="text" area="true" label="JSON value" help="Passed to jq with --argjson. Valid JSON such as {&quot;limit&quot;: 3} or [1, 2] is expected.">
+                    <expand macro="printable_text_sanitizer"/>
+                    <validator type="regex" message="Single quotes are not supported in jq JSON argument values.">^[^']*$</validator>
+                </param>
+            </repeat>
+            <conditional name="positional_arguments">
+                <param name="mode" type="select" label="Positional arguments" help="jq exposes these values through $ARGS.positional.">
+                    <option value="none" selected="true">Do not add positional arguments</option>
+                    <option value="strings">Pass positional string arguments with --args</option>
+                    <option value="json">Pass positional JSON arguments with --jsonargs</option>
+                </param>
+                <when value="none"/>
+                <when value="strings">
+                    <repeat name="string_values" title="String argument">
+                        <param name="value" type="text" label="String value">
+                            <expand macro="printable_text_sanitizer"/>
+                            <validator type="regex" message="Single quotes are not supported in jq argument values.">^[^']*$</validator>
+                        </param>
+                    </repeat>
+                </when>
+                <when value="json">
+                    <repeat name="json_values" title="JSON argument">
+                        <param name="value" type="text" area="true" label="JSON value">
+                            <expand macro="printable_text_sanitizer"/>
+                            <validator type="regex" message="Single quotes are not supported in jq JSON argument values.">^[^']*$</validator>
+                        </param>
+                    </repeat>
+                </when>
+            </conditional>
+        </section>
     </inputs>
     <outputs>
-        <data format="json" name="output">
+        <data name="output" format="json" label="${tool.name} on ${on_string}">
             <change_format>
-            <when input="tsv" value="| @tsv" format="tabular" />
-        </change_format>
+                <when input="output_options.tsv_output" value="true" format="tabular"/>
+                <when input="output_options.raw_output" value="--raw-output" format="txt"/>
+            </change_format>
         </data>
     </outputs>
     <tests>
-        <test>
-            <param name="input" value="list.json"/>
-            <param name="filter" value=".[] | [.foo, .bar]"/>
-            <param name="tsv" value="| @tsv"/>
-            <output name="output" file="out-1.json" />
-        </test>
-        <test>
-            <param name="input" value="list.json"/>
-            <param name="filter" value='{"a": env}'/>
-            <param name="tsv" value=""/>
-            <output name="output">
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value="."/>
+            <output name="output" file="pretty.json" ftype="json">
                 <assert_contents>
-                    <has_text text="JQ_BIN"/>
-                    <not_has_text text="GALAXY_CONFIG"/>
+                    <has_n_lines n="4"/>
+                    <has_json_property_with_value property="foo" value="42"/>
+                    <has_json_property_with_value property="bar" value='"less interesting data"'/>
                 </assert_contents>
             </output>
         </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="list.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value=".[] | [.foo, .bar]"/>
+            <section name="output_options">
+                <param name="tsv_output" value="true"/>
+            </section>
+            <output name="output" file="table.tsv" ftype="tabular">
+                <assert_contents>
+                    <has_line line="1123&#009;a"/>
+                    <has_line line="6536&#009;b"/>
+                    <has_line line="5321&#009;c"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--raw-output"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value="env | keys"/>
+            <output name="output" file="env_keys.json" ftype="json">
+                <assert_contents>
+                    <has_text text="[]"/>
+                    <not_has_text text="HOME"/>
+                    <has_n_lines n="1"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text='env -i "`command -v jq`"'/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="null"/>
+            </conditional>
+            <param name="filter" value="{sample: $sample}"/>
+            <section name="arguments">
+                <repeat name="named_args">
+                    <param name="name" value="sample"/>
+                    <param name="value" value="alpha;$(uname)|$HOME&amp;&lt;&gt;"/>
+                </repeat>
+            </section>
+            <output name="output" file="dangerous_string_arg.json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="sample" value='"alpha;$(uname)|$HOME&amp;&lt;&gt;"'/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--null-input"/>
+                <has_text text="--arg 'sample' 'alpha;$(uname)|$HOME&amp;&lt;&gt;'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value=".foo"/>
+            <section name="output_options">
+                <param name="raw_output" value="true"/>
+            </section>
+            <output name="output" file="raw_foo.txt" ftype="txt">
+                <assert_contents>
+                    <has_line line="42"/>
+                    <has_n_lines n="1"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--raw-output"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value="."/>
+            <section name="output_options">
+                <param name="compact_output" value="true"/>
+                <param name="sort_keys" value="true"/>
+            </section>
+            <output name="output" file="compact_sorted.json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="bar" value='"less interesting data"'/>
+                    <has_json_property_with_value property="foo" value="42"/>
+                    <has_n_lines n="1"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="'--compact-output'"/>
+                <has_text text="'--sort-keys'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value="."/>
+            <section name="output_options">
+                <conditional name="indentation">
+                    <param name="mode" value="spaces"/>
+                    <param name="width" value="4"/>
+                </conditional>
+            </section>
+            <output name="output" file="indent4.json" ftype="json">
+                <assert_contents>
+                    <has_text text='    "foo": 42,'/>
+                    <has_text text='    "bar": "less interesting data"'/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--indent '4'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="unicode.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value="."/>
+            <section name="output_options">
+                <param name="ascii_output" value="true"/>
+            </section>
+            <output name="output" file="ascii.json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="greeting" value='"Gr\u00fc\u00dfe \ud83d\udc4b"'/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="'--ascii-output'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="records.jsonl" ftype="txt"/>
+            </conditional>
+            <param name="filter" value="."/>
+            <section name="input_options">
+                <param name="slurp" value="true"/>
+            </section>
+            <output name="output" file="slurped_records.json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="id" value="1"/>
+                    <has_json_property_with_value property="id" value="2"/>
+                    <has_n_lines n="8"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="'--slurp'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="lines.txt" ftype="txt"/>
+            </conditional>
+            <param name="filter" value="ascii_upcase"/>
+            <section name="input_options">
+                <param name="raw_input" value="true"/>
+            </section>
+            <output name="output" file="raw_lines.json" ftype="json">
+                <assert_contents>
+                    <has_line line='"ALPHA"'/>
+                    <has_line line='"BETA"'/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="'--raw-input'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="null"/>
+            </conditional>
+            <param name="filter" value='{"tool":"jq","status":"ok"}'/>
+            <output name="output" file="generated.json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="tool" value='"jq"'/>
+                    <has_json_property_with_value property="status" value='"ok"'/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--null-input"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="null"/>
+            </conditional>
+            <param name="filter" value="{sample: $sample, limit: $config.limit}"/>
+            <section name="arguments">
+                <repeat name="named_args">
+                    <param name="name" value="sample"/>
+                    <param name="value" value="dataset-1"/>
+                </repeat>
+                <repeat name="named_json_args">
+                    <param name="name" value="config"/>
+                    <param name="value" value='{"limit": 3}'/>
+                </repeat>
+            </section>
+            <output name="output" file="named_args.json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="sample" value='"dataset-1"'/>
+                    <has_json_property_with_value property="limit" value="3"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--arg 'sample' 'dataset-1'"/>
+                <has_text text="--argjson"/>
+                <has_text text='{"limit": 3}'/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value="$ARGS.positional"/>
+            <section name="arguments">
+                <conditional name="positional_arguments">
+                    <param name="mode" value="strings"/>
+                    <repeat name="string_values">
+                        <param name="value" value="alpha"/>
+                    </repeat>
+                    <repeat name="string_values">
+                        <param name="value" value="beta"/>
+                    </repeat>
+                </conditional>
+            </section>
+            <output name="output" file="positional_strings.json" ftype="json">
+                <assert_contents>
+                    <has_text text='"alpha"'/>
+                    <has_text text='"beta"'/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--args"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="mode" value="null"/>
+            </conditional>
+            <param name="filter" value="$ARGS.positional | map(.value)"/>
+            <section name="arguments">
+                <conditional name="positional_arguments">
+                    <param name="mode" value="json"/>
+                    <repeat name="json_values">
+                        <param name="value" value='{"value": 1}'/>
+                    </repeat>
+                    <repeat name="json_values">
+                        <param name="value" value='{"value": 2}'/>
+                    </repeat>
+                </conditional>
+            </section>
+            <output name="output" file="positional_json.json" ftype="json">
+                <assert_contents>
+                    <has_line line="  1,"/>
+                    <has_line line="  2"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--jsonargs"/>
+            </assert_command>
+        </test>
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="input_source">
+                <param name="mode" value="dataset"/>
+                <param name="input" value="simple.json" ftype="json"/>
+            </conditional>
+            <param name="filter" value=".missing"/>
+            <section name="output_options">
+                <param name="exit_status" value="true"/>
+            </section>
+            <assert_command>
+                <has_text text="--exit-status"/>
+            </assert_command>
+        </test>
     </tests>
-    <help><![CDATA[
-JQ
-==
+    <help format="markdown"><![CDATA[
+Run [`jq`](https://jqlang.org) inside Galaxy to query, reshape, and transform JSON documents.
 
-    jq is a lightweight and flexible JSON processor.
+**Input modes**
 
-Brief Examples
---------------
+- Use a JSON dataset directly, or enable **Read input as plain text** to process text line by line with jq's `--raw-input`.
+- Switch **Input source** to **Start from null** when you want jq to generate JSON without reading a dataset.
+- **Slurp all inputs** applies jq's `--slurp` behavior, which is useful for newline-delimited JSON.
+- jq module loading via `import` and `include` is intentionally disabled in this Galaxy wrapper.
 
-See `the manual <https://stedolan.github.io/jq/manual/>`__ for a much
-more detailed guide on using JQ.
+**Output typing**
 
-Select an Attribute
-~~~~~~~~~~~~~~~~~~~
+- Default output is a JSON dataset.
+- **Emit plain-text output** changes the Galaxy datatype to `txt`.
+- **Append @tsv and mark the output as tabular** appends `| @tsv`, enables raw output automatically, and changes the datatype to `tabular`.
 
-Given an input like the following
+**Examples**
 
-::
+Extract a single field:
 
-    {"foo": 42, "bar": "less interesting data"}
+```jq
+.foo
+```
 
-To select just the value of ``foo``, supply the filter ``.foo``
+Create a tabular projection from an array of objects:
 
-Loop over an Array
-~~~~~~~~~~~~~~~~~~
+```jq
+.[] | [.foo, .bar]
+```
 
-Given an input like the following
+Generate JSON without an input dataset:
 
-::
+```jq
+{tool: "jq", status: "ok"}
+```
 
-    [{"foo": 1123}, {"foo": 6536}, {"foo": 5321}]
+Use named arguments:
 
-To select the values of ``foo``, supply the filter ``.[].foo`` or
-``.[] | .foo``. This will produce a file with one number per line.
+```jq
+{sample: $sample, limit: $config.limit}
+```
 
-If you wish to select multiple things:
+Use positional arguments:
 
-::
+```jq
+$ARGS.positional
+```
 
-    [{"foo": 1123, "bar": "a"}, {"foo": 6536, "bar": "b"}, {"foo": 5321, "bar": "c"}]
+**References**
 
-To select the values of ``foo`` AND ``bar``, supply the filter
-``.[] | [.foo, .bar]``. This will produce and output array like:
-
-::
-
-    [
-        [1123, "a"]
-        [6536, "b"]
-        [5321, "c"]
-    ]
-
-A common next step is to turn this into a tabular output which more
-Galaxy tools can work with. This can be done by checking the box for
-tabular. This will invoke the JQ filter of ``@tsv`` at the end of the
-processing chain, and produce a tabular file.
-
+- jq manual: <https://jqlang.org/manual/>
+- jq project: <https://github.com/jqlang/jq>
+- Auxiliary argument fields do not accept single quotes. Put such literals directly in the jq filter when nee   ded.
     ]]></help>
-    <citations/>
+    <expand macro="citations"/>
 </tool>

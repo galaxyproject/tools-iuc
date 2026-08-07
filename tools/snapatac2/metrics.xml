@@ -1,0 +1,316 @@
+<tool id="snapatac2_metrics" name="SnapATAC2 Metrics" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>and quality control</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <requirements>
+        <expand macro="requirements"/>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+#if $method.method == 'metrics.tsse':
+@CMD_GET_GFF@
+#end if
+@CMD_PREP_ADATA@
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CONF_IMPORTS@
+@CONF_READ_INPUTS@
+
+#if $method.method == 'metrics.frag_size_distr'
+snap.metrics.frag_size_distr(
+    adata,
+    max_recorded_size = $method.max_recorded_size,
+    add_key = '$method.add_key',
+    inplace = True,
+    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
+)
+
+#else if $method.method == 'metrics.tsse'
+snap.metrics.tsse(
+    adata,
+    gene_anno = 'gff',
+    #if $method.exclude_chroms != ''
+    #set $excl_chroms = ([x.strip() for x in str($method.exclude_chroms).split(',')])
+    exclude_chroms = $excl_chroms,
+    #end if
+    inplace = True,
+    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
+)
+
+#else if $method.method == 'metrics.frip'
+snap.metrics.frip(
+    adata,
+    #set $regions_dict = {}
+    #for $i, $region in enumerate($method.regions_repeat)
+        #silent $regions_dict.__setitem__(str($region.region_name), str($region.region_bed))
+    #end for
+    regions = $regions_dict,
+    normalized = $method.normalized,
+    count_as_insertion = $method.count_as_insertion,
+    inplace = True,
+    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
+)
+
+#else if $method.method == 'metrics.summary_by_chrom'
+import pandas as pd
+
+summary_dict = snap.metrics.summary_by_chrom(
+    adata,
+    mode = '$method.mode',
+    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
+)
+
+adata.uns['summary_by_chrom'] = summary_dict
+
+summary_df = pd.DataFrame.from_dict(summary_dict, orient='index')
+summary_df.index.name = 'chrom'
+summary_df.to_csv('summary_by_chrom.tabular', sep='\t')
+
+#end if
+@CONF_ANNDATA_WRITE_OUTPUTS@
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="method">
+            <param name="method" type="select" label="Method used for metrics">
+                <option value="metrics.frag_size_distr">Compute the fragment size distribution of the dataset, using 'metrics.frag_size_distr'</option>
+                <option value="metrics.tsse">Compute the TSS enrichment score (TSSe) for each cell, using 'metrics.tsse'</option>
+                <option value="metrics.frip">Add fraction of reads in peaks (FRiP) to the AnnData object, using 'metrics.frip'</option>
+                <option value="metrics.summary_by_chrom">Compute the cell level summary statistics by chromosome, using 'metrics.summary_by_chrom'</option>
+            </param>
+            <when value="metrics.frag_size_distr">
+                <expand macro="param_inputs_anndata"/>
+                <param argument="max_recorded_size" type="integer" min="1" value="1000" label="The maximum fragment size to record in the result"/>
+                <param argument="add_key" type="text" value="frag_size_distr" label="Key used to store the result in `adata.uns`"/>
+            </when>
+            <when value="metrics.tsse">
+                <expand macro="param_inputs_anndata"/>
+                <expand macro="param_gene_anno"/>
+                <param argument="exclude_chroms" type="text" value="chrM, M" optional="true" label="A list of chromosomes to exclude">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="metrics.frip">
+                <expand macro="param_inputs_anndata"/>
+                <repeat name="regions_repeat" title="Regions" help="Creates a dictionary of regions to compute FRiP for.">
+                    <param argument="region_name" type="text" value="" label="Name of the region" help="A region can be a promoter or enhancer and so on">
+                        <expand macro="sanitize_query">
+                            <remove value="'"/>
+                            <remove value='"'/>
+                            <remove value=" "/>
+                        </expand>
+                    </param>
+                    <param argument="region_bed" type="data" format="bed" label="Regions to compute FRiP for"/>
+                </repeat>
+                <param argument="normalized" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to normalize the FRiP value by the total number of fragments"/>
+                <param argument="count_as_insertion" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Whether to count transposition events instead of fragments"/>
+            </when>
+            <when value="metrics.summary_by_chrom">
+                <expand macro="param_inputs_anndata"/>
+                <param argument="mode" type="select" label="The summary statistics to compute">
+                    <option value="sum">Sum</option>
+                    <option value="mean">Mean</option>
+                    <option value="count">Count</option>
+                </param>
+            </when>
+        </conditional>
+        <expand macro="param_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad.gz" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix"/>
+        <data name="summary_by_chrom" format="tabular" from_work_dir="summary_by_chrom.tabular" label="${tool.name} (${method.method}) on ${on_string}: Summary by chromosome">
+            <filter>method['method'] == 'metrics.summary_by_chrom'</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- metrics.frag_size_distr -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="metrics.frag_size_distr"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.import_fragment.h5ad"/>
+                <param name="max_recorded_size" value="500"/>
+                <param name="add_key" value="frag_size_distr"/>
+                </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.metrics.frag_size_distr"/>
+                    <has_text_matching expression="add_key = 'frag_size_distr'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="uns/frag_size_distr"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- metrics.tsse -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="metrics.tsse"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.import_fragment.h5ad"/>
+                <conditional name="gff_file_condi">
+                    <param name="gffSource" value="history"/>
+                    <param name="gff_history" location="https://zenodo.org/records/17512085/files/chr21.gff3.gz"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.metrics.tsse"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="obs/tsse"/>
+                    <has_h5_keys keys="uns/library_tsse,uns/frac_overlap_TSS,uns/TSS_profile"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- metrics.tsse cached -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="metrics.tsse"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.import_fragment.h5ad"/>
+                <conditional name="gff_file_condi">
+                    <param name="gffSource" value="cached"/>
+                    <param name="gff_pre_installed" value="hg38"/>
+                </conditional>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.metrics.tsse"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="obs/tsse"/>
+                    <has_h5_keys keys="uns/library_tsse,uns/frac_overlap_TSS,uns/TSS_profile"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- metrics.frip -->
+       <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="metrics.frip"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.import_fragment.h5ad"/>
+                <repeat name="regions_repeat">
+                    <param name="region_bed" location="https://zenodo.org/records/17512085/files/cre_hea.bed"/>
+                    <param name="region_name" value="peaks_frac"/>
+                </repeat>
+                <param name="normalized" value="true"/>
+                <param name="count_as_insertion" value="false"/>
+                </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.metrics.frip"/>
+                    <has_text_matching expression="regions = {'peaks_frac':"/>
+                    <has_text_matching expression="normalized = True"/>
+                    <has_text_matching expression="count_as_insertion = False"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="obs/peaks_frac"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- metrics.summary_by_chrom -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="metrics.summary_by_chrom"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.import_fragment.h5ad"/>
+                <param name="mode" value="sum"/>
+                </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true" />
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.metrics.summary_by_chrom"/>
+                    <has_text_matching expression="mode = 'sum'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out">
+                <assert_contents>
+                    <has_h5_keys keys="uns/summary_by_chrom"/>
+                </assert_contents>
+            </output>
+            <output name="summary_by_chrom">
+                <assert_contents>
+                    <has_text_matching expression="chrom\t0\t1\t2\t3"/>
+                    <has_text_matching expression="chr5\t72.0\t126.0"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Compute the fragment size distribution of the dataset, using `metrics.frag_size_distr`
+
+======================================================================================
+
+Compute the fragment size distribution of the dataset.
+
+This function computes the fragment size distribution of the dataset. Note that it does not operate at the single-cell level. The result is stored in a vector where each element represents the number of fragments and the index represents the fragment length. The first position of the vector is reserved for fragments with size larger than the `max_recorded_size` parameter.
+
+`import_fragments` must be ran first in order to use this function.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.metrics.frag_size_distr.html>`__
+
+
+Compute the TSS enrichment score (TSSe) for each cell, using `metrics.tsse`
+
+===========================================================================
+
+Compute the TSS enrichment score (TSSe) for each cell.
+
+`import_fragments` must be ran first in order to use this function.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.metrics.tsse.html>`__
+
+
+Add fraction of reads in peaks (FRiP) to the AnnData object, using `metrics.frip`
+
+==========================================================================
+
+Compute the fraction of reads in peaks (FRiP) for each cell.
+
+`import_fragments` must be ran first in order to use this function.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.metrics.frip.html>`__
+
+
+Compute the cell level summary statistics by chromosome, using `metrics.summary_by_chrom`
+
+========================================================================================
+
+Compute the cell level summary statistics by chromosome.
+This function computes the cell level summary statistics by chromosome. The result is stored in the `adata.uns['summary_by_chrom']` dictionary, where each key is a chromosome and the value is
+a dictionary with the summary statistics for that chromosome. A tabular file with the summary statistics is also generated.
+
+`import_fragments` must be ran first in order to use this function.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.metrics.summary_by_chrom.html>`__
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
