@@ -38,7 +38,7 @@ inclusion.
 
 * Things already wrapped and currently maintained by other users
 * Wrappers without tests
-* New datatypes. These should be added directly to the Galaxy codebase.
+* New datatypes. These should be added directly to the [Galaxy codebase](https://github.com/galaxyproject/galaxy).
 
 ## Tests
 
