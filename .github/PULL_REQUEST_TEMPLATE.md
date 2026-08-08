@@ -3,9 +3,12 @@ FOR CONTRIBUTOR:
 * [ ] Use of AI
   - [ ] The contribution is mostly AI generated
   - [ ] The contribution has been assisted by AI
+  - AI harness (required if AI was used):
+  - Model (required if AI was used):
 * [ ] License permits unrestricted use (educational + commercial)
 * [ ] This PR adds a new tool or tool collection
-* [ ] This PR updates an existing tool or tool collection
+* [ ] This PR updates an existing tool or tool collection (see the
+      [tool update guide][tool-update-guide])
 * [ ] This PR does something else (explain below)
 
 There are two labels that allow to ignore specific (false positive) tool linter errors:
@@ -16,3 +19,5 @@ There are two labels that allow to ignore specific (false positive) tool linter 
 To request a review once your PR is ready, comment "please review" on the PR. This will
 automatically apply the `ready-for-review` label if the PR is not a draft, all review
 threads are resolved, and all CI checks have passed.
+
+[tool-update-guide]: https://github.com/galaxyproject/tools-iuc/blob/master/docs/guide_for_tool_updates.md
