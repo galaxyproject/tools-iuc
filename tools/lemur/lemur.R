@@ -25,7 +25,7 @@ option_list <- list(
     make_option(c("--contrast_condition"), type = "character"),
     make_option(c("--reference_condition"), type = "character"),
     make_option(c("--n_embedding"), type = "integer", default = 15),
-    make_option(c("--test_fraction"), type = "double", default = 0.5),
+    make_option(c("--test_fraction"), type = "double", default = 0.2),
     make_option(c("--output_umap"), type = "character"),
     make_option(c("--output_volcano"), type = "character"),
     make_option(c("--output_de"), type = "character"),
