@@ -68,7 +68,7 @@ stopifnot(cell_id_colname %in% colnames(colData(sce)))
 stopifnot(condition_name %in% colnames(meta))
 if (!is.null(batch_name)) stopifnot(batch_name %in% colnames(meta))
 
-stopifnot(all(colnames(sce) %in% rownames(meta)))
+stopifnot(identical(colnames(sce), rownames(meta)))
 meta <- meta[!is.na(meta[[condition_name]]), , drop = FALSE]
 meta <- meta[colnames(sce), , drop = FALSE]
 colData(sce) <- S4Vectors::DataFrame(meta)
