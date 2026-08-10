@@ -64,7 +64,7 @@ batch_name <- if (!is.null(opt$batch_column)) colnames(meta)[opt$batch_column] e
 
 rownames(meta) <- meta[[cell_id_colname]]
 
-stopifnot(cell_id_colname %in% colnames(meta))
+stopifnot(cell_id_colname %in% colnames(colData(sce)))
 stopifnot(condition_name %in% colnames(meta))
 if (!is.null(batch_name)) stopifnot(batch_name %in% colnames(meta))
 
