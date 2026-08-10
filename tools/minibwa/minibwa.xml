@@ -112,14 +112,26 @@ minibwa map
     '${fastq_input.fastq_input1}'
 #end if
 
+## Convert the SAM output to BAM.
+## The stages of a pipe run in parallel, so no stage that runs while minibwa is
+## still mapping may claim \$GALAXY_SLOTS as well, as that would overcommit the
+## cores allocated to the job. Using the two pipe stages has the following effect
+## - minibwa and sort run in parallel, during this time sort is single threaded
+##   and writes uncompressed temporary files, but produces no output (hence
+##   view does not run)
+## - once minibwa is finished sort merges the temporary files (which should be
+##   fast also on a single thread) and gives the sorted output to view, which
+##   only compresses it (now using full parallelism again)
 #if str( $output_format.output_format_selector ) == "paf":
     > '$paf_output'
 #elif str( $output_format.output_sort ) == "coordinate":
-    | samtools sort -@ "\${GALAXY_SLOTS:-2}" -T "\${TMPDIR:-.}" -O bam -o '$bam_output'
+    | samtools sort --no-PG -l 0 -T "\${TMPDIR:-.}" -O bam | samtools view --no-PG -O bam -@ "\${GALAXY_SLOTS:-1}" -o '$bam_output'
 #elif str( $output_format.output_sort ) == "name":
-    | samtools sort -n -@ "\${GALAXY_SLOTS:-2}" -T "\${TMPDIR:-.}" -O bam -o '$bam_output'
+    | samtools sort -n --no-PG -l 0 -T "\${TMPDIR:-.}" -O bam | samtools view --no-PG -O bam -@ "\${GALAXY_SLOTS:-1}" -o '$bam_output'
 #else
-    | samtools view -@ "\${GALAXY_SLOTS:-2}" -bS - -o '$bam_output'
+    ## Nothing buffers the stream here, so this stage runs alongside minibwa the
+    ## whole time and is deliberately left single threaded.
+    | samtools view --no-PG -O bam -o '$bam_output'
 #end if
 
 
