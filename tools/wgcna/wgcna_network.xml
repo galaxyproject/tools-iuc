@@ -18,8 +18,8 @@ options(stringsAsFactors = FALSE)
 counts_file        <- "$counts_file"
 metadata_file      <- "$metadata_file"
 network_type       <- "$network_type"
-tom_type           <- "$tom_type"
-cor_type           <- "$cor_type"
+tom_type            <- "$tom_type"
+cor_type            <- "$cor_type"
 min_module_size    <- as.integer($min_module_size)
 merge_cut_height   <- as.numeric($merge_cut_height)
 me_cor_threshold <- as.numeric($me_cor_threshold)
@@ -30,8 +30,17 @@ filter_by_variance <- $filter_by_variance
 variance_quantile  <- as.numeric($variance_quantile)
 run_sample_gene_qc <- $run_sample_gene_qc
 
-## Use GALAXY_SLOTS if set by the cluster runner, fall back to 1 otherwise
-n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "1"))
+## Use GALAXY_SLOTS if set by the cluster runner, fall back to 1 otherwise.
+## allowWGCNAThreads() hard-requires nThreads >= 2, so a single-core job
+## allocation (GALAXY_SLOTS=1, or unset) must be floored to 2 here rather
+## than passed straight through, otherwise the tool always errors out on
+## jobs scheduled with only 1 CPU core.
+n_threads <- suppressWarnings(as.integer(Sys.getenv("GALAXY_SLOTS", unset = "1")))
+if (is.na(n_threads) || n_threads < 2) {
+    cat("GALAXY_SLOTS reported", Sys.getenv("GALAXY_SLOTS", unset = "1"),
+        "thread(s); allowWGCNAThreads() requires at least 2, so using 2.\n")
+    n_threads <- 2L
+}
 allowWGCNAThreads(nThreads = n_threads)
 
 ## corFnc/adjacency()/TOMsimilarity() expect the *function name* ("cor" or
@@ -177,7 +186,13 @@ if (filter_by_variance) {
 
 cat("Genes after variance filtering:", nrow(filtered_expr_data), "\n")
 
-png("plots/01_gene_variance_distribution.png", width = 800, height = 600, res = plot_resolution)
+## Scale the height with the number of genes plotted, since the underlying
+## histogram carries more information (finer bin detail) as gene counts grow;
+## width stays fixed since a variance histogram doesn't need extra width.
+n_genes_for_plot01 <- nrow(filtered_expr_data)
+variance_plot_height <- max(600, round(400 + 150 * log10(max(n_genes_for_plot01, 10))))
+
+png("plots/01_gene_variance_distribution.png", width = 800, height = variance_plot_height, res = plot_resolution)
 var_plot <- gene_variances[is.finite(gene_variances) & gene_variances > 0]
 if (length(var_plot) > 1) {
     hist(log10(var_plot), breaks = 50,
@@ -198,7 +213,14 @@ if (nrow(datExpr) < 2) stop("Too few samples after filtering.")
 if (ncol(datExpr) < 2) stop("Too few genes after filtering.")
 
 sampleTree <- hclust(dist(datExpr), method = "average")
-png("plots/02_sample_clustering.png", width = 1200, height = 600, res = plot_resolution)
+
+## Scale the clustering canvas with the number of samples so sample labels
+## along the dendrogram stay readable instead of overlapping as cohorts grow.
+n_samples_for_plot02 <- nrow(datExpr)
+sample_clustering_width  <- max(1200, 20 * n_samples_for_plot02 + 400)
+sample_clustering_height <- max(700, 3 * n_samples_for_plot02 + 500)
+
+png("plots/02_sample_clustering.png", width = sample_clustering_width, height = sample_clustering_height, res = plot_resolution)
 par(mar = c(2, 5, 2, 2))
 plot(sampleTree,
      main = "Sample Clustering to Detect Outliers",
@@ -207,7 +229,7 @@ plot(sampleTree,
 abline(h = 200, col = "red", lwd = 2, lty = 2)
 dev.off()
 
-png("plots/03_expression_data_distribution.png", width = 1200, height = 600, res = plot_resolution)
+png("plots/03_expression_data_distribution.png", width = 1400, height = 700, res = plot_resolution)
 par(mfrow = c(1, 2))
 hist(as.numeric(datExpr), breaks = 100,
      main = "Distribution of Expression Values",
@@ -309,7 +331,7 @@ cat("Modules identified (excluding grey):",
     sum(names(module_gene_counts) != "grey"), "\n")
 print(module_gene_counts)
 
-png("plots/05_dendrogram_and_modules.png", width = 1200, height = 600, res = plot_resolution)
+png("plots/05_dendrogram_and_modules.png", width = 1200, height = 750, res = plot_resolution)
 plotDendroAndColors(
     net[["dendrograms"]][[1]],
     module_colors[net[["blockGenes"]][[1]]],
@@ -323,21 +345,51 @@ dev.off()
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
 
+## Scale the eigengene dendrogram canvas with the number of modules and
+## traits, matching the approach used for the module-trait heatmap (plot 07)
+## below, so labels stay readable with many modules/traits.
+eigengene_dendro_width  <- max(1000, 60 * ncol(trait_data) + 700)
+eigengene_dendro_height <- max(700, 40 * ncol(module_eigengenes) + 500)
+
 if (ncol(module_eigengenes) > 1) {
     ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs")
     ME_diss <- 1 - ME_cor
     ME_tree <- hclust(as.dist(ME_diss), method = "average")
-    png("plots/06_module_eigengene_dendrogram.png", width = 1000, height = 700, res = plot_resolution)
+    png("plots/06_module_eigengene_dendrogram.png", width = eigengene_dendro_width, height = eigengene_dendro_height, res = plot_resolution)
     plot(ME_tree, main = "Clustering of Module Eigengenes", xlab = "", sub = "", cex = 0.9)
     abline(h = 0.25, col = "red", lty = 2)
     dev.off()
 } else {
     cat("Only one module found; skipping module eigengene dendrogram.\n")
-    png("plots/06_module_eigengene_dendrogram.png", width = 1000, height = 700, res = plot_resolution)
+    png("plots/06_module_eigengene_dendrogram.png", width = eigengene_dendro_width, height = eigengene_dendro_height, res = plot_resolution)
     plot.new()
     text(0.5, 0.5, "Only one module found;\ndendrogram not applicable", cex = 1.2)
     dev.off()
 }
+
+## ── Genome-wide gene-module membership summary ─────────────────────────────
+## For every gene (not just those in a trait-relevant module), correlate its
+## expression profile with every module eigengene. This mirrors the classic
+## WGCNA tutorial's gene_info summary table (Symbol, moduleColor, membership
+## in every module + p-values), giving a single genome-wide reference table
+## in addition to the per-trait/per-module tables produced later.
+gene_module_membership_all <- cor(datExpr, module_eigengenes, use = "pairwise.complete.obs")
+mm_pvalue_all <- corPvalueStudent(as.matrix(gene_module_membership_all), nrow(datExpr))
+colnames(gene_module_membership_all) <- paste0("MM_", colnames(module_eigengenes))
+colnames(mm_pvalue_all)              <- paste0("p.MM_", colnames(module_eigengenes))
+
+gene_info_all <- data.frame(
+    Gene        = colnames(datExpr),
+    ModuleColor = module_colors[colnames(datExpr)],
+    gene_module_membership_all,
+    mm_pvalue_all,
+    stringsAsFactors = FALSE
+)
+gene_info_all <- gene_info_all[order(gene_info_all[["ModuleColor"]]), ]
+
+write.table(gene_info_all,
+    file  = "results/geneInfo.tsv",
+    sep   = "\t", quote = FALSE, row.names = FALSE)
 
 ## ── STEP 6: Module-trait associations ────────────────────────────────────────
 trait_data_aligned <- trait_data[rownames(module_eigengenes), , drop = FALSE]
@@ -658,51 +710,59 @@ cat("Results written to: results/\n")
             <discover_datasets pattern="(?P&lt;name&gt;module_gene_info_.+)\.tsv" directory="results" format="tabular"/>
             <discover_datasets pattern="(?P&lt;name&gt;hub_genes_.+)\.tsv" directory="results" format="tabular"/>
         </collection>
+        <data name="gene_info_output" format="tabular" label="${tool.name} on ${on_string} - Genome-wide gene-module membership" from_work_dir="results/geneInfo.tsv"/>
         <data name="rscript_output" format="txt" label="${tool.name} on ${on_string} - R script" from_work_dir="wgcna_script.R">
             <filter>save_rscript</filter>
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="network_type" value="signed"/>
             <param name="min_module_size" value="10"/>
             <param name="trait_columns" value="2"/>
+            <output name="gene_info_output">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_text text="ModuleColor"/>
+                    <has_text text="MM_ME"/>
+                </assert_contents>
+            </output>
             <output_collection name="wgcna_plots" type="list" count="11">
                 <element name="01_gene_variance_distribution">
                     <assert_contents>
                         <has_size min="100"/>
                         <has_image_width width="800"/>
-                        <has_image_height height="600"/>
+                        <has_image_height min="600"/>
                     </assert_contents>
                 </element>
                 <element name="02_sample_clustering">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="600"/>
+                        <has_image_width min="1200"/>
+                        <has_image_height min="700"/>
                     </assert_contents>
                 </element>
                 <element name="03_expression_data_distribution">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="600"/>
+                        <has_image_width width="1400"/>
+                        <has_image_height height="700"/>
                     </assert_contents>
                 </element>
                 <element name="05_dendrogram_and_modules">
                     <assert_contents>
                         <has_size min="100"/>
                         <has_image_width width="1200"/>
-                        <has_image_height height="600"/>
+                        <has_image_height height="750"/>
                     </assert_contents>
                 </element>
                 <element name="06_module_eigengene_dendrogram">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1000"/>
-                        <has_image_height height="700"/>
+                        <has_image_width min="1000"/>
+                        <has_image_height min="700"/>
                     </assert_contents>
                 </element>
                 <element name="07_module_trait_heatmap">
@@ -753,7 +813,7 @@ cat("Results written to: results/\n")
                 </element>
             </output_collection>
         </test>
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="4">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="softpower_config" value="softpower_config.txt"/>
@@ -763,6 +823,12 @@ cat("Results written to: results/\n")
             <param name="save_rscript" value="true"/>
             <output_collection name="wgcna_plots" type="list" count="11"/>
             <output_collection name="gene_tables" type="list" count="2"/>
+            <output name="gene_info_output">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_text text="ModuleColor"/>
+                </assert_contents>
+            </output>
             <output name="rscript_output">
                 <assert_contents>
                     <has_size min="100"/>
@@ -770,7 +836,7 @@ cat("Results written to: results/\n")
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="network_type" value="signed"/>
@@ -780,7 +846,7 @@ cat("Results written to: results/\n")
             <output_collection name="gene_tables" type="list" count="8"/>
         </test>
         <!-- Manual soft power entry (no softpower_config), power = 10 -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="soft_power" value="10"/>
@@ -804,6 +870,23 @@ cat("Results written to: results/\n")
             <assert_stderr>
                 <has_text text="Sample names in the counts matrix columns do not match the sample names in the first column of the metadata file."/>
             </assert_stderr>
+        </test>
+
+        <!-- Regression test for the allowWGCNAThreads() fix: a single-slot
+             job allocation must not crash the tool. GALAXY_SLOTS is set to
+             1 to reproduce the reported bug. -->
+        <test expect_num_outputs="3">
+            <env_var name="GALAXY_SLOTS" value="1"/>
+            <param name="counts_file" value="normalized_counts.tsv"/>
+            <param name="metadata_file" value="trait_data.tsv"/>
+            <param name="network_type" value="signed"/>
+            <param name="min_module_size" value="10"/>
+            <param name="trait_columns" value="2"/>
+            <output_collection name="wgcna_plots" type="list" count="11"/>
+            <output_collection name="gene_tables" type="list" count="2"/>
+            <assert_stdout>
+                <has_text text="allowWGCNAThreads() requires at least 2, so using 2"/>
+            </assert_stdout>
         </test>
     </tests>
     <help><![CDATA[
@@ -833,7 +916,12 @@ Network type defaults to *Unsigned*. For most RNA-seq co-expression analyses, *S
 
 - **wgcna_plots** — a collection of every diagnostic and results plot produced by the pipeline.
 - **gene_tables** — a collection of module gene info and hub gene tables, one pair per trait (and per one-hot level for categorical traits), each for the module most correlated with that trait.
+- **Genome-wide gene-module membership** — a single table listing every gene, its assigned module color, and its membership correlation (and p-value) with every module eigengene in the dataset, ordered by module color.
 - **R script** (optional) — the exact R script executed for this run, provided when "Save the R script used for this run" is enabled; useful for debugging.
+
+**Notes on thread usage**
+
+The tool uses ``GALAXY_SLOTS`` to size internal WGCNA parallelism. Because ``allowWGCNAThreads()`` requires at least 2 threads, jobs scheduled with only 1 CPU core automatically use 2 threads for WGCNA's internal calculations rather than failing; this does not request extra cores from the scheduler.
     ]]></help>
     <expand macro="wgcna_citations"/>
 </tool>
