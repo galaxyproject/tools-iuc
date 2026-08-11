@@ -290,7 +290,7 @@ def parse_arguments():
     arg_parser.add_argument(
         "--db_version",
         default="latest",
-        help="select the major version of the database (e.g. 3.10, 3.8), default is latest",
+        help="select the major version of the database (e.g. 4.2, 4.0, 3.12), default is latest",
     )
     arg_parser.add_argument(
         "--db_date",

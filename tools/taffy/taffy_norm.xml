@@ -1,0 +1,287 @@
+<tool id="taffy_norm" name="Taffy norm" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>normalizes blocks in a TAF file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/> 
+    <expand macro="stdio"/>
+    <command detect_errors="aggressive">
+        <![CDATA[
+        ## Set variables
+        @SET_UNCOMPRESS_NAMES@
+        
+        ## Uncompress input files if necessary and create symlinks for uncompressed files
+        @UNCOMPRESS_TAF_AND_MAF@
+
+        ## Uncompress fasta files if set
+        #if $gaps.gapFill.source == 'fasta':
+            #for $i, $fasta_file in enumerate($gaps.gapFill.input_fasta):
+                #set $temp_input = 'input_%s.fasta' % $i
+                #if $fasta_file.is_of_type('fasta.gz')
+                    gunzip -c '$fasta_file' > '$temp_input' &&
+                #else if $fasta_file.is_of_type('fasta.bz2')
+                    bzip2 -dc '$fasta_file' > '$temp_input' &&
+                #else
+                    ln -s '$fasta_file' '$temp_input' &&
+                #end if
+            #end for
+        #end if
+
+        ## Run main command
+        taffy norm
+            --logLevel 'INFO'
+            --inputFile '$uncompressed_input'
+            --maximumBlockLengthToMerge $maximumBlockLengthToMerge
+            --minimumSharedRows $shared.minimumSharedRows
+            --fractionSharedRows $shared.fractionSharedRows
+            --maximumGapLength $gaps.maximumGapLength
+            $gaps.filterGapCausingDupes
+            #if $gaps.gapFill.source == 'hal':
+                --halFile '$gaps.gapFill.input_hal'
+            #elif $gaps.gapFill.source == 'fasta':
+                --seqFiles
+                #for $i, $fasta_file in enumerate($gaps.gapFill.input_fasta):
+                    'input_${i}.fasta'
+                #end for
+            #end if
+            --repeatCoordinatesEveryNColumns $repeatCoordinatesEveryNColumns
+            #if $output.format == 'maf':
+                --maf
+
+                ## Compress MAF output if requested by user 
+                @COMPRESS_MAF@
+            #else:
+                ## Compress TAF output if requested by user 
+                @COMPRESS_TAF@
+            #end if
+    ]]></command>
+    <inputs>
+        <expand macro="input_taf"/>
+        <param argument="--maximumBlockLengthToMerge" type="integer" min="1" value="200" label="Maximum block length" help="Only merge together any two adjacent blocks if one or both is less than this many bases long"/> 
+        <section name="shared" title="Shared rows options" expanded="true">
+            <param argument="--minimumSharedRows" type="integer" min="1" value="1" label="Minimum shared rows" help="The minimum number of rows between two blocks that need to be shared for a merge"/> 
+            <param argument="--fractionSharedRows" type="float" min="0" value="0" max="1" label="Fraction shared rows" help="The minimum fraction of rows between two blocks that need to be shared for a merge"/> 
+        </section>
+        <section name="gaps" title="Gap options" expanded="true">
+            <param argument="--maximumGapLength" type="integer" min="1" value="30" label="Maximum gap length" help="Only merge together two adjacent blocks if the longest unaligned gap between them, measured on any single row, is less than or equal to this many bases"/> 
+            <conditional name="gapFill">
+                <param name="source" type="select" label="Fill gaps between blocks">
+                    <option value="" selected="true">Do not fill gaps (default)</option>
+                    <option value="hal">Fill gaps via a HAL file (--halFile)</option>
+                    <option value="fasta">Fill gaps via one or more FASTA files (--seqFiles)</option>
+                </param>
+                <when value=""/>
+                <when value="hal">    
+                    <expand macro="input_hal"/>  
+                </when>
+                <when value="fasta">
+                    <expand macro="input_fasta"/>  
+                </when>
+            </conditional> 
+            <param argument="--filterGapCausingDupes" type="boolean" truevalue="--filterGapCausingDupes" falsevalue="" checked="false" label="Remove duplicates that might prevent block merging" help="If a large gap caused by a duplicate sequence prevents two blocks from merging, this option will remove that duplicate row. Rows are considered duplicates if a contig with the same name, or with the same prefix up to the first '.', appears elsewhere in the block. The reference row is never removed"/>  
+        </section>
+        <expand macro="params_repeatCoordinatesEveryNColumns"/>
+        <conditional name="output">
+            <param name="format" type="select" label="Output file format">
+                <option value="taf" selected="true">Output as TAF file (default)</option>
+                <option value="maf">Output as MAF file (--maf)</option>
+            </param>
+            <when value="taf">
+                <expand macro="params_conditional_compression_taf"/>
+            </when>
+            <when value="maf">
+                <expand macro="params_conditional_compression_maf"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="taf">
+            <change_format>
+                <when input="output.compression_taf" value="gz" format="taf.gz"/>
+                <when input="output.compression_maf" value="gz" format="maf.gz"/>
+                <when input="output.compression_maf" value="bz2" format="maf.bz2"/>
+                <when input="output.format" value="maf" format="maf"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: TAF input, Tool defaults -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text=" ; " n="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: Compressed TAF input (.gz), Tool defaults -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf.gz"/>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text=" ; " n="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: TAF input, modify maximum block length to merge -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <param name="maximumBlockLengthToMerge" value="20"/>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text=" ; " n="2"/>
+                    <has_text text="AAAAAAGAA ; g 3 2 g 7 2 g 8 2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: TAF input, modify shared rows to merge -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="shared">
+                <param name="minimumSharedRows" value="3"/>
+                <param name="fractionSharedRows" value="0.75"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text=" ; " n="3"/>
+                    <has_text text="AAAA-A ; d"/>
+                    <has_text text="GGG-GAG-- ; i"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: TAF input, modify gap options -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="gaps">
+                <param name="maximumGapLength" value="5"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text=" ; " n="2"/>
+                    <has_text text="GGG-GAG-- ; g 6 6"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: TAF input, providing FASTA to fill gaps -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="mr.taf"/>
+            <conditional name="gaps">
+                <conditional name="gapFill">
+                    <param name="source" value="fasta"/>
+                    <param name="input_fasta" value="mr.mrrefChr1.fasta.gz"/>
+                </conditional>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_line line="NNN" negate="true"/>
+                    <has_line line="GNN"/>
+                    <has_line line="ANN"/>
+                    <has_line line="TNN"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: TAF input, providing HAL to fill gaps -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="mr.taf"/>
+            <conditional name="gaps">
+                <conditional name="gapFill">
+                    <param name="source" value="hal"/>
+                    <param name="input_hal" value="mr.hal"/>
+                </conditional>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_line line="NNN" negate="true"/>
+                    <has_line line="GGG"/>
+                    <has_line line="AAA"/>
+                    <has_line line="TAA"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: TAF input, MAF output, Tool defaults -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+            </conditional>
+            <output name="out_file" ftype="maf">
+                <assert_contents>
+                    <has_text text="##maf" n="1"/>
+                    <has_line line="a" n="1"/>
+                    <has_text text="s&#009;" n="9"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 9: TAF input, Compressed TAF output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+                <param name="compression_taf" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="taf.gz">
+                <assert_contents>
+                    <has_size size="573" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 11: TAF input, Compressed MAF output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+                <param name="compression_maf" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="maf.gz">
+                <assert_contents>
+                    <has_size size="508" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 12: TAF input, Compressed MAF output (.bz2) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+                <param name="compression_maf" value="bz2"/>
+            </conditional>
+            <output name="out_file" ftype="maf.bz2">
+                <assert_contents>
+                    <has_size size="565" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Taffy norm normalizes TAF alignments by merging adjacent blocks.
+This cleans fragmented alignments and reduces unnecessary block splits to produce a more compact output.
+Merging behavior is customizable via maximum block length, maximum gap length, and minimum shared row requirements. 
+
+When merging, the tool can fill gaps between two separate blocks by inserting the actual nucleotide sequence. 
+Gaps annotated with the 'G' (gap with sequence) tag are filled automatically.
+For gaps annotated with the 'g' (gap) tag, the tool can fill them using sequence data from FASTA or HAL files.
+The tool does not overwrite existing 'N' characters within a block.
+
+- **FASTA files:**
+  The sequences in the FASTA file must start at position 0 (whole chromosome/contig). 
+  Sub-sequences with offset coordinates are not supported.
+  The FASTA header must contain only the sequence name (e.g., ``>Genome.chr1``), without any additional description.
+
+- **HAL files:**
+  The HAL file must contain all genomes (species) present in the TAF file.
+  While it does not strictly need to contain every single sequence, missing sequences will result in gaps not being filled.
+
+During normalization, rows are automatically sorted alphanumerically by sequence name. 
+If a different sorting order is required, the output should be further processed with 'Taffy sort'.
+The output is written to TAF format by default, with an option to write MAF format.
+    ]]></help>
+    <expand macro="citation"/>
+    <expand macro="creator"/>
+</tool>
