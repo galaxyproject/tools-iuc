@@ -38,8 +38,16 @@ urls = {
         "meta_ar": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/ar53_metadata_r226.tsv.gz",
         "meta_bac": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/bac120_metadata_r226.tsv.gz",
     },
-    "mocked": {
-        "full": "https://data.gtdb.ecogenomic.org/releases/latest/auxillary_files/gtdbtk_package/mockup_db/mockup.tar.gz",
+    "mocked_226": {
+        "full": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/auxillary_files/gtdbtk_package/mockup_db/r226_mockup.tar.gz",
+    },
+    "232": {
+        "full": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz",
+        "meta_ar": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release232/232.0/ar53_taxonomy_r232.tsv.gz",
+        "meta_bac": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release232/232.0/bac120_taxonomy_r232.tsv.gz",
+    },
+    "mocked_232": {
+        "full": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release232/232.0/auxillary_files/gtdbtk_package/mockup_db/r232_mockup.tar.gz",
     },
 }
 
@@ -182,10 +190,8 @@ def create_data_manager_entry(database_name, release, file_path):
     data_manager_entry["value"] = (
         f"{database_name.replace(' ', '_').lower()}_release_{release}_downloaded_{time}"
     )
-    if release == "mocked_226":
-        data_manager_entry["name"] = "Mocked GTBD DB (226)"
-    else:
-        data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
+
+    data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
     data_manager_entry["path"] = file_path
     data_manager_entry["version"] = release
     return data_manager_entry
