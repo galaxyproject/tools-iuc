@@ -1,187 +1,274 @@
-<tool id="tasmanian_mismatch" name="Analysis of artifacts with Tasmanian" version="@TOOL_VERSION@+galaxy1" profile="20.05">
-  <description>Quantify, visualize and summarize mismatches in deep sequencing data</description>
-  <macros>
-    <token name="@TOOL_VERSION@">1.0.9</token>
-  </macros>
-  <edam_topics>
-    <edam_topic>topic_3168</edam_topic> <!-- Sequencing -->
-    <edam_topic>topic_0080</edam_topic> <!-- Sequence analysis -->
-  </edam_topics>
-  <edam_operations>
-    <edam_operation>operation_3218</edam_operation> <!-- Sequencing quality control -->
-    <edam_operation>operation_0564</edam_operation> <!-- Sequence visualisation -->
-    <edam_operation>operation_3197</edam_operation> <!-- Genetic variation analysis -->
-  </edam_operations>
-  <requirements>
-    <requirement type="package" version="@TOOL_VERSION@">tasmanian-mismatch</requirement>
-    <requirement type="package" version="1.22">samtools</requirement>
-  </requirements>
-  <command detect_errors="exit_code"><![CDATA[
-    #set $reference_fasta_filename = "localref.fa"
+<tool id="tasmanian_mismatch" name="Analysis of artifacts with Tasmanian" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Quantify, visualize and summarize mismatches in deep sequencing data</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0.3</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.0</token>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_3168</edam_topic>
+        <edam_topic>topic_0080</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_3218</edam_operation>
+        <edam_operation>operation_0564</edam_operation>
+        <edam_operation>operation_3197</edam_operation>
+    </edam_operations>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">tasmanian-mismatch</requirement>
+    </requirements>
+    <version_command>echo @TOOL_VERSION@</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## tasmanian-mismatch requires a coordinate-sorted BAM with a .bai index next to it
+ln -f -s '$bam_input' input.bam &&
+ln -f -s '$bam_input.metadata.bam_index' input.bam.bai &&
 
-    #if str( $reference_source.reference_source_selector ) == "history":
-        ln -s '${reference_source.ref_file}' '${reference_fasta_filename}' &&
-    #else:
-        #set $reference_fasta_filename = str( $reference_source.ref_file.fields.path )
-    #end if
+#if str($reference_source.reference_source_selector) == "history":
+    ln -f -s '$reference_source.ref_file' reference.fa &&
+    #set $reference_fasta = "reference.fa"
+#else:
+    #set $reference_fasta = str($reference_source.ref_file.fields.path)
+#end if
 
-    samtools view '${bam_input}' |
-
+tasmanian-mismatch
+    input.bam
+    '$reference_fasta'
+    --threads "\${GALAXY_SLOTS:-1}"
+    --min-base-quality $basequality
+    --min-map-quality $mapquality
+    --position-mode '$position_mode'
     #if $bed_filename
-        run_intersections -b '$bed_filename' |
+        --bed-file '$bed_filename'
+        --bed-filter-mode '$bed_filter_mode'
     #end if
-
-    run_tasmanian
-        -q '${basequality}'
-        -s '${softclips}'
-        -m '${mapquality}'
-        -c '${confidence}'
-        -r '${reference_fasta_filename}' > '${output_table}'
-  ]]></command>
-  <inputs>
-    <!-- BAM alignment file -->
-    <param type="data" name="bam_input" label="BAM/SAM alignment file" format="bam" help="Specify BAM/SAM dataset. If not using a bed file, this file MUST BE SORTED" />
-    
-    <!-- Reference genome upload -->
-    <conditional name="reference_source">
-      <param name="reference_source_selector" type="select" label="Reference genome" help="You can select a reference genome from your history or use a built-in index (Local cache)">
-        <option value="cached">Local cache</option>
-        <option value="history">History</option>
-      </param>
-      <when value="cached">
-        <param name="ref_file" type="select" label="Select the reference genome from the list">
-          <options from_data_table="all_fasta">
-            <filter type="sort_by" column="2" />
-            <validator type="no_options" message="No indexes are available" />
-          </options>
+    $normalize
+    $plot
+    --overlap-mode '$advanced.overlap_mode'
+    $advanced.methylation_mode
+    --min-fragment-length $advanced.min_fragment_length
+    --max-fragment-length $advanced.max_fragment_length
+    #if $advanced.discount_table
+        --discount-table '$advanced.discount_table'
+    #end if
+    ## --plot derives the report name from --output-file, so write into the
+    ## working directory and move the table afterwards (keeps tasmanian.html discoverable)
+    --output-file tasmanian.tsv
+&& mv tasmanian.tsv '$output_table'
+    ]]></command>
+    <inputs>
+        <param name="bam_input" type="data" format="bam" label="BAM alignment file" help="Coordinate-sorted BAM dataset. Galaxy provides the accompanying index automatically."/>
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Reference genome" help="You can select a reference genome from your history or use a built-in index (Local cache)">
+                <option value="cached">Local cache</option>
+                <option value="history">History</option>
+            </param>
+            <when value="cached">
+                <param name="ref_file" type="select" label="Select the reference genome from the list">
+                    <options from_data_table="all_fasta">
+                        <filter type="sort_by" column="2"/>
+                        <validator type="no_options" message="No indexes are available"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="ref_file" type="data" format="fasta" label="Use reference genome from history" help="You can first upload a FASTA sequence to the history"/>
+            </when>
+        </conditional>
+        <param name="bed_filename" argument="--bed-file" type="data" format="bed" optional="true" label="Select a bed file" help="Optional BED file with regions to mask or filter. It should contain at least 'chrN', 'start' and 'stop' and be tab separated."/>
+        <param argument="--bed-filter-mode" type="select" label="How to apply the BED regions" help="Only used when a BED file is provided">
+            <option value="mask" selected="true">mask - skip only the aligned bases that overlap the BED regions</option>
+            <option value="filter">filter - skip whole reads that overlap the BED regions</option>
         </param>
-      </when>
-      <when value="history">
-        <param name="ref_file" type="data" format="fasta" label="Use reference genome from history" help="You can first upload a FASTA sequence to the history" />
-      </when>
-    </conditional>
-            
-    <!-- BED file -->       
-    <param name="bed_filename" type="data" format="bed" optional="true" label="Select a bed file" help="The bed file should contain at least: 'chrN', 'start' and 'stop', and is tab separated." />
-
-    <!-- Additional parameters -->
-    <param name="confidence" label="Boundary" type="integer" value="20" min="0" max="100"
-        help="Number of bases in boundary region, from 0 to length of the read (read help below). Default=20" /> 
-    <param name="softclips" label="Choose an action with softclips" type="select" display="radio"
-        help="How softclips should be treated. Values include 0,1 or 2 (read the help below). Default=0">
-      <option value="1">Never use softclipped bases</option>
-      <option value="2">Always use softclipped bases</option>
-      <option value="0" selected="true">Automatic decision (Default)</option>
-    </param>
-    <param name="mapquality" label="Map quality" type="integer" min="0" max="70" value="20" help="Exclude reads with lower mapQ than this number. Default=20" />
-    <param name="basequality" label="Base quality" type="integer" min="0" max="70" value="20" help="Exclude bases with lower Base quality than this number. Default=20" />
-    <param name="keepHTML_conditional" type="select" label="Keep HTML output file?">
-      <option value="yes">Yes</option>
-      <option value="no">No</option>
-    </param>    
-  </inputs>
-
-  <outputs>
-    <data name="output_table" format="txt" label="${tool.name} on ${on_string}: mismatch table" />
-    <data format="html" name="html_file" from_work_dir="Tasmanian_artifact_report.html" label="${tool.name} on ${on_string}: results table">
-      <filter>keepHTML_conditional == "yes"</filter>
-    </data>
-  </outputs>
-
-  <tests>
-    <!-- Test when reference from history with bed -->
-    <test expect_num_outputs="1">
-      <param name="bam_input" value="test2.bam" ftype="bam" />
-      <param name="reference_source|reference_source_selector" value="history" />
-      <param name="reference_source|ref_file" value="small_region.fa" />
-      <param name="bed_filename" value="test2.bed" ftype="bed" />
-      <param name="keepHTML_conditional" value="no" />
-      <output name="output_table" file="test2-bed.output" lines_diff="4" />
-    </test>
-    
-    <!-- Test when reference from history without bed -->
-    <test expect_num_outputs="1">
-      <param name="bam_input" value="test2.bam" ftype="bam" />
-      <param name="reference_source|reference_source_selector" value="history" />
-      <param name="reference_source|ref_file" value="small_region.fa" />
-      <param name="keepHTML_conditional" value="no" />
-      <output name="output_table" file="test2-nobed.output" lines_diff="4" />
-    </test>
-    
-    <!-- Test when reference from cached -->
-    <test expect_num_outputs="1">
-      <param name="bam_input" value="test2.bam" ftype="bam" dbkey="hg38" />
-      <param name="reference_source|reference_source_selector" value="cached" />
-      <param name="reference_source|ref_file" value="hg38" />
-      <param name="keepHTML_conditional" value="no" />
-      <output name="output_table" file="test2-nobed.output" lines_diff="4" />
-    </test>
-    
-    <!-- Test HTML output -->
-    <test expect_num_outputs="2">
-      <param name="bam_input" value="test2.bam" ftype="bam" />
-      <param name="reference_source|reference_source_selector" value="history" />
-      <param name="reference_source|ref_file" value="small_region.fa" />
-      <param name="keepHTML_conditional" value="yes" />
-      <output name="output_table" file="test2-nobed.output" lines_diff="4" />
-      <output name="html_file" ftype="html">
-        <assert_contents>
-          <has_text text="Tasmanian" />
-        </assert_contents>
-      </output>
-    </test>
-  </tests>
-
-  <help><![CDATA[
+        <param argument="--position-mode" type="select" label="Position mode" help="Report mismatches by position along the fragment (insert) or along each read separately">
+            <option value="insert" selected="true">insert - fragment position (default)</option>
+            <option value="read">read - read position, R1 and R2 reported separately</option>
+        </param>
+        <param name="mapquality" argument="--min-map-quality" type="integer" min="0" max="255" value="10" label="Minimum mapping quality" help="Exclude reads with a lower mapping quality than this number. Default=10"/>
+        <param name="basequality" argument="--min-base-quality" type="integer" min="0" max="93" value="20" label="Minimum base quality" help="Exclude bases with a lower base quality than this number. Default=20"/>
+        <param argument="--normalize" type="boolean" truevalue="--normalize" falsevalue="" checked="false" label="Report normalized frequencies" help="Normalize counts within each (read number, position, reference base) group. The last column becomes 'normalized_frequency' instead of 'count'."/>
+        <param argument="--plot" type="boolean" truevalue="--plot" falsevalue="" checked="true" label="Produce the interactive HTML report" help="Renders the mismatch table as an interactive Bokeh plot"/>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param argument="--overlap-mode" type="select" label="Read-pair overlap handling" help="How to treat positions covered by both mates of a pair">
+                <option value="cut" selected="true">cut - split the overlap at its midpoint</option>
+                <option value="stretch">stretch - rescale each mate over its half via a cubic spline, dropping no bases</option>
+            </param>
+            <param argument="--methylation-mode" type="boolean" truevalue="--methylation-mode" falsevalue="" checked="false" label="Methylation mode" help="Treat C&gt;T and G&gt;A changes as C&gt;C and G&gt;G to avoid confounding by bisulfite conversion"/>
+            <param argument="--min-fragment-length" type="integer" min="0" value="25" label="Minimum fragment length" help="Minimum estimated fragment length required for a read to be counted. Default=25"/>
+            <param argument="--max-fragment-length" type="integer" min="1" value="10000" label="Maximum fragment length" help="Maximum estimated fragment length allowed for a read to be counted. Default=10000"/>
+            <param argument="--discount-table" type="data" format="tabular" optional="true" label="Discount table" help="Optional variant_discounts.tsv produced by tasmanian-diagnostics, used to subtract likely genomic variants from the mismatch counts"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_table" format="tabular" label="${tool.name} on ${on_string}: mismatch table"/>
+        <data name="html_file" format="html" from_work_dir="tasmanian.html" label="${tool.name} on ${on_string}: report">
+            <filter>plot</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: defaults, reference from history, no BED -->
+        <test expect_num_outputs="1">
+            <param name="bam_input" value="test2.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="small_region.fa" ftype="fasta"/>
+            </conditional>
+            <param name="plot" value="false"/>
+            <output name="output_table" file="test2_insert.tabular" ftype="tabular">
+                <assert_contents>
+                    <has_text text="fragment_position"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: read position mode with whole-read BED filtering -->
+        <test expect_num_outputs="1">
+            <param name="bam_input" value="test2.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="small_region.fa" ftype="fasta"/>
+            </conditional>
+            <param name="bed_filename" value="test2.bed" ftype="bed"/>
+            <param name="bed_filter_mode" value="filter"/>
+            <param name="position_mode" value="read"/>
+            <param name="plot" value="false"/>
+            <output name="output_table" file="test2_read_bedfilter.tabular" ftype="tabular">
+                <assert_contents>
+                    <has_text text="read_position"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: reference from the local cache -->
+        <test expect_num_outputs="1">
+            <param name="bam_input" value="test2.bam" ftype="bam" dbkey="hg38"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="cached"/>
+                <param name="ref_file" value="hg38"/>
+            </conditional>
+            <param name="plot" value="false"/>
+            <output name="output_table" ftype="tabular">
+                <assert_contents>
+                    <has_text text="base_change"/>
+                    <has_text text="fragment_position"/>
+                    <has_n_lines min="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: HTML report -->
+        <test expect_num_outputs="2">
+            <param name="bam_input" value="test2.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="small_region.fa" ftype="fasta"/>
+            </conditional>
+            <param name="plot" value="true"/>
+            <output name="output_table" file="test2_insert.tabular" ftype="tabular"/>
+            <output name="html_file" ftype="html">
+                <assert_contents>
+                    <has_text text="Tasmanian"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: normalized frequencies -->
+        <test expect_num_outputs="1">
+            <param name="bam_input" value="test2.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="small_region.fa" ftype="fasta"/>
+            </conditional>
+            <param name="normalize" value="true"/>
+            <param name="plot" value="false"/>
+            <output name="output_table" ftype="tabular">
+                <assert_contents>
+                    <has_text text="normalized_frequency"/>
+                    <has_n_lines min="2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
 
 **What it does**
 
-This tool counts the number/proportion of mismatches per position along the read, 
-for each read (see figure below).
-
-.. image:: ${static_path}/images/snapshot_good.jpg
-    :height: 350                                                            
-    :width: 650   
+Tasmanian counts mismatches between aligned reads and the reference genome, broken down by
+mismatch class and by position along the read or fragment. Systematic artifacts introduced during
+DNA preservation, extraction, fragmentation or library preparation show up as position dependent
+mismatch signatures, which is how they can be told apart from true biological variation. A classic
+example is the C>T excess at read ends in FFPE material.
 
 -----
 
-**What is special**
+**Inputs**
 
-By providing a BED file, tasmanian-mismatch will count mismatches from all regions depicted in the figure below, 
-and will report them separately. Also, a parameter defined as *"confidence"* allows including reads with >=
-bases in the boundary region in a separate group. This is useful when the BED refers to repeat regions. Since these 
-regions might not have been correctly placed in the assembly or are not the same in different individuals, we can 
-include this *confidence* repeat regions where we have high confidence on the reference genome to which we mapped the reads.
+* A **coordinate-sorted BAM** dataset. The tool reads the alignment through its index, which Galaxy
+  supplies automatically for the ``bam`` datatype.
+* A **reference FASTA**, either from a built-in index (local cache) or from your history. 
+* Optionally a **BED file** of regions and an optional **discount table**.
 
-.. image:: ${static_path}/images/intersections_tasmanian.jpg                
-    :height: 150                                                            
-    :width: 650 
+-----
 
-Softclips are critical in FFPE (Formalin-fixed paraffin-embedded) experiments as mismatches tend to accumulate at the ends of the reads. Most often, softclips 
-are all accepted during the analysis and many real mismatches are indirectly excluded from the analysis. Hence, this tool 
-provides different ways to deal with this: 
+**Output**
 
-The *softclips* field allows for 3 different ways at treating softclips:    
+A tabular dataset in long format with one row per mismatch class, read and position::
 
-0) Exclude these region if there is less than 2/3 identity with the reference genome  
-1) Exclude all softclipped bases  
-2) Include all softclipped bases  
+    base_change	read_num	reference_order	fragment_position	count
+    C>T	1	1	42	18
+    C>A	1	1	42	3
+    G>A	2	2	17	11
 
-.. class:: warningmark   
+* ``base_change`` - the reference base and the observed read base, e.g. ``C>T``
+* ``read_num`` - 1 or 2, which mate the count comes from
+* ``reference_order`` - which mate of the pair comes first in reference coordinates
+* ``fragment_position`` or ``read_position`` - depends on the selected position mode
+* ``count`` - number of observations, or ``normalized_frequency`` when *Report normalized
+  frequencies* is enabled. Normalization is done within each ``(read_num, position, ref_base)``
+  group, e.g. ``C>T / (C>A + C>C + C>G + C>T)``.
 
-BAM/SAM file must be **sorted** if not using a BED file.
-  
-  ]]></help>
-  <citations>
-    <citation type="bibtex">
-      @misc{githubtasmanian,
-        author = {Langhorst, B. and Erijman, A.},
-        year = {2020},
-        title = {Tasmanian-mismatch: A tool for analyzing positional mismatches in sequencing data},
-        publisher = {GitHub},
-        journal = {GitHub repository},
-        url = {https://github.com/nebiolabs/tasmanian-mismatch}
-      }
-    </citation>
-  </citations>
+When *Produce the interactive HTML report* is enabled, a second dataset holds an interactive plot of
+the same table.
+
+-----
+
+**Position mode**
+
+* **insert** - positions are counted along the sequenced fragment, so a pair contributes a single
+  coordinate system. Overlapping mate positions are resolved with the *Read-pair overlap handling*
+  option.
+* **read** - positions are counted along each read separately and R1/R2 are reported apart. This is
+  the mode to use when looking for read-position dependent artifacts.
+
+-----
+
+**BED regions**
+
+* **mask** - only the aligned bases falling inside the BED intervals are skipped.
+* **filter** - any read overlapping a BED interval is discarded entirely.
+
+.. class:: warningmark
+
+This differs from Tasmanian 1.x, which reported per-region groups (inside, complement and outside
+the BED intervals) as separate column blocks of one wide table. Version 2 masks or filters instead,
+and the *boundary/confidence* option that went with the old grouping no longer exists upstream. The
+*softclips* option is also gone from this tool; the soft-clip identity threshold now lives only in
+the ``tasmanian-diagnostics`` binary.
+
+-----
+
+**Discount table**
+
+``tasmanian-diagnostics`` can emit a ``variant_discounts.tsv`` listing mismatches that look like
+genuine genomic variants rather than artifacts. Supplying it here subtracts those counts, which
+sharpens the artifact signal on samples with real variation.
+
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+            @misc{githubtasmanian,
+                author = {Langhorst, B. and Erijman, A.},
+                year = {2025},
+                title = {Tasmanian-mismatch: A tool for analyzing positional mismatches in sequencing data},
+                publisher = {GitHub},
+                journal = {GitHub repository},
+                url = {https://github.com/nebiolabs/tasmanian-mismatch}
+            }
+        </citation>
+    </citations>
 </tool>
