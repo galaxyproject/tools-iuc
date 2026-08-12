@@ -62,7 +62,16 @@ meta <- read.delim(opt$meta_table, sep = "\t", check.names = FALSE)
 opt$cell_id_column <- as.integer(opt$cell_id_column)
 opt$condition_column <- as.integer(opt$condition_column)
 opt$batch_column <- if (!is.null(opt$batch_column) && nzchar(opt$batch_column)) {
-    as.integer(strsplit(opt$batch_column, ",")[[1]])
+    raw_cov <- strsplit(opt$batch_column, ",")[[1]]
+    idx <- suppressWarnings(as.integer(raw_cov))
+    if (any(is.na(idx)) || any(idx < 1) || any(idx > ncol(meta))) {
+        stop(sprintf(
+            "Invalid covariate column index/indices: '%s'. Expected integer values between 1 and %d (the number of columns in the metadata table).",
+            paste(raw_cov, collapse = ", "),
+            ncol(meta)
+        ))
+    }
+    idx
 } else {
     NULL
 }
