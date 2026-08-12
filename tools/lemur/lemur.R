@@ -12,9 +12,7 @@ suppressPackageStartupMessages({
 set.seed(42)
 
 save_plot <- function(filename, plot, format = "pdf", width = 15, height = 12, dpi = 300) {
-    ext <- tolower(format)
-    out <- sub("\\.pdf$", paste0(".", ext), filename)
-    ggsave(out, plot, device = ext, width = width, height = height, dpi = dpi, units = "cm", bg = "white")
+    ggsave(filename, plot, device = tolower(format), width = width, height = height, dpi = dpi, units = "cm", bg = "white")
 }
 
 # ---- Command-line options ----
