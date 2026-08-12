@@ -11,8 +11,10 @@ suppressPackageStartupMessages({
 
 set.seed(42)
 
-save_plot <- function(filename, plot, format = "pdf", width = 6, height = 5, dpi = 300) {
-    ggsave(out, plot, device = ext, width = width, height = height, dpi = dpi, units = "in", bg = "white")
+save_plot <- function(filename, plot, format = "pdf", width = 15, height = 12, dpi = 300) {
+    ext <- tolower(format)
+    out <- sub("\\.pdf$", paste0(".", ext), filename)
+    ggsave(out, plot, device = ext, width = width, height = height, dpi = dpi, units = "cm", bg = "white")
 }
 
 # ---- Command-line options ----
@@ -44,7 +46,10 @@ option_list <- list(
     make_option(c("--plot_width"), type = "double", default = 6),
     make_option(c("--plot_height"), type = "double", default = 5),
     make_option(c("--run_tumor_analysis"), type = "character", default = "no"),
-    make_option(c("--tumor_annotation_column"), type = "character", default = "chromosome")
+    make_option(c("--tumor_annotation_column"), type = "character", default = "chromosome"),
+    make_option(c("--linear_coefficient_estimator"), type = "character", default = "linear"),
+    make_option(c("--use_assay"), type = "character", default = "logcounts"),
+    make_option(c("--consider"), type = "character", default = "embedding+linear")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list))
@@ -56,36 +61,59 @@ meta <- read.delim(opt$meta_table, sep = "\t", check.names = FALSE)
 
 opt$cell_id_column <- as.integer(opt$cell_id_column)
 opt$condition_column <- as.integer(opt$condition_column)
-opt$batch_column <- if (nzchar(opt$batch_column)) as.integer(opt$batch_column) else NULL
+opt$batch_column <- if (!is.null(opt$batch_column) && nzchar(opt$batch_column)) {
+    as.integer(strsplit(opt$batch_column, ",")[[1]])
+} else {
+    NULL
+}
 
 cell_id_colname <- colnames(meta)[opt$cell_id_column]
 condition_name <- colnames(meta)[opt$condition_column]
-batch_name <- if (!is.null(opt$batch_column)) colnames(meta)[opt$batch_column] else NULL
+batch_names <- if (!is.null(opt$batch_column)) colnames(meta)[opt$batch_column] else NULL
 
 rownames(meta) <- meta[[cell_id_colname]]
 
-stopifnot(cell_id_colname %in% colnames(colData(sce)))
+if (!all(meta[[cell_id_colname]] %in% colnames(sce))) {
+    stop(sprintf("Cell IDs in metadata column '%s' do not match SCE colnames", cell_id_colname))
+}
 stopifnot(condition_name %in% colnames(meta))
-if (!is.null(batch_name)) stopifnot(batch_name %in% colnames(meta))
+if (!is.null(batch_names)) stopifnot(all(batch_names %in% colnames(meta)))
 
-stopifnot(identical(colnames(sce), rownames(meta)))
-meta <- meta[!is.na(meta[[condition_name]]), , drop = FALSE]
+# The subset check above only guarantees metadata cell IDs are a subset of the
+# SCE columns. Also check the reverse: every SCE column must have a matching
+# metadata row, otherwise meta[colnames(sce), ] would insert silent NA rows.
+if (!all(colnames(sce) %in% rownames(meta))) {
+    stop(sprintf(
+        "Some cells in the SCE object are absent from metadata column '%s'; every SCE column must have a matching metadata row.",
+        cell_id_colname
+    ))
+}
+
 meta <- meta[colnames(sce), , drop = FALSE]
+
+# Make column names syntactically valid so names with spaces do not break the
+# design formula. This runs after the index-based column selection above, so it
+# does not interfere with the columns the user chose by index.
+colnames(meta) <- make.names(colnames(meta))
+condition_name <- make.names(condition_name)
+batch_names <- if (!is.null(batch_names)) make.names(batch_names) else NULL
+
 colData(sce) <- S4Vectors::DataFrame(meta)
 
 # ---- Build design formula ----
-design_formula <- if (!is.null(batch_name)) {
-    as.formula(sprintf("~ %s + %s", batch_name, condition_name))
-} else {
-    as.formula(sprintf("~ %s", condition_name))
-}
+# Covariates (batch_names) may contain multiple columns; the condition goes last.
+design_formula <- as.formula(
+    paste("~", paste(c(batch_names, condition_name), collapse = " + "))
+)
 
 # ---- Run LEMUR ----
 fit <- lemur(
     sce,
     design = design_formula,
     n_embedding = opt$n_embedding,
-    test_fraction = opt$test_fraction
+    test_fraction = opt$test_fraction,
+    linear_coefficient_estimator = opt$linear_coefficient_estimator,
+    use_assay = opt$use_assay
 )
 
 # ---- Harmony alignment (optional) ----
@@ -115,20 +143,20 @@ print(unique(colData(fit)[[condition_name]]))
 cat("First values:\n")
 print(head(colData(fit)[[condition_name]]))
 
-fit <- test_de(fit, contrast = !!contrast_expr)
+fit <- test_de(fit, contrast = !!contrast_expr, consider = opt$consider)
 cat("Differential expression test completed.\n")
 
 # ---- UMAP plot ----
 umap <- uwot::umap(reducedDim(fit, "embedding"))
 umap_df <- as_tibble(fit$colData) |> mutate(UMAP1 = umap[, 1], UMAP2 = umap[, 2])
 p_umap <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
-    geom_point(aes(color = if (!is.null(batch_name)) .data[[batch_name]] else NULL, shape = .data[[condition_name]]), size = 0.5, na.rm = TRUE) +
+    geom_point(aes(color = if (!is.null(batch_names)) .data[[batch_names[1]]] else NULL, shape = .data[[condition_name]]), size = 0.5, na.rm = TRUE) +
     coord_fixed() +
     theme_minimal()
 save_plot(opt$output_umap, p_umap, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
 
 # ---- Volcano plot ----
-group_vars <- if (!is.null(batch_name)) vars(!!sym(batch_name), !!sym(condition_name)) else vars(!!sym(condition_name))
+group_vars <- vars(!!!rlang::syms(c(batch_names, condition_name)))
 neighborhoods <- find_de_neighborhoods(fit, group_by = group_vars)
 p_volcano <- neighborhoods |>
     drop_na() |>
@@ -141,11 +169,17 @@ write.table(as.data.frame(neigh_out), opt$output_de, sep = "\t", quote = FALSE, 
 
 # ---- Gene-specific plots ----
 if (!is.null(opt$sel_gene)) {
+    if (!opt$sel_gene %in% rownames(fit)) {
+        stop(sprintf(
+            "Selected gene '%s' was not found in the rownames of the fitted model.",
+            opt$sel_gene
+        ))
+    }
     df <- tibble(umap = umap) |> mutate(de = assay(fit, "DE")[opt$sel_gene, ])
     if (!is.null(opt$output_gene_umap)) {
         p_gene_umap <- ggplot(df, aes(x = umap[, 1], y = umap[, 2])) +
             geom_point(aes(color = de)) +
-            scale_color_gradient2(low = "#FFD800", high = "#0056B9") +
+            scale_color_gradient2(low = "blue", high = "red") +
             coord_fixed() +
             theme_minimal()
         save_plot(opt$output_gene_umap, p_gene_umap, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
@@ -191,7 +225,8 @@ if (opt$run_tumor_analysis == "yes") {
         if (!is.null(opt$output_tumor_neigh)) {
             tumor_fit <- fit[, tumor_label_df$is_tumor]
             tumor_neigh <- find_de_neighborhoods(tumor_fit, group_by = group_vars)
-            write.table(as.data.frame(tumor_neigh), opt$output_tumor_neigh, sep = "\t", quote = FALSE, row.names = FALSE)
+            tumor_neigh_out <- tumor_neigh |> select(-neighborhood)
+            write.table(as.data.frame(tumor_neigh_out), opt$output_tumor_neigh, sep = "\t", quote = FALSE, row.names = FALSE)
         }
     } else {
         stop(paste0(
