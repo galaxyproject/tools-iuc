@@ -80,6 +80,16 @@ cell_id_colname <- colnames(meta)[opt$cell_id_column]
 condition_name <- colnames(meta)[opt$condition_column]
 batch_names <- if (!is.null(opt$batch_column)) colnames(meta)[opt$batch_column] else NULL
 
+if (is.null(batch_names)) {
+    stop(paste0(
+        "At least one covariate column is required. find_de_neighborhoods() forms ",
+        "pseudobulk samples by grouping on the covariate(s) together with the ",
+        "condition; with a condition-only design the model has as many coefficients ",
+        "as pseudobulk samples and the differential expression model cannot be fit. ",
+        "Please select at least one covariate column (e.g. patient, sample, or batch)."
+    ))
+}
+
 rownames(meta) <- meta[[cell_id_colname]]
 
 if (!all(meta[[cell_id_colname]] %in% colnames(sce))) {
