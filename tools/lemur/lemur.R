@@ -47,7 +47,9 @@ option_list <- list(
     make_option(c("--tumor_annotation_column"), type = "character", default = "chromosome"),
     make_option(c("--linear_coefficient_estimator"), type = "character", default = "linear"),
     make_option(c("--use_assay"), type = "character", default = "logcounts"),
-    make_option(c("--consider"), type = "character", default = "embedding+linear")
+    make_option(c("--consider"), type = "character", default = "embedding+linear"),
+    make_option(c("--group_by_column"), type = "character"),
+    make_option(c("--test_method"), type = "character", default = "glmGamPoi")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list))
@@ -74,19 +76,32 @@ opt$batch_column <- if (!is.null(opt$batch_column) && nzchar(opt$batch_column)) 
     NULL
 }
 
+# group_by is required: find_de_neighborhoods() groups cells into pseudobulk
+# samples by these column(s) (typically the replication unit, e.g. patient ID).
+opt$group_by_column <- if (!is.null(opt$group_by_column) && nzchar(opt$group_by_column)) {
+    raw_gb <- strsplit(opt$group_by_column, ",")[[1]]
+    gidx <- suppressWarnings(as.integer(raw_gb))
+    if (any(is.na(gidx)) || any(gidx < 1) || any(gidx > ncol(meta))) {
+        stop(sprintf(
+            "Invalid group-by column index/indices: '%s'. Expected integer values between 1 and %d (the number of columns in the metadata table).",
+            paste(raw_gb, collapse = ", "),
+            ncol(meta)
+        ))
+    }
+    gidx
+} else {
+    stop(paste0(
+        "At least one group-by column is required. find_de_neighborhoods() groups ",
+        "cells into pseudobulk samples by this variable (typically the replication ",
+        "unit, e.g. patient or sample ID); the condition and any design covariates ",
+        "are added automatically."
+    ))
+}
+
 cell_id_colname <- colnames(meta)[opt$cell_id_column]
 condition_name <- colnames(meta)[opt$condition_column]
 batch_names <- if (!is.null(opt$batch_column)) colnames(meta)[opt$batch_column] else NULL
-
-if (is.null(batch_names)) {
-    stop(paste0(
-        "At least one covariate column is required. find_de_neighborhoods() forms ",
-        "pseudobulk samples by grouping on the covariate(s) together with the ",
-        "condition; with a condition-only design the model has as many coefficients ",
-        "as pseudobulk samples and the differential expression model cannot be fit. ",
-        "Please select at least one covariate column (e.g. patient, sample, or batch)."
-    ))
-}
+group_by_names <- colnames(meta)[opt$group_by_column]
 
 rownames(meta) <- meta[[cell_id_colname]]
 
@@ -114,6 +129,7 @@ meta <- meta[colnames(sce), , drop = FALSE]
 colnames(meta) <- make.names(colnames(meta))
 condition_name <- make.names(condition_name)
 batch_names <- if (!is.null(batch_names)) make.names(batch_names) else NULL
+group_by_names <- make.names(group_by_names)
 
 colData(sce) <- S4Vectors::DataFrame(meta)
 
@@ -173,8 +189,10 @@ p_umap <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
 save_plot(opt$output_umap, p_umap, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
 
 # ---- Volcano plot ----
-group_vars <- vars(!!!rlang::syms(c(batch_names, condition_name)))
-neighborhoods <- find_de_neighborhoods(fit, group_by = group_vars)
+# group_by is only the replication unit; find_de_neighborhoods() adds the design
+# formula variables (condition + covariates) to the pseudobulk grouping itself.
+group_vars <- vars(!!!rlang::syms(group_by_names))
+neighborhoods <- find_de_neighborhoods(fit, group_by = group_vars, test_method = opt$test_method)
 p_volcano <- neighborhoods |>
     drop_na() |>
     ggplot(aes(x = lfc, y = -log10(pval))) +
@@ -241,7 +259,7 @@ if (opt$run_tumor_analysis == "yes") {
 
         if (!is.null(opt$output_tumor_neigh)) {
             tumor_fit <- fit[, tumor_label_df$is_tumor]
-            tumor_neigh <- find_de_neighborhoods(tumor_fit, group_by = group_vars)
+            tumor_neigh <- find_de_neighborhoods(tumor_fit, group_by = group_vars, test_method = opt$test_method)
             tumor_neigh_out <- tumor_neigh |> select(-neighborhood)
             write.table(as.data.frame(tumor_neigh_out), opt$output_tumor_neigh, sep = "\t", quote = FALSE, row.names = FALSE)
         }

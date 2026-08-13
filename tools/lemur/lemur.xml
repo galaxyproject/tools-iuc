@@ -20,6 +20,8 @@ Rscript '$__tool_directory__/lemur.R'
     --linear_coefficient_estimator '$linear_coefficient_estimator'
     --use_assay '$use_assay'
     --consider '$consider'
+    --group_by_column '$group_by_columns'
+    --test_method '$test_method'
     --output_umap 'umap_out'
     --output_volcano 'volcano_out'
     --output_de 'de_results.tsv'
@@ -49,7 +51,8 @@ Rscript '$__tool_directory__/lemur.R'
         <param name="meta_table" type="data" format="tabular" label="Sample metadata table (TSV)" help="Tabular file with one row per sample/cell. Must contain columns for condition and optionally for batch or covariates."/>
         <param name="cell_id_column" type="data_column" data_ref="meta_table" label="Cell ID column" help="Column in metadata that contains the cell IDs matching colnames of SCE"/>
         <param name="condition_column" type="data_column" data_ref="meta_table" label="Condition column" help="Select the condition column (e.g., treatment vs control)."/>
-        <param name="covariate_columns" type="data_column" data_ref="meta_table" multiple="true" label="Covariate columns" help="One or more covariate variables to include in the design formula, in addition to the condition (e.g. batch, patient, sex, age). At least one is required: find_de_neighborhoods forms pseudobulk samples by grouping on the covariate(s) together with the condition, and a condition-only design cannot be fit (as many coefficients as pseudobulk samples)."/>
+        <param name="covariate_columns" type="data_column" data_ref="meta_table" multiple="true" optional="true" label="Covariate columns (optional)" help="Optional covariate variables to add to the LEMUR design formula, in addition to the condition (e.g. batch, sex, age). These affect the model fit only; the replication unit used for the differential expression test is set separately below."/>
+        <param name="group_by_columns" type="data_column" data_ref="meta_table" multiple="true" label="Group-by column(s) for differential expression" help="Metadata column(s) defining the replication unit that find_de_neighborhoods uses to form pseudobulk samples (e.g. patient or sample ID). Required. The condition and any design covariates are added automatically, so select only the replication variable(s) here."/>
         <param name="contrast_condition" type="text" value="treatment" label="Condition for contrast (e.g. treatment)">
             <validator type="empty_field" message="This field cannot be empty."/>
         </param>
@@ -64,13 +67,19 @@ Rscript '$__tool_directory__/lemur.R'
             <option value="cluster_median">cluster_median</option>
             <option value="zero">zero</option>
         </param>
-        <param name="use_assay" type="text" value="logcounts" label="Assay to use for model fitting" help="Name of the SCE assay used for LEMUR model fitting. This only changes the assay used for model fitting; find_de_neighborhoods always reads the 'counts' assay for the pseudobulk differential expression test, so a counts assay is still required in the SCE object.">
+        <param name="use_assay" type="text" value="logcounts" label="Assay to use for model fitting" help="Name of the SCE assay used for LEMUR model fitting (also used as the continuous assay by the 'limma' DE method). The 'glmGamPoi' and 'edgeR' DE methods instead read the raw 'counts' assay, so a counts assay is required unless the DE test method is set to 'limma'.">
             <validator type="empty_field" message="This field cannot be empty."/>
         </param>
         <param name="consider" type="select" label="Model parts considered for the DE test" help="Which part of the model is considered for the differential expression test.">
             <option value="embedding+linear" selected="true">embedding+linear</option>
             <option value="embedding">embedding</option>
             <option value="linear">linear</option>
+        </param>
+        <param name="test_method" type="select" label="Pseudobulk DE test method" help="Statistical method for the pseudobulk differential expression test in find_de_neighborhoods. 'glmGamPoi' and 'edgeR' operate on the raw 'counts' assay; 'limma' operates on the continuous assay (see 'Assay to use for model fitting').">
+            <option value="glmGamPoi" selected="true">glmGamPoi</option>
+            <option value="edgeR">edgeR</option>
+            <option value="limma">limma</option>
+            <option value="none">none</option>
         </param>
         <param name="use_harmony" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Apply Harmony alignment?" help="Enforces additional alignment of cell clusters beyond the direct differential embedding."/>
         <param name="sel_gene" type="text" optional="true" label="Gene ID for gene-specific plots (optional)" help="Must match a gene ID in the rownames of the SCE object."/>
@@ -131,6 +140,7 @@ Rscript '$__tool_directory__/lemur.R'
             <param name="cell_id_column" value="11"/>
             <param name="condition_column" value="8"/>
             <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
             <param name="contrast_condition" value="panobinostat"/>
             <param name="reference_condition" value="ctrl"/>
             <param name="n_embedding" value="15"/>
@@ -198,6 +208,7 @@ Rscript '$__tool_directory__/lemur.R'
             <param name="cell_id_column" value="11"/>
             <param name="condition_column" value="8"/>
             <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
             <param name="contrast_condition" value="panobinostat"/>
             <param name="reference_condition" value="ctrl"/>
             <param name="n_embedding" value="15"/>
@@ -261,6 +272,7 @@ Rscript '$__tool_directory__/lemur.R'
             <param name="cell_id_column" value="11"/>
             <param name="condition_column" value="8"/>
             <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
             <param name="contrast_condition" value="panobinostat"/>
             <param name="reference_condition" value="ctrl"/>
             <param name="n_embedding" value="15"/>
@@ -325,6 +337,7 @@ Rscript '$__tool_directory__/lemur.R'
             <param name="cell_id_column" value="11"/>
             <param name="condition_column" value="8"/>
             <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
             <param name="contrast_condition" value="panobinostat"/>
             <param name="reference_condition" value="ctrl"/>
             <param name="n_embedding" value="15"/>
@@ -371,7 +384,7 @@ LEMUR identifies transcriptional differences across conditions in latent space u
 LEMUR uses the `SingleCellExperiment` (SCE) format because it is the standard Bioconductor structure for single-cell data in R. Unlike Seurat or AnnData, SCE is lightweight, interoperable, and not tied to a specific framework. It cleanly separates assays (e.g., expression values), cell metadata (`colData`), feature metadata (`rowData`), and reduced dimensions (`reducedDims`).
 
 For LEMUR to work correctly, the SCE object **must include**:
-- **`counts()`**: matrix of raw (non-normalized) integer counts, required for the pseudobulk differential expression testing performed by `find_de_neighborhoods()`.
+- **`counts()`**: matrix of raw (non-normalized) integer counts, required for the pseudobulk differential expression test in `find_de_neighborhoods()` when the DE test method is `glmGamPoi` (the default) or `edgeR`. The `limma` method instead uses the continuous assay (see "Assay to use for model fitting"), so counts are not needed when `limma` is selected.
 - **`logcounts()`**: matrix of log-normalized gene expression, used for model fitting and visualization.
 - **`colData`**: must contain the variables referenced in the `design` formula (e.g., `patient_id`, `condition`).
 
