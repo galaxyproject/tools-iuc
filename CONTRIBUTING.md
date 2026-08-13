@@ -76,7 +76,7 @@ The IUC strongly recommends testing with [planemo](https://github.com/galaxyproj
 In particular, you may want to use [planemo lint](https://planemo.readthedocs.io/en/latest/commands.html#lint-command), [planemo test](https://planemo.readthedocs.io/en/latest/commands.html#test-command) and [planemo serve](https://planemo.readthedocs.io/en/latest/commands.html#serve-command).
 
 The IUC's continuous integration pipeline will run `planemo lint` and `planemo test` on any tool wrappers in your contribution, too, so it is a good idea to use the same tooling locally.
-CI runs will also include linting ofany Python and/or R scripts with `flake8` and `styler`, respectively.
+CI runs will also include linting of any Python and/or R scripts with `flake8` and `styler`, respectively.
 
 Your contribution will have to pass all linting and all tests before it can get accepted.
 
