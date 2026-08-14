@@ -10,14 +10,21 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
-MASK_PATTERN = re.compile(r"^man_track[0-9]+\.tif$")
+# Trackastra writes CTC masks as "man_trackNNNN.tif". Accept both TIFF
+# suffixes so the wrapper keeps working if upstream ever switches to ".tiff".
+MASK_PATTERN = re.compile(r"^man_track(?P<frame>[0-9]+)\.tiff?$")
+
+# Galaxy registers the TIFF datatype as "tiff", so every discovered mask is
+# written with that suffix and the tool's discover_datasets pattern matches it.
+GALAXY_TIFF_SUFFIX = ".tiff"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Convert Trackastra's ZSTD-compressed CTC TIFF masks to "
-            "lossless Deflate TIFFs for Galaxy metadata and display support."
+            "lossless Deflate TIFFs named with Galaxy's .tiff datatype suffix, "
+            "for Galaxy metadata and display support."
         )
     )
     parser.add_argument("source", type=Path, help="Trackastra CTC output directory")
@@ -33,7 +40,9 @@ def convert_file(source: Path, destination: Path) -> None:
     """Convert one TIFF and verify that shape, dtype, and pixels are unchanged."""
     array = tifffile.imread(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f".{destination.name}.tmp.tif")
+    # The leading dot keeps the temporary file from matching the tool's
+    # discover_datasets pattern if the job is interrupted mid-conversion.
+    temporary = destination.with_name(f".{destination.name}.tmp.tiff")
 
     try:
         if array.ndim not in (2, 3):
@@ -78,19 +87,30 @@ def main() -> None:
             f"Destination directory is not empty: {args.destination}"
         )
 
-    masks = sorted(
-        path
-        for path in args.source.iterdir()
-        if path.is_file() and MASK_PATTERN.fullmatch(path.name)
-    )
+    masks: dict[str, Path] = {}
+    for path in sorted(args.source.iterdir()):
+        if not path.is_file():
+            continue
+        match = MASK_PATTERN.fullmatch(path.name)
+        if not match:
+            continue
+        frame = match.group("frame")
+        if frame in masks:
+            raise ValueError(
+                f"Frame {frame} is present more than once in {args.source}: "
+                f"{masks[frame].name} and {path.name}."
+            )
+        masks[frame] = path
+
     if not masks:
         raise ValueError(
             f"No Trackastra CTC mask TIFFs were found in {args.source}."
         )
 
     args.destination.mkdir(parents=True, exist_ok=True)
-    for source in masks:
-        convert_file(source, args.destination / source.name)
+    for frame, source in sorted(masks.items()):
+        destination = args.destination / f"man_track{frame}{GALAXY_TIFF_SUFFIX}"
+        convert_file(source, destination)
 
 
 if __name__ == "__main__":

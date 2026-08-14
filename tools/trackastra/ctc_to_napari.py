@@ -16,7 +16,12 @@ from pathlib import Path
 import tifffile
 from skimage.measure import regionprops
 
-MASK_PATTERN = re.compile(r"^man_track(?P<frame>[0-9]+)\.tif$")
+# The wrapper stages the incoming collection as "man_trackNNNN.tiff", but CTC
+# directories in the wild use ".tif", so accept either suffix on input.
+MASK_PATTERN = re.compile(r"^man_track(?P<frame>[0-9]+)\.tiff?$")
+
+# Files written into the exported bundle use Galaxy's .tiff datatype suffix.
+GALAXY_TIFF_SUFFIX = ".tiff"
 
 
 @dataclass(frozen=True)
@@ -238,7 +243,7 @@ def write_archive(
 
 tracked_ctc/
   man_track.txt          Cell Tracking Challenge lineage table
-  man_trackNNNN.tif      Relabelled CTC masks
+  man_trackNNNN.tiff     Relabelled CTC masks
 napari_tracks.csv        Napari Tracks vertices: track_id, t, (z), y, x
 napari_graph.json        Child track ID to parent track ID list
 
@@ -266,8 +271,13 @@ JSON files can also be loaded programmatically::
         ctc_dir = root / "tracked_ctc"
         ctc_dir.mkdir()
         shutil.copyfile(track_table, ctc_dir / "man_track.txt")
-        for _, mask in masks:
-            shutil.copyfile(mask, ctc_dir / mask.name)
+        for frame, mask in masks:
+            # Normalise the bundled names so the archive is a valid CTC
+            # directory regardless of how the input collection was staged.
+            shutil.copyfile(
+                mask,
+                ctc_dir / f"man_track{frame:04d}{GALAXY_TIFF_SUFFIX}",
+            )
         shutil.copyfile(tracks_out, root / "napari_tracks.csv")
         shutil.copyfile(graph_out, root / "napari_graph.json")
         (root / "README.txt").write_text(readme, encoding="utf-8")
