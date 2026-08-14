@@ -1,9 +1,25 @@
-<tool id="tasmanian_mismatch" name="Analysis of artifacts with Tasmanian" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="LGPL-2.1-or-later">
+<tool id="tasmanian_mismatch" name="Analysis of artifacts with Tasmanian" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="AGPL-3.0-or-later">
     <description>Quantify, visualize and summarize mismatches in deep sequencing data</description>
     <macros>
         <token name="@TOOL_VERSION@">2.0.3</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">25.0</token>
+        <xml name="sam_flags" tokens="name,label,help_text">
+            <param name="@NAME@" type="select" multiple="true" optional="true" label="@LABEL@" help="@HELP_TEXT@">
+                <option value="1">read paired (0x1)</option>
+                <option value="2">read mapped in proper pair (0x2)</option>
+                <option value="4">read unmapped (0x4)</option>
+                <option value="8">mate unmapped (0x8)</option>
+                <option value="16">read reverse strand (0x10)</option>
+                <option value="32">mate reverse strand (0x20)</option>
+                <option value="64">first in pair (0x40)</option>
+                <option value="128">second in pair (0x80)</option>
+                <option value="256">not primary alignment (0x100)</option>
+                <option value="512">read fails platform/vendor quality checks (0x200)</option>
+                <option value="1024">read is PCR or optical duplicate (0x400)</option>
+                <option value="2048">supplementary alignment (0x800)</option>
+            </param>
+        </xml>
     </macros>
     <edam_topics>
         <edam_topic>topic_3168</edam_topic>
@@ -47,6 +63,16 @@ tasmanian-mismatch
     $advanced.methylation_mode
     --min-fragment-length $advanced.min_fragment_length
     --max-fragment-length $advanced.max_fragment_length
+    --region-size $advanced.region_size
+    #if $advanced.required_flags
+        -f ${sum([int($flag) for $flag in $advanced.required_flags])}
+    #end if
+    #if $advanced.filter_flags
+        -F ${sum([int($flag) for $flag in $advanced.filter_flags])}
+    #end if
+    #if $advanced.excl_flags
+        -G ${sum([int($flag) for $flag in $advanced.excl_flags])}
+    #end if
     #if $advanced.discount_table
         --discount-table '$advanced.discount_table'
     #end if
@@ -96,6 +122,10 @@ tasmanian-mismatch
             <param argument="--min-fragment-length" type="integer" min="0" value="25" label="Minimum fragment length" help="Minimum estimated fragment length required for a read to be counted. Default=25"/>
             <param argument="--max-fragment-length" type="integer" min="1" value="10000" label="Maximum fragment length" help="Maximum estimated fragment length allowed for a read to be counted. Default=10000"/>
             <param argument="--discount-table" type="data" format="tabular" optional="true" label="Discount table" help="Optional variant_discounts.tsv produced by tasmanian-diagnostics, used to subtract likely genomic variants from the mismatch counts"/>
+            <expand macro="sam_flags" name="required_flags" label="Require these SAM flags (-f)" help_text="Only reads that have all of the selected flags set are counted. Nothing selected means no requirement."/>
+            <expand macro="sam_flags" name="filter_flags" label="Skip reads with any of these SAM flags (-F)" help_text="A read is skipped as soon as one of the selected flags is set."/>
+            <expand macro="sam_flags" name="excl_flags" label="Skip reads with all of these SAM flags (-G)" help_text="A read is skipped only when every selected flag is set. Use this to drop one specific flag combination rather than each flag on its own."/>
+            <param argument="--region-size" type="integer" min="1000" value="1000000" label="Region size (bp) for indexed chunking" help="Size of the genomic chunks processed in parallel. Affects speed and memory only, not the results."/>
         </section>
     </inputs>
     <outputs>
@@ -183,6 +213,21 @@ tasmanian-mismatch
                 </assert_contents>
             </output>
         </test>
+        <!-- Test 6: SAM flag filtering (first in pair only) and a non-default region size -->
+        <test expect_num_outputs="1">
+            <param name="bam_input" value="test2.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="small_region.fa" ftype="fasta"/>
+            </conditional>
+            <param name="position_mode" value="read"/>
+            <param name="plot" value="false"/>
+            <section name="advanced">
+                <param name="required_flags" value="64"/>
+                <param name="region_size" value="100000"/>
+            </section>
+            <output name="output_table" file="test2_flags_f64.tabular" ftype="tabular"/>
+        </test>
     </tests>
     <help><![CDATA[
 
@@ -249,6 +294,23 @@ the BED intervals) as separate column blocks of one wide table. Version 2 masks 
 and the *boundary/confidence* option that went with the old grouping no longer exists upstream. The
 *softclips* option is also gone from this tool; the soft-clip identity threshold now lives only in
 the ``tasmanian-diagnostics`` binary.
+
+-----
+
+**Read filtering**
+
+Three SAM flag filters are available under *Advanced options*. Each one takes a set of flag bits,
+which are added together and handed to the corresponding option of the tool:
+
+* **Require these SAM flags (-f)** - a read is counted only if *all* of the selected flags are set.
+  Selecting *first in pair* restricts the analysis to R1, for example.
+* **Skip reads with any of these SAM flags (-F)** - a read is dropped as soon as *one* of the
+  selected flags is set. This is the usual way to exclude duplicates or unmapped reads.
+* **Skip reads with all of these SAM flags (-G)** - a read is dropped only when *every* selected flag
+  is set, which targets one specific flag combination instead of each flag on its own.
+
+*Region size* controls how the indexed BAM is split into chunks for parallel processing. It changes
+speed and memory use only, never the reported counts.
 
 -----
 
