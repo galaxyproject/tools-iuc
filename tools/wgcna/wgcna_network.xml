@@ -123,6 +123,18 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
     return(result)
 }
 
+## Human-readable trait names for plot axes (one-hot columns like
+## sample_group_group_A become "Group A"; underscores become spaces).
+prettify_trait_label <- function(labels) {
+    vapply(labels, function(label) {
+        if (grepl("_group_", label, fixed = TRUE)) {
+            level <- sub(".*_group_", "", label)
+            return(paste0("Group ", level))
+        }
+        gsub("_", " ", label)
+    }, character(1), USE.NAMES = FALSE)
+}
+
 ## ── STEP 1: Load data ────────────────────────────────────────────────────────
 counts <- read.delim(counts_file, check.names = FALSE, row.names = 1)
 ## Note: row.names = 1 is intentionally NOT used here, since the first
@@ -210,30 +222,45 @@ sampleTree <- hclust(dist(datExpr), method = "average")
 ## Scale the clustering canvas with the number of samples so sample labels
 ## along the dendrogram stay readable instead of overlapping as cohorts grow.
 n_samples_for_plot02 <- nrow(datExpr)
+max_sample_label_chars <- max(nchar(rownames(datExpr)), na.rm = TRUE)
+sample_label_cex       <- 0.7
 sample_clustering_width  <- max(1200, 20 * n_samples_for_plot02 + 400)
 sample_clustering_height <- max(700, 3 * n_samples_for_plot02 + 500)
+## Reserve enough bottom margin so the subtitle sits below sample labels.
+sample_clustering_bottom_mar <- max(8, min(24, max_sample_label_chars * 0.22 + 4))
 
 png("plots/02_sample_clustering.png", width = sample_clustering_width, height = sample_clustering_height, res = plot_resolution)
-par(mar = c(2, 5, 2, 2))
+par(mar = c(sample_clustering_bottom_mar, 5, 4, 2))
 plot(sampleTree,
      main = "Sample Clustering to Detect Outliers",
-     sub  = "Height represents dissimilarity between samples",
-     xlab = "", cex = 0.7)
+     xlab = "", ylab = "Height", cex = sample_label_cex)
 abline(h = 200, col = "red", lwd = 2, lty = 2)
+mtext("Height represents dissimilarity between samples",
+      side = 1, line = 1.5, cex = 0.75, col = "gray30")
 dev.off()
 
-png("plots/03_expression_data_distribution.png", width = 1400, height = 700, res = plot_resolution)
-par(mfrow = c(1, 2))
+set.seed(123)
+sel_genes <- sample(seq_len(ncol(datExpr)), min(20, ncol(datExpr)))
+gene_axis_cex        <- 0.7
+max_gene_label_chars <- max(nchar(colnames(datExpr)[sel_genes]), na.rm = TRUE)
+## Vertical tick labels (las = 2) consume roughly one text line per character.
+gene_label_lines     <- max_gene_label_chars * gene_axis_cex * 0.58
+expr_xlab_line       <- ceiling(gene_label_lines) + 1
+expr_box_bottom_mar  <- expr_xlab_line + 2
+expr_plot_height     <- max(750, 380 + max_gene_label_chars * 10)
+
+png("plots/03_expression_data_distribution.png", width = 1400, height = expr_plot_height, res = plot_resolution)
+par(mfrow = c(1, 2), mar = c(5, 4, 4, 2))
 hist(as.numeric(datExpr), breaks = 100,
      main = "Distribution of Expression Values",
      sub  = ifelse(log_transform, "Log2-transformed counts", "Input counts"),
      xlab = "Expression Value", col = "lightblue", border = "white")
-set.seed(123)
-sel_genes <- sample(seq_len(ncol(datExpr)), min(20, ncol(datExpr)))
+par(mar = c(expr_box_bottom_mar, 4, 4, 1))
 boxplot(datExpr[, sel_genes, drop = FALSE],
         main = "Gene Expression Distributions\n(20 random genes)",
-        xlab = "Genes", ylab = "Expression Value",
-        las = 2, cex.axis = 0.7, col = "lightblue", border = "gray40")
+        xlab = "", ylab = "Expression Value",
+        las = 2, cex.axis = gene_axis_cex, col = "lightblue", border = "gray40")
+mtext("Genes", side = 1, line = expr_xlab_line, cex = 0.9)
 par(mfrow = c(1, 1))
 dev.off()
 
@@ -338,6 +365,18 @@ dev.off()
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
 
+## blockwiseModules() was run with numericLabels = TRUE, so net$MEs (and thus
+## module_eigengenes) columns are named "ME0", "ME1", ... using raw numeric
+## module labels instead of color names. Convert them to color-based names
+## (e.g. "MEblue") here, once, so every downstream consumer of
+## module_eigengenes (geneInfo.tsv's MM_ME* columns, the eigengene
+## dendrogram, and the module-trait heatmap) shows labels consistent with
+## the ModuleColor column instead of raw numbers.
+me_numeric_ids <- suppressWarnings(as.integer(sub("^ME", "", colnames(module_eigengenes))))
+if (!anyNA(me_numeric_ids)) {
+    colnames(module_eigengenes) <- paste0("ME", labels2colors(me_numeric_ids))
+}
+
 ## Scale the eigengene dendrogram canvas with the number of modules and
 ## traits, matching the approach used for the module-trait heatmap (plot 07)
 ## below, so labels stay readable with many modules/traits.
@@ -401,21 +440,25 @@ dim(text_matrix) <- dim(module_trait_cor)
 ## so that labels stay readable even with many traits or many modules; the
 ## floor values below match the previous fixed 1200x800 default for a
 ## typical small run.
-heatmap_width  <- max(1200, 100 * ncol(trait_data_aligned) + 600)
-heatmap_height <- max(800, 40 * ncol(module_eigengenes) + 500)
+trait_display_labels <- prettify_trait_label(colnames(trait_data_aligned))
+n_traits_for_plot07  <- length(trait_display_labels)
+n_modules_for_plot07 <- ncol(module_eigengenes)
+heatmap_width  <- max(900, 80 * n_traits_for_plot07 + 500)
+heatmap_height <- max(700, 35 * n_modules_for_plot07 + 400)
+heatmap_cex_text <- max(0.9, min(1.4, 3.5 / sqrt(max(n_traits_for_plot07, n_modules_for_plot07))))
 
 png("plots/07_module_trait_heatmap.png", width = heatmap_width, height = heatmap_height, res = plot_resolution)
-par(mar = c(8, 10, 3, 3))
+par(mar = c(10, 10, 4, 3))
 labeledHeatmap(
     Matrix        = module_trait_cor,
-    xLabels       = colnames(trait_data_aligned),
+    xLabels       = trait_display_labels,
     yLabels       = colnames(module_eigengenes),
     ySymbols      = colnames(module_eigengenes),
     colorLabels   = FALSE,
     colors        = blueWhiteRed(50),
     textMatrix    = text_matrix,
     setStdMargins = FALSE,
-    cex.text      = 0.6,
+    cex.text      = heatmap_cex_text,
     zlim          = c(-1, 1),
     main          = "Module-Trait Relationships\n(correlation and p-value)"
 )
@@ -598,6 +641,12 @@ if (n_edges == 0) {
     n_edges      <- sum(me_adj) / 2
     cat("Edges at |r| >", cor_thresh, ":", n_edges, "\n")
 }
+
+## module_eigengenes columns are already color-named (e.g. "MEblue") as of
+## the conversion added in Step 5 above, so me_names here are color labels,
+## not raw numeric ones — module_colors_me below is kept (rather than removed)
+## for backward compatibility with any future numericLabels = TRUE usage, but
+## now simply passes color names through unchanged in the normal case.
 me_names         <- colnames(module_eigengenes)
 module_ids_me    <- sub("^ME", "", me_names)
 module_colors_me <- module_ids_me
@@ -689,7 +738,6 @@ cat("Results written to: results/\n")
         <param name="merge_cut_height" type="float" value="0.25" min="0" max="1" label="Module merge cut height" help="Modules with eigengene correlation above (1 - this value) will be merged."/>
         <param name="me_cor_threshold" type="float" value="0.5" min="0" max="1" label="Module eigengene network correlation threshold" help="Minimum |correlation| between module eigengenes required to draw an edge in the module eigengene network (Step 10). If no module pairs pass this threshold, the tool automatically retries at half this value."/>
         <expand macro="filter_variance_params"/>
-
         <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
         <param name="trait_columns" type="data_column" data_ref="metadata_file" use_header_names="true" multiple="true" label="Metadata trait columns" help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded. Gene significance, module membership, and hub-gene analysis are run for every selected trait (and each one-hot level of categorical traits)."/>
         <param name="plot_resolution" type="integer" value="300" min="72" max="600" label="Plot resolution (DPI)" help="Resolution, in dots per inch, used when rendering the PNG plots."/>
@@ -852,7 +900,6 @@ cat("Results written to: results/\n")
                 <has_text text="Soft power set manually: 10"/>
             </assert_stdout>
         </test>
-
         <!-- Sample names in counts matrix don't match sample names in metadata -->
         <test expect_failure="true">
             <param name="counts_file" value="normalized_counts.tsv"/>
