@@ -1,0 +1,160 @@
+<tool id="pathotypr_classify" name="pathotypr classify" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>genotypes assembled genomes against a marker panel</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## Galaxy datasets arrive as dataset_NNN.dat, and pathotypr takes the sample
+## name from the filename. Link each one to the element identifier so the
+## output names the sample rather than a Galaxy id.
+## The extension is stripped before it is re-added, or an identifier that
+## already ends in .fasta becomes sample.fasta.fasta, and that name is what the
+## summary reports back in the genome column.
+#import re
+#set $safe = lambda s: re.sub('[.](fasta|fa|fna|fas)$', '', re.sub('[^A-Za-z0-9_.-]', '_', str(s)))
+#for $i, $g in enumerate($genomes)
+    ln -s '$g' '${safe($g.element_identifier)}.fasta' &&
+#end for
+#if $annotation.use_gff == 'yes'
+    #for $i, $f in enumerate($annotation.gff_files)
+        ln -s '$f' '${safe($f.element_identifier)}.gff' &&
+    #end for
+#end if
+
+pathotypr classify
+    --markers '$markers'
+    --reference '$reference'
+    --input-files
+#for $g in $genomes
+    '${safe($g.element_identifier)}.fasta'
+#end for
+#if $annotation.use_gff == 'yes'
+    --gff-files
+    #for $f in $annotation.gff_files
+        '${safe($f.element_identifier)}.gff'
+    #end for
+#end if
+    --output-prefix 'result'
+    --kmer-size $kmer_size
+    --min-flank-bases $min_flank_bases
+    $nested_classification
+    $output_masked_fasta
+    @THREADS@
+    ]]></command>
+    <inputs>
+        <param name="genomes" type="data" format="fasta" multiple="true" label="Assembled genomes"
+               help="One or more FASTA assemblies to genotype."/>
+        <expand macro="markers_and_reference"/>
+        <conditional name="annotation">
+            <param name="use_gff" type="select" label="Annotate hits with a GFF">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="gff_files" type="data" format="gff,gff3" multiple="true" label="GFF annotation"
+                       help="Matched to the genomes by filename, so the names must correspond."/>
+            </when>
+        </conditional>
+        <expand macro="kmer_size" default="31"/>
+        <param argument="--min-flank-bases" type="integer" min="0" value="10"
+               label="Minimum flanking bases"
+               help="Bases required on each side of the allele inside the marker k-mer. At the defaults this caps usable alleles at 11 bp."/>
+        <expand macro="nested_classification"/>
+        <param argument="--output-masked-fasta" type="boolean" truevalue="--output-masked-fasta"
+               falsevalue="" checked="false" label="Also write masked FASTA"
+               help="Writes each genome with the marker positions replaced by N."/>
+    </inputs>
+    <outputs>
+        <data name="detailed" format="tabular" label="${tool.name} on ${on_string}: per-marker hits"
+              from_work_dir="result.tsv"/>
+        <data name="summary" format="tabular" label="${tool.name} on ${on_string}: summary"
+              from_work_dir="result_summary.tsv"/>
+        <collection name="masked" type="list" label="${tool.name} on ${on_string}: masked FASTA">
+            <filter>output_masked_fasta</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_masked\.fasta" format="fasta" directory="."/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- One genome carrying the L2 -> L2.1 -> L2.1.1 path and a RIF marker. -->
+        <test expect_num_outputs="2">
+            <param name="genomes" value="sample1.fasta" ftype="fasta"/>
+            <param name="markers" value="markers.tsv" ftype="tabular"/>
+            <param name="reference" value="reference.fasta" ftype="fasta"/>
+            <output name="summary">
+                <assert_contents>
+                    <has_text text="major_lineage"/>
+                    <has_text text="L2;L2.1;L2.1.1"/>
+                </assert_contents>
+            </output>
+            <output name="detailed">
+                <assert_contents>
+                    <has_text text="rpoB"/>
+                    <has_text text="S450L"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Two genomes at once, and the second one is a different lineage. -->
+        <test expect_num_outputs="2">
+            <param name="genomes" value="sample1.fasta,sample2.fasta" ftype="fasta"/>
+            <param name="markers" value="markers.tsv" ftype="tabular"/>
+            <param name="reference" value="reference.fasta" ftype="fasta"/>
+            <param name="kmer_size" value="21"/>
+            <output name="summary">
+                <assert_contents>
+                    <has_text text="L2"/>
+                    <has_text text="L3"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- The masked FASTA is a discovered collection, so its naming deserves
+             a test of its own. The input genomes contain no N at all, so an N in
+             the output can only have come from masking. -->
+        <test expect_num_outputs="3">
+            <param name="genomes" value="sample1.fasta" ftype="fasta"/>
+            <param name="markers" value="markers.tsv" ftype="tabular"/>
+            <param name="reference" value="reference.fasta" ftype="fasta"/>
+            <param name="output_masked_fasta" value="true"/>
+            <output_collection name="masked" type="list" count="1">
+                <element name="sample1" ftype="fasta">
+                    <assert_contents>
+                        <has_text text="&gt;sample1"/>
+                        <has_text text="N"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+`pathotypr classify` calls a panel of diagnostic variants directly on assembled
+genomes. For each marker it builds a k-mer centred on the variant, looks for it
+in the assembly, and reports which allele was found. Hits are then collapsed
+into a lineage call per genome.
+
+It produces two tables:
+
+- **per-marker hits**: one row per marker found, with the k-mer, its position,
+  the reference and alternate alleles, the lineage the marker belongs to and,
+  where the panel carries them, the gene and amino-acid change.
+- **summary**: one row per genome, with the count of hits per lineage and the
+  major lineage call.
+
+@MARKER_HELP@
+
+@ORGANISM_NOTE@
+
+**Choosing between classify and split-fastq**
+
+Use this tool when you have assemblies. Use *pathotypr split-fastq* when you
+have raw reads and would rather not assemble them. Both read the same panel and
+agree on the call; only the input differs.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

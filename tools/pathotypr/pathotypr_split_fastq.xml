@@ -1,0 +1,144 @@
+<tool id="pathotypr_split_fastq" name="pathotypr split-fastq" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>genotypes raw reads against a marker panel without aligning them</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## The sample name is taken from the input filename, so the reads are linked to
+## fixed names and the outputs are predictable rather than named after a Galaxy
+## dataset id.
+#if $reads.layout == 'paired'
+    #set $ext = 'fastq.gz' if $reads.fwd.is_of_type('fastqsanger.gz') else 'fastq'
+    ln -s '$reads.fwd' 'sample_R1.$ext' &&
+    ln -s '$reads.rev' 'sample_R2.$ext' &&
+#else
+    #set $ext = 'fastq.gz' if $reads.single.is_of_type('fastqsanger.gz') else 'fastq'
+    ln -s '$reads.single' 'sample.$ext' &&
+#end if
+
+pathotypr split-fastq
+    --markers '$markers'
+    --reference '$reference'
+#if $reads.layout == 'paired'
+    -i 'sample_R1.$ext' -i 'sample_R2.$ext'
+#else
+    -i 'sample.$ext' --no-auto-paired
+#end if
+    --output-prefix 'result'
+    --kmer-size $kmer_size
+    --min-depth $min_depth
+    --min-alt-percent $min_alt_percent
+    $nested_classification
+    @THREADS@
+    ]]></command>
+    <inputs>
+        <conditional name="reads">
+            <param name="layout" type="select" label="Read layout">
+                <option value="paired" selected="true">Paired end</option>
+                <option value="single">Single end</option>
+            </param>
+            <when value="paired">
+                <param name="fwd" type="data" format="fastqsanger,fastqsanger.gz" label="Forward reads"/>
+                <param name="rev" type="data" format="fastqsanger,fastqsanger.gz" label="Reverse reads"/>
+            </when>
+            <when value="single">
+                <param name="single" type="data" format="fastqsanger,fastqsanger.gz" label="Reads"/>
+            </when>
+        </conditional>
+        <expand macro="markers_and_reference"/>
+        <expand macro="kmer_size" default="31"/>
+        <param argument="--min-depth" type="integer" min="1" value="10" label="Minimum depth"
+               help="Reads required at a marker position before a variant is called."/>
+        <!-- Whole percent only: pathotypr parses this as an integer, so 95.5
+             is rejected outright rather than rounded. -->
+        <param argument="--min-alt-percent" type="integer" min="0" max="100" value="95"
+               label="Minimum alternate allele frequency (%)"
+               help="How much of the depth must carry the alternate allele, in whole percent. Lower this for mixed or low-coverage samples, knowing that it also admits sequencing error."/>
+        <expand macro="nested_classification"/>
+    </inputs>
+    <outputs>
+        <data name="mutations" format="tabular" label="${tool.name} on ${on_string}: per-marker calls"
+              from_work_dir="result_sample_mutations.tsv"/>
+        <data name="summary" format="tabular" label="${tool.name} on ${on_string}: summary"
+              from_work_dir="result_summary.tsv"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="reads">
+                <param name="layout" value="paired"/>
+                <param name="fwd" value="sample1_R1.fastq.gz" ftype="fastqsanger.gz"/>
+                <param name="rev" value="sample1_R2.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="markers" value="markers.tsv" ftype="tabular"/>
+            <param name="reference" value="reference.fasta" ftype="fasta"/>
+            <output name="summary">
+                <assert_contents>
+                    <has_text text="major_lineage"/>
+                    <has_text text="L2;L2.1;L2.1.1"/>
+                </assert_contents>
+            </output>
+            <output name="mutations">
+                <assert_contents>
+                    <has_text text="alt_fraction"/>
+                    <has_text text="L2;L2.1;L2.1.1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- A depth threshold above the coverage of the test data must call nothing. -->
+        <test expect_num_outputs="2">
+            <conditional name="reads">
+                <param name="layout" value="paired"/>
+                <param name="fwd" value="sample1_R1.fastq.gz" ftype="fastqsanger.gz"/>
+                <param name="rev" value="sample1_R2.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="markers" value="markers.tsv" ftype="tabular"/>
+            <param name="reference" value="reference.fasta" ftype="fasta"/>
+            <param name="min_depth" value="500"/>
+            <output name="mutations">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+`pathotypr split-fastq` genotypes a marker panel straight from sequencing reads,
+with no alignment and no assembly. It builds a diagnostic k-mer for each allele
+of each marker, streams the reads past a Bloom filter, and counts how many reads
+carry the reference allele and how many carry the alternate one.
+
+Because it streams, memory does not grow with the number of reads.
+
+Two tables come out:
+
+- **per-marker calls**: position, both alleles, the read counts behind each, the
+  alternate fraction, and the lineage the marker belongs to.
+- **summary**: the count of hits per lineage and the major lineage call, in the
+  same shape *pathotypr classify* produces, so the two are directly comparable.
+
+**Depth and frequency**
+
+A marker is only called when it has at least *minimum depth* reads and the
+alternate allele reaches *minimum alternate frequency*. The defaults, 10 reads
+and 95%, are strict on purpose: they are chosen for a clonal sample. Lower the
+frequency if you expect mixed infections, and expect more sequencing error to
+come with it.
+
+.. class:: warningmark
+
+**Indels are skipped here.** A marker whose REF and ALT differ in length is
+dropped, because short reads across repetitive regions give unreliable k-mer
+matches for insertions and deletions. Detect those with *pathotypr classify* on
+an assembly instead.
+
+@MARKER_HELP@
+
+@ORGANISM_NOTE@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

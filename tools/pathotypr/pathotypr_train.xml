@@ -1,0 +1,135 @@
+<tool id="pathotypr_train" name="pathotypr train" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>fits a Random Forest lineage classifier on labelled genomes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+pathotypr train
+    --input '$input'
+    --output 'model.pathotypr.zst'
+    --kmer-size $kmer_size
+    --max-depth $max_depth
+    --min-samples-leaf $min_samples_leaf
+#if $accuracy.method == 'cv'
+    --cv-folds $accuracy.cv_folds
+#else
+    --test-split $accuracy.test_split
+#end if
+    @THREADS@
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="fasta" label="Labelled genomes"
+               help="A FASTA whose headers carry the class label. See the warning below about how the label is read."/>
+        <expand macro="kmer_size" default="21"/>
+        <conditional name="accuracy">
+            <param name="method" type="select" label="How to estimate accuracy"
+                   help="The final model is trained on all of the data either way. This only changes how the accuracy figure is obtained.">
+                <option value="split" selected="true">A single held-out split</option>
+                <option value="cv">Stratified cross-validation</option>
+            </param>
+            <when value="split">
+                <param argument="--test-split" type="float" min="0" max="0.99" value="0.2"
+                       label="Fraction held out"/>
+            </when>
+            <when value="cv">
+                <param argument="--cv-folds" type="integer" min="2" value="5" label="Number of folds"
+                       help="Must not exceed the number of samples. Preferable to a single split on small or imbalanced sets."/>
+            </when>
+        </conditional>
+        <param argument="--max-depth" type="integer" min="1" value="20" label="Maximum tree depth"
+               help="Lower values reduce overfitting on small datasets."/>
+        <param argument="--min-samples-leaf" type="integer" min="1" value="5"
+               label="Minimum samples per leaf"
+               help="Higher values act as regularisation, stopping a tree memorising individual genomes."/>
+        <param name="want_reports" type="boolean" checked="false"
+               label="Also output the feature importance reports"
+               help="Which hash buckets the forest split on most, and where the k-mers behind them sit in the training sequences."/>
+    </inputs>
+    <outputs>
+        <data name="model" format="data" label="${tool.name} on ${on_string}: model"
+              from_work_dir="model.pathotypr.zst"/>
+        <data name="importance" format="tabular" label="${tool.name} on ${on_string}: feature importance"
+              from_work_dir="model.pathotypr.importance.tsv">
+            <filter>want_reports</filter>
+        </data>
+        <data name="coords" format="tabular" label="${tool.name} on ${on_string}: discriminant k-mer coordinates"
+              from_work_dir="model.pathotypr.importance.coords.tsv">
+            <filter>want_reports</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="training.fasta" ftype="fasta"/>
+            <conditional name="accuracy">
+                <param name="method" value="cv"/>
+                <param name="cv_folds" value="3"/>
+            </conditional>
+            <output name="model">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="input" value="training.fasta" ftype="fasta"/>
+            <param name="want_reports" value="true"/>
+            <output name="importance">
+                <assert_contents>
+                    <has_text text="rank"/>
+                    <has_text text="importance_pct"/>
+                </assert_contents>
+            </output>
+            <output name="coords">
+                <assert_contents>
+                    <has_text text="lineage"/>
+                    <has_text text="position"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+`pathotypr train` turns a labelled set of genomes into a Random Forest that
+*pathotypr predict* can then apply to new sequences. Each sequence is hashed
+into a fixed-size k-mer feature vector, so there is no vocabulary to fit and the
+features at prediction time are identical to those at training time by
+construction.
+
+The accuracy figure it reports comes either from a single held-out split or from
+stratified cross-validation. Either way the **model it saves is trained on all
+of your data**; the split only exists to produce the estimate. An out-of-bag
+accuracy is also computed from the bootstrap samples and costs nothing extra.
+
+.. class:: warningmark
+
+**The label is the first whitespace-separated token of the FASTA header.**
+Everything after the first space is ignored. This is the single most common
+mistake with this tool: genomes downloaded from a public archive keep headers
+like ``>GCF_000195955.2 Mycobacterium tuberculosis H37Rv``, which yields one
+class per accession rather than one class per group, and nothing warns you.
+Rewrite the headers to the labels you actually want predicted::
+
+    >L2 sample_A collected_2021
+    >L2 sample_B
+    >L4.3 sample_C
+
+Labels are compared as flat strings. ``L4`` and ``L4.1`` are two unrelated
+classes; the tool knows nothing about the hierarchy in the name. If you want
+hierarchical calls, use a marker panel with *pathotypr classify* or
+*pathotypr split-fastq* instead.
+
+**How much data**
+
+Nothing enforces a minimum per class, but a class represented by one or two
+genomes contributes almost nothing the forest can generalise from. Aim for ten
+or more per class, and prefer cross-validation over a single split when the set
+is small or imbalanced.
+
+@ORGANISM_NOTE@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
