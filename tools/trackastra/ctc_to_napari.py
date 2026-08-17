@@ -8,11 +8,10 @@ import csv
 import json
 import re
 import shutil
-import tempfile
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import tifffile
 from skimage.measure import regionprops
 
@@ -43,9 +42,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--track-table", required=True, type=Path)
     parser.add_argument("--masks-dir", required=True, type=Path)
+    parser.add_argument("--stack-out", required=True, type=Path)
     parser.add_argument("--tracks-out", required=True, type=Path)
     parser.add_argument("--graph-out", required=True, type=Path)
-    parser.add_argument("--archive-out", required=True, type=Path)
+    parser.add_argument("--ctc-dir", required=True, type=Path)
     return parser.parse_args()
 
 
@@ -149,14 +149,21 @@ def find_masks(directory: Path) -> list[tuple[int, Path]]:
 def build_napari_outputs(
     table: list[TrackRecord],
     masks: list[tuple[int, Path]],
-) -> tuple[list[str], list[list[float | int]], dict[int, list[int]]]:
+) -> tuple[
+    list[str],
+    list[list[float | int]],
+    dict[int, list[int]],
+    "np.ndarray",
+]:
     rows: list[list[float | int]] = []
+    frames: list["np.ndarray"] = []
     spatial_ndim: int | None = None
     expected_shape: tuple[int, ...] | None = None
     expected_dtype = None
 
     for frame, path in masks:
         mask = tifffile.imread(path)
+        frames.append(mask)
         if mask.ndim not in (2, 3):
             raise ValueError(
                 f"Expected a 2D or 3D CTC mask in {path.name}; found {mask.shape}."
@@ -214,7 +221,10 @@ def build_napari_outputs(
         for record in table
         if record.parent_track_id != 0
     }
-    return header, rows, graph
+    # Time is the leading axis, which is what Napari needs in order to show a
+    # single layer with a time slider instead of one layer per frame.
+    stack = np.stack(frames, axis=0)
+    return header, rows, graph, stack
 
 
 def write_tracks(path: Path, header: list[str], rows: list[list[float | int]]) -> None:
@@ -232,76 +242,99 @@ def write_graph(path: Path, graph: dict[int, list[int]]) -> None:
         handle.write("\n")
 
 
-def write_archive(
+def write_napari_stack(
     path: Path,
-    track_table: Path,
-    masks: list[tuple[int, Path]],
-    tracks_out: Path,
-    graph_out: Path,
+    stack: "np.ndarray",
+    header: list[str],
+    rows: list[list[float | int]],
+    graph: dict[int, list[int]],
+    table: list[TrackRecord],
 ) -> None:
-    readme = """Trackastra visualization bundle
+    """Write the tracked masks as one multi-page TIFF for the Napari viewer.
 
-tracked_ctc/
-  man_track.txt          Cell Tracking Challenge lineage table
-  man_trackNNNN.tiff     Relabelled CTC masks
-napari_tracks.csv        Napari Tracks vertices: track_id, t, (z), y, x
-napari_graph.json        Child track ID to parent track ID list
-
-The tracked_ctc directory can be opened with napari-trackastra. The CSV and
-JSON files can also be loaded programmatically::
-
-    import json
-    import pandas as pd
-    import napari
-
-    tracks = pd.read_csv("napari_tracks.csv").to_numpy()
-    with open("napari_graph.json") as handle:
-        raw_graph = json.load(handle)
-    graph = {int(child): [int(parent) for parent in parents]
-             for child, parents in raw_graph.items()}
-
-    viewer = napari.Viewer()
-    viewer.add_tracks(tracks, graph=graph)
-    napari.run()
-"""
-
+    The Galaxy Napari interactive tool only accepts image datasets, so the
+    tracks table and the lineage graph are embedded in the TIFF description
+    rather than shipped as separate CSV/JSON datasets. That keeps everything
+    needed for a Tracks layer inside a single dataset the viewer can open.
+    """
+    axes = "TYX" if stack.ndim == 3 else "TZYX"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="trackastra_export_") as temporary:
-        root = Path(temporary)
-        ctc_dir = root / "tracked_ctc"
-        ctc_dir.mkdir()
-        shutil.copyfile(track_table, ctc_dir / "man_track.txt")
-        for frame, mask in masks:
-            # Normalise the bundled names so the archive is a valid CTC
-            # directory regardless of how the input collection was staged.
-            shutil.copyfile(
-                mask,
-                ctc_dir / f"man_track{frame:04d}{GALAXY_TIFF_SUFFIX}",
-            )
-        shutil.copyfile(tracks_out, root / "napari_tracks.csv")
-        shutil.copyfile(graph_out, root / "napari_graph.json")
-        (root / "README.txt").write_text(readme, encoding="utf-8")
+    tifffile.imwrite(
+        path,
+        stack,
+        compression="deflate",
+        photometric="minisblack",
+        metadata={
+            "axes": axes,
+            "trackastra": {
+                "napari_tracks_columns": header,
+                "napari_tracks": rows,
+                "napari_graph": {
+                    str(child): parents for child, parents in graph.items()
+                },
+                "ctc_track_table": [
+                    [
+                        record.track_id,
+                        record.start_frame,
+                        record.end_frame,
+                        record.parent_track_id,
+                    ]
+                    for record in table
+                ],
+            },
+        },
+    )
 
-        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for file_path in sorted(root.rglob("*")):
-                if file_path.is_file():
-                    archive.write(file_path, file_path.relative_to(root))
+    # Fail loudly rather than handing Napari a stack we cannot read back.
+    with tifffile.TiffFile(path) as handle:
+        written = handle.asarray()
+        metadata = handle.shaped_metadata[0]
+    if written.shape != stack.shape or written.dtype != stack.dtype:
+        raise RuntimeError(
+            f"Napari stack changed while writing {path.name}: "
+            f"{stack.shape}/{stack.dtype} -> {written.shape}/{written.dtype}"
+        )
+    if not np.array_equal(written, stack):
+        raise RuntimeError(f"Pixel labels changed while writing {path.name}.")
+    if metadata.get("axes") != axes:
+        raise RuntimeError(
+            f"Axis metadata was not stored in {path.name}; expected {axes}."
+        )
+    if len(metadata["trackastra"]["napari_tracks"]) != len(rows):
+        raise RuntimeError(
+            f"Track metadata was not stored completely in {path.name}."
+        )
+
+
+def write_ctc_directory(
+    directory: Path,
+    masks: list[tuple[int, Path]],
+) -> None:
+    """Write the validated masks under canonical CTC names.
+
+    Galaxy discovers these into a list collection, which keeps the masks as
+    first-class datasets instead of burying them in an archive. Downloading the
+    collection yields ``man_trackNNNN.tiff`` files, so the result is a usable
+    CTC directory for TrackMate, Mastodon, and the Cell Tracking Challenge
+    evaluation software once ``man_track.txt`` is placed alongside it.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    if any(directory.iterdir()):
+        raise ValueError(f"CTC output directory is not empty: {directory}")
+    for frame, mask in masks:
+        destination = directory / f"man_track{frame:04d}{GALAXY_TIFF_SUFFIX}"
+        shutil.copyfile(mask, destination)
 
 
 def main() -> None:
     args = parse_args()
     table = read_track_table(args.track_table)
     masks = find_masks(args.masks_dir)
-    header, rows, graph = build_napari_outputs(table, masks)
+    header, rows, graph, stack = build_napari_outputs(table, masks)
+    write_napari_stack(args.stack_out, stack, header, rows, graph, table)
     write_tracks(args.tracks_out, header, rows)
     write_graph(args.graph_out, graph)
-    write_archive(
-        args.archive_out,
-        args.track_table,
-        masks,
-        args.tracks_out,
-        args.graph_out,
-    )
+    write_ctc_directory(args.ctc_dir, masks)
 
 
 if __name__ == "__main__":
