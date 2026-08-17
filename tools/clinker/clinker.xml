@@ -3,9 +3,16 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <xrefs>
+        <xref type="bio.tools">clinker</xref>
+    </xrefs>
     <expand macro="requirements"/>
+    <required_files>
+        <include path="prepare_inputs.py"/>
+        <include path="sanitize_html.py"/>
+    </required_files>
     <version_command>clinker --version</version_command>
-    <command detect_errors="exit_code"><![CDATA[
+    <command detect_errors="aggressive"><![CDATA[
 mkdir -p staged &&
 python '$__tool_directory__/prepare_inputs.py'
     --input-dir staged
@@ -18,24 +25,26 @@ clinker staged/*/*.gbff
     --jobs \${GALAXY_SLOTS:-1}
     $use_file_order
     --plot figure.html
+&&
+python '$__tool_directory__/sanitize_html.py' --html figure.html
     ]]></command>
     <inputs>
         <param
             name="genbank_files"
             type="data_collection"
-            collection_type="list"
             format="genbank,tabular"
+            collection_type="list"
             label="Annotated GenBank/GBFF collection"
-            help="An ordered list collection containing one annotated GenBank/GBFF file per plasmid. Current Bakta GBFF output is accepted even though Galaxy labels it tabular; each element is validated as GenBank before clinker runs."
+            help="An ordered list collection containing at least two annotated GenBank/GBFF files, one per plasmid. Current Bakta GBFF output is accepted even though Galaxy labels it tabular; each element is validated as GenBank before clinker runs."
         />
         <param
             argument="--identity"
             type="float"
-            value="0.3"
             min="0"
             max="1"
+            value="0.3"
             label="Minimum alignment sequence identity"
-            help="Minimum protein sequence identity for links between genes, as a fraction from 0 to 1. Use 0.8 for the course workflow. Clinker's default is 0.3."
+            help="Minimum protein sequence identity for links between genes, as a fraction from 0 to 1, default is 0.3."
         />
         <param
             argument="--use_file_order"
@@ -97,6 +106,28 @@ clinker staged/*/*.gbff
                 </collection>
             </param>
         </test>
+        <test expect_failure="true">
+            <param name="genbank_files">
+                <collection type="list">
+                    <element name="only" value="plasmid_a.gbff" ftype="genbank"/>
+                </collection>
+            </param>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="genbank_files">
+                <collection type="list">
+                    <element name="safe" value="plasmid_a.gbff" ftype="genbank"/>
+                    <element name="malicious" value="malicious_annotation.gbff" ftype="genbank"/>
+                </collection>
+            </param>
+            <output name="plot">
+                <assert_contents>
+                    <has_text text="const data="/>
+                    <not_has_text text="&lt;/script&gt;&lt;script&gt;window.__clinker_xss__=true&lt;/script&gt;"/>
+                    <has_text text="\u003c/script\u003e\u003cscript\u003ewindow.__clinker_xss__=true\u003c/script\u003e"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
@@ -107,15 +138,24 @@ translations of their CDS features.
 
 **Input**
 
-Provide an ordered list collection with one annotated GenBank/GBFF file per
-plasmid. The Galaxy `tabular` datatype is accepted because the current Bakta
-Galaxy wrapper labels its valid GBFF output as tabular. Each input is parsed as
+Provide an ordered list collection with at least two annotated GenBank/GBFF
+files, one per plasmid. The Galaxy `tabular` datatype is accepted because the
+current Bakta Galaxy wrapper labels its valid GBFF output as tabular. Each input is parsed as
 GenBank and rejected if it is not valid annotated GenBank data.
+
+**Implementation note**
+
+The two Python helpers are intentional. The command's `CDATA` block only keeps
+XML from interpreting shell characters; it does not provide a GenBank parser,
+structured collection handling, or safe JSON processing. `prepare_inputs.py`
+validates and stages the ordered collection, while `sanitize_html.py` parses
+clinker's embedded JSON and escapes HTML-sensitive characters. Shell
+substitutions in CDATA would be brittle and would not provide the same
+fail-closed behavior.
 
 **Parameters**
 
-* **Minimum alignment sequence identity**: a fraction from 0 to 1. The course
-  workflow uses 0.8.
+* **Minimum alignment sequence identity**: a fraction from 0 to 1.
 * **Keep input collection order**: pass `--use_file_order` so the visualization
   follows the collection order.
 
@@ -123,7 +163,9 @@ GenBank and rejected if it is not valid annotated GenBank data.
 
 The result is a standalone HTML file. It embeds its visualization assets and can
 be downloaded and opened locally. Interactive rendering inside Galaxy may
-require the server administrator to allow HTML output for this tool.
+require the server administrator to allow HTML output for this tool. Input-derived
+JSON is escaped before it is embedded in the HTML document so GenBank qualifiers
+cannot terminate the document's script element.
 
 **Citation**
 
