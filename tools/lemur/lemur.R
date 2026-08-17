@@ -21,7 +21,7 @@ option_list <- list(
     make_option(c("--meta_table"), type = "character"),
     make_option(c("--cell_id_column"), type = "character"),
     make_option(c("--condition_column"), type = "character"),
-    make_option(c("--batch_column"), type = "character"),
+    make_option(c("--covariate_columns"), type = "character"),
     make_option(c("--contrast_condition"), type = "character"),
     make_option(c("--reference_condition"), type = "character"),
     make_option(c("--n_embedding"), type = "integer", default = 15),
@@ -48,7 +48,7 @@ option_list <- list(
     make_option(c("--linear_coefficient_estimator"), type = "character", default = "linear"),
     make_option(c("--use_assay"), type = "character", default = "logcounts"),
     make_option(c("--consider"), type = "character", default = "embedding+linear"),
-    make_option(c("--group_by_column"), type = "character"),
+    make_option(c("--group_by_columns"), type = "character"),
     make_option(c("--test_method"), type = "character", default = "glmGamPoi")
 )
 
@@ -61,8 +61,8 @@ meta <- read.delim(opt$meta_table, sep = "\t", check.names = FALSE)
 
 opt$cell_id_column <- as.integer(opt$cell_id_column)
 opt$condition_column <- as.integer(opt$condition_column)
-opt$batch_column <- if (!is.null(opt$batch_column) && nzchar(opt$batch_column)) {
-    raw_cov <- strsplit(opt$batch_column, ",")[[1]]
+opt$covariate_columns <- if (!is.null(opt$covariate_columns) && nzchar(opt$covariate_columns)) {
+    raw_cov <- strsplit(opt$covariate_columns, ",")[[1]]
     idx <- suppressWarnings(as.integer(raw_cov))
     if (any(is.na(idx)) || any(idx < 1) || any(idx > ncol(meta))) {
         stop(sprintf(
@@ -78,8 +78,8 @@ opt$batch_column <- if (!is.null(opt$batch_column) && nzchar(opt$batch_column)) 
 
 # group_by is required: find_de_neighborhoods() groups cells into pseudobulk
 # samples by these column(s) (typically the replication unit, e.g. patient ID).
-opt$group_by_column <- if (!is.null(opt$group_by_column) && nzchar(opt$group_by_column)) {
-    raw_gb <- strsplit(opt$group_by_column, ",")[[1]]
+opt$group_by_columns <- if (!is.null(opt$group_by_columns) && nzchar(opt$group_by_columns)) {
+    raw_gb <- strsplit(opt$group_by_columns, ",")[[1]]
     gidx <- suppressWarnings(as.integer(raw_gb))
     if (any(is.na(gidx)) || any(gidx < 1) || any(gidx > ncol(meta))) {
         stop(sprintf(
@@ -100,8 +100,8 @@ opt$group_by_column <- if (!is.null(opt$group_by_column) && nzchar(opt$group_by_
 
 cell_id_colname <- colnames(meta)[opt$cell_id_column]
 condition_name <- colnames(meta)[opt$condition_column]
-batch_names <- if (!is.null(opt$batch_column)) colnames(meta)[opt$batch_column] else NULL
-group_by_names <- colnames(meta)[opt$group_by_column]
+batch_names <- if (!is.null(opt$covariate_columns)) colnames(meta)[opt$covariate_columns] else NULL
+group_by_names <- colnames(meta)[opt$group_by_columns]
 
 rownames(meta) <- meta[[cell_id_colname]]
 
@@ -193,12 +193,19 @@ save_plot(opt$output_umap, p_umap, format = opt$plot_format, width = opt$plot_wi
 # formula variables (condition + covariates) to the pseudobulk grouping itself.
 group_vars <- vars(!!!rlang::syms(group_by_names))
 neighborhoods <- find_de_neighborhoods(fit, group_by = group_vars, test_method = opt$test_method)
-p_volcano <- neighborhoods |>
-    drop_na() |>
-    ggplot(aes(x = lfc, y = -log10(pval))) +
-    geom_point(aes(color = adj_pval < 0.1)) +
-    theme_minimal()
-save_plot(opt$output_volcano, p_volcano, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
+if (all(c("lfc", "pval", "adj_pval") %in% colnames(neighborhoods))) {
+    p_volcano <- neighborhoods |>
+        drop_na() |>
+        ggplot(aes(x = lfc, y = -log10(pval))) +
+        geom_point(aes(color = adj_pval < 0.1)) +
+        theme_minimal()
+    save_plot(opt$output_volcano, p_volcano, format = opt$plot_format, width = opt$plot_width, height = opt$plot_height)
+} else {
+    message(
+        "Skipping volcano plot: test_method = 'none' means find_de_neighborhoods() ",
+        "did not compute lfc/pval/adj_pval statistics, so there is nothing to plot."
+    )
+}
 neigh_out <- neighborhoods |> select(-neighborhood)
 write.table(as.data.frame(neigh_out), opt$output_de, sep = "\t", quote = FALSE, row.names = FALSE)
 
@@ -231,8 +238,21 @@ if (opt$run_tumor_analysis == "yes") {
     tumor_col <- opt$tumor_annotation_column
     if (tumor_col %in% colnames(rowData(fit))) {
         row_data <- rowData(fit)
-        chr1_expr <- colMeans(logcounts(fit)[row_data[[tumor_col]] == opt$chrom1_name, ])
-        chr2_expr <- colMeans(logcounts(fit)[row_data[[tumor_col]] == opt$chrom2_name, ])
+        available_chrom_values <- unique(row_data[[tumor_col]])
+        if (!(opt$chrom1_name %in% available_chrom_values)) {
+            stop(sprintf(
+                "Chromosome value '%s' (gained chromosome) was not found in rowData column '%s'. Available values: %s.",
+                opt$chrom1_name, tumor_col, paste(available_chrom_values, collapse = ", ")
+            ))
+        }
+        if (!(opt$chrom2_name %in% available_chrom_values)) {
+            stop(sprintf(
+                "Chromosome value '%s' (lost chromosome) was not found in rowData column '%s'. Available values: %s.",
+                opt$chrom2_name, tumor_col, paste(available_chrom_values, collapse = ", ")
+            ))
+        }
+        chr1_expr <- colMeans(assay(fit, opt$use_assay)[row_data[[tumor_col]] == opt$chrom1_name, ])
+        chr2_expr <- colMeans(assay(fit, opt$use_assay)[row_data[[tumor_col]] == opt$chrom2_name, ])
         tumor_label_df <- tibble(cell_id = colnames(fit), chrom1_expr = chr1_expr, chrom2_expr = chr2_expr) |>
             mutate(is_tumor = chrom1_expr > opt$chrom1_thresh & chrom2_expr < opt$chrom2_thresh)
 
