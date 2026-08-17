@@ -22,16 +22,21 @@
         #else if $barcode.barcode_selection == 'expect-cells':
             --expect-cells $barcode.expect_ncells
         #end if
+        --cell-bc-correction $sec_advanced_options.cell_bc_correction
+        --cell-bc-neighborhood $sec_advanced_options.cell_bc_neighborhood
+        --cell-bc-confidence $sec_advanced_options.cell_bc_confidence
         #if $sec_advanced_options.multi_barcode_mode.multi_barcode_mode_select == 'yes':
             --sample-bc-list '$sec_advanced_options.multi_barcode_mode.sample_bc_list'
             #if $sec_advanced_options.multi_barcode_mode.sample_names:
                 --sample-names '$sec_advanced_options.multi_barcode_mode.sample_names'
             #end if
-            --sample-correction-mode $sec_advanced_options.multi_barcode_mode.sample_correction_mode
+            --sample-bc-correction $sec_advanced_options.multi_barcode_mode.sample_bc_correction
+            --sample-bc-neighborhood $sec_advanced_options.multi_barcode_mode.sample_bc_neighborhood
+            --sample-bc-confidence $sec_advanced_options.multi_barcode_mode.sample_bc_confidence
             --sample-bc-ori $sec_advanced_options.multi_barcode_mode.sample_bc_ori
         #end if
         &&
-        alevin-fry collate --input-dir permit_list --rad-dir input_rad --collation-mode $collation_mode &&
+        alevin-fry collate --input-dir permit_list --rad-dir input_rad &&
         mkdir -p '$output_dir.extra_files_path/collated_permit_list' &&
         mv permit_list/* '$output_dir.extra_files_path/collated_permit_list'
     ]]></command>
@@ -66,11 +71,17 @@
                 <param name="expect_ncells" argument="--expect-cells" type="integer" min="1" label="Expected number of cells" help="Value around which a robust cutoff will be chosen."/>
             </when>
         </conditional>
-        <param argument="--collation-mode" type="select" label="Collation mode for multi-barcode data">
-            <option value="two-round" selected="true">two-round (generalizable)</option>
-            <option value="fast">fast (single-pass for 2-level)</option>
-        </param>
         <section name="sec_advanced_options" title="Advanced options" expanded="false">
+            <param argument="--cell-bc-correction" type="select" label="Cell-barcode correction" help="Cell-barcode collision policy: 'unique' accepts one canonical target. 'frequency' uses frozen exact counts and a confidence threshold. Default value: unique">
+                <option value="unique" selected="true">unique</option>
+                <option value="frequency">frequency</option>
+            </param>
+            <param argument="--cell-bc-neighborhood" type="select" label="Cell-barcode neighborhood" help="edit-1 is a compatibility alias for substitution-or-shift-1. Default value: hamming-1">
+                <option value="hamming-1">hamming-1</option>
+                <option value="substitution-or-shift-1">substitution-or-shift-1</option>
+                <option value="edit-1">edit-1 (compatibility alias for substitution-or-shift-1)</option>
+            </param>
+            <param argument="--cell-bc-confidence" type="float" min="0" max="1" value="0.975" label="Cell barcode confidence" help="Frequency confidence as a decimal. Default value: 0.975"/>
             <conditional name="multi_barcode_mode" label="Multi-barcode mode">
                 <param name="multi_barcode_mode_select" type="select" label="Use multi-barcode mode">
                     <option value="no">no</option>
@@ -79,12 +90,19 @@
                 <when value="yes">
                     <param argument="--sample-bc-list" type="data" format="txt,tabular" label="Sample barcode list" help="File containing known sample/library barcodes (one per line)."/>
                     <param argument="--sample-names" type="data" format="tsv,tabular" optional="true" label="Sample names" help="TSV file mapping sample barcodes to human-readable names. One line per barcode/name combination, with the barcode and name separated by a tab."/>
-                    <param argument="--sample-correction-mode" type="select" label="Sample correction mode" help="Correction mode for sample barcodes. Default value: exact.">
-                        <option value="exact">exact</option>
-                        <option value="1-edit">1-edit</option>
+                    <param argument="--sample-bc-correction" type="select" label="Sample barcode correction" help="Sample barcode correction policy. Default value: exact.">
+                        <option value="exact" selected="true">exact</option>
+                        <option value="unique">unique</option>
+                        <option value="frequency">frequency</option>
                     </param>
+                    <param argument="--sample-bc-neighborhood" type="select" label="Sample barcode neighborhood" help="Sample-barcode neighborhood for non-exact correction. Default value: hamming-1.">
+                        <option value="hamming-1" selected="true">hamming-1</option>
+                        <option value="substitution-or-shift-1">substitution-or-shift-1</option>
+                        <option value="edit-1">edit-1 (alias for substitution-or-shift-1)</option>
+                    </param>
+                    <param argument="--sample-bc-confidence" type="float" min="0" max="1" value="0.975" label="Sample barcode confidence" help="Frequency confidence as a decimal. Default value: 0.975"/>
                     <param argument="--sample-bc-ori" type="select" label="Sample barcode orientation" help="Orientation of sample barcodes in the whitelist relative to the read. Default value: forward. Forward = whitelist matches read as-is. Reverse = reverse-complement the whitelist before lookup, e.g. 10x Flex v2.">
-                        <option value="forward">forward</option>
+                        <option value="forward" selected="true">forward</option>
                         <option value="reverse">reverse</option>
                     </param>
                 </when>
@@ -103,14 +121,17 @@
             <conditional name="barcode">
                 <param name="barcode_selection" value="knee-distance"/>
             </conditional>
-            <param name="collation_mode" value="two-round"/>
             <section name="sec_advanced_options">
+                <param name="cell_bc_correction" value="unique"/>
+                <param name="cell_bc_neighborhood" value="hamming-1"/>
+                <param name="cell_bc_confidence" value="0.975"/>
                 <conditional name="multi_barcode_mode">
                     <param name="multi_barcode_mode_select" value="no"/>
                 </conditional>
             </section>
             <output name="output_dir">
                 <extra_files type="directory" value="collated_permit_list/all_freq.bin"/>
+                <extra_files type="directory" value="collated_permit_list/correction_plan.bin"/>
                 <extra_files type="directory" value="collated_permit_list/collate.json"/>
                 <extra_files type="directory" value="collated_permit_list/generate_permit_list.json"/>
                 <extra_files type="directory" value="collated_permit_list/map.collated.rad"/>
@@ -136,8 +157,9 @@ This tool runs **alevin-fry generate-permit-list** on a RAD file, followed by **
 - Determines which cell barcodes should be associated with "true" cells, which should be corrected to some "true" barcode, and which should be ignored/discarded.
 - Alignments that do not fit the expected orientation are filtered out.
 - The barcode selection methods are mutually exclusive. They are described in detail in the alevin-fry documentation https://alevin-fry.readthedocs.io/en/latest/
+- Cell barcode correction can be configured via correction policy, barcode neighborhood, and confidence threshold in the Advanced Options. Similar options for sample barcodes are available in multi-barcode mode.
 - Optional: multi-barcode mode uses an additional sample barcode list to distinguish between multiple samples/libraries.
-- The resulting permit list is then collated by corrected cell barcode, using either the "two-round" (generalizable) or "fast" (single-pass) collation mode.
+- The resulting permit list is then collated by corrected cell barcode.
 
 ----
 
