@@ -2,7 +2,10 @@
 
 suppressPackageStartupMessages({
     library(optparse)
-    library(tidyverse)
+    library(dplyr)
+    library(tibble)
+    library(tidyr)
+    library(rlang)
     library(SingleCellExperiment)
     library(lemur)
     library(uwot)
@@ -49,7 +52,8 @@ option_list <- list(
     make_option(c("--use_assay"), type = "character", default = "logcounts"),
     make_option(c("--consider"), type = "character", default = "embedding+linear"),
     make_option(c("--group_by_columns"), type = "character"),
-    make_option(c("--test_method"), type = "character", default = "glmGamPoi")
+    make_option(c("--test_method"), type = "character", default = "glmGamPoi"),
+    make_option(c("--n_threads"), type = "integer", default = 1)
 )
 
 opt <- parse_args(OptionParser(option_list = option_list))
@@ -180,7 +184,7 @@ fit <- test_de(fit, contrast = !!contrast_expr, consider = opt$consider)
 cat("Differential expression test completed.\n")
 
 # ---- UMAP plot ----
-umap <- uwot::umap(reducedDim(fit, "embedding"))
+umap <- uwot::umap(reducedDim(fit, "embedding"), n_threads = opt$n_threads)
 umap_df <- as_tibble(fit$colData) |> mutate(UMAP1 = umap[, 1], UMAP2 = umap[, 2])
 p_umap <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
     geom_point(aes(color = if (!is.null(batch_names)) .data[[batch_names[1]]] else NULL, shape = .data[[condition_name]]), size = 0.5, na.rm = TRUE) +
