@@ -23,22 +23,21 @@ Python than in the Galaxy command template:
   HTML-sensitive characters before rewriting the output, preventing
   input-derived annotation text from closing the document's script element.
 
-The scripts are listed in ``<required_files>`` so they are available when the
-tool runs remotely.
+HTML output
+^^^^^^^^^^^
+
+Galaxy administrators may need to allow HTML output for this tool before the
+generated visualization can be rendered inline.
 
 Testing
 ^^^^^^^
 
-Functional tests are defined in ``clinker.xml`` and run with Planemo. They
-cover ordered collections, both GenBank and tabular-labelled GBFF inputs,
-generic annotated records, invalid input, the one-file failure case, and a
-regression test for HTML/JavaScript injection in annotation text.
+The functional tests cover ordered collections, both GenBank and
+tabular-labelled GBFF inputs, generic annotated records, invalid input, the
+one-file failure case, and a regression test for HTML/JavaScript injection in
+annotation text.
 
-License and citation
-^^^^^^^^^^^^^^^^^^^^
+License
+^^^^^^^
 
-The wrapper is distributed under the MIT license. Please cite:
-
-Gilchrist, C. L. M. and Chooi, Y.-H. (2021). clinker & clustermap.js:
-Automatic generation of gene cluster comparison figures.
-https://doi.org/10.1093/bioinformatics/btab007
+The wrapper is distributed under the MIT license.
