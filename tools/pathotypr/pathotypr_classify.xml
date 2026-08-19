@@ -7,36 +7,41 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-## Galaxy datasets arrive as dataset_NNN.dat, and pathotypr takes the sample
-## name from the filename. Link each one to the element identifier so the
-## output names the sample rather than a Galaxy id.
-## The extension is stripped before it is re-added, or an identifier that
-## already ends in .fasta becomes sample.fasta.fasta, and that name is what the
-## summary reports back in the genome column.
+## The sample list is used rather than passing the genomes as files, because it
+## carries the sample name in its own column. Derived from the filename instead,
+## the summary reports the genome as "[sample1.fasta] sample1"; here the first
+## column is the name, so it comes back as "sample1".
+## It also pairs each GFF with its genome explicitly rather than by filename.
 #import re
+## The extension is stripped so the reported sample is "sample1" rather than
+## "sample1.fasta", and re-added only for the linked filename.
 #set $safe = lambda s: re.sub('[.](fasta|fa|fna|fas)$', '', re.sub('[^A-Za-z0-9_.-]', '_', str(s)))
-#for $i, $g in enumerate($genomes)
-    ln -s '$g' '${safe($g.element_identifier)}.fasta' &&
+#for $g in $genomes
+    #set $name = $safe($g.element_identifier)
+    ln -s '$g' '${name}.fasta' &&
+    ## A nested loop rather than a lookup built with a generator expression:
+    ## Cheetah rewrites a generator's loop variable into a function call, and the
+    ## Python it emits then refuses to compile.
+    #set $gff = None
+    #if $annotation.use_gff == 'yes'
+        #for $f in $annotation.gff_files
+            #if $safe($f.element_identifier) == $name
+                #set $gff = $f
+            #end if
+        #end for
+    #end if
+    #if $gff is not None
+        ln -s '$gff' '${name}.gff' &&
+        printf '%s\t%s\t%s\n' '$name' '${name}.fasta' '${name}.gff' >> samples.tsv &&
+    #else
+        printf '%s\t%s\n' '$name' '${name}.fasta' >> samples.tsv &&
+    #end if
 #end for
-#if $annotation.use_gff == 'yes'
-    #for $i, $f in enumerate($annotation.gff_files)
-        ln -s '$f' '${safe($f.element_identifier)}.gff' &&
-    #end for
-#end if
 
 pathotypr classify
     --markers '$markers'
     --reference '$reference'
-    --input-files
-#for $g in $genomes
-    '${safe($g.element_identifier)}.fasta'
-#end for
-#if $annotation.use_gff == 'yes'
-    --gff-files
-    #for $f in $annotation.gff_files
-        '${safe($f.element_identifier)}.gff'
-    #end for
-#end if
+    --input-list samples.tsv
     --output-prefix 'result'
     --kmer-size $kmer_size
     --min-flank-bases $min_flank_bases
@@ -54,7 +59,7 @@ pathotypr classify
             </param>
             <when value="no"/>
             <when value="yes">
-                <param name="gff_files" type="data" format="gff,gff3" multiple="true" label="GFF annotation" help="Matched to the genomes by filename, so the names must correspond."/>
+                <param name="gff_files" type="data" format="gff,gff3" multiple="true" label="GFF annotation" help="Paired with each genome by element name, so a GFF must be named like its genome."/>
             </when>
         </conditional>
         <expand macro="kmer_size" default="31"/>
@@ -80,6 +85,11 @@ pathotypr classify
                 <assert_contents>
                     <has_text text="major_lineage"/>
                     <has_text text="L2;L2.1;L2.1.1"/>
+                    <!-- The genome column must carry the sample name on its own.
+                         Passing the genomes as files rather than through the
+                         sample list makes it read "[sample1.fasta] sample1". -->
+                    <has_line_matching expression="sample1\t.*"/>
+                    <not_has_text text="[sample1"/>
                 </assert_contents>
             </output>
             <output name="detailed">
