@@ -8,6 +8,15 @@
     <expand macro="creators"/>
     <version_command>python -c "import rectanglepy; print(rectanglepy.__version__)"</version_command>
     <command detect_errors="aggressive"><![CDATA[
+        #if $bulks.ext == 'spatialdata.zip':
+            mkdir -p input &&
+            unzip -q '$bulks' -d input &&
+            ## Rename directory to spatialdata.zarr if it has a different name
+            dir_name=\$(ls -d input/*/ | head -1 | xargs basename) &&
+            if [ -n "\$dir_name" ] && [ "\$dir_name" != "spatialdata.zarr" ]; then
+                mv "input/\$dir_name" input/spatialdata.zarr;
+            fi &&
+        #end if
         cat '$script_file' &&
         python '$script_file'
     ]]></command>
@@ -23,7 +32,18 @@ import matplotlib.pyplot as plt
 import rectanglepy
 
 adata = ad.read_h5ad('$adata')
+
+#if $bulks.ext == 'spatialdata.zip':
+import spatialdata as sd
+spdata = sd.read_zarr('input/spatialdata.zarr')
+bulks = spdata['$table'].to_df()
+## ensure CPM
+bulks = bulks.div(bulks.sum(axis=1), axis=0) * 1e6
+## Transpose to have genes as rows and samples as columns
+bulks = bulks.T
+#else:
 bulks = pd.read_csv('$bulks', sep='\t', index_col=0)
+#end if
 
 fractions, signature = rectanglepy.rectangle(
     adata=adata,
@@ -79,7 +99,10 @@ plt.savefig('plot', format='$figure.plot_format')
         <param argument="cell_type_col" type="text" value="cell_type" label="Cell type key in Anndta.obs">
             <expand macro="sanitizer"/>
         </param>
-        <param argument="bulks" type="data" format="tabular" label="Bulk data table" help="Genes as rows and samples as columns. Values should be in transcripts per million (TPM)."/>
+        <param argument="bulks" type="data" format="tabular,spatialdata.zip" label="Bulk data table or SpatialData object" help="The bulk expression data with genes as rows and samples as columns. Values should be in transcripts per million (TPM)."/>
+        <param name="table" type="text" value="table" optional="true" label="Table name in the SpatialData object" help="Only used if the bulk data is a SpatialData object">
+            <expand macro="sanitizer"/>
+        </param>
         <section name="advanced" title="Advanced options" expanded="false">
             <param argument="layer" type="text" optional="true" label="The Anndata layer to use">
                 <expand macro="sanitizer"/>
@@ -136,26 +159,30 @@ plt.savefig('plot', format='$figure.plot_format')
         <!-- test jpg -->
         <expand macro="testing" format="jpg" channels="3">
         </expand>
+        <!-- test spatialdata - I created a spatialdata object from the same bulk.tabular file -->
+        <expand macro="testing" bulks="visium.spatialdata.zip" bulks_ftype="spatialdata.zip">
+            <has_text_matching expression="import spatialdata as sd"/>
+        </expand>
     </tests>
     <help><![CDATA[
 **What it does**
 
-Rectangle performs single-cell-informed cell-type deconvolution of bulk and spatial transcriptomic data. It creates signatures from the single-cell data and deconvolutes the bulk data to estimate cell fractions.
+Rectangle performs single-cell-informed cell-type deconvolution of bulk and spatial transcriptomic data. It creates signatures from the single-cell data and deconvolutes the bulk or spot-based spatial data to estimate cell fractions.
 
 ------
 
 **Inputs**
 
 - **Single-cell AnnData**: an `h5ad` file with raw single-cell counts.
-- **Bulk data**: A tabular file with genes as rows and bulk samples as columns. Values should be in transcripts per million (**TPM**).
+- **Bulk or spatial data**: A tabular file with genes as rows and samples as columns (values in transcripts per million, **TPM**), or a `SpatialData` object (`.zip`) containing spot-based spatial transcriptomics data. When a SpatialData object is provided, the specified table is extracted and normalized to CPM before deconvolution.
 - **Cell type column**: the column in `adata.obs` containing cell type labels.
 
 ------
 
 **Outputs**
 
-- **Cell fractions**: a tabular file with estimated cell-type fractions for each bulk sample.
-- **Cell fractions plot**: a bar plot showing the estimated cell-type fractions for each bulk sample.
+- **Cell fractions**: a tabular file with estimated cell-type fractions for each bulk sample or spatial spot.
+- **Cell fractions plot**: a bar plot showing the estimated cell-type fractions for each bulk sample or spatial spot.
 
     ]]></help>
     <expand macro="citations"/>
