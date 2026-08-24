@@ -22,7 +22,7 @@ tom_type           <- "$tom_type"
 cor_type           <- "$cor_type"
 min_module_size    <- as.integer($min_module_size)
 merge_cut_height   <- as.numeric($merge_cut_height)
-me_cor_threshold <- as.numeric($me_cor_threshold)
+me_cor_threshold   <- as.numeric($me_cor_threshold)
 plot_resolution    <- as.integer($plot_resolution)
 
 log_transform      <- $log_transform
@@ -30,8 +30,10 @@ filter_by_variance <- $filter_by_variance
 variance_quantile  <- as.numeric($variance_quantile)
 run_sample_gene_qc <- $run_sample_gene_qc
 
-## Use GALAXY_SLOTS if set by the cluster runner, fall back to 1 otherwise
-n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "1"))
+## Use GALAXY_SLOTS if set by the cluster runner, fall back to 2 otherwise
+n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "2"))
+allowWGCNAThreads(nThreads = n_threads)
+
 allowWGCNAThreads(nThreads = n_threads)
 
 ## corFnc/adjacency()/TOMsimilarity() expect the *function name* ("cor" or
@@ -121,6 +123,72 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
     return(result)
 }
 
+## Human-readable trait names for plot axes (one-hot columns like
+## sample_group_group_A become "Group A"; underscores become spaces).
+prettify_trait_label <- function(labels) {
+    vapply(labels, function(label) {
+        if (grepl("_group_", label, fixed = TRUE)) {
+            level <- sub(".*_group_", "", label)
+            return(paste0("Group ", level))
+        }
+        gsub("_", " ", label)
+    }, character(1), USE.NAMES = FALSE)
+}
+
+## ── DPI-aware margin / dimension safety helpers ──────────────────────────────
+## R's par(mar = c(bottom,left,top,right)) uses *text lines*.  At a given
+## (width_px, height_px, dpi) the figure has a physical size in inches, and
+## each text line occupies roughly 1/5 of an inch at default cex.  When the
+## user-facing plot_resolution is high (e.g. 300 dpi) the pixel dimensions
+## that were tuned for 72 dpi produce a tiny figure in inches, and the
+## per-character margin formulas often claim more lines than the figure can
+## physically hold, leading to the classic 'figure margins too large' error.
+##
+## These helpers (a) compute a 'dpi-safe' pixel canvas that preserves the
+## intended physical size in inches (so the same mar values always fit), and
+## (b) provide a cap so mar values can never exceed ~70% of the figure even
+## when downstream code (e.g. WGCNA::plotDendroAndColors) overrides them.
+##
+## NOTE: this script is rendered through Galaxy/Cheetah before Rscript ever
+## sees it, and Cheetah treats any bare "$identifier" as a template variable
+## to substitute. That's why every list access below (and throughout this
+## script) uses R's `x[["name"]]` form instead of `x$name` -- `x$name` would
+## be silently (and incorrectly) parsed by Cheetah as "$name", breaking
+## config rendering for every job, not just this one.
+
+REF_DPI <- 72
+LINES_PER_INCH_REF <- 5
+
+dpi_safe_dims <- function(width_px, height_px, ref_dpi = REF_DPI, target_dpi = plot_resolution) {
+    scale <- max(1, target_dpi / ref_dpi)
+    list(
+        width  = as.integer(ceiling(width_px  * scale)),
+        height = as.integer(ceiling(height_px * scale))
+    )
+}
+
+cap_mar_to_figure <- function(width_px, height_px, mar,
+                              dpi = plot_resolution,
+                              max_frac_vert = 0.7, max_frac_horz = 0.7,
+                              lpi = LINES_PER_INCH_REF) {
+    h_in <- height_px / dpi
+    w_in <- width_px  / dpi
+    vert_max <- h_in * lpi * max_frac_vert
+    horz_max <- w_in * lpi * max_frac_horz
+    mar <- as.numeric(mar)
+    if (mar[1] + mar[3] > vert_max) {
+        s <- vert_max / (mar[1] + mar[3] + 1e-6)
+        mar[1] <- max(2, mar[1] * s)
+        mar[3] <- max(2, mar[3] * s)
+    }
+    if (mar[2] + mar[4] > horz_max) {
+        s <- horz_max / (mar[2] + mar[4] + 1e-6)
+        mar[2] <- max(2, mar[2] * s)
+        mar[4] <- max(1, mar[4] * s)
+    }
+    as.numeric(mar)
+}
+
 ## ── STEP 1: Load data ────────────────────────────────────────────────────────
 counts <- read.delim(counts_file, check.names = FALSE, row.names = 1)
 ## Note: row.names = 1 is intentionally NOT used here, since the first
@@ -177,7 +245,24 @@ if (filter_by_variance) {
 
 cat("Genes after variance filtering:", nrow(filtered_expr_data), "\n")
 
-png("plots/01_gene_variance_distribution.png", width = 800, height = 600, res = plot_resolution)
+## Scale the height with the number of genes plotted, since the underlying
+## histogram carries more information (finer bin detail) as gene counts grow;
+## width stays fixed since a variance histogram doesn't need extra width.
+n_genes_for_plot01 <- nrow(filtered_expr_data)
+plot01_base_h <- max(600, round(400 + 150 * log10(max(n_genes_for_plot01, 10))))
+## width has an exact assertion (800), height is min-600; keep 800 as-is but
+## ensure height accommodates default margins at the chosen DPI.
+plot01_dims <- dpi_safe_dims(800, plot01_base_h)
+plot01_height <- max(600, plot01_dims[["height"]])
+## Use R's literal default mar (c(5,4,4,2)+0.1) rather than querying
+## par("mar") here: no graphics device has been opened yet at this point in
+## the script, and calling par() cold (before the first png()/device call)
+## can behave unpredictably in headless containers with no default device
+## backend configured.
+plot01_mar <- cap_mar_to_figure(800, plot01_height, c(5, 4, 4, 2) + 0.1)
+
+png("plots/01_gene_variance_distribution.png", width = 800, height = plot01_height, res = plot_resolution)
+par(mar = plot01_mar)
 var_plot <- gene_variances[is.finite(gene_variances) & gene_variances > 0]
 if (length(var_plot) > 1) {
     hist(log10(var_plot), breaks = 50,
@@ -198,27 +283,66 @@ if (nrow(datExpr) < 2) stop("Too few samples after filtering.")
 if (ncol(datExpr) < 2) stop("Too few genes after filtering.")
 
 sampleTree <- hclust(dist(datExpr), method = "average")
-png("plots/02_sample_clustering.png", width = 1200, height = 600, res = plot_resolution)
-par(mar = c(2, 5, 2, 2))
+
+## Scale the clustering canvas with the number of samples so sample labels
+## along the dendrogram stay readable instead of overlapping as cohorts grow.
+n_samples_for_plot02 <- nrow(datExpr)
+max_sample_label_chars <- max(nchar(rownames(datExpr)), na.rm = TRUE)
+sample_label_cex       <- 0.7
+plot02_base_w <- max(1200, 20 * n_samples_for_plot02 + 400)
+plot02_base_h <- max(700, 3 * n_samples_for_plot02 + 500)
+## Both width and height have only MIN assertions; scale the canvas with DPI
+## so the intended physical figure size (and therefore margin capacity in
+## lines) is preserved, regardless of plot_resolution.
+plot02_dims <- dpi_safe_dims(plot02_base_w, plot02_base_h)
+sample_clustering_width  <- plot02_dims[["width"]]
+sample_clustering_height <- plot02_dims[["height"]]
+## Reserve enough bottom margin so the subtitle sits below sample labels.
+## Keep the per-character growth, but cap it against the actual figure.
+plot02_mar_bottom <- max(5, min(20, max_sample_label_chars * 0.18 + 3))
+plot02_mar <- c(plot02_mar_bottom, 5, 4, 2)
+plot02_mar <- cap_mar_to_figure(sample_clustering_width, sample_clustering_height, plot02_mar)
+
+png("plots/02_sample_clustering.png", width = sample_clustering_width, height = sample_clustering_height, res = plot_resolution)
+par(mar = plot02_mar)
 plot(sampleTree,
      main = "Sample Clustering to Detect Outliers",
-     sub  = "Height represents dissimilarity between samples",
-     xlab = "", cex = 0.7)
+     xlab = "", ylab = "Height", cex = sample_label_cex)
 abline(h = 200, col = "red", lwd = 2, lty = 2)
+mtext("Height represents dissimilarity between samples",
+      side = 1, line = 1.5, cex = 0.75, col = "gray30")
 dev.off()
 
-png("plots/03_expression_data_distribution.png", width = 1200, height = 600, res = plot_resolution)
-par(mfrow = c(1, 2))
+set.seed(123)
+sel_genes <- sample(seq_len(ncol(datExpr)), min(20, ncol(datExpr)))
+gene_axis_cex        <- 0.6
+max_gene_label_chars <- max(nchar(colnames(datExpr)[sel_genes]), na.rm = TRUE)
+## Vertical tick labels (las = 2) consume roughly one text line per character.
+## Use a slightly more conservative factor so labels still fit at high DPI.
+gene_label_lines     <- max_gene_label_chars * gene_axis_cex * 0.45
+expr_xlab_line       <- ceiling(gene_label_lines) + 1
+expr_box_bottom_mar  <- expr_xlab_line + 2
+plot03_base_h        <- max(750, 380 + max_gene_label_chars * 10)
+## Width has an exact assertion (1400) so we cannot grow it; scale height
+## with DPI to preserve figure inches, and always apply the margin capper.
+plot03_dims_h <- dpi_safe_dims(1400, plot03_base_h)[["height"]]
+expr_plot_height <- max(700, plot03_dims_h)
+## Cap both subplot margin sets against the actual (width,height).
+plot03_mar_hist <- cap_mar_to_figure(1400, expr_plot_height, c(5, 4, 4, 2))
+plot03_mar_box  <- cap_mar_to_figure(1400, expr_plot_height, c(expr_box_bottom_mar, 4, 4, 1))
+
+png("plots/03_expression_data_distribution.png", width = 1400, height = expr_plot_height, res = plot_resolution)
+par(mfrow = c(1, 2), mar = plot03_mar_hist)
 hist(as.numeric(datExpr), breaks = 100,
      main = "Distribution of Expression Values",
      sub  = ifelse(log_transform, "Log2-transformed counts", "Input counts"),
      xlab = "Expression Value", col = "lightblue", border = "white")
-set.seed(123)
-sel_genes <- sample(seq_len(ncol(datExpr)), min(20, ncol(datExpr)))
+par(mar = plot03_mar_box)
 boxplot(datExpr[, sel_genes, drop = FALSE],
         main = "Gene Expression Distributions\n(20 random genes)",
-        xlab = "Genes", ylab = "Expression Value",
-        las = 2, cex.axis = 0.7, col = "lightblue", border = "gray40")
+        xlab = "", ylab = "Expression Value",
+        las = 2, cex.axis = gene_axis_cex, col = "lightblue", border = "gray40")
+mtext("Genes", side = 1, line = expr_xlab_line, cex = 0.9)
 par(mfrow = c(1, 1))
 dev.off()
 
@@ -309,7 +433,12 @@ cat("Modules identified (excluding grey):",
     sum(names(module_gene_counts) != "grey"), "\n")
 print(module_gene_counts)
 
-png("plots/05_dendrogram_and_modules.png", width = 1200, height = 600, res = plot_resolution)
+## plotDendroAndColors manages its own margins internally, but it still
+## respects the current par() state and can blow up on a small figure.  Pre-set
+## a DPI-aware default mar so internal adjustments land inside the figure.
+plot05_mar <- cap_mar_to_figure(1200, 750, c(3, 3, 3, 1))
+png("plots/05_dendrogram_and_modules.png", width = 1200, height = 750, res = plot_resolution)
+par(mar = plot05_mar)
 plotDendroAndColors(
     net[["dendrograms"]][[1]],
     module_colors[net[["blockGenes"]][[1]]],
@@ -323,21 +452,70 @@ dev.off()
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
 
+## blockwiseModules() was run with numericLabels = TRUE, so net$MEs (and thus
+## module_eigengenes) columns are named "ME0", "ME1", ... using raw numeric
+## module labels instead of color names. Convert them to color-based names
+## (e.g. "MEblue") here, once, so every downstream consumer of
+## module_eigengenes (geneInfo.tsv's MM_ME* columns, the eigengene
+## dendrogram, and the module-trait heatmap) shows labels consistent with
+## the ModuleColor column instead of raw numbers.
+me_numeric_ids <- suppressWarnings(as.integer(sub("^ME", "", colnames(module_eigengenes))))
+if (!anyNA(me_numeric_ids)) {
+    colnames(module_eigengenes) <- paste0("ME", labels2colors(me_numeric_ids))
+}
+
+## Scale the eigengene dendrogram canvas with the number of modules and
+## traits, matching the approach used for the module-trait heatmap (plot 07)
+## below, so labels stay readable with many modules/traits.
+plot06_base_w <- max(1000, 60 * ncol(trait_data) + 700)
+plot06_base_h <- max(700, 40 * ncol(module_eigengenes) + 500)
+## Width and height are MIN-only assertions; scale with DPI for safe margins.
+plot06_dims <- dpi_safe_dims(plot06_base_w, plot06_base_h)
+eigengene_dendro_width  <- plot06_dims[["width"]]
+eigengene_dendro_height <- plot06_dims[["height"]]
+plot06_mar <- cap_mar_to_figure(eigengene_dendro_width, eigengene_dendro_height, c(5, 4, 4, 2))
+
 if (ncol(module_eigengenes) > 1) {
     ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs")
     ME_diss <- 1 - ME_cor
     ME_tree <- hclust(as.dist(ME_diss), method = "average")
-    png("plots/06_module_eigengene_dendrogram.png", width = 1000, height = 700, res = plot_resolution)
+    png("plots/06_module_eigengene_dendrogram.png", width = eigengene_dendro_width, height = eigengene_dendro_height, res = plot_resolution)
+    par(mar = plot06_mar)
     plot(ME_tree, main = "Clustering of Module Eigengenes", xlab = "", sub = "", cex = 0.9)
     abline(h = 0.25, col = "red", lty = 2)
     dev.off()
 } else {
     cat("Only one module found; skipping module eigengene dendrogram.\n")
-    png("plots/06_module_eigengene_dendrogram.png", width = 1000, height = 700, res = plot_resolution)
+    png("plots/06_module_eigengene_dendrogram.png", width = eigengene_dendro_width, height = eigengene_dendro_height, res = plot_resolution)
+    par(mar = plot06_mar)
     plot.new()
     text(0.5, 0.5, "Only one module found;\ndendrogram not applicable", cex = 1.2)
     dev.off()
 }
+
+## ── Genome-wide gene-module membership summary ─────────────────────────────
+## For every gene (not just those in a trait-relevant module), correlate its
+## expression profile with every module eigengene. This mirrors the classic
+## WGCNA tutorial's gene_info summary table (Symbol, moduleColor, membership
+## in every module + p-values), giving a single genome-wide reference table
+## in addition to the per-trait/per-module tables produced later.
+gene_module_membership_all <- cor(datExpr, module_eigengenes, use = "pairwise.complete.obs")
+mm_pvalue_all <- corPvalueStudent(as.matrix(gene_module_membership_all), nrow(datExpr))
+colnames(gene_module_membership_all) <- paste0("MM_", colnames(module_eigengenes))
+colnames(mm_pvalue_all)              <- paste0("p.MM_", colnames(module_eigengenes))
+
+gene_info_all <- data.frame(
+    Gene        = colnames(datExpr),
+    ModuleColor = module_colors[colnames(datExpr)],
+    gene_module_membership_all,
+    mm_pvalue_all,
+    stringsAsFactors = FALSE
+)
+gene_info_all <- gene_info_all[order(gene_info_all[["ModuleColor"]]), ]
+
+write.table(gene_info_all,
+    file  = "results/geneInfo.tsv",
+    sep   = "\t", quote = FALSE, row.names = FALSE)
 
 ## ── STEP 6: Module-trait associations ────────────────────────────────────────
 trait_data_aligned <- trait_data[rownames(module_eigengenes), , drop = FALSE]
@@ -356,21 +534,31 @@ dim(text_matrix) <- dim(module_trait_cor)
 ## so that labels stay readable even with many traits or many modules; the
 ## floor values below match the previous fixed 1200x800 default for a
 ## typical small run.
-heatmap_width  <- max(1200, 100 * ncol(trait_data_aligned) + 600)
-heatmap_height <- max(800, 40 * ncol(module_eigengenes) + 500)
+trait_display_labels <- prettify_trait_label(colnames(trait_data_aligned))
+n_traits_for_plot07  <- length(trait_display_labels)
+n_modules_for_plot07 <- ncol(module_eigengenes)
+plot07_base_w  <- max(900, 80 * n_traits_for_plot07 + 500)
+plot07_base_h <- max(700, 35 * n_modules_for_plot07 + 400)
+## Width and height are MIN-only assertions; scale with DPI for safe margins
+## with mar=c(10,10,4,3) (which is a large, label-friendly margin set).
+plot07_dims <- dpi_safe_dims(plot07_base_w, plot07_base_h)
+heatmap_width  <- plot07_dims[["width"]]
+heatmap_height <- plot07_dims[["height"]]
+plot07_mar <- cap_mar_to_figure(heatmap_width, heatmap_height, c(10, 10, 4, 3))
+heatmap_cex_text <- max(0.9, min(1.4, 3.5 / sqrt(max(n_traits_for_plot07, n_modules_for_plot07))))
 
 png("plots/07_module_trait_heatmap.png", width = heatmap_width, height = heatmap_height, res = plot_resolution)
-par(mar = c(8, 10, 3, 3))
+par(mar = plot07_mar)
 labeledHeatmap(
     Matrix        = module_trait_cor,
-    xLabels       = colnames(trait_data_aligned),
+    xLabels       = trait_display_labels,
     yLabels       = colnames(module_eigengenes),
     ySymbols      = colnames(module_eigengenes),
     colorLabels   = FALSE,
     colors        = blueWhiteRed(50),
     textMatrix    = text_matrix,
     setStdMargins = FALSE,
-    cex.text      = 0.6,
+    cex.text      = heatmap_cex_text,
     zlim          = c(-1, 1),
     main          = "Module-Trait Relationships\n(correlation and p-value)"
 )
@@ -444,8 +632,10 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
 
     trait_label <- safe_label(trait_of_interest)
 
+    plot08_mar <- cap_mar_to_figure(1000, 700, c(5, 4, 4, 2) + 0.1)
     png(paste0("plots/08_gene_significance_vs_module_membership_", module_name, "_", trait_label, ".png"),
         width = 1000, height = 700, res = plot_resolution)
+    par(mar = plot08_mar)
     plot(abs(module_gene_info[["ModuleMembership"]]),
          abs(module_gene_info[["GeneSignificance"]]),
          xlab = paste("Module Membership in", module_name, "module"),
@@ -480,8 +670,10 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
 
     is_top10 <- hub_info[["Connectivity"]] > quantile(hub_info[["Connectivity"]], 0.9, na.rm = TRUE)
 
+    plot09_mar <- cap_mar_to_figure(800, 600, c(5, 4, 4, 2) + 0.1)
     png(paste0("plots/09_hub_genes_", module_name, "_", trait_label, ".png"),
         width = 800, height = 600, res = plot_resolution)
+    par(mar = plot09_mar)
     plot(hub_info[["ModuleMembership"]], hub_info[["Connectivity"]],
          xlab = "Module Membership (MM)", ylab = "Connectivity (Intramodular)",
          main = paste("Hub Gene Identification in", module_name, "module"),
@@ -514,8 +706,9 @@ node_colors    <- gene_color_map[top_genes]
 node_colors[is.na(node_colors)] <- "grey"
 node_sizes     <- log10(degree(network_graph) + 1) * 3 + 3
 
+plot14_mar <- cap_mar_to_figure(1200, 1200, c(1, 1, 3, 1))
 png("plots/14_coexpression_network.png", width = 1200, height = 1200, res = plot_resolution)
-par(mar = c(1, 1, 3, 1))
+par(mar = plot14_mar)
 set.seed(123)
 plot(network_graph,
      vertex.size        = node_sizes,
@@ -553,6 +746,12 @@ if (n_edges == 0) {
     n_edges      <- sum(me_adj) / 2
     cat("Edges at |r| >", cor_thresh, ":", n_edges, "\n")
 }
+
+## module_eigengenes columns are already color-named (e.g. "MEblue") as of
+## the conversion added in Step 5 above, so me_names here are color labels,
+## not raw numeric ones — module_colors_me below is kept (rather than removed)
+## for backward compatibility with any future numericLabels = TRUE usage, but
+## now simply passes color names through unchanged in the normal case.
 me_names         <- colnames(module_eigengenes)
 module_ids_me    <- sub("^ME", "", me_names)
 module_colors_me <- module_ids_me
@@ -560,6 +759,7 @@ numeric_me       <- suppressWarnings(!is.na(as.numeric(module_ids_me)))
 module_colors_me[numeric_me] <- labels2colors(as.numeric(module_ids_me[numeric_me]))
 names(module_colors_me) <- me_names
 
+plot15_mar <- cap_mar_to_figure(1000, 1000, c(1, 1, 3, 1))
 if (sum(me_adj) > 0) {
     me_network    <- graph_from_adjacency_matrix(me_adj, mode = "undirected", diag = FALSE)
     vertex_colors <- module_colors_me[vertex_attr(me_network, "name")]
@@ -572,7 +772,7 @@ if (sum(me_adj) > 0) {
     node_sizes_me <- log10(as.numeric(module_sizes_net) + 1) * 10 + 10
 
     png("plots/15_module_eigengene_network.png", width = 1000, height = 1000, res = plot_resolution)
-    par(mar = c(1, 1, 3, 1))
+    par(mar = plot15_mar)
     set.seed(123)
     plot(me_network,
          vertex.size        = node_sizes_me,
@@ -591,7 +791,7 @@ if (sum(me_adj) > 0) {
     ## discovery always finds the same, deterministic set of plot files.
     cat("No significant module-module edges after thresholding.\n")
     png("plots/15_module_eigengene_network.png", width = 1000, height = 1000, res = plot_resolution)
-    par(mar = c(1, 1, 3, 1))
+    par(mar = plot15_mar)
     plot.new()
     text(0.5, 0.5, "No significant module-module\nedges found", cex = 1.2)
     dev.off()
@@ -601,8 +801,11 @@ me_cor_labeled <- me_correlation
 rownames(me_cor_labeled) <- module_colors_me
 colnames(me_cor_labeled) <- module_colors_me
 
+plot16_mar_multi   <- cap_mar_to_figure(1200, 1200, c(5, 4, 4, 2) + 0.1)
+plot16_mar_single  <- cap_mar_to_figure(1200, 1200, c(5, 5, 4, 2))
 png("plots/16_module_eigengene_correlation_heatmap.png", width = 1200, height = 1200, res = plot_resolution)
 if (nrow(me_cor_labeled) > 1) {
+    par(mar = plot16_mar_multi)
     heatmap(me_cor_labeled,
             col     = colorRampPalette(c("blue", "white", "red"))(50),
             scale   = "none",
@@ -610,7 +813,7 @@ if (nrow(me_cor_labeled) > 1) {
             margins = c(8, 8),
             main    = "Module Eigengene Correlation Heatmap")
 } else {
-    par(mar = c(5, 5, 4, 2))
+    par(mar = plot16_mar_single)
     image(x = 1, y = 1, z = matrix(me_cor_labeled[1, 1], nrow = 1),
           col  = colorRampPalette(c("blue", "white", "red"))(50),
           zlim = c(-1, 1),
@@ -644,7 +847,6 @@ cat("Results written to: results/\n")
         <param name="merge_cut_height" type="float" value="0.25" min="0" max="1" label="Module merge cut height" help="Modules with eigengene correlation above (1 - this value) will be merged."/>
         <param name="me_cor_threshold" type="float" value="0.5" min="0" max="1" label="Module eigengene network correlation threshold" help="Minimum |correlation| between module eigengenes required to draw an edge in the module eigengene network (Step 10). If no module pairs pass this threshold, the tool automatically retries at half this value."/>
         <expand macro="filter_variance_params"/>
-
         <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
         <param name="trait_columns" type="data_column" data_ref="metadata_file" use_header_names="true" multiple="true" label="Metadata trait columns" help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded. Gene significance, module membership, and hub-gene analysis are run for every selected trait (and each one-hot level of categorical traits)."/>
         <param name="plot_resolution" type="integer" value="300" min="72" max="600" label="Plot resolution (DPI)" help="Resolution, in dots per inch, used when rendering the PNG plots."/>
@@ -658,58 +860,66 @@ cat("Results written to: results/\n")
             <discover_datasets pattern="(?P&lt;name&gt;module_gene_info_.+)\.tsv" directory="results" format="tabular"/>
             <discover_datasets pattern="(?P&lt;name&gt;hub_genes_.+)\.tsv" directory="results" format="tabular"/>
         </collection>
+        <data name="gene_info_output" format="tabular" label="${tool.name} on ${on_string} - Genome-wide gene-module membership" from_work_dir="results/geneInfo.tsv"/>
         <data name="rscript_output" format="txt" label="${tool.name} on ${on_string} - R script" from_work_dir="wgcna_script.R">
             <filter>save_rscript</filter>
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="network_type" value="signed"/>
             <param name="min_module_size" value="10"/>
             <param name="trait_columns" value="2"/>
+            <output name="gene_info_output">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_text text="ModuleColor"/>
+                    <has_text text="MM_ME"/>
+                </assert_contents>
+            </output>
             <output_collection name="wgcna_plots" type="list" count="11">
                 <element name="01_gene_variance_distribution">
                     <assert_contents>
                         <has_size min="100"/>
                         <has_image_width width="800"/>
-                        <has_image_height height="600"/>
+                        <has_image_height min="600"/>
                     </assert_contents>
                 </element>
                 <element name="02_sample_clustering">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="600"/>
+                        <has_image_width min="1200"/>
+                        <has_image_height min="700"/>
                     </assert_contents>
                 </element>
                 <element name="03_expression_data_distribution">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="600"/>
+                        <has_image_width width="1400"/>
+                        <has_image_height min="700"/>
                     </assert_contents>
                 </element>
                 <element name="05_dendrogram_and_modules">
                     <assert_contents>
                         <has_size min="100"/>
                         <has_image_width width="1200"/>
-                        <has_image_height height="600"/>
+                        <has_image_height height="750"/>
                     </assert_contents>
                 </element>
                 <element name="06_module_eigengene_dendrogram">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1000"/>
-                        <has_image_height height="700"/>
+                        <has_image_width min="1000"/>
+                        <has_image_height min="700"/>
                     </assert_contents>
                 </element>
                 <element name="07_module_trait_heatmap">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width min="1200"/>
-                        <has_image_height min="800"/>
+                        <has_image_width min="900"/>
+                        <has_image_height min="700"/>
                     </assert_contents>
                 </element>
                 <element name="08_gene_significance_vs_module_membership_magenta_age_at_diagnosis">
@@ -753,7 +963,7 @@ cat("Results written to: results/\n")
                 </element>
             </output_collection>
         </test>
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="4">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="softpower_config" value="softpower_config.txt"/>
@@ -763,6 +973,12 @@ cat("Results written to: results/\n")
             <param name="save_rscript" value="true"/>
             <output_collection name="wgcna_plots" type="list" count="11"/>
             <output_collection name="gene_tables" type="list" count="2"/>
+            <output name="gene_info_output">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_text text="ModuleColor"/>
+                </assert_contents>
+            </output>
             <output name="rscript_output">
                 <assert_contents>
                     <has_size min="100"/>
@@ -770,7 +986,7 @@ cat("Results written to: results/\n")
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="network_type" value="signed"/>
@@ -780,7 +996,7 @@ cat("Results written to: results/\n")
             <output_collection name="gene_tables" type="list" count="8"/>
         </test>
         <!-- Manual soft power entry (no softpower_config), power = 10 -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="counts_file" value="normalized_counts.tsv"/>
             <param name="metadata_file" value="trait_data.tsv"/>
             <param name="soft_power" value="10"/>
@@ -793,7 +1009,6 @@ cat("Results written to: results/\n")
                 <has_text text="Soft power set manually: 10"/>
             </assert_stdout>
         </test>
-
         <!-- Sample names in counts matrix don't match sample names in metadata -->
         <test expect_failure="true">
             <param name="counts_file" value="normalized_counts.tsv"/>
@@ -833,7 +1048,9 @@ Network type defaults to *Unsigned*. For most RNA-seq co-expression analyses, *S
 
 - **wgcna_plots** — a collection of every diagnostic and results plot produced by the pipeline.
 - **gene_tables** — a collection of module gene info and hub gene tables, one pair per trait (and per one-hot level for categorical traits), each for the module most correlated with that trait.
+- **Genome-wide gene-module membership** — a single table listing every gene, its assigned module color, and its membership correlation (and p-value) with every module eigengene in the dataset, ordered by module color.
 - **R script** (optional) — the exact R script executed for this run, provided when "Save the R script used for this run" is enabled; useful for debugging.
+
     ]]></help>
     <expand macro="wgcna_citations"/>
 </tool>

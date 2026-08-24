@@ -418,23 +418,52 @@ if (!is.null(opt$custom_design_formula)) {
     design_formula <- as.formula(paste("~", paste(rev(factors), collapse = " + ")))
 }
 
+# Select the transformation used by plots which are made once for each analysis.
+# DESeq2 recommends VST over rlog for medium-to-large datasets because rlog
+# becomes slow as the number of samples increases.
+transform_for_plotting <- function(dds) {
+    sample_count <- ncol(dds)
+
+    if (sample_count <= 30L) {
+        if (verbose) cat(sprintf("using rlog transformation for plots (%d samples)\n", sample_count))
+        return(rlog(dds, blind = TRUE))
+    }
+
+    # The fast vst() helper requires at least 1,000 genes whose mean normalized
+    # count is greater than 5. Use the full VST for smaller gene panels.
+    eligible_gene_count <- sum(rowMeans(counts(dds, normalized = TRUE)) > 5)
+    if (eligible_gene_count >= 1000L) {
+        if (verbose) cat(sprintf("using fast VST for plots (%d samples)\n", sample_count))
+        return(vst(dds, blind = TRUE))
+    }
+
+    if (verbose) {
+        cat(sprintf(
+            "using full VST for plots (%d samples; %d genes eligible for fast VST)\n",
+            sample_count,
+            eligible_gene_count
+        ))
+    }
+    varianceStabilizingTransformation(dds, blind = TRUE)
+}
+
 # these are plots which are made once for each analysis
 generate_generic_plots <- function(dds, factors) {
     library("ggplot2")
     library("ggrepel")
     library("pheatmap")
 
-    rld <- rlog(dds)
-    p <- plotPCA(rld, intgroup = rev(factors))
+    transformed <- transform_for_plotting(dds)
+    p <- plotPCA(transformed, intgroup = rev(factors))
     print(p + geom_text_repel(aes_string(x = "PC1", y = "PC2", label = factor(colnames(dds))), size = 3) + geom_point())
-    dat <- assay(rld)
-    dists_rl <- dist(t(dat))
-    mat <- as.matrix(dists_rl)
+    dat <- assay(transformed)
+    sample_dists <- dist(t(dat))
+    mat <- as.matrix(sample_dists)
     colors <- colorRampPalette(rev(brewer.pal(9, "Blues")))(255)
     pheatmap(
         mat,
-        clustering_distance_rows = dists_rl,
-        clustering_distance_cols = dists_rl,
+        clustering_distance_rows = sample_dists,
+        clustering_distance_cols = sample_dists,
         col = colors,
         main = "Sample-to-sample distances"
     )
