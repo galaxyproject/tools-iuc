@@ -8,29 +8,14 @@
     <expand macro="creators"/>
     <version_command>python -c "import rectanglepy; print(rectanglepy.__version__)"</version_command>
     <command detect_errors="aggressive"><![CDATA[
-        #if $bulks.ext == 'spatialdata.zip':
-            mkdir -p input &&
-            unzip -q '$bulks' -d input &&
-            ## Find the zarr store root: first directory containing (.zattrs AND .zgroup) OR zarr.json
-            zarr_dir=\$(find input -type d | while read -r d; do
-                if { [ -f "\$d/.zattrs" ] && [ -f "\$d/.zgroup" ]; } || [ -f "\$d/zarr.json" ]; then
-                    echo "\$d";
-                fi
-            done | awk '{ print length, \$0 }' | sort -n | head -1 | cut -d' ' -f2-) &&
-            if [ -z "\$zarr_dir" ]; then
-                echo "ERROR: No zarr store found under input/" >&2;
-                exit 1;
-            fi &&
-            if [ "\$zarr_dir" != "input/spatialdata.zarr" ]; then
-                mv "\$zarr_dir" input/spatialdata.zarr;
-            fi &&
-        #end if
         cat '$script_file' &&
         python '$script_file'
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 import os
+import tempfile
+import zipfile
 import anndata as ad
 import pandas as pd
 import numpy as np
@@ -43,8 +28,25 @@ adata = ad.read_h5ad('$adata')
 
 #if $bulks.ext == 'spatialdata.zip':
 import spatialdata as sd
-spdata = sd.read_zarr('input/spatialdata.zarr')
-bulks = spdata['$table'].to_df()
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    with zipfile.ZipFile('$bulks', 'r') as zip_ref:
+        zip_ref.extractall(tmp_dir)
+
+    ## Find the zarr store root: shallowest directory containing
+    ## (.zattrs AND .zgroup) OR zarr.json
+    zarr_dir = None
+    for root, dirs, files in os.walk(tmp_dir):
+        if ({'.zattrs', '.zgroup'} <= set(files)) or ('zarr.json' in files):
+            if zarr_dir is None or len(root) < len(zarr_dir):
+                zarr_dir = root
+
+    if zarr_dir is None:
+        raise RuntimeError("No zarr store found in the uploaded SpatialData archive")
+
+    spdata = sd.read_zarr(zarr_dir)
+    bulks = spdata['$table'].to_df()
+
 ## ensure CPM
 bulks = bulks.div(bulks.sum(axis=1), axis=0) * 1e6
 ## Transpose to have genes as rows and samples as columns
