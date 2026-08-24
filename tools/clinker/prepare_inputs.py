@@ -91,8 +91,6 @@ def stage_inputs(inputs, input_dir):
         destination_dir = input_dir / f"{index:06d}"
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = destination_dir / f"{staged_name}.gbff"
-        if destination.exists() or destination.is_symlink():
-            destination.unlink()
         os.symlink(Path(source).resolve(), destination)
 
 
