@@ -6,6 +6,17 @@ the [new tool review guide](guide_for_reviewers.md): this document describes the
 update workflow, while the reviewer guide provides the corresponding review
 checks.
 
+The [IUC Standards and Best
+Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/) remain the
+canonical source for general wrapper requirements. In particular, follow the
+standards for [tool XML and
+versioning](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html),
+[dependencies](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/package_xml.html),
+and [ToolShed
+readiness](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/integration_checklist.html).
+This guide only describes the additional work needed when updating an existing
+tool in tools-iuc.
+
 An update is more than changing a version token. Upstream releases may change
 command-line arguments, defaults, output formats, exit behavior, dependencies,
 or licensing. Treat the version change, wrapper adaptation, tests, and review
@@ -17,8 +28,8 @@ Before editing files:
 
 1. Identify the target upstream version and the wrapper directory.
 2. Find every tool XML file and macro file in the tool suite.
-3. Identify the main Conda requirement and how the suite defines
-   `@TOOL_VERSION@` and `@VERSION_SUFFIX@`.
+3. Determine which wrappers share the version and requirement macros and must
+   move together.
 4. Confirm that the target package version exists in the best-practice Conda
    channels. Do not require a BioContainer for the new version before merge;
    that image may only be built after the update lands on the main branch.
@@ -56,50 +67,34 @@ planemo autoupdate --recursive tools/<tool>
 If the target version is not the newest version selected by `autoupdate`,
 edit the version tokens and requirements deliberately instead.
 
-After an upstream software update:
-
-- Set `@TOOL_VERSION@` to the upstream/package version used by the wrapper.
-- Keep the main requirement synchronized with `@TOOL_VERSION@`.
-- Reset `@VERSION_SUFFIX@` to `0`.
-- Ensure every affected tool's `version` attribute resolves to the intended
-  `<upstream-version>+galaxy0` value.
-
-For a wrapper-only change with no upstream software update, keep
-`@TOOL_VERSION@` unchanged and increment `@VERSION_SUFFIX@` instead.
+Apply the [IUC tool-version
+rules](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-versions)
+to every affected wrapper. Check the complete suite after automation runs;
+shared macros can change wrappers that do not otherwise appear in the diff.
 
 ## 3. Adapt the wrapper to the upstream release
 
-Compare the updated software's help and release notes with the wrapper. Check at
-least:
-
-- Added, removed, renamed, or behavior-changing command-line arguments.
-- Changed defaults, accepted values, validation constraints, or required
-  combinations.
-- Changed input and output formats, filenames, headers, ordering, or precision.
-- Changed exit codes, warnings, logging, or error-detection behavior.
-- Added or changed runtime dependencies, data files, environment variables, or
-  licenses.
-- Help text, citations, and version reporting that mention old behavior.
+Compare the updated software's help and all intervening release notes with the
+wrapper. Identify changes that affect the wrapped interface, such as command
+line options and defaults, input or output formats, dependencies, or licensing.
+Apply the corresponding IUC standards instead of restating them here.
 
 Make the smallest coherent update. Avoid unrelated cleanup unless it is needed
-for the new release or removes a concrete lint or maintenance problem. In
-particular, changing the Galaxy tool `profile` can change runtime semantics; do
-so intentionally and test the consequences.
+for the new release or to meet a current standard. When updating the tool
+`profile` to satisfy the [IUC profile
+standard](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-profile),
+test any resulting change in Galaxy semantics.
 
 ## 4. Update tests deliberately
 
 Run the existing tests before changing their expectations when practical, then
 use failures to distinguish upstream behavior changes from wrapper defects.
 
-- Add or adjust tests for new or changed behavior exposed by the wrapper.
-- Preserve coverage of unchanged behavior.
-- Prefer semantic assertions over broad tolerances or complete expected-output
-  replacement.
-- When output contains nondeterministic content, loosen only the unstable part
-  and retain assertions for stable invariants.
-- Do not accept regenerated test data without inspecting and explaining every
-  meaningful difference.
-- Keep test data small and remove files that are no longer used.
+Follow the [IUC test
+standards](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tests).
+Add or adjust coverage for release changes exposed by the wrapper, and preserve
+coverage of unchanged behavior. Inspect every regenerated test-data difference
+and tie it to an upstream or wrapper behavior change.
 
 Use `planemo autoupdate --test` only when its selected target version and test
 scope are correct. Treat `--update_test_data` as a proposal generator, not as

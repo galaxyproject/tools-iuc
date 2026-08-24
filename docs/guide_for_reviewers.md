@@ -15,9 +15,9 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 For a version-bump pull request, use the
 [Galaxy Tool Update Guide](guide_for_tool_updates.md). Review the complete tool
 directory, not only the changed lines: shared macros can affect sibling
-wrappers that are absent from the diff.
-
-### Scope and upstream evidence
+wrappers that are absent from the diff. Apply the general [IUC Standards and
+Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/) rather
+than duplicating those checks here.
 
 * [ ] Is the target upstream version clear, and do the pull request
       description and the diff agree on it?
@@ -28,48 +28,17 @@ wrappers that are absent from the diff.
       executable's help been checked?
 * [ ] For a suite, have all wrappers and shared macros affected by the version
       change been identified? Is any partial update explicit and justified?
-
-### Version metadata
-
-* [ ] Do `@TOOL_VERSION@` and the main Conda requirement contain the target
-      upstream version?
-* [ ] Is `@VERSION_SUFFIX@` reset to `0` for an upstream update? For a
-      wrapper-only change, is the upstream version unchanged and the suffix
-      incremented instead?
-* [ ] Does every affected wrapper resolve to the intended
-      `<upstream-version>+galaxy0` version, with no stale version strings?
-* [ ] Is any `skip-version-check` label limited to an explained partial-suite
-      update rather than used to hide inconsistent metadata?
-
-### Wrapper compatibility
-
-* [ ] Does the wrapper still match upstream command-line arguments, defaults,
-      accepted values, required combinations, and exit behavior?
-* [ ] Are input and output formats, filenames, headers, ordering, and precision
-      still represented correctly?
-* [ ] Are changed dependencies, data files, environment variables, licensing,
-      help text, citations, and version reporting reflected where relevant?
-* [ ] Are changes to command construction, quoting, Cheetah expressions, and
-      the Galaxy tool `profile` intentional and tested?
+* [ ] Does the result follow the IUC standards for [tool
+      versions](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-versions),
+      [profiles](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-profile),
+      [tests](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tests),
+      and [dependencies](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/package_xml.html)?
+* [ ] Are changes in the upstream interface reflected in the wrapper, and are
+      changed assertions or test data explained by those changes?
 * [ ] Is the diff the smallest coherent adaptation, without unrelated cleanup
       obscuring the update?
-
-### Tests and validation
-
-* [ ] Do tests cover newly exposed or changed behavior while preserving useful
-      coverage of unchanged behavior?
-* [ ] Are changed assertions and test-data differences explained by the
-      upstream release? Reject wholesale fixture regeneration or weakened
-      assertions without a specific reason.
 * [ ] Were linting and tests run against the complete tool directory so shared
       macros and sibling wrappers are covered?
-* [ ] Are the exact validation commands and outcomes recorded? Environment-
-      specific Planemo options are acceptable; an unrun check must be reported
-      rather than presented as passing.
-* [ ] Does pull request CI pass, apart from failures that are understood,
-      documented, and unrelated to the update?
-
-### Review outcome
 
 Treat an incorrect target, inconsistent version graph, missed upstream
 interface change, invalid test expectation, or unexplained validation gap as a
