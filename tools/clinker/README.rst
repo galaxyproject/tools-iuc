@@ -17,8 +17,7 @@ Python than in the Galaxy command template:
 
 * ``prepare_inputs.py`` validates every collection element as annotated
   GenBank, requires CDS features and at least two files, preserves collection
-  order, and stages safe filenames for clinker. It also accepts the current
-  Bakta ``annotation_gbff`` output when Galaxy labels it ``tabular``.
+  order, and stages safe filenames for clinker.
 * ``sanitize_html.py`` parses clinker's embedded JSON and escapes
   HTML-sensitive characters before rewriting the output, preventing
   input-derived annotation text from closing the document's script element.
@@ -32,10 +31,9 @@ generated visualization can be rendered inline.
 Testing
 ^^^^^^^
 
-The functional tests cover ordered collections, both GenBank and
-tabular-labelled GBFF inputs, generic annotated records, invalid input, the
-one-file failure case, and a regression test for HTML/JavaScript injection in
-annotation text.
+The functional tests cover ordered collections, generic annotated records,
+invalid input, the one-file failure case, and a regression test for
+HTML/JavaScript injection in annotation text.
 
 License
 ^^^^^^^
