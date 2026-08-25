@@ -25,6 +25,13 @@
     gzip -cdf '$rf' | awk '/^[>@+]/{l=0;next}{l+=length(\$0)}l>1000000{exit 1}'
     || { echo "FiLT3r error: a reads input contains a sequence longer than 1,000,000 bp and looks like a genome, assembly or reference rather than sequencing reads. Please supply short sequencing reads (FASTA/FASTQ)." >&2 ; exit 1 ; } &&
 #end for
+## Low-memory mode is the default: it keeps peak RAM near-constant instead of
+## growing with the number of matching reads (tens of GB on deep amplicons), at
+## the cost of ~2x runtime (and it is actually faster on very deep inputs). A
+## deployment can force the faster high-memory mode by setting the
+## FILT3R_HIGH_MEM environment variable, e.g. from a TPV rule.
+lowmem='--low-mem' ;
+if [ -n "\${FILT3R_HIGH_MEM:-}" ] ; then lowmem='' ; fi ;
 filt3r
     -k $kmer_size
     --nb-threads "\${GALAXY_SLOTS:-1}"
@@ -42,10 +49,7 @@ filt3r
     --highest-fp-rate $advanced.highest_fp_rate
     $advanced.no_bloom_filter
     $advanced.no_subst_removal
-    ## Low-memory mode is a deployment/resource decision, not a user option:
-    ## enable it by setting FILT3R_LOW_MEM (e.g. from a TPV rule on the memory
-    ## profile). When the variable is unset/empty this expands to nothing.
-    \${FILT3R_LOW_MEM:+--low-mem}
+    \$lowmem
     #if $vcf_output.make_vcf == 'yes'
         --vcf
         $vcf_output.out_sequences
@@ -90,15 +94,16 @@ filt3r
             </when>
         </conditional>
         <conditional name="vcf_output">
-            <param name="make_vcf" type="select" label="Also produce a VCF file (--vcf)">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
+            <param name="make_vcf" type="select" label="Produce a VCF file (--vcf)" help="The VCF is the default output. Turn this off only if you just want the JSON report.">
+                <option value="yes" selected="true">Yes</option>
+                <option value="no">No</option>
             </param>
             <when value="yes">
                 <param argument="--out-sequences" type="boolean" truevalue="--out-sequences" falsevalue="" checked="false" label="Write duplication sequences into the VCF (--out-sequences)"/>
             </when>
             <when value="no"/>
         </conditional>
+        <param name="keep_json" type="boolean" checked="false" label="Also output the JSON report" help="FiLT3r's native JSON with full per-breakpoint detail (position, size, coverage, VAF, sequences). Off by default; the VCF is the primary output."/>
         <section name="advanced" title="Advanced options" expanded="false">
             <param argument="--threshold" type="float" value="0.3" min="0" max="1" label="Read k-mer match ratio (--threshold)" help="Fraction of a read's k-mers that must match the reference for the read to be fully analysed; all others are discarded."/>
             <param argument="--kmer-extend" type="integer" value="2" min="1" label="K-mers to confirm a breakpoint (--kmer-extend)"/>
@@ -112,13 +117,15 @@ filt3r
         </section>
     </inputs>
     <outputs>
-        <data name="json" format="json" from_work_dir="filt3r.results.json" label="${tool.name} on ${on_string}: JSON report"/>
         <data name="vcf" format="vcf" from_work_dir="filt3r.results.vcf" label="${tool.name} on ${on_string}: VCF">
             <filter>vcf_output['make_vcf'] == 'yes'</filter>
         </data>
+        <data name="json" format="json" from_work_dir="filt3r.results.json" label="${tool.name} on ${on_string}: JSON report">
+            <filter>keep_json</filter>
+        </data>
     </outputs>
     <tests>
-        <!-- Single dataset, built-in FLT3 reference -->
+        <!-- Single dataset, built-in reference, defaults: VCF is the only output -->
         <test expect_num_outputs="1">
             <conditional name="input">
                 <param name="input_type" value="single"/>
@@ -128,15 +135,16 @@ filt3r
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="builtin"/>
             </conditional>
-            <output name="json">
+            <output name="vcf">
                 <assert_contents>
-                    <has_json_property_with_value property="nb_total" value="8"/>
-                    <has_json_property_with_value property="nb_filtered" value="8"/>
-                    <has_json_property_with_value property="nb_reads_in_events" value="5"/>
+                    <has_text text="##fileformat=VCFv4"/>
+                    <has_n_lines n="14"/>
+                    <!-- an actual variant record, not just header metadata -->
+                    <has_line_matching expression="^13\t28034136\t.\tT\t&lt;DUP&gt;\t.\tPASS\tSVLEN=18;M=5;.*VAF=0\.833333;DUP$"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Single dataset, user-supplied reference from history, with VCF output -->
+        <!-- Single dataset, history reference, JSON also kept: VCF + JSON -->
         <test expect_num_outputs="2">
             <conditional name="input">
                 <param name="input_type" value="single"/>
@@ -147,25 +155,22 @@ filt3r
                 <param name="reference_source_selector" value="history"/>
                 <param name="ref" value="flt3_exon14-15.fa" ftype="fasta"/>
             </conditional>
-            <conditional name="vcf_output">
-                <param name="make_vcf" value="yes"/>
-            </conditional>
+            <param name="keep_json" value="true"/>
             <output name="json">
                 <assert_contents>
                     <has_json_property_with_value property="nb_total" value="8"/>
+                    <has_json_property_with_value property="nb_filtered" value="8"/>
                     <has_json_property_with_value property="nb_reads_in_events" value="5"/>
                 </assert_contents>
             </output>
             <output name="vcf">
                 <assert_contents>
                     <has_text text="##fileformat=VCFv4"/>
-                    <has_n_lines n="14"/>
-                    <!-- an actual variant record, not just header metadata -->
                     <has_line_matching expression="^13\t28034136\t.\tT\t&lt;DUP&gt;\t.\tPASS\tSVLEN=18;M=5;.*VAF=0\.833333;DUP$"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Paired collection: forward and reverse analysed together as one sample -->
+        <!-- Paired collection, VCF off + JSON on: JSON is the only output -->
         <test expect_num_outputs="1">
             <conditional name="input">
                 <param name="input_type" value="paired"/>
@@ -180,6 +185,10 @@ filt3r
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="builtin"/>
             </conditional>
+            <conditional name="vcf_output">
+                <param name="make_vcf" value="no"/>
+            </conditional>
+            <param name="keep_json" value="true"/>
             <output name="json">
                 <assert_contents>
                     <has_json_property_with_value property="nb_total" value="16"/>
@@ -187,7 +196,7 @@ filt3r
                 </assert_contents>
             </output>
         </test>
-        <!-- Two separate forward/reverse datasets analysed as one sample -->
+        <!-- Two separate forward/reverse datasets, defaults: VCF only (doubled support) -->
         <test expect_num_outputs="1">
             <conditional name="input">
                 <param name="input_type" value="paired_two"/>
@@ -198,10 +207,10 @@ filt3r
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="builtin"/>
             </conditional>
-            <output name="json">
+            <output name="vcf">
                 <assert_contents>
-                    <has_json_property_with_value property="nb_total" value="16"/>
-                    <has_json_property_with_value property="nb_reads_in_events" value="10"/>
+                    <has_text text="##fileformat=VCFv4"/>
+                    <has_line_matching expression="^13\t28034136\t.\tT\t&lt;DUP&gt;\t.\tPASS\tSVLEN=18;M=10;.*VAF=0\.833333;DUP$"/>
                 </assert_contents>
             </output>
         </test>
@@ -250,10 +259,14 @@ duplications (FLT3-ITD) from capture and RNA-Seq data.
 
 ## Outputs
 
-- **JSON report** with, per breakpoint, the duplication size, read support,
-  region and wild-type coverage, MT/WT ratio and variant allele frequency (VAF),
-  plus the duplicated sequence.
-- **VCF** (optional).
+- **VCF** (default): one record per detected breakpoint, with size (SVLEN),
+  supporting reads (M), wild-type reads (WT) and variant allele frequency (VAF).
+- **JSON report** (optional): FiLT3r's native format with the full per-breakpoint
+  detail (position, duplication size, region and wild-type coverage, MT/WT ratio,
+  VAF and the duplicated sequence). Enable *Also output the JSON report* to keep it.
+
+Low-memory mode is used by default so peak memory stays low on deep amplicons;
+see the FiLT3r documentation to run it in the faster high-memory mode instead.
 
 See the [FiLT3r documentation](https://gitlab.univ-lille.fr/filt3r/filt3r/-/blob/master/README.md)
 for the full description of every output field.
