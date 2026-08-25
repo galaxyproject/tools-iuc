@@ -25,13 +25,6 @@
     gzip -cdf '$rf' | awk '/^[>@+]/{l=0;next}{l+=length(\$0)}l>1000000{exit 1}'
     || { echo "FiLT3r error: a reads input contains a sequence longer than 1,000,000 bp and looks like a genome, assembly or reference rather than sequencing reads. Please supply short sequencing reads (FASTA/FASTQ)." >&2 ; exit 1 ; } &&
 #end for
-## Low-memory mode is the default: it keeps peak RAM near-constant instead of
-## growing with the number of matching reads (tens of GB on deep amplicons), at
-## the cost of ~2x runtime (and it is actually faster on very deep inputs). A
-## deployment can force the faster high-memory mode by setting the
-## FILT3R_HIGH_MEM environment variable, e.g. from a TPV rule.
-lowmem='--low-mem' ;
-if [ -n "\${FILT3R_HIGH_MEM:-}" ] ; then lowmem='' ; fi ;
 filt3r
     -k $kmer_size
     --nb-threads "\${GALAXY_SLOTS:-1}"
@@ -49,10 +42,13 @@ filt3r
     --highest-fp-rate $advanced.highest_fp_rate
     $advanced.no_bloom_filter
     $advanced.no_subst_removal
-    \$lowmem
-    #if $vcf_output.make_vcf == 'yes'
+    ## Low-memory mode is the default (bounds peak RAM); a deployment can switch
+    ## to the faster high-memory mode by exporting FILT3R_LOW_MEM empty, e.g.
+    ## FILT3R_LOW_MEM= from a TPV rule.
+    \${FILT3R_LOW_MEM---low-mem}
+    #if 'vcf' in $output_formats
         --vcf
-        $vcf_output.out_sequences
+        $out_sequences
     #end if
     --out 'filt3r.results.json'
     ## One FiLT3r run per selected sample. Supplying a dataset collection makes
@@ -93,17 +89,11 @@ filt3r
                 <param argument="--ref" type="data" format="fasta,fasta.gz" label="Reference sequence" help="Single-sequence FASTA (optionally gzipped). For genomic coordinates in the output, use a header of the form chr:start-end:strand (e.g. 13:28033760-28034429:-1)."/>
             </when>
         </conditional>
-        <conditional name="vcf_output">
-            <param name="make_vcf" type="select" label="Produce a VCF file (--vcf)" help="The VCF is the default output. Turn this off only if you just want the JSON report.">
-                <option value="yes" selected="true">Yes</option>
-                <option value="no">No</option>
-            </param>
-            <when value="yes">
-                <param argument="--out-sequences" type="boolean" truevalue="--out-sequences" falsevalue="" checked="false" label="Write duplication sequences into the VCF (--out-sequences)"/>
-            </when>
-            <when value="no"/>
-        </conditional>
-        <param name="keep_json" type="boolean" checked="false" label="Also output the JSON report" help="FiLT3r's native JSON with full per-breakpoint detail (position, size, coverage, VAF, sequences). Off by default; the VCF is the primary output."/>
+        <param name="output_formats" type="select" multiple="true" optional="false" display="checkboxes" label="Output format(s)" help="At least one is required. The VCF is the default; the JSON report carries FiLT3r's full per-breakpoint detail (position, size, coverage, VAF, sequences).">
+            <option value="vcf" selected="true">VCF</option>
+            <option value="json">JSON report</option>
+        </param>
+        <param argument="--out-sequences" type="boolean" truevalue="--out-sequences" falsevalue="" checked="false" label="Write duplication sequences into the VCF (--out-sequences)" help="Only used when VCF is one of the selected outputs."/>
         <section name="advanced" title="Advanced options" expanded="false">
             <param argument="--threshold" type="float" value="0.3" min="0" max="1" label="Read k-mer match ratio (--threshold)" help="Fraction of a read's k-mers that must match the reference for the read to be fully analysed; all others are discarded."/>
             <param argument="--kmer-extend" type="integer" value="2" min="1" label="K-mers to confirm a breakpoint (--kmer-extend)"/>
@@ -118,10 +108,10 @@ filt3r
     </inputs>
     <outputs>
         <data name="vcf" format="vcf" from_work_dir="filt3r.results.vcf" label="${tool.name} on ${on_string}: VCF">
-            <filter>vcf_output['make_vcf'] == 'yes'</filter>
+            <filter>'vcf' in output_formats</filter>
         </data>
         <data name="json" format="json" from_work_dir="filt3r.results.json" label="${tool.name} on ${on_string}: JSON report">
-            <filter>keep_json</filter>
+            <filter>'json' in output_formats</filter>
         </data>
     </outputs>
     <tests>
@@ -155,7 +145,7 @@ filt3r
                 <param name="reference_source_selector" value="history"/>
                 <param name="ref" value="flt3_exon14-15.fa" ftype="fasta"/>
             </conditional>
-            <param name="keep_json" value="true"/>
+            <param name="output_formats" value="vcf,json"/>
             <output name="json">
                 <assert_contents>
                     <has_json_property_with_value property="nb_total" value="8"/>
@@ -185,10 +175,7 @@ filt3r
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="builtin"/>
             </conditional>
-            <conditional name="vcf_output">
-                <param name="make_vcf" value="no"/>
-            </conditional>
-            <param name="keep_json" value="true"/>
+            <param name="output_formats" value="json"/>
             <output name="json">
                 <assert_contents>
                     <has_json_property_with_value property="nb_total" value="16"/>
@@ -263,10 +250,9 @@ duplications (FLT3-ITD) from capture and RNA-Seq data.
   supporting reads (M), wild-type reads (WT) and variant allele frequency (VAF).
 - **JSON report** (optional): FiLT3r's native format with the full per-breakpoint
   detail (position, duplication size, region and wild-type coverage, MT/WT ratio,
-  VAF and the duplicated sequence). Enable *Also output the JSON report* to keep it.
+  VAF and the duplicated sequence). Add *JSON report* to the output formats to keep it.
 
-Low-memory mode is used by default so peak memory stays low on deep amplicons;
-see the FiLT3r documentation to run it in the faster high-memory mode instead.
+Select at least one output format; the VCF is selected by default.
 
 See the [FiLT3r documentation](https://gitlab.univ-lille.fr/filt3r/filt3r/-/blob/master/README.md)
 for the full description of every output field.
