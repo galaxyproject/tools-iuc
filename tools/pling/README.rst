@@ -11,6 +11,17 @@ User-facing input, parameter, and output instructions are kept in the
 ``<help>`` section of ``pling_cluster_align.xml``, where they are rendered in
 Galaxy.
 
+Galaxy repository scope
+^^^^^^^^^^^^^^^^^^^^^^^
+
+This repository currently provides the ``cluster align`` workflow as a standard
+Galaxy tool repository. Additional Pling subcommands can be added later if
+there is a need for them.
+
+We considered publishing this as a Galaxy suite, but the current plan is to
+provide only ``cluster align``. A suite can be introduced later if additional
+Pling subcommands are added.
+
 Implementation notes
 ^^^^^^^^^^^^^^^^^^^^
 
