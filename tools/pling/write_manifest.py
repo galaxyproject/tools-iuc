@@ -74,9 +74,6 @@ def is_gzip(path):
 
 def prepare_fasta(source, destination):
     """Materialize one uncompressed FASTA at the generated input path."""
-    if destination.exists() or destination.is_symlink():
-        destination.unlink()
-
     # Galaxy installations can preserve or transparently decompress compressed
     # datasets, so inspect the file content rather than trusting its extension.
     if is_gzip(source):
@@ -146,7 +143,7 @@ def read_topology(path, label_to_name):
         topology_by_label = {}
         for row in reader:
             plasmid = (row.get("plasmid") or "").strip()
-            topology = (row.get("topology") or "").strip().lower()
+            topology = (row.get("topology") or "").strip()
             if plasmid not in label_to_name:
                 raise SystemExit(
                     "Topology TSV plasmid value does not match an input "
