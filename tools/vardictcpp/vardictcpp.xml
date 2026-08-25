@@ -1,57 +1,79 @@
-<tool id="vardictcpp" name="VarDict (C++)" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
-    <description>calls SNVs and indels from a single BAM (C++ port of VarDict)</description>
+<tool id="vardictcpp" name="vardictcpp" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>SNV and indel variant caller</description>
     <macros>
         <import>macros.xml</import>
     </macros>
+    <edam_topics>
+        <edam_topic>topic_0199</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_3227</edam_operation>
+    </edam_operations>
+    <creator>
+        <person givenName="Joachim" familyName="Wolff" url="https://github.com/joachimwolff" />
+    </creator>
     <requirements>
-        <!-- The C++ port does the variant calling. NOTE: vardictcpp is not yet on Bioconda; this
-             requirement anticipates the recipe. -->
         <requirement type="package" version="@TOOL_VERSION@">vardictcpp</requirement>
-        <!-- vardict-java ships the teststrandbias.R + var2vcf_valid.pl post-processing scripts that
-             turn VarDict's TSV into VCF; the C++ output is column-compatible with them. -->
-        <requirement type="package" version="1.8.3">vardict-java</requirement>
-        <requirement type="package" version="5.1.0">gawk</requirement>
+        <requirement type="package" version="3.10.2">python</requirement>
         <requirement type="package" version="1.14">samtools</requirement>
     </requirements>
+    <version_command>vardictcpp --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
+        #if $select_mode.mode == "paired"
+            ln -s '$select_mode.normal' ./normal.bam &&
+            ln -s '$select_mode.normal.metadata.bam_index' ./normal.bam.bai &&
+        #end if
         ln -s '$select_mode.tumor' ./tumor.bam &&
         ln -s '$select_mode.tumor.metadata.bam_index' ./tumor.bam.bai &&
 
-        ## INDEX REFERENCE FASTA FILE IF FROM HISTORY
+        ## index the reference if it comes from the history
         #if $reference_source.reference_source_selector == "history":
             ln -s '$reference_source.ref_file' ./ref.fa &&
-            samtools faidx ./ref.fa 2>&1 || echo 'Error running samtools faidx for indexing fasta reference for vardictcpp' >&2 &&
+            samtools faidx ./ref.fa 2>&1 || echo 'Error running samtools faidx for indexing fasta reference' >&2 &&
         #else if $reference_source.reference_source_selector == "cached"
             ln -s '$reference_source.ref_file.fields.path' ./ref.fa &&
             ln -s '${reference_source.ref_file.fields.path}.fai' ./ref.fa.fai &&
         #end if
 
-        ## Build the target regions as a 3-column BED (chrom, start, end): the whole genome, a chosen
-        ## list of chromosomes, a single user region, or a user-supplied regions BED. vardictcpp does
-        ## bounded internal chunking (--chunk) with a correct realignment halo, so there is no need to
-        ## pre-tile the target into small overlapping windows: the C++ core keeps memory bounded itself.
-        ## vardictcpp needs the 4th (gene) column for -g 4, so emit chrom (or the BED's own name) as it.
-        #if $restrict.restrict_source == "genome"
-            awk 'BEGIN{OFS="\t"} {print \$1, 1, \$2, \$1}' ./ref.fa.fai > ./regions.bed &&
-        #else if $restrict.restrict_source == "chromosomes"
-            grep -w -f '$restrict.interval_file' ./ref.fa.fai | awk 'BEGIN{OFS="\t"} {print \$1, 1, \$2, \$1}' > ./regions.bed &&
-        #else if $restrict.restrict_source == "region"
-            echo '$restrict.region' | tr -d ',' | awk -F: 'BEGIN{OFS="\t"} {split(\$2, r, "-"); print \$1, r[1], r[2], \$1}' > ./regions.bed &&
-        #else if $restrict.restrict_source == "bed"
-            awk 'BEGIN{OFS="\t"} {print \$1, \$2, \$3, (NF>=4 ? \$4 : \$1)}' '$restrict.region_bed' > ./regions.bed &&
+        ## define the calling regions from the chosen source
+        #set $rtype = str($region_source.region_type)
+        #if $rtype == "genome"
+            #if $region_source.interval_file:
+                grep -w -f '$region_source.interval_file' ./ref.fa.fai > ./chromosomes.fa.fai &&
+            #else
+                ln -s ./ref.fa.fai ./chromosomes.fa.fai &&
+            #end if
+            python '$__tool_directory__/split.py' ./chromosomes.fa.fai "\${VARDICT_CHUNKSIZE:-1000000}" "\${VARDICT_OVERLAP:-150}" > ./regions.bed &&
+        #else if $rtype == "bed"
+            ## one or more user BEDs: normalise to a 4-column BED so -g 4 is valid. To call a whole
+            ## collection of BAMs each against its matching BED, map the tumor BAM over a BAM collection
+            ## and this BED over a BED collection: Galaxy runs the tool once per element, pairing by
+            ## element identifier.
+            python '$__tool_directory__/normalize_bed.py' '$region_source.bed_file' > ./regions.bed &&
+        #else if $rtype == "text"
+            ## typed regions are written to a config file (never interpolated into the shell), then
+            ## normalised to a 4-column tab BED by the same Python helper.
+            python '$__tool_directory__/normalize_bed.py' '$regions_input' > ./regions.bed &&
         #end if
 
+        ## vardictcpp only. --vcf writes VCF natively (in-C++ strand-bias Fisher test + var2vcf); no R / Perl.
         vardictcpp
-        -b "./tumor.bam"
-        -N 'Sample'
+        #if $select_mode.mode == "paired"
+            -b "./tumor.bam|./normal.bam"
+            -N 'Tumor|Normal'
+        #else
+            -b "./tumor.bam"
+            -N 'Sample'
+        #end if
         -G ./ref.fa
-        -z
         -th \${GALAXY_SLOTS:-1}
-        ## Split any region longer than this many bp into internal windows to bound peak memory.
-        --chunk \${VARDICTCPP_CHUNKSIZE:-50000}
+        --vcf
+        #if $select_mode.mode == "single"
+            --noend
+        #end if
 
         -f '$advancedsettings.f'
-        $advancedsettings.k
+        -k '$advancedsettings.k'
         -r '$advancedsettings.r'
         -B '$advancedsettings.B'
         -q '$advancedsettings.q'
@@ -59,118 +81,166 @@
         -P '$advancedsettings.P'
         -o '$advancedsettings.o'
         -O '$advancedsettings.O'
+        -x '$advancedsettings.x'
+        -V '$advancedsettings.V'
+        -m '$advancedsettings.m'
+        -I '$advancedsettings.I'
+        -L '$advancedsettings.L'
+        -mfreq '$advancedsettings.mfreq'
+        -nmfreq '$advancedsettings.nmfreq'
+        $advancedsettings.t
 
-        ## construct VCF table
-        -c 1 -S 2 -E 3 -g 4
-        ./regions.bed
+        #if $rtype == "single"
+            ## single region of interest; -R takes coordinates directly (no BED / column flags)
+            -R '$region_source.region'
+        #else
+            ## zero-based region BED (whole reference, user BED, or user-defined regions)
+            -z
+            -c 1 -S 2 -E 3 -g 4
+            ./regions.bed
+        #end if
 
-        ## postprocessing (scripts from the vardict-java package)
-        | teststrandbias.R
-        | var2vcf_valid.pl
-        -N 'Sample'
-        -E
-        -f '$advancedsettings.f'
-
-        > '$all_variants' &&
-
-        ## Filter for PASS variants
-        awk 'BEGIN {FS=OFS="\t"} substr(\$0, 1, 1) == "#" {print \$0; next} \$7 == "PASS" {print \$0}' '$all_variants' > '$passed_variants'
+        > '$variants'
     ]]></command>
+    <configfiles>
+        <configfile name="regions_input"><![CDATA[#if str($region_source.region_type) == "text"#$region_source.regions_text#end if#]]></configfile>
+    </configfiles>
     <inputs>
         <conditional name="select_mode">
             <param name="mode" type="select" label="Choose run mode">
                 <option value="single" selected="true">Single sample mode</option>
+                <option value="paired">Paired (tumor / normal) variant calling</option>
             </param>
             <when value="single">
                 <expand macro="input_default" />
             </when>
+            <when value="paired">
+                <param name="normal" type="data" format="bam" label="Normal file" />
+                <expand macro="input_default" />
+            </when>
         </conditional>
-        <expand macro="regions_conditional" />
+        <expand macro="region_source" />
         <section name="advancedsettings" title="Advanced Settings" expanded="false">
             <param argument="-f" type="float" min="0.0" max="1.0" value="0.01" label="Minimum variant allele fraction" />
-            <param argument="-k" type="boolean" truevalue="" falsevalue="-k" checked="true" label="Perform local realignment" help="Local realignment rescues long indels from soft-clipped reads. Uncheck to disable." />
+            <param argument="-k" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Perform local realignment" />
             <param argument="-r" type="integer" min="0" value="2" label="Minimum number of reads supporting the variant" />
             <param argument="-B" type="integer" min="0" value="2" label="Minimum number of reads for determining strand bias" />
-            <param argument="-P" type="integer" value="5" label="Maximum average read position for a variant to be considered." />
-            <param argument="-X" type="integer" value="3" label="Maximum number of extended bases after indel to look for mismatches" />
-            <param argument="-q" type="integer" value="25" label="Minimum phred score for a base to be considered a good call" />
-            <param argument="-o" type="float" value="1.5" label="Minimum quality ratio [(good_quality_reads)/(bad_quality_reads+0.5)] (based on definition of a good call; see previous option)" />
+            <param argument="-q" type="integer" value="30" label="Minimum phred score for a base to be considered a good call" />
+            <param argument="-X" type="integer" value="3" label="Maximum number of extended bases after an indel to look for mismatches" />
+            <param argument="-P" type="integer" value="5" label="Maximum average read position for a variant to be considered" />
+            <param argument="-o" type="float" value="1.5" label="Minimum quality ratio [(good_quality_reads)/(bad_quality_reads+0.5)]" />
             <param argument="-O" type="float" min="0" value="0" label="Minimum average mapping quality" />
+            <param argument="-x" type="integer" min="0" value="0" label="Extend each region by N bases upstream and downstream" help="Pads every BED / -R region on both ends (e.g. 1000 = +/- 1 kb), so reads flanking the target are included. Default 0 = no extension." />
+            <param argument="-V" type="float" min="0.0" max="1.0" value="0.05" label="Maximum variant allele fraction allowed in the matched normal" help="Somatic mode only: a candidate above this VAF in the normal is treated as germline/LOH rather than somatic." />
+            <param argument="-m" type="integer" min="0" value="8" label="Maximum mismatches before a read is discarded" help="Reads with more than this many mismatches (indel length not counted) are ignored." />
+            <param argument="-I" type="integer" min="0" value="50" label="Indel size (breakpoint search window for large indels)" />
+            <param argument="-L" type="integer" min="0" value="1000" label="Minimum structural-variant length to report (&lt;DEL&gt; / &lt;DUP&gt; / &lt;INV&gt;)" />
+            <param argument="-mfreq" type="float" min="0.0" max="1.0" value="0.25" label="Variant frequency threshold for monomer microsatellite (MSI) regions" />
+            <param argument="-nmfreq" type="float" min="0.0" max="1.0" value="0.1" label="Variant frequency threshold for non-monomer microsatellite (MSI) regions" />
+            <param argument="-t" type="boolean" truevalue="-t" falsevalue="" checked="false" label="Remove duplicated reads before calling" />
         </section>
         <expand macro="ref_select" />
     </inputs>
     <outputs>
-        <data name="all_variants" format="vcf" label="VarDict (C++) SNVs and Indels (All)" />
-        <data name="passed_variants" format="vcf" label="VarDict (C++) SNVs and Indels (Passed)" />
+        <data name="variants" format="vcf" label="vardictcpp ${select_mode.mode} variants (VCF)" />
     </outputs>
     <tests>
-        <test expect_num_outputs="2">
+        <!-- single-sample, typed regions (config-file path, no shell interpolation) -->
+        <test expect_num_outputs="1">
             <conditional name="select_mode">
                 <param name="mode" value="single" />
                 <param name="tumor" ftype="bam" value="tumor.bam" />
+            </conditional>
+            <conditional name="region_source">
+                <param name="region_type" value="text" />
+                <param name="regions_text" value="chrM 0 16571" />
             </conditional>
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="history"/>
                 <param name="ref_file" ftype="fasta" value="genome.fasta" />
             </conditional>
-            <output name="all_variants" compare="re_match_multiline" file="all_variants_single.vcf" />
-            <output name="passed_variants" compare="re_match_multiline" file="passed_variants_single.vcf" />
+            <output name="variants" ftype="vcf">
+                <assert_contents>
+                    <has_line line="##fileformat=VCFv4.2" />
+                    <has_text text="##INFO=&lt;ID=DP," />
+                    <has_text text="chrM" />
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="2">
+        <!-- single-sample, BED target -->
+        <test expect_num_outputs="1">
             <conditional name="select_mode">
                 <param name="mode" value="single" />
                 <param name="tumor" ftype="bam" value="tumor.bam" />
             </conditional>
-            <conditional name="restrict">
-                <param name="restrict_source" value="region" />
-                <param name="region" value="chrM:1-16571" />
+            <conditional name="region_source">
+                <param name="region_type" value="bed" />
+                <param name="bed_file" ftype="bed" value="target.bed" />
             </conditional>
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="history"/>
                 <param name="ref_file" ftype="fasta" value="genome.fasta" />
             </conditional>
-            <output name="all_variants" compare="re_match_multiline" file="all_variants_single.vcf" />
-            <output name="passed_variants" compare="re_match_multiline" file="passed_variants_single.vcf" />
+            <output name="variants" ftype="vcf">
+                <assert_contents>
+                    <has_line line="##fileformat=VCFv4.2" />
+                    <has_text text="chrM" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- paired (tumor / normal), whole genome; check somatic STATUS field is emitted -->
+        <test expect_num_outputs="1">
+            <conditional name="select_mode">
+                <param name="mode" value="paired" />
+                <param name="normal" ftype="bam" value="normal.bam" />
+                <param name="tumor" ftype="bam" value="tumor.bam" />
+            </conditional>
+            <conditional name="region_source">
+                <param name="region_type" value="genome" />
+            </conditional>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="genome.fasta" />
+            </conditional>
+            <output name="variants" ftype="vcf">
+                <assert_contents>
+                    <has_line line="##fileformat=VCFv4.2" />
+                    <has_text text="STATUS" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
-    <help>
-        <![CDATA[
-VarDict (C++)
-=============
+    <help><![CDATA[
+vardictcpp
+==========
 
-**vardictcpp** is a C++ port of the VarDict variant caller. On single-sample calling it reproduces the
-variants of the Java implementation (VarDictJava) while using a fraction of the memory and running
-faster, because it holds native per-position counters instead of the JVM object graph and needs no
-Java heap.
+**vardictcpp** is a standalone C++/htslib reimplementation of VarDict. It produces output
+byte-for-byte identical to VarDict-Java 1.8.3 at a fraction of the runtime and memory, in
+single-sample and paired (tumor/normal) modes.
 
-This wrapper runs single-sample SNV and indel calling and converts the result to VCF with VarDict's own
-``teststrandbias.R`` and ``var2vcf_valid.pl`` post-processing scripts, so the output columns match the
-regular VarDict tool.
+The ``--vcf`` option makes vardictcpp
+compute the strand-bias Fisher test and write VCF natively in C++ (a direct port of VarDict's
+``teststrandbias.R`` / ``testsomatic.R`` and ``var2vcf_valid.pl`` / ``var2vcf_paired.pl``), so the
+output is standard **VCF**:
 
-Calls can be restricted to the whole genome, a list of chromosomes, a single region (``chr:start-end``),
-or the regions in a BED file with the *Regions to call variants in* option.
+- single-sample mode: one sample column (var2vcf_valid semantics),
+- paired mode: tumor and normal sample columns with somatic STATUS (var2vcf_paired semantics).
 
-Memory and large regions
--------------------------
+**Memory note:** VarDict holds all per-position data for the region it is processing in memory at
+once. Restrict calling to your actual targets (a BED file or typed regions) to keep memory low;
+calling whole chromosomes (or a whole-chromosome ``-R``) can use a very large amount of RAM.
 
-VarDict's memory scales with how large a single work unit (region) is: one big region is processed on
-one thread and holds that whole span's tables at once. vardictcpp splits any region longer than
-``VARDICTCPP_CHUNKSIZE`` bp (default ``50000``) into internal windows with a correct realignment
-halo, so peak memory stays bounded even on whole-chromosome targets while the emitted calls are
-unchanged. Lower the value further for extremely deep data or when calling at ``-f 0``.
-
-Scope
------
-
-Only **single-sample** mode is wrapped here. Paired/somatic and amplicon calling exist in the C++ port
-but are not yet exposed by this wrapper; use the Java VarDict tool for those modes.
-
-For more information see the VarDict documentation_.
-
-.. _documentation: https://github.com/AstraZeneca-NGS/VarDictJava
-        ]]>
-    </help>
+Upstream: https://github.com/MHH-Bioinformatics-Hematology/vardictcpp
+    ]]></help>
     <citations>
+        <!-- vardictcpp itself (the software this tool runs) -->
+        <citation type="bibtex">@misc{vardictcpp,
+  author       = {Wolff, Joachim},
+  title        = {vardictcpp: a C++/htslib reimplementation of the VarDict variant caller},
+  howpublished = {\url{https://github.com/MHH-Bioinformatics-Hematology/vardictcpp}},
+  year         = {2026}
+}</citation>
+        <!-- the VarDict method that vardictcpp reimplements -->
         <citation type="doi">10.1093/nar/gkw227</citation>
     </citations>
 </tool>
