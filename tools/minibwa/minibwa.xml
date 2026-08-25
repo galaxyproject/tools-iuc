@@ -1,0 +1,668 @@
+<tool id="minibwa" name="minibwa" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>- map short and accurate long reads against a reference genome</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_0102</edam_topic><!-- Mapping -->
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_3198</edam_operation><!-- Read mapping -->
+        <edam_operation>operation_0292</edam_operation><!-- Sequence alignment -->
+    </edam_operations>
+    <xrefs>
+        <xref type="bio.tools">minibwa</xref>
+    </xrefs>
+    <expand macro="requirements">
+        <requirement type="package" version="1.21">samtools</requirement>
+    </expand>
+    <expand macro="stdio"/>
+    <version_command>minibwa version</version_command>
+    <command><![CDATA[
+@pipefail@
+@set_reference_index@
+
+## Begin minibwa command line
+
+minibwa map
+-t "\${GALAXY_SLOTS:-1}"
+
+## Library type. --hic is equivalent to -5P, --meth requires an index built with --meth.
+#if str( $mode ) == "hic":
+    --hic
+#elif str( $mode ) == "meth":
+    --meth
+#end if
+
+#if str( $output_format.output_format_selector ) == "paf":
+    -f
+    ${output_format.chain_only}
+#end if
+
+#if str( $analysis_type.analysis_type_selector ) == "full":
+    ## Mapping options
+    #if str( $analysis_type.mapping_options.mapping_options_selector ) == "set":
+        -x '${analysis_type.mapping_options.x}'
+        -k '${analysis_type.mapping_options.k}'
+        -c '${analysis_type.mapping_options.c}'
+        -g '${analysis_type.mapping_options.g}'
+        -w '${analysis_type.mapping_options.w}'
+        -W '${analysis_type.mapping_options.W}'
+        -m '${analysis_type.mapping_options.m}'
+        -p '${analysis_type.mapping_options.p}'
+        -N '${analysis_type.mapping_options.N}'
+        -l '${analysis_type.mapping_options.l}'
+    #end if
+
+    ## Alignment (scoring) options
+    #if str( $analysis_type.alignment_options.alignment_options_selector ) == "set":
+        -A '${analysis_type.alignment_options.A}'
+        -B '${analysis_type.alignment_options.B}'
+        -O '${analysis_type.alignment_options.O}'
+        -E '${analysis_type.alignment_options.E}'
+        -s '${analysis_type.alignment_options.s}'
+    #end if
+
+    ## Paired-end options
+    #if str( $analysis_type.paired_options.paired_options_selector ) == "set":
+        ${analysis_type.paired_options.P}
+        --rescue='${analysis_type.paired_options.rescue}'
+    #end if
+
+    ## Input/output options
+    #if str( $analysis_type.io_options.io_options_selector ) == "set":
+        ${analysis_type.io_options.u}
+        ${analysis_type.io_options.y}
+        ${analysis_type.io_options.Y}
+        ${analysis_type.io_options.five}
+        --outn='${analysis_type.io_options.outn}'
+        --outs='${analysis_type.io_options.outs}'
+        --xa='${analysis_type.io_options.xa}'
+        #if str( $analysis_type.io_options.b ) != "none":
+            -b '${analysis_type.io_options.b}'
+        #end if
+        #if str( $analysis_type.io_options.K ):
+            -K '${analysis_type.io_options.K}'
+        #end if
+        #if $analysis_type.io_options.H:
+            -H '${analysis_type.io_options.H}'
+        #end if
+        #if str( $analysis_type.io_options.mmap ) != "none":
+            '${analysis_type.io_options.mmap}'
+        #end if
+    #end if
+#end if
+
+## Handle read group options...
+#if str( $rg.rg_selector ) == "set":
+    @set_rg_string@
+    -R '$rg_string'
+#end if
+
+#if str( $fastq_input.fastq_input_selector ) == "paired_collection":
+    ## check that insert statistics is used
+    #if str( $fastq_input.iset_stats ):
+        -I '${fastq_input.iset_stats}'
+    #end if
+
+    '${reference_index}'
+    '${fastq_input.fastq_input1.forward}' '${fastq_input.fastq_input1.reverse}'
+#else:
+    '${reference_index}'
+    '${fastq_input.fastq_input1}'
+#end if
+
+## Convert the SAM output to BAM.
+## The stages of a pipe run in parallel, so no stage that runs while minibwa is
+## still mapping may claim \$GALAXY_SLOTS as well, as that would overcommit the
+## cores allocated to the job. Using the two pipe stages has the following effect
+## - minibwa and sort run in parallel, during this time sort is single threaded
+##   and writes uncompressed temporary files, but produces no output (hence
+##   view does not run)
+## - once minibwa is finished sort merges the temporary files (which should be
+##   fast also on a single thread) and gives the sorted output to view, which
+##   only compresses it (now using full parallelism again)
+#if str( $output_format.output_format_selector ) == "paf":
+    > '$paf_output'
+#elif str( $output_format.output_sort ) == "coordinate":
+    | samtools sort --no-PG -l 0 -T "\${TMPDIR:-.}" -O bam | samtools view --no-PG -O bam -@ "\${GALAXY_SLOTS:-1}" -o '$bam_output'
+#elif str( $output_format.output_sort ) == "name":
+    | samtools sort -n --no-PG -l 0 -T "\${TMPDIR:-.}" -O bam | samtools view --no-PG -O bam -@ "\${GALAXY_SLOTS:-1}" -o '$bam_output'
+#else
+    ## Nothing buffers the stream here, so this stage runs alongside minibwa the
+    ## whole time and is deliberately left single threaded.
+    | samtools view --no-PG -O bam -o '$bam_output'
+#end if
+
+
+    ]]></command>
+    <inputs>
+        <expand macro="reference_source_conditional"/>
+        <conditional name="fastq_input">
+            <param name="fastq_input_selector" type="select" label="Single or Paired-end reads" help="Select between paired and single end data">
+                <option value="paired_collection">Paired Collection</option>
+                <option value="single">Single</option>
+            </param>
+            <when value="single">
+                <param name="fastq_input1" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" label="Select fastq dataset" help="Specify dataset with single reads"/>
+            </when>
+            <when value="paired_collection">
+                <param name="fastq_input1" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" type="data_collection" collection_type="paired" label="Select a paired collection" help="See help section for an explanation of dataset collections"/>
+                <param name="iset_stats" type="text" optional="True" label="Enter mean, standard deviation, max, and min for insert lengths." help="-I; This parameter is only used for paired reads. Only mean is required while sd, max, and min will be inferred. Examples: both &quot;250&quot; and &quot;250,25&quot; will work while &quot;250,,10&quot; will not. See below for details.">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.digits">
+                            <add value=","/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+        </conditional>
+        <param name="mode" type="select" label="Library type" help="Bisulfite mapping needs an FM-index built with --meth. For a reference from your history this index is built automatically; a built-in index must have been created with the 'Build the additional BS-seq index' option of the minibwa index builder data manager.">
+            <option value="default" selected="True">Genomic DNA (default)</option>
+            <option value="hic">Hi-C reads (--hic)</option>
+            <option value="meth">Directional bisulfite sequencing reads (--meth)</option>
+        </param>
+        <expand macro="read_group_conditional"/>
+        <conditional name="analysis_type">
+            <param name="analysis_type_selector" type="select" label="Select analysis mode">
+                <option value="simple">1.Simple mode</option>
+                <option value="full">2.Full list of options</option>
+            </param>
+            <when value="simple">
+                <!-- do nothing -->
+            </when>
+            <when value="full">
+                <conditional name="mapping_options">
+                    <param name="mapping_options_selector" type="select" label="Set mapping options?" help="Sets -x, -k, -c, -g, -w, -W, -m, -p, -N and -l options.">
+                        <option value="set">Set</option>
+                        <option value="do_not_set" selected="True">Do not set</option>
+                    </param>
+                    <when value="set">
+                        <param argument="-x" type="select" label="Preset" help="-x; default=adap. In the adaptive mode minibwa changes several internal parameters per read based on the read length, so mixed short and long reads can be mapped in one run.">
+                            <option value="adap" selected="True">adap - mixed short and long reads (adaptive)</option>
+                            <option value="sr">sr - short reads</option>
+                            <option value="lr">lr - accurate long reads</option>
+                        </param>
+                        <param argument="-k" type="integer" value="19" label="Minimum seed length" help="-k; default=19"/>
+                        <param argument="-c" type="integer" value="250" label="Skip seeds with more than that many occurrences" help="-c; default=250"/>
+                        <param argument="-g" type="integer" value="100" label="Maximum gap size" help="-g; default=100; controls both extension and chain breaking"/>
+                        <param argument="-w" type="integer" value="100" label="Bandwidth for banded alignment" help="-w; default=100"/>
+                        <param argument="-W" type="integer" value="20000" label="Long bandwidth" help="-W; default=20000; used for long reads and in the adaptive mode"/>
+                        <param argument="-m" type="integer" value="25" label="Minimum chaining score" help="-m; default=25"/>
+                        <param argument="-p" type="float" value="0.5" label="Minimum secondary-to-primary score ratio" help="-p; default=0.5"/>
+                        <param argument="-N" type="integer" value="50" label="Retain at most this many secondary alignments" help="-N; default=50; this is the number kept internally, see --outn for how many are written out"/>
+                        <param argument="-l" type="integer" value="325" label="Treat reads shorter than this as short reads in the adaptive mode" help="-l; default=325; only effective with the adaptive preset"/>
+                    </when>
+                    <when value="do_not_set">
+                        <!-- do nothing -->
+                    </when>
+                </conditional>
+                <conditional name="alignment_options">
+                    <param name="alignment_options_selector" type="select" label="Set alignment scoring options?" help="Sets -A, -B, -O, -E and -s options.">
+                        <option value="set">Set</option>
+                        <option value="do_not_set" selected="True">Do not set</option>
+                    </param>
+                    <when value="set">
+                        <param argument="-A" type="integer" value="2" label="Score for a sequence match" help="-A; default=2"/>
+                        <param argument="-B" type="integer" value="8" label="Penalty for a mismatch" help="-B; default=8"/>
+                        <param argument="-O" type="text" value="12,23" label="Gap open penalties" help="-O; default=12,23; a two-piece affine gap cost, given as INT1[,INT2]">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.digits">
+                                    <add value=","/>
+                                </valid>
+                            </sanitizer>
+                        </param>
+                        <param argument="-E" type="text" value="2,1" label="Gap extension penalties" help="-E; default=2,1; a gap of size k costs min(O1 + k*E1, O2 + k*E2)">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.digits">
+                                    <add value=","/>
+                                </valid>
+                            </sanitizer>
+                        </param>
+                        <param argument="-s" type="integer" value="30" label="Minimum score to output" help="-s; default=30; suppress an alignment with a DP score lower than this value times the match score"/>
+                    </when>
+                    <when value="do_not_set">
+                        <!-- do nothing -->
+                    </when>
+                </conditional>
+                <conditional name="paired_options">
+                    <param name="paired_options_selector" type="select" label="Set paired-end options?" help="Sets -P and --rescue options. These only have an effect on paired input.">
+                        <option value="set">Set</option>
+                        <option value="do_not_set" selected="True">Do not set</option>
+                    </param>
+                    <when value="set">
+                        <param argument="-P" type="boolean" truevalue="-P" falsevalue="" label="Skip pairing and mate rescue" help="-P; reads are mapped as if they were single-end"/>
+                        <param argument="--rescue" type="integer" value="10" min="0" label="Perform mate rescue for up to this many candidates" help="--rescue; default=10; 0 skips mate rescue"/>
+                    </when>
+                    <when value="do_not_set">
+                        <!-- do nothing -->
+                    </when>
+                </conditional>
+                <conditional name="io_options">
+                    <param name="io_options_selector" type="select" label="Set input/output options?" help="Sets -u, -y, -Y, -5, --outn, --outs, --xa, -b and -K options.">
+                        <option value="set">Set</option>
+                        <option value="do_not_set" selected="True">Do not set</option>
+                    </param>
+                    <when value="set">
+                        <param argument="-u" type="boolean" truevalue="-u" falsevalue="" label="Don't output unmapped reads" help="-u"/>
+                        <param argument="-y" type="boolean" truevalue="-y" falsevalue="" label="Copy FASTA/Q comments to the output" help="-y"/>
+                        <param argument="-Y" type="boolean" truevalue="-Y" falsevalue="" label="Use soft clipping for supplementary alignments" help="-Y; by default supplementary alignments are hard clipped"/>
+                        <param name="five" argument="-5" type="boolean" truevalue="-5" falsevalue="" label="For split alignment, take the alignment with the smallest query coordinate as primary" help="-5; useful for Hi-C data. The Hi-C library type already implies this option."/>
+                        <param argument="--outn" type="integer" value="0" min="0" label="Output up to this many secondary alignments" help="--outn; default=0; capped by the -N value"/>
+                        <param argument="--outs" type="float" value="0.8" min="0.0" max="1.0" label="Output a secondary hit if its score is at least this fraction of the best score" help="--outs; default=0.8"/>
+                        <param argument="--xa" type="integer" value="5" min="0" label="Write up to this many hits to the XA tag" help="--xa; default=5; only hits scoring above 80% of the best hit are considered"/>
+                        <param argument="-b" type="select" label="Output a base alignment tag" help="-b; by default no base-level tag is written">
+                            <option value="none" selected="True">None</option>
+                            <option value="cs">cs - the minimap2 cs tag</option>
+                            <option value="ds">ds - the minimap2 ds tag</option>
+                            <option value="MD">MD - the SAM MD tag</option>
+                        </param>
+                        <param argument="-K" type="text" optional="True" label="Process this many bases of query sequence per batch" help="-K; default=100m,1g; given as NUM1[,NUM2], e.g. 100m or 100m,1g">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.digits">
+                                    <add value=","/>
+                                    <add value="k"/>
+                                    <add value="m"/>
+                                    <add value="g"/>
+                                </valid>
+                            </sanitizer>
+                        </param>
+                        <param argument="-H" type="data" format="txt" optional="True" label="Insert these lines into the SAM header" help="-H; a text file whose lines are inserted into the header, e.g. @CO comment lines"/>
+                        <param argument="--mmap" type="select" label="Load the index via memory mapped files" help="--mmap; reduces the resident memory of the job at the cost of slower mapping">
+                            <option value="none" selected="True">No, load the index into memory</option>
+                            <option value="--mmap">Yes, memory map the whole index</option>
+                            <option value="--mmap=lite">Yes, memory map only part of the index (lite)</option>
+                        </param>
+                    </when>
+                    <when value="do_not_set">
+                        <!-- do nothing -->
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <conditional name="output_format">
+            <param name="output_format_selector" type="select" label="Output format">
+                <option value="bam" selected="True">BAM</option>
+                <option value="paf">PAF</option>
+            </param>
+            <when value="bam">
+                <param name="output_sort" type="select" label="BAM sorting mode">
+                    <option value="coordinate" selected="True">Sort by chromosomal coordinates</option>
+                    <option value="name">Sort by read names  (i.e., the QNAME field) </option>
+                    <option value="unsorted">Not sorted (sorted as input)</option>
+                </param>
+            </when>
+            <when value="paf">
+                <param argument="--chain-only" type="boolean" truevalue="--chain-only" falsevalue="" label="Perform chaining only, without base alignment" help="--chain-only; much faster, but the output contains no CIGAR. Only available for PAF output."/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data format="bam" name="bam_output" label="${tool.name} on ${on_string} (mapped reads in BAM format)">
+            <filter>output_format['output_format_selector'] == 'bam'</filter>
+            <expand macro="dbKeyActionsMinibwa"/>
+            <change_format>
+                <when input="output_format.output_sort" value="name" format="qname_sorted.bam"/>
+                <when input="output_format.output_sort" value="unsorted" format="qname_input_sorted.bam"/>
+            </change_format>
+        </data>
+        <data format="paf" name="paf_output" label="${tool.name} on ${on_string} (mapped reads in PAF format)">
+            <filter>output_format['output_format_selector'] == 'paf'</filter>
+            <expand macro="dbKeyActionsMinibwa"/>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: history reference (index built on the fly), paired fastq -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+                        <element name="reverse" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="40000" delta="15000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 2: cached reference, paired fastq -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="cached"/>
+                <param name="ref_file" value="mtgenome"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+                        <element name="reverse" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="40000" delta="15000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3: single-end fasta input -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single"/>
+                <param name="fastq_input1" ftype="fasta" value="bwa-mem-fasta1.fa"/>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="8000" delta="5000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 4: gzipped fastq + read group -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger.gz" value="bwa-mem-fastq1.fq.gz"/>
+                        <element name="reverse" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="rg">
+                <param name="rg_selector" value="set"/>
+                <param name="ID" value="rg1"/>
+                <param name="SM" value="sample1"/>
+                <param name="LB" value="AARDVARK-1"/>
+                <param name="PL" value="CAPILLARY"/>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="40000" delta="15000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 5: name-sorted output -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+                        <element name="reverse" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <conditional name="output_format">
+                <param name="output_format_selector" value="bam"/>
+                <param name="output_sort" value="name"/>
+            </conditional>
+            <output name="bam_output" ftype="qname_sorted.bam">
+                <assert_contents>
+                    <has_size value="38000" delta="15000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 6: full option set -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+                        <element name="reverse" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="full"/>
+                <conditional name="mapping_options">
+                    <param name="mapping_options_selector" value="set"/>
+                    <param name="x" value="sr"/>
+                    <param name="k" value="21"/>
+                </conditional>
+                <conditional name="alignment_options">
+                    <param name="alignment_options_selector" value="set"/>
+                    <param name="A" value="2"/>
+                </conditional>
+                <conditional name="paired_options">
+                    <param name="paired_options_selector" value="set"/>
+                    <param name="rescue" value="5"/>
+                </conditional>
+                <conditional name="io_options">
+                    <param name="io_options_selector" value="set"/>
+                    <param name="b" value="MD"/>
+                    <param name="Y" value="true"/>
+                </conditional>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="50000" delta="20000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 7: PAF output -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single"/>
+                <param name="fastq_input1" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <conditional name="output_format">
+                <param name="output_format_selector" value="paf"/>
+            </conditional>
+            <output name="paf_output" ftype="paf">
+                <assert_contents>
+                    <has_n_columns min="12"/>
+                    <has_text text="tp:A:P"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 8: bisulfite mapping, BS-seq index built on the fly -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+                        <element name="reverse" ftype="fastqsanger" value="bwa-mem-fastq2.fq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="mode" value="meth"/>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="simple"/>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="40000" delta="20000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 9: index building options plus header insertion and memory mapping -->
+        <test expect_num_outputs="1">
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" ftype="fasta" value="bwa-mem-mt-genome.fa"/>
+                <section name="index_options">
+                    <param name="s" value="7"/>
+                    <param name="u" value="5"/>
+                    <param name="l" value="true"/>
+                    <param name="b" value="5m"/>
+                </section>
+            </conditional>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single"/>
+                <param name="fastq_input1" ftype="fastqsanger" value="bwa-mem-fastq1.fq"/>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_type_selector" value="full"/>
+                <conditional name="io_options">
+                    <param name="io_options_selector" value="set"/>
+                    <param name="H" ftype="txt" value="header_lines.txt"/>
+                    <param name="mmap" value="--mmap=lite"/>
+                </conditional>
+            </conditional>
+            <output name="bam_output" ftype="bam">
+                <assert_contents>
+                    <has_size value="20000" delta="15000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+minibwa is a successor to BWA-MEM that aligns short reads and accurate long reads to a
+reference genome. It combines the variable-length seeding of BWA-MEM with the chaining and
+base-level alignment of minimap2, and is reported to be about four times as fast as BWA-MEM
+and more than twice as fast as BWA-MEM2 at comparable accuracy.
+
+In its default *adaptive* mode minibwa changes several internal parameters per read based on
+the read length, so a mixture of short and accurate long reads can be mapped in a single run
+without manual tuning. Besides ordinary genomic reads it also handles Hi-C reads and
+*directional* bisulfite sequencing reads natively.
+
+minibwa does **not** support spliced alignment, noisy long reads, undirectional bisulfite
+data, or alternate haplotype recognition.
+
+The Galaxy implementation takes fastq (or fasta) files as input and produces output in BAM
+format, which can be further processed using the various BAM utilities in Galaxy (BAMTools,
+SAMTools, Picard), or in PAF format.
+
+-----
+
+**Indices: Selecting reference genomes for minibwa**
+
+The wrapper lets you select between precomputed (built-in) and user-defined indices for
+reference genomes using the **Will you select a reference genome from your history or use a
+built-in index?** flag. This flag has two options:
+
+  1. **Use a built-in genome index** - Galaxy provides a **Using reference genome** dropdown,
+     populated with genomes that were pre-indexed with the ``minibwa index`` utility and are
+     ready to be mapped against.
+  2. **Use a reference from history and build index if necessary** - Galaxy provides a
+     dropdown populated with FASTA files in your current history. Selecting one causes Galaxy
+     to first transparently index it with ``minibwa index`` and then run ``minibwa map``.
+
+Unlike minimap2, ``minibwa map`` cannot index a reference on the fly, so the index is always
+built as a separate step before mapping. For a reference from your history, the collapsed
+**Index building options** section exposes the options of ``minibwa index``: the random seed
+for ambiguous bases (``-s``), the suffix array sample rate (``-u``, a larger value gives a
+smaller index but slower mapping) and the low-memory BWT construction algorithm (``-l``,
+single threaded, with its block size ``-b``), which helps when a large genome does not index
+within the memory of the job. For built-in indexes these choices were made by the
+administrator when the index builder data manager was run.
+
+-----
+
+**Library type**
+
+  * *Genomic DNA* - the default mode.
+  * *Hi-C reads* - passes ``--hic``, which is equivalent to ``-5P``: pairing and mate rescue
+    are skipped and the alignment with the smallest query coordinate becomes the primary one.
+  * *Directional bisulfite sequencing reads* - passes ``--meth``. This mode needs an
+    additional FM-index built with ``minibwa index --meth``. When the reference comes from
+    your history the wrapper builds it automatically. A **built-in** index only works in this
+    mode if the administrator ticked *Build the additional BS-seq index* when running the
+    minibwa index builder data manager; otherwise the job fails with a "failed to load the
+    index" error.
+
+-----
+
+**Galaxy-specific option**
+
+The **Select analysis mode** menu offers two levels of control:
+
+  1. *Simple mode*: aligns single or paired-end data to the reference using default
+     parameters. Equivalent to ``minibwa map <reference index> <fastq dataset1> [fastq dataset2]``.
+  2. *Full list of options*: exposes the mapping, alignment scoring, paired-end and
+     input/output options through the Galaxy interface. The input/output section also lets
+     you insert extra lines into the SAM header from a text file (``-H``, e.g. ``@CO``
+     comment lines) and load the index through memory mapped files (``--mmap``), which
+     lowers the resident memory of the job at the cost of slower mapping.
+
+The only ``minibwa map`` options the wrapper does not expose are ``-t`` and ``-o``, which
+Galaxy sets itself, and ``-f``, which follows from the chosen output format. The legacy
+``minibwa mem`` interface is not wrapped, since upstream does not recommend it.
+
+-----
+
+**Paired-end reads**
+
+Paired reads are passed to minibwa as a paired dataset collection, which keeps the two mates
+associated with each other and lets the tool be mapped over many samples at once. minibwa has
+no smart-pairing option, so a single file with interleaved paired reads has to be
+de-interleaved first (for example with the *FASTQ de-interlacer* tool) and the two resulting
+datasets built into a paired collection before they can be mapped as a pair.
+
+-----
+
+**Output format**
+
+  * *BAM* - minibwa writes SAM, which the wrapper converts to BAM. The records can be sorted
+    by chromosomal coordinate, by read name (the QNAME field), or left in input order. The
+    order of the alignment records does not depend on the number of threads, so all three
+    modes use all allocated cores.
+  * *PAF* - the compact minimap2 pairwise mapping format. The **Perform chaining only**
+    option is available here: it skips base-level alignment entirely, which is much faster
+    but yields no CIGAR string. That option is not offered for BAM output because chain-only
+    results cannot be converted to a valid BAM file.
+
+
+@RG@
+
+@info@
+    ]]></help>
+    <expand macro="citations"/>
+    <expand macro="creator"/>
+</tool>
