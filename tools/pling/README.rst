@@ -34,10 +34,20 @@ to Pling's manifest-based command-line interface. The helper:
   running Pling; and
 * validates the optional topology table, requiring one exact ``plasmid`` and
   ``topology`` entry for every selected dataset and accepting only lowercase
-  ``circular`` and ``linear`` values.
+  ``circular`` and ``linear`` values. The ``plasmid`` value must include the
+  full Galaxy dataset identifier, including a filename extension such as
+  ``.fasta`` when it is shown by Galaxy.
 
 The wrapper is limited to complete plasmid sequences. Draft assemblies, short
 contigs, and multi-plasmid FASTA files are not supported.
+
+Interactive HTML in Galaxy
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``pling_cluster_align`` tool must be included in Galaxy's HTML sanitisation
+allowlist for the interactive plots to work inside Galaxy. The HTML output can
+still be downloaded without this, but Galaxy may remove the JavaScript required
+for the interactive plots.
 
 Version note
 ^^^^^^^^^^^^
