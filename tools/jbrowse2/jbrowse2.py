@@ -90,29 +90,11 @@ def metadata_from_node(node):
             metadata[f"tool_{key}"] = value
 
         # Additional Mappings applied:
-        metadata[
-            "dataset_edam_format"
-        ] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(
-            metadata["dataset_edam_format"], metadata["dataset_file_ext"]
-        )
-        metadata["history_user_email"] = '<a href="mailto:{0}">{0}</a>'.format(
-            metadata["history_user_email"]
-        )
-        metadata[
-            "history_display_name"
-        ] = '<a target="_blank" href="{galaxy}/history/view/{encoded_hist_id}">{hist_name}</a>'.format(
-            galaxy=GALAXY_INFRASTRUCTURE_URL,
-            encoded_hist_id=metadata["history_id"],
-            hist_name=metadata["history_display_name"],
-        )
-        metadata[
-            "tool_tool"
-        ] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}</a>'.format(
-            galaxy=GALAXY_INFRASTRUCTURE_URL,
-            encoded_id=metadata["dataset_id"],
-            tool_id=metadata["tool_tool_id"],
-            # tool_version=metadata['tool_tool_version'],
-        )
+        metadata["dataset_edam_format"] = f"{metadata['dataset_edam_format']}:{metadata['dataset_file_ext']}"
+        metadata["history_user_email"] = metadata["history_user_email"]
+        metadata["history_display_name"] = metadata["history_display_name"]
+        metadata["tool_tool"] = metadata["tool_tool_id"]
+
 
     # Load additional metadata from a TSV file if any given by user
     bonus = node.findall("bonus")
@@ -137,7 +119,7 @@ class JbrowseConnector(object):
         self.update = update
         self.use_canvas_renderer = use_canvas_renderer
         self.enable_workspaces = enable_workspaces
-        self.show_legends = show_legends 
+        self.show_legends = show_legends
 
         # This is the id of the current assembly
         self.tracksToIndex = {}
@@ -195,7 +177,7 @@ class JbrowseConnector(object):
 
     def _prepare_track_style(self, xml_conf):
         style_data = {
-            "type": "LinearBasicDisplay", # No ideal default, but should be overwritten anyway
+            "type": "LinearBasicDisplay",  # No ideal default, but should be overwritten anyway
         }
 
         if "display" in xml_conf["style"]:
@@ -212,7 +194,7 @@ class JbrowseConnector(object):
 
         if display_type in ("LinearBasicDisplay",):
 
-            # Doc: https://jbrowse.org/jb2/docs/config/arcrenderer/         
+            # Doc: https://jbrowse.org/jb2/docs/config/arcrenderer/       
             style_data["renderer"] = {
                 "type": "CanvasFeatureRenderer",
                 "showLabels": xml_conf.get("show_labels", True),
@@ -413,7 +395,7 @@ class JbrowseConnector(object):
                 "--name",
                 uniq_label,
                 "--type",
-                "bgzipFasta",
+                "BgzipFastaAdapter",
                 "--out",
                 self.outdir,
                 "--skipCheck",
@@ -454,7 +436,7 @@ class JbrowseConnector(object):
                 "--name",
                 uniq_label,
                 "--type",
-                "bgzipFasta",
+                "BgzipFastaAdapter",
                 "--out",
                 self.outdir,
                 "--skipCheck",
@@ -661,7 +643,7 @@ class JbrowseConnector(object):
                         os.path.realpath(data) + f".{index_ext}", dest + f".{index_ext}"
                     )
                 else:
-                    log.warn(
+                    log.warning(
                         f"Could not find a {ext} index (.{index_ext} file) for {data}"
                     )
 
@@ -679,21 +661,6 @@ class JbrowseConnector(object):
             remote=trackData['remote']
         )
 
-        style_json = self._prepare_track_style(trackData)
-
-        track_metadata = self._prepare_track_metadata(trackData)
-
-        style_json.update(track_metadata)
-
-        self._add_track(
-            trackData["label"],
-            trackData["key"],
-            trackData["category"],
-            rel_dest,
-            parent,
-            config=style_json,
-            remote=trackData['remote']
-        )
 
     def add_vcf(self, parent, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if trackData['remote']:
@@ -1205,7 +1172,6 @@ class JbrowseConnector(object):
 
             outputTrackConfig["remote"] = track["remote"]
 
-            # Guess extension for remote data
             if dataset_ext == "gff,gff3,bed":
                 if dataset_path.endswith(".bed") or dataset_path.endswith(".bed.gz"):
                     dataset_ext = "bed"
@@ -1216,6 +1182,34 @@ class JbrowseConnector(object):
                     dataset_ext = "vcf_bgzip"
                 else:
                     dataset_ext = "vcf"
+
+            elif dataset_ext == "data":
+                if isinstance(dataset_path, list):
+                    first_path = dataset_path[0][1] if isinstance(dataset_path[0], tuple) else dataset_path[0]
+                else:
+                    first_path = dataset_path
+                if first_path.endswith(".gff3.gz") or first_path.endswith(".gtf.gz"):
+                    dataset_ext = "gff"
+                elif first_path.endswith(".bed.gz"):
+                    dataset_ext = "bed"
+                elif first_path.endswith(".vcf.gz"):
+                    dataset_ext = "vcf_bgzip"
+                elif first_path.endswith(".bw") or first_path.endswith(".bigwig"):
+                    dataset_ext = "bigwig"
+                elif first_path.endswith(".bam"):
+                    dataset_ext = "bam"
+                elif first_path.endswith(".cram"):
+                    dataset_ext = "cram"
+                elif first_path.endswith(".vcf"):
+                    dataset_ext = "vcf"
+                elif first_path.endswith(".hic"):
+                    dataset_ext = "hic"
+                elif first_path.endswith(".gff") or first_path.endswith(".gff3") or first_path.endswith(".gtf"):
+                    dataset_ext = "gff"
+                elif first_path.endswith(".bed"):
+                    dataset_ext = "bed"
+                else:
+                    raise RuntimeError(f"Cannot determine dataset type for remote file: {first_path}")
 
             if dataset_ext in ("gff", "gff3"):
                 self.add_gff(
@@ -1774,19 +1768,25 @@ if __name__ == "__main__":
                 )
             track_conf["category"] = track.attrib["cat"]
             track_conf["format"] = track.attrib["format"]
+            style_elements = track.find("options/style")
             track_conf["style"] = {
-                item.tag: parse_style_conf(item) for item in (track.find("options/style") or [])
+                item.tag: parse_style_conf(item) for item in (style_elements if style_elements is not None else [])
             }
 
+            style_labels_elements = track.find("options/style_labels")
             track_conf["style_labels"] = {
                 item.tag: parse_style_conf(item)
-                for item in (track.find("options/style_labels") or [])
-            }
-            track_conf["formatdetails"] = {
-                item.tag: parse_style_conf(item) for item in (track.find("options/formatdetails") or [])
+                for item in (style_labels_elements if style_labels_elements is not None else [])
             }
 
-            track_conf["conf"] = etree_to_dict(track.find("options"))
+            formatdetails_elements = track.find("options/formatdetails")
+            track_conf["formatdetails"] = {
+                item.tag: parse_style_conf(item)
+                for item in (formatdetails_elements if formatdetails_elements is not None else [])
+            }
+
+            options_element = track.find("options")
+            track_conf["conf"] = etree_to_dict(options_element) if options_element is not None else {}
 
             track_conf["remote"] = is_remote
 
