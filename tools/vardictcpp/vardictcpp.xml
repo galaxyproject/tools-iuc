@@ -14,8 +14,6 @@
     </creator>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">vardictcpp</requirement>
-        <requirement type="package" version="3.10.2">python</requirement>
-        <requirement type="package" version="1.14">samtools</requirement>
     </requirements>
     <version_command>vardictcpp --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
@@ -26,34 +24,35 @@
         ln -s '$select_mode.tumor' ./tumor.bam &&
         ln -s '$select_mode.tumor.metadata.bam_index' ./tumor.bam.bai &&
 
-        ## index the reference if it comes from the history
+        ## vardictcpp (htslib) builds the .fai itself when it is missing, so no samtools is needed
         #if $reference_source.reference_source_selector == "history":
             ln -s '$reference_source.ref_file' ./ref.fa &&
-            samtools faidx ./ref.fa 2>&1 || echo 'Error running samtools faidx for indexing fasta reference' >&2 &&
         #else if $reference_source.reference_source_selector == "cached"
             ln -s '$reference_source.ref_file.fields.path' ./ref.fa &&
             ln -s '${reference_source.ref_file.fields.path}.fai' ./ref.fa.fai &&
         #end if
 
-        ## define the calling regions from the chosen source
+        ## build the calling regions in plain shell (no python / awk needed)
         #set $rtype = str($region_source.region_type)
         #if $rtype == "genome"
+            ## whole reference: one region per contig, read from the FASTA headers (optionally
+            ## restricted to a chromosome list). vardictcpp clamps the end to each contig length and
+            ## --chunk (below) tiles long contigs into windows so memory stays bounded.
             #if $region_source.interval_file:
-                grep -w -f '$region_source.interval_file' ./ref.fa.fai > ./chromosomes.fa.fai &&
+                grep '^>' ./ref.fa | sed 's/^>//; s/[[:space:]].*//' | grep -Fx -f '$region_source.interval_file' | while read -r c; do printf '%s\t0\t999999999\t%s\n' "\$c" "\$c"; done > ./regions.bed &&
             #else
-                ln -s ./ref.fa.fai ./chromosomes.fa.fai &&
+                grep '^>' ./ref.fa | sed 's/^>//; s/[[:space:]].*//' | while read -r c; do printf '%s\t0\t999999999\t%s\n' "\$c" "\$c"; done > ./regions.bed &&
             #end if
-            python '$__tool_directory__/split.py' ./chromosomes.fa.fai "\${VARDICT_CHUNKSIZE:-1000000}" "\${VARDICT_OVERLAP:-150}" > ./regions.bed &&
         #else if $rtype == "bed"
-            ## one or more user BEDs: normalise to a 4-column BED so -g 4 is valid. To call a whole
-            ## collection of BAMs each against its matching BED, map the tumor BAM over a BAM collection
-            ## and this BED over a BED collection: Galaxy runs the tool once per element, pairing by
-            ## element identifier.
-            python '$__tool_directory__/normalize_bed.py' '$region_source.bed_file' > ./regions.bed &&
+            ## normalise the user BED to a 4-column tab BED (vardictcpp needs column 4 for -g 4);
+            ## comment / track / browser lines are dropped and the name defaults to the chromosome.
+            ## To call a whole collection of BAMs each against its matching BED, map the tumor BAM over
+            ## a BAM collection and this BED over a BED collection and Galaxy pairs them by element id.
+            while read -r c s e n _; do [ -n "\$c" ] || continue; case "\$c" in '#'*|track*|browser*) continue;; esac; [ -n "\$e" ] || continue; printf '%s\t%s\t%s\t%s\n' "\$c" "\$s" "\$e" "\${n:-\$c}"; done < '$region_source.bed_file' > ./regions.bed &&
         #else if $rtype == "text"
-            ## typed regions are written to a config file (never interpolated into the shell), then
-            ## normalised to a 4-column tab BED by the same Python helper.
-            python '$__tool_directory__/normalize_bed.py' '$regions_input' > ./regions.bed &&
+            ## typed regions arrive via a config file (never on the command line); each line becomes a
+            ## 4-column tab BED, the name column defaulting to the chromosome.
+            while read -r c s e n _; do [ -n "\$c" ] || continue; case "\$c" in '#'*) continue;; esac; printf '%s\t%s\t%s\t%s\n' "\$c" "\$s" "\$e" "\${n:-\$c}"; done < '$regions_input' > ./regions.bed &&
         #end if
 
         ## vardictcpp only. --vcf writes VCF natively (in-C++ strand-bias Fisher test + var2vcf); no R / Perl.
@@ -70,6 +69,10 @@
         --vcf
         #if $select_mode.mode == "single"
             --noend
+        #end if
+        #if $rtype == "genome"
+            ## the per-contig regions span whole contigs; tile them into windows internally
+            --chunk 1000000
         #end if
 
         -f '$advancedsettings.f'
