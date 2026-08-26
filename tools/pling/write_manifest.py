@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-"""Create Pling input files from a Galaxy collection.
+"""Create Pling input files from multiple Galaxy FASTA datasets.
 
-Pling takes a text manifest of FASTA paths rather than a Galaxy collection.
-This helper sorts collection elements by Galaxy element identifier, gives each
-one a stable FASTA filename, writes the manifest, and optionally rewrites a
-topology TSV so that its plasmid names match the generated FASTA stems.
+Pling takes a text manifest of FASTA paths rather than Galaxy's multi-dataset
+input.
+This helper sorts datasets by Galaxy element identifier, gives each one a stable
+FASTA filename, writes the manifest, and optionally rewrites a topology TSV so
+that its plasmid names match the generated FASTA stems.
 """
 
 import argparse
@@ -20,7 +21,7 @@ TOPOLOGY_VALUES = {"circular", "linear"}
 
 
 def safe_name(label, fallback):
-    """Return a filesystem-friendly FASTA stem derived from a collection label."""
+    """Return a filesystem-friendly FASTA stem derived from an input identifier."""
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", label.strip())
     stem = stem.strip("._-")
     return stem or fallback
@@ -45,7 +46,7 @@ def parse_args():
         metavar=("PATH", "LABEL"),
         required=True,
         help=(
-            "Input FASTA path and Galaxy collection element identifier. "
+            "Input FASTA path and Galaxy dataset identifier. "
             "May be supplied multiple times."
         ),
     )
@@ -88,19 +89,19 @@ def prepare_fasta(source, destination):
 
 
 def prepare_inputs(genomes, input_dir):
-    """Prepare sorted FASTAs and map collection labels to generated stems."""
+    """Prepare sorted FASTAs and map dataset identifiers to generated stems."""
     input_dir.mkdir(parents=True, exist_ok=True)
     used_names = set()
     manifest_paths = []
     label_to_name = {}
 
-    # Pling results can depend on genomes_list order. Sorting Galaxy collection
-    # labels here makes repeated runs of the same collection reproducible.
+    # Pling results can depend on genomes_list order. Sorting Galaxy dataset
+    # identifiers here makes repeated runs with the same inputs reproducible.
     sorted_genomes = sorted(genomes, key=lambda genome: genome[1])
     for index, (source, label) in enumerate(sorted_genomes, start=1):
         if label in label_to_name:
             raise SystemExit(
-                f"Input collection element identifiers must be unique: {label}"
+                f"Input dataset identifiers must be unique: {label}"
             )
         base_name = safe_name(label, f"genome_{index}")
         name = base_name
@@ -146,8 +147,8 @@ def read_topology(path, label_to_name):
             topology = (row.get("topology") or "").strip()
             if plasmid not in label_to_name:
                 raise SystemExit(
-                    "Topology TSV plasmid value does not match an input "
-                    f"collection element: {plasmid}"
+                    "Topology TSV plasmid value does not match a selected "
+                    f"dataset identifier: {plasmid}"
                 )
             if plasmid in topology_by_label:
                 raise SystemExit(
@@ -167,7 +168,7 @@ def read_topology(path, label_to_name):
     if missing_plasmids:
         missing_names = ", ".join(sorted(missing_plasmids))
         raise SystemExit(
-            "Topology TSV is missing input collection element(s): "
+            "Topology TSV is missing selected dataset(s): "
             f"{missing_names}"
         )
 

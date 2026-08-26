@@ -25,15 +25,15 @@ Pling subcommands are added.
 Implementation notes
 ^^^^^^^^^^^^^^^^^^^^
 
-The wrapper uses ``write_manifest.py`` to adapt a Galaxy list collection to
-Pling's manifest-based command-line interface. The helper:
+The wrapper uses ``write_manifest.py`` to adapt multiple Galaxy FASTA datasets
+to Pling's manifest-based command-line interface. The helper:
 
-* stages safe, deterministic FASTA filenames and sorts collection elements by
+* stages safe, deterministic FASTA filenames and sorts input datasets by
   identifier;
 * detects gzip-compressed FASTA files by content and decompresses them before
   running Pling; and
 * validates the optional topology table, requiring one exact ``plasmid`` and
-  ``topology`` entry for every collection element and accepting only lowercase
+  ``topology`` entry for every selected dataset and accepting only lowercase
   ``circular`` and ``linear`` values.
 
 The wrapper is limited to complete plasmid sequences. Draft assemblies, short
@@ -50,7 +50,7 @@ the wrapper intentionally follows the Conda package version.
 Testing
 ^^^^^^^
 
-The functional tests cover ordinary and compressed FASTA collection elements,
+The functional tests cover ordinary and compressed FASTA datasets,
 visualisation outputs, topology handling, sourmash prefiltering, and expected
 failures for invalid, duplicate, unknown, and missing topology entries.
 
