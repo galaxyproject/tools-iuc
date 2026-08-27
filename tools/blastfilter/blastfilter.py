@@ -1,8 +1,8 @@
 #!/usr/bin/python
 
-import sys
-import math
 import argparse
+import math
+import sys
 
 
 def main():
@@ -79,8 +79,8 @@ def main():
         if x > 450:
             return 19.5
 
-    ##species A
-    blast_species_A_dict = {}
+    ## species A
+
     blast_species_A = open(species_A_infile, "r")
 
     with open(outfile, "w") as handle:
@@ -167,11 +167,7 @@ def main():
                 gaps = float(gaps)
                 score = float(score)
                 covs = length / slen
-                covS = qlen / slen
-                covns = nident / slen
                 covq = length / qlen
-                covQ = slen / qlen
-                covnq = nident / qlen
             if pident_method == "static":
                 if outfmt == "raw" or outfmt == "rbhplus":
                     if (
