@@ -80,7 +80,6 @@ def main():
             return 19.5
 
     # species A
-
     blast_species_A = open(species_A_infile, "r")
 
     with open(outfile, "w") as handle:
