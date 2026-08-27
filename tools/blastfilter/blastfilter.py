@@ -79,7 +79,7 @@ def main():
         if x > 450:
             return 19.5
 
-    ## species A
+    # species A
 
     blast_species_A = open(species_A_infile, "r")
 
