@@ -21,7 +21,7 @@ do.plotting <- function(sc) { # nolint
     sc_tmp <- sc
 
     ## If it's a subset, we need to get clever and subset specific parts
-    if (!(is.null(plotting.cln) || is.na(plotting.cln))) {
+    if (!is.null(plotting.cln) && !all(is.na(plotting.cln))) {
         cellstokeep <- names(sc_tmp@cpart[sc_tmp@cpart %in% plotting.cln])
 
         ## Subselect partitions for initial and final clusters

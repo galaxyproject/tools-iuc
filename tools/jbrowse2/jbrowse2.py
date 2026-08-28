@@ -317,6 +317,7 @@ class JbrowseConnector(object):
         return views
 
     def add_assembly(self, path, label, is_remote=False, cytobands=None, ref_name_aliases=None):
+        label = re.sub(r"[/\\]", " ", label)  # sanitize path-unsafe characters
 
         label = re.sub(r"[/\\]", " ", label)  # sanitize path-unsafe characters
 
