@@ -1,0 +1,249 @@
+<macros>
+    <token name="@TOOL_VERSION@">0.5</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">24.2</token>
+    <token name="@pipefail@"><![CDATA[set -o pipefail;]]></token>
+    <!-- Read groups are built from a flat set of optional fields. The shared
+         read_group_macros.xml is deliberately not used here: its auto-name
+         conditionals start with a boolean parameter, which is discouraged and
+         would need a .lint_skip to silence. -->
+    <token name="@set_rg_string@"><![CDATA[
+        #set $rg_string = "@RG\\tID:" + str($rg.ID)
+        #for $tag in ("SM", "PL", "LB", "CN", "DS", "DT", "FO", "KS", "PG", "PI", "PU")
+            #if str($rg[$tag])
+                #set $rg_string += "\\t" + $tag + ":" + str($rg[$tag])
+            #end if
+        #end for
+    ]]></token>
+    <macro name="read_group_conditional">
+        <conditional name="rg">
+            <param name="rg_selector" type="select" label="Set read groups information?" help="Specifying read group information is a recommended best practice; see the help below">
+                <option value="set">Set read groups (SAM/BAM specification)</option>
+                <option value="do_not_set" selected="True">Do not set</option>
+            </param>
+            <when value="set">
+                <param name="ID" type="text" value="" optional="false" label="Read group identifier (ID)" help="Required. This value must be unique among multiple samples in your experiment">
+                    <validator type="empty_field"/>
+                </param>
+                <param name="SM" type="text" value="" optional="true" label="Read group sample name (SM)" help="This value should be descriptive. Use the pool name where a pool is being sequenced"/>
+                <param name="PL" type="select" optional="true" label="Platform/technology used to produce the reads (PL)">
+                    <option value="">Not set</option>
+                    <option value="CAPILLARY">CAPILLARY</option>
+                    <option value="LS454">LS454</option>
+                    <option value="ILLUMINA">ILLUMINA</option>
+                    <option value="SOLID">SOLID</option>
+                    <option value="HELICOS">HELICOS</option>
+                    <option value="IONTORRENT">IONTORRENT</option>
+                    <option value="PACBIO">PACBIO</option>
+                </param>
+                <param name="LB" type="text" value="" optional="true" label="Library name (LB)"/>
+                <param name="CN" type="text" value="" optional="true" label="Sequencing center that produced the read (CN)"/>
+                <param name="DS" type="text" value="" optional="true" label="Description (DS)"/>
+                <param name="DT" type="text" value="" optional="true" label="Date that run was produced (DT)" help="ISO 8601 date, e.g. 2026-07-27"/>
+                <param name="FO" type="text" value="" optional="true" label="Flow order (FO)">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.ascii_uppercase"><add value="*"/><add value="/"/></valid>
+                    </sanitizer>
+                </param>
+                <param name="KS" type="text" value="" optional="true" label="The array of nucleotide bases that correspond to the key sequence of each read (KS)"/>
+                <param name="PG" type="text" value="" optional="true" label="Programs used for processing the read group (PG)"/>
+                <param name="PI" type="text" value="" optional="true" label="Predicted median insert size (PI)"/>
+                <param name="PU" type="text" value="" optional="true" label="Platform unit (PU)" help="Unique identifier, e.g. flowcell barcode, lane and sample barcode"/>
+            </when>
+            <when value="do_not_set"/>
+        </conditional>
+    </macro>
+    <!-- minibwa map cannot index on the fly, so a history FASTA is always indexed first.
+         The BS-seq index is an additional file next to the regular one, so it is only
+         built when bisulfite mapping was requested. -->
+    <token name="@set_reference_index@"><![CDATA[
+    #if str( $reference_source.reference_source_selector ) == "history":
+        #set $reference_index = "localref." + $reference_source.ref_file.extension
+        ln -s '${reference_source.ref_file}' '${reference_index}' &&
+        minibwa index
+        -s '${reference_source.index_options.s}'
+        -u '${reference_source.index_options.u}'
+        ## -t is only effective without -l, -b is only effective with it
+        #if str( $reference_source.index_options.l ) == "-l":
+            -l
+            #if str( $reference_source.index_options.b ):
+                -b '${reference_source.index_options.b}'
+            #end if
+        #else:
+            -t "\${GALAXY_SLOTS:-1}"
+        #end if
+        #if str( $mode ) == "meth":
+            --meth
+        #end if
+        '${reference_index}' &&
+    #else:
+        #set $reference_index = str( $reference_source.ref_file.fields.path )
+    #end if
+  ]]></token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">minibwa</requirement>
+            <yield/>
+        </requirements>
+    </xml>
+    <xml name="stdio">
+        <stdio>
+            <exit_code range="1:"/>
+            <exit_code range=":-1"/>
+            <!-- minibwa reports several fatal conditions (unknown option, unreadable input
+                 file, malformed read group line) on stderr but still exits with status 0.
+                 Without these patterns such a run would silently produce an empty or
+                 truncated dataset instead of failing the job. -->
+            <regex match="\[ERROR\]" source="stderr" level="fatal" description="minibwa reported an error"/>
+            <regex match="ERROR: (failed to open|unknown|unrecognized)" source="stderr" level="fatal" description="minibwa reported an error"/>
+            <regex match="ABORT!" source="stderr" level="fatal" description="minibwa aborted"/>
+        </stdio>
+    </xml>
+    <macro name="reference_source_conditional">
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Will you select a reference genome from your history or use a built-in index?" help="Built-ins were indexed using default options. See `Indexes` section of help below">
+                <option value="cached">Use a built-in genome index</option>
+                <option value="history">Use a reference from history and build index if necessary</option>
+            </param>
+            <when value="cached">
+                <param name="ref_file" type="select" label="Using reference genome" help="Select genome from the list">
+                    <options from_data_table="minibwa_indexes">
+                        <filter type="sort_by" column="2"/>
+                        <validator type="no_options" message="No indexes are available"/>
+                    </options>
+                    <validator type="no_options" message="No built-in reference genome is available. Ask your administrator to install one using the minibwa index builder data manager."/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="ref_file" type="data" format="fasta,fasta.gz" label="Use the following dataset as the reference" help="You can upload a FASTA sequence to the history and use it as reference. The index is built transparently before mapping."/>
+                <expand macro="index_options"/>
+            </when>
+        </conditional>
+    </macro>
+    <macro name="index_options">
+        <section name="index_options" title="Index building options" expanded="false" help="These control how `minibwa index` builds the index for the reference taken from your history. The defaults are fine for almost all genomes.">
+            <param argument="-s" type="integer" value="11" label="Random seed for ambiguous bases" help="-s; default=11"/>
+            <param argument="-u" type="integer" value="4" min="0" label="Suffix array sample rate, as 1/(2^INT)" help="-u; default=4; a larger value yields a smaller index at the cost of slower mapping"/>
+            <param argument="-l" type="boolean" truevalue="-l" falsevalue="" label="Use the low-memory BWT construction algorithm" help="-l; a GPL'd algorithm that needs less memory for large genomes. It is single threaded, so the thread count has no effect when it is enabled."/>
+            <param argument="-b" type="text" optional="true" label="Block size for the low-memory algorithm" help="-b; default=10m; only effective together with the low-memory algorithm above. Accepts suffixes, e.g. 10m.">
+                <sanitizer invalid_char="">
+                    <valid initial="string.digits">
+                        <add value="k"/>
+                        <add value="m"/>
+                        <add value="g"/>
+                    </valid>
+                </sanitizer>
+            </param>
+        </section>
+    </macro>
+    <macro name="dbKeyActionsMinibwa">
+        <expand macro="dbKeyActions">
+            <option type="from_data_table" name="minibwa_indexes" column="1" offset="0">
+                <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                <filter type="param_value" ref="reference_source.ref_file" column="0"/>
+            </option>
+        </expand>
+    </macro>
+    <macro name="dbKeyActions">
+        <actions>
+            <conditional name="reference_source.reference_source_selector">
+                <when value="cached">
+                    <action type="metadata" name="dbkey">
+                        <yield/>
+                    </action>
+                </when>
+                <when value="history">
+                    <action type="metadata" name="dbkey">
+                        <option type="from_param" name="reference_source.ref_file" param_attribute="dbkey"/>
+                    </action>
+                </when>
+            </conditional>
+        </actions>
+    </macro>
+    <token name="@RG@">
+
+
+-----
+
+.. class:: warningmark
+
+**Read Groups are Important!**
+
+One of the recommended best practices in NGS analysis is adding read group information to BAM files. You can do this directly in the mapper interface using the
+**Specify read group information?** widget. If you are not familiar with read groups you should know that this is effectively a way to tag reads with an additional ID.
+This allows you to combine BAM files from, for example, multiple mapping runs into a single dataset. This significantly simplifies downstream processing as
+instead of dealing with multiple datasets you only have to handle only one. This is possible because the read group information allows you to identify
+data from different experiments even if they are combined in one file. Many downstream analysis tools such as variant callers (e.g., FreeBayes or Naive Variant Caller
+present in Galaxy) are aware of read groups and will automatically generate calls for each individual sample even if they are combined within a single file.
+
+**Description of read groups fields**
+
+(from GATK FAQ webpage):
+
+.. csv-table::
+   :header-rows: 1
+
+    Tag,Importance,Definition,Meaning
+    "ID","Required","Read group identifier. Each @RG line must have a unique ID. The value of ID is used in the RG tags of alignment records. Must be unique among all read groups in header section. Read group IDs may be modified when merging SAM files in order to handle collisions.","Ideally, this should be a globally unique identify across all sequencing data in the world, such as the Illumina flowcell + lane name and number.  Will be referenced by each read with the RG:Z field, allowing tools to determine the read group information associated with each read, including the sample from which the read came.  Also, a read group is effectively treated as a separate run of the NGS instrument in tools like base quality score recalibration (a GATK component) -- all reads within a read group are assumed to come from the same instrument run and to therefore share the same error model."
+    "SM","Sample. Use pool name where a pool is being sequenced.","Required.  As important as ID.","The name of the sample sequenced in this read group.  GATK tools treat all read groups with the same SM value as containing sequencing data for the same sample.  Therefore it's critical that the SM field be correctly specified, especially when using multi-sample tools like the Unified Genotyper (a GATK component)."
+    "PL","Platform/technology used to produce the read. Valid values: ILLUMINA, SOLID, LS454, HELICOS and PACBIO.","Important.  Not currently used in the GATK, but was in the past, and may return.  The only way to known the sequencing technology used to generate the sequencing data","It's a good idea to use this field."
+    "LB","DNA preparation library identify","Essential for MarkDuplicates","MarkDuplicates uses the LB field to determine which read groups might contain molecular duplicates, in case the same DNA library was sequenced on multiple lanes."
+
+
+**Example of Read Group usage**
+
+Suppose we have a trio of samples: MOM, DAD, and KID.  Each has two DNA libraries prepared, one with 400 bp inserts and another with 200 bp inserts.  Each of these libraries is run on two lanes of an illumina hiseq, requiring 3 x 2 x 2 = 12 lanes of data.  When the data come off the sequencer, we would create 12 BAM files, with the following @RG fields in the header::
+
+ Dad's data:
+ @RG     ID:FLOWCELL1.LANE1      PL:illumina     LB:LIB-DAD-1 SM:DAD      PI:200
+ @RG     ID:FLOWCELL1.LANE2      PL:illumina     LB:LIB-DAD-1 SM:DAD      PI:200
+ @RG     ID:FLOWCELL1.LANE3      PL:illumina     LB:LIB-DAD-2 SM:DAD      PI:400
+ @RG     ID:FLOWCELL1.LANE4      PL:illumina     LB:LIB-DAD-2 SM:DAD      PI:400
+
+ Mom's data:
+ @RG     ID:FLOWCELL1.LANE5      PL:illumina     LB:LIB-MOM-1 SM:MOM      PI:200
+ @RG     ID:FLOWCELL1.LANE6      PL:illumina     LB:LIB-MOM-1 SM:MOM      PI:200
+ @RG     ID:FLOWCELL1.LANE7      PL:illumina     LB:LIB-MOM-2 SM:MOM      PI:400
+ @RG     ID:FLOWCELL1.LANE8      PL:illumina     LB:LIB-MOM-2 SM:MOM      PI:400
+
+ Kid's data:
+ @RG     ID:FLOWCELL2.LANE1      PL:illumina     LB:LIB-KID-1 SM:KID      PI:200
+ @RG     ID:FLOWCELL2.LANE2      PL:illumina     LB:LIB-KID-1 SM:KID      PI:200
+ @RG     ID:FLOWCELL2.LANE3      PL:illumina     LB:LIB-KID-2 SM:KID      PI:400
+ @RG     ID:FLOWCELL2.LANE4      PL:illumina     LB:LIB-KID-2 SM:KID      PI:400
+
+Note the hierarchical relationship between read groups (unique for each lane) to libraries (sequenced on two lanes) and samples (across four lanes, two lanes for each library).
+    </token>
+    <token name="@info@">
+-----
+
+.. class:: infomark
+
+**More info**
+
+To obtain more information about minibwa and ask questions use these resources:
+
+  1. https://github.com/lh3/minibwa
+  2. https://arxiv.org/abs/2606.15357
+  3. https://www.biostars.org/
+
+    </token>
+    <xml name="creator">
+        <creator>
+            <organization name="Intergalactic Utilities Commission" url="https://galaxyproject.org/iuc/"/>
+        </creator>
+    </xml>
+    <xml name="citations">
+        <citations>
+            <citation type="bibtex">@misc{2606.15357,
+                Author = {Heng Li},
+                Title = {Fast genomic read alignment with minibwa},
+                Year = {2026},
+                Eprint = {arXiv:2606.15357},
+                url = {https://arxiv.org/abs/2606.15357},
+                }</citation>
+            <citation type="doi">10.1093/bioinformatics/btp324</citation>
+            <citation type="doi">10.1093/bioinformatics/bty191</citation>
+        </citations>
+    </xml>
+</macros>
