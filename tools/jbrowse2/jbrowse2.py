@@ -95,7 +95,6 @@ def metadata_from_node(node):
         metadata["history_display_name"] = metadata["history_display_name"]
         metadata["tool_tool"] = metadata["tool_tool_id"]
 
-
     # Load additional metadata from a TSV file if any given by user
     bonus = node.findall("bonus")
     if bonus and "src" in bonus[0].attrib and bonus[0].attrib["src"]:
@@ -194,7 +193,7 @@ class JbrowseConnector(object):
 
         if display_type in ("LinearBasicDisplay",):
 
-            # Doc: https://jbrowse.org/jb2/docs/config/arcrenderer/       
+            # Doc: https://jbrowse.org/jb2/docs/config/arcrenderer/
             style_data["renderer"] = {
                 "type": "CanvasFeatureRenderer",
                 "showLabels": xml_conf.get("show_labels", True),
@@ -661,7 +660,6 @@ class JbrowseConnector(object):
             config=style_json,
             remote=trackData['remote']
         )
-
 
     def add_vcf(self, parent, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if trackData['remote']:
@@ -1189,7 +1187,10 @@ class JbrowseConnector(object):
                     first_path = dataset_path[0][1] if isinstance(dataset_path[0], tuple) else dataset_path[0]
                 else:
                     first_path = dataset_path
-                if first_path.endswith(".gff3.gz") or first_path.endswith(".gtf.gz"):
+
+                if first_path.endswith(".paf.gz") or first_path.endswith(".paf"):
+                    dataset_ext = "paf"    
+                elif first_path.endswith(".gff3.gz") or first_path.endswith(".gtf.gz"):
                     dataset_ext = "gff"
                 elif first_path.endswith(".bed.gz"):
                     dataset_ext = "bed"
@@ -1321,13 +1322,13 @@ class JbrowseConnector(object):
                     outputTrackConfig,
                     zipped=True
                 )
-            elif dataset_ext == "paf":  # https://fr.wikipedia.org/wiki/Paf_le_chien
+            elif dataset_ext in ("paf", "paf.gz"):  # https://fr.wikipedia.org/wiki/Paf_le_chien
                 self.add_paf(
-                    parent,
-                    dataset_path,
-                    outputTrackConfig,
-                    track["conf"].get("options", {}).get("synteny", {})
-                )
+                    parent, 
+                    dataset_path, 
+                    outputTrackConfig, 
+                    track["conf"].get("options", {}).get("synteny", {}))
+
             elif dataset_ext in ("hic"):
                 self.add_hic(
                     parent,
