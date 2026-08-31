@@ -1189,7 +1189,7 @@ class JbrowseConnector(object):
                     first_path = dataset_path
 
                 if first_path.endswith(".paf.gz") or first_path.endswith(".paf"):
-                    dataset_ext = "paf"    
+                    dataset_ext = "paf"
                 elif first_path.endswith(".gff3.gz") or first_path.endswith(".gtf.gz"):
                     dataset_ext = "gff"
                 elif first_path.endswith(".bed.gz"):
@@ -1324,9 +1324,9 @@ class JbrowseConnector(object):
                 )
             elif dataset_ext in ("paf", "paf.gz"):  # https://fr.wikipedia.org/wiki/Paf_le_chien
                 self.add_paf(
-                    parent, 
-                    dataset_path, 
-                    outputTrackConfig, 
+                    parent,
+                    dataset_path,
+                    outputTrackConfig,
                     track["conf"].get("options", {}).get("synteny", {}))
 
             elif dataset_ext in ("hic"):
