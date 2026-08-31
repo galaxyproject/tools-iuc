@@ -40,7 +40,6 @@ class GetBaktaDatabaseInfo:
         self.db_version = self.db_version.split(sep="_")[0]
         if self.light_db:
             self.db_type = "light"
-            self.tar_name = "db-light.tar.gz"
             self.md5 = self.fetch_db_versions()["md5-light"]
         else:
             self.md5 = self.fetch_db_versions()["md5"]
@@ -83,8 +82,32 @@ class GetBaktaDatabaseInfo:
         if filtered_version is None:
             print("No matching version detected in the list")
         else:
+            self.tar_name = self.get_tarball_name(filtered_version["record"])
             self.db_url = f"https://zenodo.org/record/{filtered_version['record']}/files/{self.tar_name}"
             return filtered_version
+
+    def get_tarball_name(self, record_id):
+        """
+        Determine the actual database tarball filename for a given Zenodo
+        record, independently of the version. Bakta databases are shipped as
+        db.tar.gz/db-light.tar.gz for older versions and
+        db.tar.xz/db-light.tar.xz for version 6.0
+	"""
+        record_url = f"https://zenodo.org/api/records/{record_id}"
+        with requests.get(record_url) as resp:
+            files = json.loads(resp.content)["files"]
+        if self.light_db:
+            stem = "db-light"
+        else:
+            stem = "db"
+        for file_info in files:
+            file_name = file_info["key"]
+            if file_name.startswith(f"{stem}.tar."):
+                return file_name
+        raise FileNotFoundError(
+            f"Could not find a database tarball ({stem}.tar.*) "
+            f"in Zenodo record {record_id}"
+        )
 
     def get_data_manager(self, bakta_database_info):
         self.bakta_table_list = self.get_data_table_format()
@@ -148,9 +171,14 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
 
     def untar(self):
         db_path = Path(self.db_dir).joinpath(self.db_name)
+        compression = {
+            ".gz": "r:gz",
+            ".xz": "r:xz",
+            ".bz2": "r:bz2",
+        }.get(Path(self.tar_name).suffix, "r:*")
         try:
             with self.tarball_path.open("rb") as fh_in, tarfile.open(
-                fileobj=fh_in, mode="r:gz"
+                fileobj=fh_in, mode=compression
             ) as tar_file:
                 tar_file.extractall(path=db_path)
                 print(f"Untar the database in {db_path}")
