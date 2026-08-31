@@ -92,7 +92,7 @@ class GetBaktaDatabaseInfo:
         record, independently of the version. Bakta databases are shipped as
         db.tar.gz/db-light.tar.gz for older versions and
         db.tar.xz/db-light.tar.xz for version 6.0
-	"""
+        """
         record_url = f"https://zenodo.org/api/records/{record_id}"
         with requests.get(record_url) as resp:
             files = json.loads(resp.content)["files"]
