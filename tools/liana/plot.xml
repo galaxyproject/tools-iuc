@@ -9,9 +9,11 @@
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
 #if str($method.method) in ['pl.target_metrics', 'pl.contributions', 'pl.interactions']:
-cp '$method.mdata' 'misty.h5mu' &&
+ln -s '$method.mdata' 'misty.h5mu' &&
+#else if str($method.method) == 'pl.lric_lineplot':
+ln -s '$method.curves' 'spatial_curves.tsv' &&
 #else:
-cp '$method.adata' 'anndata.h5ad' &&
+ln -s '$method.adata' 'anndata.h5ad' &&
 #end if
 cat '$script_file' > '$hidden_output' &&
 python '$script_file' >> '$hidden_output' &&
@@ -22,13 +24,15 @@ cat 'anndata_info.txt' @CMD_PRETTIFY_STDOUT@
     <configfiles>
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
+import matplotlib.pyplot as plt
 import mudata as mu
-if os.path.exists("misty.h5mu"):
-    import mudata as mu
-    mdata = mu.read_h5mu("misty.h5mu")
-    # Wrap MuData into LIANA MistyData (this is what plotting expects)
-else:
-    adata = sc.read_h5ad('anndata.h5ad')
+#if str($method.method) in ['pl.target_metrics', 'pl.contributions', 'pl.interactions']:
+mdata = mu.read_h5mu('misty.h5mu')
+#else if str($method.method) == 'pl.lric_lineplot':
+# This plot consumes the long-form Galaxy table directly.
+#else:
+adata = sc.read_h5ad('anndata.h5ad')
+#end if
 
 
 #if str($method.method) == 'pl.dotplot':
@@ -148,10 +152,126 @@ fig = li.plotting.interactions(
     ascending=$method.ascending,
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
+
+#else if str($method.method) == 'pl.annulus_plot':
+li.plotting.annulus_plot(
+    adata=adata,
+    spatial_key='$method.spatial_key',
+    annulus_width=$method.annulus_width,
+    radius_step=$method.radius_step,
+    extend_first_annulus=$method.extend_first_annulus,
+    n_rings=$method.n_rings,
+    seed=$method.seed,
+    figure_size=($method.figure_size_width, $method.figure_size_height))
+fig = plt.gcf()
+
+#else if str($method.method) == 'pl.lric_lineplot':
+curve_data = pd.read_csv('$method.curves', sep='\t')
+required_columns = {'radius', 'value'}
+missing_columns = required_columns.difference(curve_data.columns)
+if missing_columns:
+    raise ValueError(f"Curve table is missing required columns: {sorted(missing_columns)}")
+#if str($method.source).strip() != '':
+if 'source' not in curve_data.columns:
+    raise ValueError("The source filter requires a 'source' column")
+curve_data = curve_data[curve_data['source'].astype(str) == '$method.source']
+#end if
+#if str($method.target).strip() != '':
+if 'target' not in curve_data.columns:
+    raise ValueError("The target filter requires a 'target' column")
+curve_data = curve_data[curve_data['target'].astype(str) == '$method.target']
+#end if
+#if str($method.interactions).strip() != '':
+if 'interaction' not in curve_data.columns:
+    raise ValueError("The interaction filter requires an 'interaction' column")
+selected_interactions = [x.strip() for x in '$method.interactions'.split(',') if x.strip()]
+curve_data = curve_data[curve_data['interaction'].astype(str).isin(selected_interactions)]
+#end if
+if curve_data.empty:
+    raise ValueError('No curves remain after filtering')
+label_columns = [column for column in ['source', 'target', 'interaction'] if column in curve_data.columns]
+curves = {}
+if label_columns:
+    grouped_curves = curve_data.groupby(label_columns, dropna=False, sort=False)
+else:
+    grouped_curves = [('curve_1', curve_data)]
+for keys, frame in grouped_curves:
+    if not isinstance(keys, tuple):
+        keys = (keys,)
+    label_parts = [str(value) for value in keys if str(value) not in ['', 'nan', 'None']]
+    label = ' | '.join(label_parts) if label_parts else f'curve_{len(curves) + 1}'
+    frame = frame.sort_values('radius')
+    curves[label] = (frame['radius'].to_numpy(), frame['value'].to_numpy())
+first_radii = next(iter(curves.values()))[0]
+fig = li.plotting.lric_lineplot(
+    radii=first_radii,
+    curves=curves,
+    overlay=$method.overlay,
+    ncols=$method.ncols,
+    #if str($method.title) != '':
+    title='$method.title',
+    #end if
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
+#else if str($method.method) == 'pl.circle_plot'
+if $method.edge_width_min > $method.edge_width_max:
+    raise ValueError('Minimum edge width must not exceed maximum edge width')
+if $method.node_size_min > $method.node_size_max:
+    raise ValueError('Minimum node size must not exceed maximum node size')
+ax = li.plotting.circle_plot(
+    adata=adata,
+    uns_key='$method.uns_key',
+    groupby='$method.groupby',
+    source_key='$method.source_key',
+    target_key='$method.target_key',
+    score_key='$method.score_key',
+    inverse_score=$method.inverse_score,
+    @CMD_PLOT_TOP_N_ORDERBY@
+    @CMD_PLOT_SOURCE_TARGET_LABELS@
+    @CMD_PLOT_LIGAND_RECEPTOR_COMPLEX@
+    pivot_mode='$method.pivot_mode',
+    mask_mode='$method.mask_mode',
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    edge_alpha=$method.edge_alpha,
+    edge_arrow_size=$method.edge_arrow_size,
+    edge_width_scale=($method.edge_width_min, $method.edge_width_max),
+    node_alpha=$method.node_alpha,
+    node_size_scale=($method.node_size_min, $method.node_size_max),
+    node_label_offset=($method.node_label_x, $method.node_label_y),
+    node_label_size=$method.node_label_size,
+    node_label_alpha=$method.node_label_alpha)
+fig = ax.figure
+
+#else if str($method.method) == 'pl.feature_by_group'
+#if str($method.percentile_settings.percentile_selector) == 'custom':
+if $method.percentile_settings.percentile_low >= $method.percentile_settings.percentile_high:
+    raise ValueError('Lower percentile must be smaller than upper percentile')
+percentile_scaling = ($method.percentile_settings.percentile_low, $method.percentile_settings.percentile_high)
+#else:
+percentile_scaling = None
+#end if
+fig, _ax = li.plotting.feature_by_group(
+    adata=adata,
+    groupby='$method.groupby',
+    spatial_key='$method.spatial_key',
+#if str($method.labels) != '':
+    labels=[x.strip() for x in '$method.labels'.split(',') if x.strip()],
+#end if
+    feature='$method.feature',
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    normalize=$method.normalize,
+    percentile_scaling=percentile_scaling,
+    show_counts=$method.show_counts)
+
 #end if
 
-## Save the figure
-fig.save('plot.$format', dpi=150)
+## Save plotnine and matplotlib figures through their respective APIs.
+if hasattr(fig, 'save'):
+    fig.save('plot.$format', dpi=150)
+elif hasattr(fig, 'savefig'):
+    fig.savefig('plot.$format', dpi=150, bbox_inches='tight')
+else:
+    plt.savefig('plot.$format', dpi=150, bbox_inches='tight')
 
         ]]>
         </configfile>
@@ -171,6 +291,10 @@ fig.save('plot.$format', dpi=150)
                 <option value="pl.target_metrics">MISTy Target Metrics: Plot target metrics from MISTy results (target_metrics)</option>
                 <option value="pl.contributions">MISTy Contributions: Plot view contributions per target (contributions)</option>
                 <option value="pl.interactions">MISTy Interactions: Plot interaction importances (interactions)</option>
+                <option value="pl.annulus_plot">Annulus plot: Inspect spatial distance bins (annulus_plot)</option>
+                <option value="pl.lric_lineplot">LRIC/cross-PCF curves: Plot g(r) by radius (lric_lineplot)</option>
+                <option value="pl.circle_plot">Circle plot: Aggregate directed interactions between groups (circle_plot)</option>
+                <option value="pl.feature_by_group">Feature by group: Spatial feature panels by group (feature_by_group)</option>
             </param>
             <when value="pl.dotplot">
                 <expand macro="inputs_anndata"/>
@@ -212,9 +336,11 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_uns_key"/>
                 <param argument="fill" type="text" value="" optional="true" label="Fill by column" help="Column in liana_res for tile color. E.g., 'magnitude_rank', 'specificity_rank', or p-value columns.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="fill-column key"/>
                 </param>
                 <param argument="label" type="text" value="" optional="true" label="Label by column" help="Column in liana_res to display inside tiles (e.g., 'lr_names', 'magnitude_rank').">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="label-column key"/>
                 </param>
                 <expand macro="param_source_labels"/>
                 <expand macro="param_target_labels"/>
@@ -226,9 +352,11 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_orderby_absolute"/>
                 <param argument="source_title" type="text" value="" optional="true" label="Source axis title" help="Custom title for sender/source cell types axis. Default: 'Source'.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_no_backslash"/>
                 </param>
                 <param argument="target_title" type="text" value="" optional="true" label="Target axis title" help="Custom title for receiver/target cell types axis. Default: 'Target'.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_no_backslash"/>
                 </param>
                 <expand macro="param_cmap"/>
                 <param argument="label_size" type="integer" value="12" min="1" label="Label text size" help="Font size for labels in tiles. Default: 12.">
@@ -240,15 +368,17 @@ fig.save('plot.$format', dpi=150)
                 <param argument="idx" type="integer" value="0" min="0" label="Cell index" help="Index of the cell to plot connectivity for."/>
                 <param argument="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm that contains the spatial coordinates.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="spatial coordinates key"/>
                 </param>
                 <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp that contains the spatial connectivity matrix.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="connectivity matrix key"/>
                 </param>
                 <param argument="size" type="float" value="1" min="0" label="Point size" help="Size of the points."/>
                 <expand macro="param_figure_size" width="5.4" height="5"/>
             </when>
             <when value="pl.target_metrics">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
+                <expand macro="param_mdata"/>
                 <expand macro="param_misty_key"/>
                 <param argument="stat" type="select" optional="true" label="Statistic to plot" help="Target metric to visualize. gain_R2: improvement from multi-view; intra_R2: intra-view variance explained; multi_R2: total variance explained.">
                     <option value="">-- Select statistic --</option>
@@ -264,24 +394,100 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
             <when value="pl.contributions">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
+                <expand macro="param_mdata"/>
                 <expand macro="param_misty_key"/>
                 <param argument="view_names" type="text" value="" optional="true" label="Views to include" help="Comma-separated view names (intra, juxta, para) to plot. Empty = all views. Useful for focusing on specific spatial scales.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="view-name list"/>
                 </param>
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
             <when value="pl.interactions">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
+                <expand macro="param_mdata"/>
                 <expand macro="param_misty_key"/>
                 <param argument="view" type="text" value="" optional="true" label="View name" help="Specific view (e.g., 'intra', 'juxta', 'para') to visualize interaction importances. Empty = combined importance across all views.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="view key"/>
                 </param>
                 <param argument="top_n" type="integer" value="" optional="true" min="1" label="Top N interactions" help="Number of top interactions to display. Empty = show all.">
                 </param>
                 <param argument="ascending" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort ascending" help="If enabled: smallest to largest. If disabled: largest to smallest (default, shows most important first).">
                 </param>
                 <expand macro="param_figure_size" width="5" height="5"/>
+            </when>
+            <when value="pl.annulus_plot">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_spatial_key"/>
+                <expand macro="param_annulus_width"/>
+                <expand macro="param_radius_step"/>
+                <expand macro="param_extend_first_annulus"/>
+                <param argument="n_rings" type="integer" value="10" min="1" label="Number of rings"/>
+                <expand macro="param_seed"/>
+                <expand macro="param_figure_size" width="6" height="6"/>
+            </when>
+            <when value="pl.lric_lineplot">
+                <param name="curves" type="data" format="tabular" label="Spatial curves table" help="Long-form table from Liana Methods cross_pcf/lric, with radius and value columns."/>
+                <param argument="source" type="text" value="" optional="true" label="Source cell type filter"><expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="source filter"/></param>
+                <param argument="target" type="text" value="" optional="true" label="Target cell type filter"><expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="target filter"/></param>
+                <param argument="interactions" type="text" value="" optional="true" label="Interaction filter" help="Optional comma-separated interaction names.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_csv" FIELD="interaction-name list"/>
+                </param>
+                <param argument="overlay" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Overlay curves on one axis"/>
+                <param argument="ncols" type="integer" value="4" min="1" label="Columns in small-multiple layout"/>
+                <param argument="title" type="text" value="" optional="true" label="Figure title">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_no_backslash"/>
+                </param>
+                <expand macro="param_figure_size" width="8" height="6"/>
+            </when>
+            <when value="pl.circle_plot">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_uns_key"/>
+                <expand macro="param_groupby"/>
+                <expand macro="param_source_key"/>
+                <expand macro="param_target_key"/>
+                <param argument="score_key" type="text" label="Interaction score column"><expand macro="sanitize_query"/><expand macro="validator_required_key" FIELD="score column"/></param>
+                <param argument="inverse_score" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Invert score direction"/>
+                <expand macro="param_top_n"/>
+                <expand macro="param_orderby"/>
+                <expand macro="param_orderby_ascending"/>
+                <expand macro="param_orderby_absolute"/>
+                <expand macro="param_source_labels"/>
+                <expand macro="param_target_labels"/>
+                <expand macro="param_ligand_complex"/>
+                <expand macro="param_receptor_complex"/>
+                <param argument="pivot_mode" type="select" label="Edge aggregation"><option value="counts" selected="true">Interaction counts</option><option value="mean">Mean score</option></param>
+                <param argument="mask_mode" type="select" label="Source/target filter logic"><option value="or" selected="true">Either source or target matches</option><option value="and">Both source and target match</option></param>
+                <expand macro="param_figure_size" WIDTH="5" HEIGHT="5"/>
+                <param argument="edge_alpha" type="float" value="0.5" min="0" max="1" label="Edge opacity"/>
+                <param argument="edge_arrow_size" type="integer" value="10" min="0" label="Arrow size"/>
+                <param name="edge_width_min" type="float" value="1" min="0" label="Minimum edge width"/>
+                <param name="edge_width_max" type="float" value="5" min="0" label="Maximum edge width"/>
+                <param argument="node_alpha" type="float" value="1" min="0" max="1" label="Node opacity"/>
+                <param name="node_size_min" type="float" value="100" min="0" label="Minimum node size"/>
+                <param name="node_size_max" type="float" value="400" min="0" label="Maximum node size"/>
+                <param name="node_label_x" type="float" value="0.1" label="Node-label X offset"/>
+                <param name="node_label_y" type="float" value="-0.2" label="Node-label Y offset"/>
+                <param argument="node_label_size" type="integer" value="8" min="1" label="Node-label size"/>
+                <param argument="node_label_alpha" type="float" value="0.7" min="0" max="1" label="Node-label opacity"/>
+            </when>
+            <when value="pl.feature_by_group">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_groupby"/>
+                <expand macro="param_spatial_key"/>
+                <param argument="labels" type="text" value="" optional="true" label="Group labels" help="Optional comma-separated subset of group labels."><expand macro="sanitize_query"/><expand macro="validator_optional_csv" FIELD="group-label list"/></param>
+                <param argument="feature" type="text" label="Feature"><expand macro="sanitize_query"/><expand macro="validator_required_key" FIELD="feature name"/></param>
+                <expand macro="param_figure_size" WIDTH="10" HEIGHT="6"/>
+                <param argument="normalize" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Normalize feature values"/>
+                <conditional name="percentile_settings">
+                    <param name="percentile_selector" type="select" label="Percentile scaling"><option value="none" selected="true">No percentile clipping</option><option value="custom">Clip to percentile range</option></param>
+                    <when value="none"/>
+                    <when value="custom"><param name="percentile_low" type="integer" value="1" min="0" max="100" label="Lower percentile"/><param name="percentile_high" type="integer" value="99" min="0" max="100" label="Upper percentile"/></when>
+                </conditional>
+                <param argument="show_counts" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Show observation counts"/>
             </when>
         </conditional>
         <expand macro="inputs_common_advanced"/>
@@ -497,6 +703,81 @@ fig.save('plot.$format', dpi=150)
                 </assert_contents>
             </output>
         </test>
+        <!-- LIANA 1.8 line plot from the methods long-form table -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.lric_lineplot"/>
+                <param name="curves" value="spatial_curves.tsv" ftype="tabular"/>
+                <param name="overlay" value="true"/>
+                <param name="ncols" value="2"/>
+                <param name="title" value="Spatial curves"/>
+                <param name="figure_size_width" value="7"/>
+                <param name="figure_size_height" value="5"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.plotting.lric_lineplot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 9) LIANA 1.8.1 annulus_plot -> semantic PNG validation -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.annulus_plot"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="annulus_width" value="20"/>
+                <param name="radius_step" value="20"/>
+                <param name="extend_first_annulus" value="true"/>
+                <param name="n_rings" value="5"/>
+                <param name="seed" value="42"/>
+                <param name="figure_size_width" value="6"/>
+                <param name="figure_size_height" value="6"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_image_width min="500"/>
+                    <has_image_height min="500"/>
+                    <has_image_channels min="3"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.plotting.annulus_plot"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- LIANA 1.8.1 circle_plot: semantic image output -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.circle_plot"/><param name="adata" value="plot_liana_test.h5ad"/><param name="uns_key" value="liana_res"/><param name="groupby" value="cell_type"/><param name="source_key" value="source"/><param name="target_key" value="target"/><param name="score_key" value="magnitude_rank"/><param name="inverse_score" value="false"/><param name="top_n" value="13"/><param name="orderby" value="magnitude_rank"/><param name="orderby_ascending" value="true"/><param name="orderby_absolute" value="false"/><param name="pivot_mode" value="counts"/><param name="mask_mode" value="or"/><param name="figure_size_width" value="5"/><param name="figure_size_height" value="5"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="out_png"><assert_contents><has_image_width min="400"/><has_image_height min="400"/><has_image_channels min="3"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.plotting.circle_plot"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 feature_by_group: grouped spatial feature panels -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method"><param name="method" value="pl.feature_by_group"/><param name="adata" value="inflow_test.h5ad"/><param name="groupby" value="cell_type"/><param name="spatial_key" value="spatial"/><param name="labels" value="A,B"/><param name="feature" value="A^L2^R2"/><param name="figure_size_width" value="8"/><param name="figure_size_height" value="5"/><param name="normalize" value="true"/><conditional name="percentile_settings"><param name="percentile_selector" value="custom"/><param name="percentile_low" value="1"/><param name="percentile_high" value="99"/></conditional><param name="show_counts" value="true"/></conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="out_png"><assert_contents><has_image_width min="500"/><has_image_height min="300"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.plotting.feature_by_group"/></assert_contents></output>
+        </test>
     </tests>
     <help><![CDATA[
 Liana Plotting Tools
@@ -535,6 +816,18 @@ Available Methods
 **interactions** (MISTy)
     Plot interaction importances from MISTy results. Shows the importance of predictor
     variables for explaining targets within a specific view.
+
+**annulus_plot**
+    Inspect the concentric distance bins used by cross-PCF and LRIC on a spatial AnnData object.
+
+**lric_lineplot**
+    Plot distance-resolved g(r) curves from the long-form table emitted by cross_pcf or lric.
+
+**circle_plot**
+    Summarize directed interactions among groups as a network-style circle plot.
+
+**feature_by_group**
+    Display one spatial feature in separate group-specific panels.
 
 Common Parameters
 -----------------
