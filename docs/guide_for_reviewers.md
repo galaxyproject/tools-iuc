@@ -21,9 +21,6 @@ than duplicating those checks here.
 
 * [ ] Is the target upstream version clear, and do the pull request
       description and the diff agree on it?
-* [ ] Does the target version exist in the best-practice Conda channels?
-      Do not require its BioContainer before merge; that is checked after the
-      update reaches the main branch.
 * [ ] Have the upstream release notes for every intervening release and the new
       executable's help been checked?
 * [ ] For a suite, have all wrappers and shared macros affected by the version
