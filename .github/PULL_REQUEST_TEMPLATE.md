@@ -20,4 +20,4 @@ To request a review once your PR is ready, comment "please review" on the PR. Th
 automatically apply the `ready-for-review` label if the PR is not a draft, all review
 threads are resolved, and all CI checks have passed.
 
-[tool-update-guide]: https://github.com/galaxyproject/tools-iuc/blob/master/docs/guide_for_tool_updates.md
+[tool-update-guide]: https://github.com/galaxyproject/tools-iuc/blob/main/docs/guide_for_tool_updates.md
