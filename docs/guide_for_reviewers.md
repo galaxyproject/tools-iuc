@@ -32,7 +32,6 @@ than duplicating those checks here.
       and [dependencies](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/package_xml.html)?
 * [ ] Are changes in the upstream interface reflected in the wrapper, and are
       changed assertions or test data explained by those changes?
-* [ ] Is the diff the smallest coherent adaptation, without unrelated cleanup
       obscuring the update?
 * [ ] Were linting and tests run against the complete tool directory so shared
       macros and sibling wrappers are covered?
