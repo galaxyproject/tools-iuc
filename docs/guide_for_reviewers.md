@@ -4,9 +4,44 @@ This document describes a checklist suitable as a guide for reviewers of pull re
 
 **This document is a work in progress!**
 
-The comprehensive list is aimed at new tools. Obviously for tool updates just use the appropriate section of the checklist on the PR diffs.
+The comprehensive list is aimed at new tools. For version updates, start with
+the tool-update section below and then apply the other sections relevant to the
+pull request diff.
 
 This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/index.html) document.
+
+## Tool Version Updates
+
+For a version-bump pull request, use the
+[Galaxy Tool Update Guide](guide_for_tool_updates.md). Review the complete tool
+directory, not only the changed lines: shared macros can affect sibling
+wrappers that are absent from the diff. Apply the general [IUC Standards and
+Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/) rather
+than duplicating those checks here.
+
+* [ ] Is the target upstream version clear, and do the pull request
+      description and the diff agree on it?
+* [ ] Have the upstream release notes for every intervening release and the new
+      executable's help been checked?
+* [ ] For a suite, have all wrappers and shared macros affected by the version
+      change been identified? Is any partial update explicit and justified?
+* [ ] Does the result follow the IUC standards for [tool
+      versions](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-versions),
+      [profiles](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-profile),
+      [tests](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tests),
+      and [dependencies](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/package_xml.html)?
+* [ ] Are changes in the upstream interface reflected in the wrapper, and are
+      changed assertions or test data explained by those changes?
+      obscuring the update?
+* [ ] Were linting and tests run against the complete tool directory so shared
+      macros and sibling wrappers are covered?
+
+Treat an incorrect target, inconsistent version graph, missed upstream
+interface change, invalid test expectation, or unexplained validation gap as a
+required change. Clearly separate those findings from optional cleanup or
+style suggestions. Do not approve a version-token-only diff unless upstream
+release notes, executable help, and tests support that the update is genuinely
+mechanical.
 
 ## Repository
 
