@@ -54,7 +54,6 @@ Scanpy
 
     Methods | Description
     --- | ---
-    `tl.louvain` | Cluster cells into subgroups
     `tl.leiden` | Cluster cells into subgroups
     `pp.pca` | Principal component analysis
     `tl.diffmap` | Diffusion Maps
