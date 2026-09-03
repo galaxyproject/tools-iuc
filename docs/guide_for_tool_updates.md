@@ -77,9 +77,8 @@ shared macros can change wrappers that do not otherwise appear in the diff.
 Compare the updated software's help and all intervening release notes with the
 wrapper. Identify changes that affect the wrapped interface, such as command
 line options and defaults, input or output formats, dependencies, or licensing.
-Apply the corresponding IUC standards instead of restating them here.
-
-Make the smallest coherent update. Avoid unrelated cleanup unless it is needed
+Update the wrappers accordingly, following the corresponding IUC standards.
+Avoid unrelated cleanup unless it is needed
 for the new release or to meet a current standard. When updating the tool
 `profile` to satisfy the [IUC profile
 standard](https://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#tool-profile),
@@ -129,7 +128,6 @@ In the pull request description, record:
 - A link to the relevant upstream release notes.
 - Important wrapper adaptations and changed defaults or outputs.
 - Why test expectations or test data changed.
-- The lint and test commands run, including any tests that could not be run.
 
 Update every wrapper in a suite that shares the changed version unless a partial
 update is intentional. The `skip-version-check` label is only for the documented
