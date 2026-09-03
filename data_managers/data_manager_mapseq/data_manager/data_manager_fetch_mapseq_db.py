@@ -5,7 +5,8 @@ import json
 import os
 import shutil
 import tarfile
-from datetime import datetime
+from datetime import date
+from pathlib import Path
 
 import wget
 
@@ -34,6 +35,14 @@ DB_names = {
     "mgnify_v6_pr2": "MGnify PR2 (v6.0) - PR2-20240702",
     "test_lsu": "Trimmed LSU Test DB",
 }
+
+
+def source_id(url):
+    filename = Path(url).name
+    for suffix in (".tar.gz", ".tar.bz2", ".tgz", ".zip"):
+        if filename.endswith(suffix):
+            return filename.removesuffix(suffix)
+    return filename
 
 
 def download_untar_store(url, tmp_path, dest_path):
@@ -104,8 +113,8 @@ def main():
     workdir = params["output_data"][0]["extra_files_path"]
     os.mkdir(workdir)
 
-    time = datetime.utcnow().strftime("%Y-%m-%d")
-    db_value = f"{args.db_type}_from_{time}"
+    download_date = date.today().isoformat()
+    db_value = f"{args.db_type}_{source_id(DB_paths[args.db_type])}"
 
     # output paths
     db_path = os.path.join(workdir, db_value)
@@ -126,7 +135,7 @@ def main():
         "data_tables": {
             "mapseq_db": {
                 "value": db_value,
-                "name": f"{db_name} downloaded at {time}",
+                "name": f"{db_name} downloaded at {download_date}",
                 "version": args.version,
                 "path": db_path,
             }
