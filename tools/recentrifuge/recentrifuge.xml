@@ -1,11 +1,9 @@
-<?xml version="1.0" encoding="UTF-8"?>
-
-<tool id="recentrifuge" name="Recentrifuge" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+<tool id="recentrifuge" name="Recentrifuge" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="AGPL-3.0-or-later">
     <description>
         Robust comparative analysis and contamination removal for metagenomics
     </description>
     <macros>
-        <import>macro.xml</import>
+        <import>macros.xml</import>
     </macros>
     <expand macro='edam'/>
     <expand macro='xrefs'/>
@@ -62,11 +60,20 @@
         -e $output_option.extra
         -o output
         $output_option.nohtml
+        #if str($output_option.pickle) == "dataframes"
+            --pickle
+        #else if str($output_option.pickle) == "dataframes_and_samples"
+            --pickle --pickle
+        #end if
         #*======================================
                   Advanced options
         ======================================*#
-        #if $advanced_option.controls
+        #*  --controls and --avoidcross are mutually exclusive in rcf >= 2.0,
+            so only emit --avoidcross when no negative controls are requested *#
+        #if str($advanced_option.controls) and int($advanced_option.controls) > 0
             --controls '$advanced_option.controls'
+        #else
+            $advanced_option.avoidcross
         #end if
         #if $advanced_option.scoring
             --scoring '$advanced_option.scoring'
@@ -85,7 +92,6 @@
         #if $advanced_option.include_taxa_name
             --include '$advanced_option.include_taxa_name'
         #end if
-        $advanced_option.avoidcross
         #*======================================
                   More advanced options
         ======================================*#
@@ -98,8 +104,9 @@
             --summary $more_advanced_option.summary
         $more_advanced_option.takeoutroot
         $more_advanced_option.nokollapse
-        $more_advanced_option.strain
+        $more_advanced_option.no_strain
         $more_advanced_option.sequential
+        --threads "\${GALAXY_SLOTS:-1}"
         #*======================================
                   Log file output
         ======================================*#
@@ -146,11 +153,16 @@
                 <option value="TSV" >TSV</option>
             </param>
             <param argument="--nohtml" type="boolean" truevalue="--nohtml" falsevalue="" label="Suppress saving the HTML output file" help="remove html output"/>
+            <param argument="--pickle" type="select" label="Serialize the results as compressed pandas pickles" help="Serializes the statistics and the data results as bz2-compressed pandas DataFrames, for further analysis in Python; the DataFrame layout follows the selection above">
+                <option value="none" selected="true">No</option>
+                <option value="dataframes">Serialize the stats and data DataFrames</option>
+                <option value="dataframes_and_samples">Serialize the stats and data DataFrames, and the input samples</option>
+            </param>
             <param name="no_logfile" type="boolean" truevalue="True" falsevalue="False" label="Remove the log file"/>
         </section>
     <!-- ADVANCED OPTIONS -->
         <section name="advanced_option" title="Coarse tuning of algorithm parameters">
-            <param name="controls" type="integer" optional="true" value="0" label="Number of first samples will be treated as negative controls" help="Add control samples (default is 0)"/>
+            <param name="controls" type="integer" optional="true" value="0" label="Number of first samples will be treated as negative controls" help="Add control samples (default is 0). Mutually exclusive with 'Avoid cross analysis' below: if a non-zero number of controls is given, it takes precedence and cross analysis is performed"/>
             <param name="scoring" type="select" optional="true" label="Type of scoring to be applied" help="Scoring algorithm, depending of the input files, see the help section of the tools">
                 <option value="SHEL">SHEL</option>
                 <option value="LENGTH">LENGTH</option>
@@ -183,7 +195,7 @@
                 </sanitizer>
                 <validator type="regex">[A-Za-z0-9,]+</validator>
             </param>
-            <param argument="--avoidcross" type="boolean" truevalue="--avoidcross" falsevalue="" label="Avoid cross analysis" help="Default: no"/>
+            <param argument="--avoidcross" type="boolean" truevalue="--avoidcross" falsevalue="" label="Avoid cross analysis" help="Default: no. Ignored when a non-zero number of negative controls is set above"/>
         </section>
     <!-- Detailed more fine parameters -->
         <section name="more_advanced_option" title=" Fine tuning of algorithm parameters">
@@ -196,7 +208,7 @@
             </param>
             <param argument="--takeoutroot" type="boolean" truevalue="--takeoutroot" falsevalue="" label="Remove counts directly assigned to the root level"/>
             <param argument="--nokollapse"  type="boolean" truevalue="--nokollapse" falsevalue=""  label="Show the cellular organisms taxon" />
-            <param argument="--strain"      type="boolean" truevalue="--strain" falsevalue=""      label="Strain level instead of species as the resolution limit for the robust contamination removal algorithm; use with caution, this is an experimental feature"/>
+            <param argument="--no-strain"   type="boolean" truevalue="--no-strain" falsevalue=""   label="Disable strain level as the resolution limit for the robust contamination removal algorithm" help="Since Recentrifuge 2.0, strain level is enabled by default; check this to fall back to species level as the resolution limit"/>
             <param argument="--sequential"  type="boolean" truevalue="--sequential" falsevalue=""  label="Deactivate parallel processing"/>
         </section>
     </inputs>
@@ -223,9 +235,19 @@
         <data name="xls_report" format="xlsx" from_work_dir="output.rcf.xlsx" label="${tool.name} on ${on_string}: xlsx report">
             <filter> output_option['extra'] == 'FULL' or output_option['extra'] == 'DYNOMICS'</filter>
         </data>
+        <data name="stat_pkl" format="binary" from_work_dir="output.rcf.stat.pkl.bz2" label="${tool.name} on ${on_string}: stats DataFrame (pickle)">
+            <filter> output_option['pickle'] != 'none' </filter>
+        </data>
+        <data name="data_pkl" format="binary" from_work_dir="output.rcf.data.pkl.bz2" label="${tool.name} on ${on_string}: data DataFrame (pickle)">
+            <filter> output_option['pickle'] != 'none' </filter>
+        </data>
+        <data name="samples_pkl" format="binary" from_work_dir="output.rcf.samples.pkl.bz2" label="${tool.name} on ${on_string}: samples (pickle)">
+            <filter> output_option['pickle'] == 'dataframes_and_samples' </filter>
+        </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="4"> <!-- kraken input and CSV output TEST_1-->
+        <!-- Test 01: kraken input and CSV output-->
+        <test expect_num_outputs="4"> 
             <section name="database">
                     <param name="database_name" value="test-db-2022"/>
             </section>
@@ -240,10 +262,17 @@
             </section>
             <output name="data_csv" file="kraken_test/test1_csv.rcf.data.csv" lines_diff="2"/>
             <output name="stat_csv" file="kraken_test/test1_csv.rcf.stat.csv" lines_diff="2"/>
-            <output name="html_report" file="kraken_test/test1_csv.rcf.html" lines_diff="2"/>
+            <output name="html_report">
+                <assert_contents>
+                    <has_text text="Recentrifuge"/>
+                    <has_text text="kraken_out"/>
+                    <has_size value="233627"/>
+                </assert_contents>
+            </output>
             <output name="logfile" file="kraken_test/test1_csv.log" lines_diff="12"/>
         </test>
-        <test expect_num_outputs="3"> <!-- centrifuge input and full options with imported database TEST_2 -->
+        <!-- Test 02: centrifuge input and full options with imported database -->
+        <test expect_num_outputs="3"> 
             <section name="database">
                 <param name="database_name" value="test-db-2022"/>
             </section>
@@ -264,12 +293,14 @@
             <section name="more_advanced_option">
                 <param name="ctrlminscore" value="1"/>
                 <param name="summary" value="AVOID"/>
+                <param name="no_strain" value="true"/>
             </section>
             <output name="stat_csv" file="centrifuge_test/test2_csv.rcf.stat.csv" lines_diff="2"/>
             <output name="data_csv" file="centrifuge_test/test2_csv.rcf.data.csv" lines_diff="2"/>
             <output name="logfile" file="centrifuge_test/test2_csv.log" lines_diff="12"/>
         </test>
-        <test expect_num_outputs="3"> <!-- kraken input cached DB several option added TEST_3 -->
+        <!-- Test 03:kraken input cached DB several option added -->
+        <test expect_num_outputs="3">
             <section name="database">
                 <param name="database_name" value="test-db-2022"/>
             </section>
@@ -286,13 +317,13 @@
             </section>
             <section name="more_advanced_option">
                 <param name="summary" value="ONLY"/>
-                <param name="strain" value="true"/>
             </section>
             <output name="data_tsv" file="kraken_test/test3_rcf.data.tsv" lines_diff="2"/>
             <output name="stat_tsv" file="kraken_test/test3_rcf.stat.tsv" lines_diff="2"/>
             <output name="logfile" file="kraken_test/test3_tsv.log" lines_diff="12"/>
         </test>
-        <test expect_num_outputs="3"> <!-- Test sumarized output TEST_4 -->
+        <!-- Test 04: Test sumarized output -->
+        <test expect_num_outputs="3">
             <section name="database">
                 <param name="database_name" value="test-db-2022"/>
             </section>
@@ -309,11 +340,51 @@
             </section>
             <section name="more_advanced_option">
                 <param name="summary" value="ADD"/>
-                <param name="strain" value="true"/>
             </section>
             <output name="data_tsv" file="centrifuge_test/test4_rcf.data.tsv" lines_diff="2"/>
             <output name="stat_tsv" file="centrifuge_test/test4_rcf.stat.tsv" lines_diff="2"/>
-            <output name="html_report" file="centrifuge_test/test4_tsv.html" lines_diff="12"/>
+            <output name="html_report">
+                <assert_contents>
+                    <has_text text="Recentrifuge"/>
+                    <has_text text="centrifuge_out"/>
+                    <has_size value="235392"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 05: Test kraken input, serialized DataFrames and samples -->
+        <test expect_num_outputs="6">
+            <section name="database">
+                <param name="database_name" value="test-db-2022"/>
+            </section>
+            <param name="input_file" value="kraken_test/kraken.out"/>
+            <conditional name="file_type">
+                <param name="filetype" value="kraken"/>
+            </conditional>
+            <section name="output_option">
+                <param name="extra" value="CSV"/>
+                <param name="nohtml" value="true"/>
+                <param name="pickle" value="dataframes_and_samples"/>
+            </section>
+            <section name="more_advanced_option">
+                <param name="summary" value="AVOID"/>
+            </section>
+            <output name="data_csv" file="kraken_test/test5_csv.rcf.data.csv" lines_diff="2"/>
+            <output name="stat_csv" file="kraken_test/test5_csv.rcf.stat.csv" lines_diff="2"/>
+            <output name="stat_pkl" ftype="binary">
+                <assert_contents>
+                    <has_size value="776"/>
+                </assert_contents>
+            </output>
+            <output name="data_pkl" ftype="binary">
+                <assert_contents>
+                    <has_size value="963"/>
+                </assert_contents>
+            </output>
+            <output name="samples_pkl" ftype="binary">
+                <assert_contents>
+                    <has_size value="293"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
   <help><![CDATA[
@@ -348,7 +419,10 @@ for the TaxIDs assigned,the LENgth of the read, the SCOre given to the assignmen
 
 **Output options**
   1. Depending of the option provided, the file output format can be csv, tsv or xlsx and be combine in one or more files (extra).
-  3. By default a html file is generated to visualize data, could be remove using the nohtml option
+  2. By default a html file is generated to visualize data, could be remove using the nohtml option
+  3. The results can additionally be serialized as bz2-compressed pandas DataFrames (--pickle), for further analysis in Python.
+     The layout of the serialized DataFrames follows the extra output selection. Optionally, the input samples are also
+     serialized as a dict of sample names and TaxTree objects.
 
 
 **Advanced options**
@@ -370,12 +444,14 @@ for the TaxIDs assigned,the LENgth of the read, the SCOre given to the assignmen
   1. You can choose a filter for read quality specifically on the control samples
   2. You cans specify the minimum taxa value to avoid collapsing one level into parent
   3. A summary option is available produce a summary file
+  4. Since Recentrifuge 2.0, the strain level is the default resolution limit for the robust contamination removal
+     algorithm. Check the 'Disable strain level...' option (--no-strain) to fall back to the species level.
      Some other options are available and explicite in the more advanced panel of the tool
 
 
-rcf - Release 1.8.1 - Mar 2022
+rcf - Release 2.1.2 - Aug 2026
 
-  Copyright (C) 2017–2022, Jose Manuel Martí Martínez
+  Copyright (C) 2017–2026, Jose Manuel Martí Martínez
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU Affero General Public License as
