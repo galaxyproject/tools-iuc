@@ -1,0 +1,157 @@
+<tool id="hyphaeon_disease" name="HyphAeon-Disease" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Disease variant effect prediction and pathogenicity scoring</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @SYMLINK_FILES_NO_TREE@
+        #if $mutations_source.source_type == "file" and $mutations_source.mutations_file:
+            ln -s '$mutations_source.mutations_file' mutations_input.csv &&
+        #end if
+        hyphaeon disease
+            -a input.$input_file.extension
+            @MODEL_VARIANT@
+            -m #if $mutations_source.source_type == "file":
+                mutations_input.csv
+                #else
+                    '$mutations_source.mutations_text'
+                #end if
+            #if $canonical_seq:
+                --canonical-seq '$canonical_seq'
+            #end if
+            #if $human_taxon:
+                --human-taxon '$human_taxon'
+            #end if
+            @OUTPUTS@
+    ]]></command>
+    <inputs>
+        <expand macro="inputs_no_tree"/>
+        <expand macro="model_variant_param"/>
+        <conditional name="mutations_source">
+            <param name="source_type" type="select" label="Mutation input method" help="Provide mutations as inline text or upload a CSV/Parquet file">
+                <option value="text" selected="true">Enter mutations as text</option>
+                <option value="file">Upload a mutations file</option>
+            </param>
+            <when value="text">
+                <param name="mutations_text" type="text" label="Mutations" help="Comma-separated list of mutations in standard notation (e.g. 'R175H,G245S,R248Q')">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.ascii_letters,string.digits">
+                            <add value=","/>
+                            <add value="-"/>
+                            <add value="."/>
+                            <add value=" "/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+            <when value="file">
+                <param name="mutations_file" type="data" format="csv,tsv,tabular,parquet" label="Mutations file" help="CSV, TSV, or Parquet file containing mutation identifiers (e.g. 'R175H,G245S' or one per row)"/>
+            </when>
+        </conditional>
+        <param name="canonical_seq" type="data" format="fasta,txt" optional="true" label="Canonical reference sequence (optional)" help="Canonical human reference sequence (FASTA file or raw amino acid string). Used for coordinate mapping between canonical positions and MSA columns."/>
+        <param name="human_taxon" type="text" optional="true" label="Human taxon name (optional)" help="Name of the human reference taxon in the alignment (auto-detected if omitted). Use this when the alignment header does not contain obvious human identifiers.">
+            <sanitizer invalid_char="">
+                <valid initial="string.ascii_letters,string.digits">
+                    <add value="_"/>
+                    <add value="-"/>
+                    <add value="."/>
+                    <add value=" "/>
+                </valid>
+            </sanitizer>
+        </param>
+        <expand macro="outputs_json_csv"/>
+    </inputs>
+    <outputs>
+        <data name="json_output" format="json" label="${tool.name} on ${on_string}: Disease pathogenicity JSON">
+            <filter>output_json</filter>
+        </data>
+        <data name="csv_output" format="csv" label="${tool.name} on ${on_string}: Disease pathogenicity CSV">
+            <filter>output_csv</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="fasta" value="smc6.fa"/>
+            <param name="human_taxon" value="homSap_293T"/>
+            <conditional name="mutations_source">
+                <param name="source_type" value="text"/>
+                <param name="mutations_text" value="R175H,G245S"/>
+            </conditional>
+            <output name="json_output">
+                <assert_contents>
+                    <has_text text="mutation"/>
+                    <has_text text="pathogenicity_score"/>
+                </assert_contents>
+            </output>
+            <output name="csv_output">
+                <assert_contents>
+                    <has_text text="mutation"/>
+                    <has_text text="prediction"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="fasta" value="smc6.fa"/>
+            <param name="human_taxon" value="homSap_293T"/>
+            <conditional name="mutations_source">
+                <param name="source_type" value="file"/>
+                <param name="mutations_file" ftype="csv" value="mutations1.csv"/>
+            </conditional>
+            <output name="json_output">
+                <assert_contents>
+                    <has_text text="mutation"/>
+                    <has_text text="pathogenicity_score"/>
+                </assert_contents>
+            </output>
+            <output name="csv_output">
+                <assert_contents>
+                    <has_text text="mutation"/>
+                    <has_text text="prediction"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+HyphAeon Disease: Clinical Variant Effect Prediction & Pathogenicity Scoring
+===============================================================================
+
+**What question does this method answer?**
+
+For a set of clinical variants (e.g., cancer-associated mutations in TP53),
+which are likely pathogenic versus benign? How does each mutation disrupt
+the deep evolutionary constraints learned by the model?
+
+**How it works**
+
+HyphAeon uses its phylogenetic foundation model to score the pathogenicity
+of amino acid substitutions. Given a codon alignment containing a human
+reference sequence and a list of mutations (e.g., R175H), the tool:
+
+1. Maps canonical protein coordinates to MSA columns using dynamic programming
+   alignment against the human reference sequence in the alignment.
+2. For each mutation, substitutes the wild-type codon with the mutant amino
+   acid and measures the change in the model's selection signal (ΔLRT).
+3. Converts the perturbation score to a pathogenicity probability and
+   classification (pathogenic / likely pathogenic / benign / likely benign).
+
+**Inputs**
+
+- An in-frame codon alignment (FASTA or NEXUS) containing a human reference
+  sequence
+- A list of mutations (inline text or CSV/Parquet file) in standard notation
+  (e.g., R175H, G245S)
+- Optional canonical reference sequence for coordinate mapping
+- Optional explicit human taxon name (auto-detected if omitted)
+
+**Outputs**
+
+- **JSON**: full per-mutation results including canonical position, MSA column,
+  mapping status, pathogenicity score, and prediction class
+- **CSV**: tabular per-mutation summary suitable for clinical reporting
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
