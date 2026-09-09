@@ -32,7 +32,7 @@ class GetBaktaDatabaseInfo:
         self.tar_name = tarball_name
         self.db_version = db_version
         self.DB_VERSIONS_URL = "https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json"
-        self.DB_TEST_URL = "https://zenodo.org/records/14916843/files/db-versions.json"
+        self.DB_TEST_URL = "https://zenodo.org/records/22298301/files/db-versions.json"
         self.test_mode = test_mode
 
     def get_database_type(self):
