@@ -87,6 +87,8 @@ def main():
                         help="Stanza model package to install (default_fast, default, or "
                              "default_accurate). default/default_accurate add constituency "
                              "parsing at the cost of larger downloads.")
+    parser.add_argument("--stanza-version", default="1.12.0",
+                        help="Stanza resources version (e.g. 1.12.0)")
     args = parser.parse_args()
 
     # Galaxy prepopulates the data manager JSON with the output dataset's
@@ -100,21 +102,22 @@ def main():
     data_table_entries = []
 
     package = args.package
+    stanza_version = args.stanza_version
 
     for lang in args.model:
         display_name = STANZA_LANGUAGES.get(lang, lang)
 
-        # A data-table entry is keyed by language + package so multiple packages
-        # for the same language can coexist (e.g. a small default_fast model and
-        # a full default model with constituency). The value doubles as the
-        # on-disk subdirectory name.
-        entry_value = f"{lang}-{package}"
+        # A data-table entry is keyed by language + package + stanza version so
+        # multiple packages and versions for the same language can coexist.
+        # The value doubles as the on-disk subdirectory name.
+        entry_value = f"{lang}-{package}-v{stanza_version}"
         lang_dir = target_dir / entry_value
         print(f"Downloading {display_name} ({lang}) models with the {package} package...")
         stanza.download(
             lang=lang,
             model_dir=str(lang_dir),
             package=package,
+            resources_version=stanza_version,
             verbose=False,
         )
 
@@ -123,6 +126,7 @@ def main():
             "name": f"{display_name} — {package}",
             "lang": lang,
             "package": package,
+            "stanza_version": stanza_version,
             # Relative to extra_files_path; data_manager_conf.xml moves it into
             # ${GALAXY_DATA_MANAGER_DATA_PATH}/stanza_models/${value}.
             "models_path": entry_value,

@@ -85,21 +85,22 @@ Models are pretrained on Universal Dependencies v2.12 treebanks.
 
 ## Data Table Format
 
-Models are registered in `stanza_models.loc` with five columns:
+Models are registered in `stanza_models.loc` with six columns:
 ```
-<value>    <name>    <lang>    <package>    <models_path>
+<value>    <name>    <lang>    <package>    <stanza_version>    <models_path>
 ```
 
-- `value`: unique identifier, `<lang>-<package>` (also the on-disk subdirectory name)
+- `value`: unique identifier, `<lang>-<package>-v<stanza_version>` (also the on-disk subdirectory name)
 - `name`: display name shown in the tool UI
 - `lang`: ISO 639-1 language code
 - `package`: `default_fast`, `default`, or `default_accurate`
+- `stanza_version`: Stanza library/resources version (e.g. `1.12.0`)
 - `models_path`: path to the `stanza_resources` directory containing the model
 
 Example:
 ```
-en-default_fast    English — default_fast    en    default_fast    /galaxy/tool-data/stanza_models/en-default_fast
-en-default         English — default         en    default         /galaxy/tool-data/stanza_models/en-default
+en-default_fast-v1.12.0    English — default_fast    en    default_fast    1.12.0    /galaxy/tool-data/stanza_models/en-default_fast-v1.12.0
+en-default-v1.12.0         English — default         en    default         1.12.0    /galaxy/tool-data/stanza_models/en-default-v1.12.0
 ```
 
 ## Technical Details
@@ -113,9 +114,9 @@ en-default         English — default         en    default         /galaxy/too
 ```
 tool-data/
 └── stanza_models/
-    ├── en-default_fast/
+    ├── en-default_fast-v1.12.0/
     │   └── [English default_fast model files]
-    ├── en-default/
+    ├── en-default-v1.12.0/
     │   └── [English default model files, incl. constituency]
     └── stanza_models.loc
 ```
