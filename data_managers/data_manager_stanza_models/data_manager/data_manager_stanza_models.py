@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 import stanza
+from stanza._version import __resources_version__, __version__
 
 
 # Language display names
@@ -87,8 +88,15 @@ def main():
                         help="Stanza model package to install (default_fast, default, or "
                              "default_accurate). default/default_accurate add constituency "
                              "parsing at the cost of larger downloads.")
-    parser.add_argument("--stanza-version", default="1.12.0",
-                        help="Stanza resources version (e.g. 1.12.0)")
+    parser.add_argument("--stanza-version", default=__version__,
+                        help="Stanza library version the models are downloaded with "
+                             "(e.g. 1.12.0). Defaults to the installed stanza library "
+                             "version.")
+    parser.add_argument("--resources-version", default=__resources_version__,
+                        help="Stanza model resources version to download (e.g. 1.12.0). "
+                             "Defaults to the resources version of the installed stanza "
+                             "library, which is distinct from the library version and may "
+                             "diverge from it.")
     args = parser.parse_args()
 
     # Galaxy prepopulates the data manager JSON with the output dataset's
@@ -103,21 +111,22 @@ def main():
 
     package = args.package
     stanza_version = args.stanza_version
+    resources_version = args.resources_version
 
     for lang in args.model:
         display_name = STANZA_LANGUAGES.get(lang, lang)
 
-        # A data-table entry is keyed by language + package + stanza version so
+        # A data-table entry is keyed by language + package + resources version so
         # multiple packages and versions for the same language can coexist.
         # The value doubles as the on-disk subdirectory name.
-        entry_value = f"{lang}-{package}-v{stanza_version}"
+        entry_value = f"{lang}-{package}-v{resources_version}"
         lang_dir = target_dir / entry_value
         print(f"Downloading {display_name} ({lang}) models with the {package} package...")
         stanza.download(
             lang=lang,
             model_dir=str(lang_dir),
             package=package,
-            resources_version=stanza_version,
+            resources_version=resources_version,
             verbose=False,
         )
 
@@ -127,6 +136,7 @@ def main():
             "lang": lang,
             "package": package,
             "stanza_version": stanza_version,
+            "resources_version": resources_version,
             # Relative to extra_files_path; data_manager_conf.xml moves it into
             # ${GALAXY_DATA_MANAGER_DATA_PATH}/stanza_models/${value}.
             "models_path": entry_value,

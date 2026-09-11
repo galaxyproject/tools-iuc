@@ -17,7 +17,7 @@ This data manager:
 2. **Installs per language**: Each language is stored as a self-contained `stanza_resources` directory (a `resources.json` plus a per-language model subdirectory).
 3. **Registers models**: Writes an entry to the `stanza_models` data table so the Stanza NLP tool can load it with `stanza.Pipeline(dir=models_path, package=<package>)`.
 4. **Managed storage**: Models are downloaded into the job's writable output directory, then moved by Galaxy into the managed data directory (see `data_manager_conf.xml`).
-5. **Version**: Installs models compatible with Stanza 1.12.0.
+5. **Version**: Installs models compatible with Stanza 1.12.0. Both the stanza library version and the model resources version (`stanza._version.__resources_version__`) are included into the data table.
 
 ## Model Packages
 
@@ -85,22 +85,23 @@ Models are pretrained on Universal Dependencies v2.12 treebanks.
 
 ## Data Table Format
 
-Models are registered in `stanza_models.loc` with six columns:
+Models are registered in `stanza_models.loc` with seven columns:
 ```
-<value>    <name>    <lang>    <package>    <stanza_version>    <models_path>
+<value>    <name>    <lang>    <package>    <stanza_version>    <resources_version>    <models_path>
 ```
 
-- `value`: unique identifier, `<lang>-<package>-v<stanza_version>` (also the on-disk subdirectory name)
+- `value`: unique identifier, `<lang>-<package>-v<resources_version>` (also the on-disk subdirectory name)
 - `name`: display name shown in the tool UI
 - `lang`: ISO 639-1 language code
 - `package`: `default_fast`, `default`, or `default_accurate`
-- `stanza_version`: Stanza library/resources version (e.g. `1.12.0`)
+- `stanza_version`: Stanza library version the models were installed with (e.g. `1.12.0`)
+- `resources_version`: Stanza model resources version
 - `models_path`: path to the `stanza_resources` directory containing the model
 
 Example:
 ```
-en-default_fast-v1.12.0    English — default_fast    en    default_fast    1.12.0    /galaxy/tool-data/stanza_models/en-default_fast-v1.12.0
-en-default-v1.12.0         English — default         en    default         1.12.0    /galaxy/tool-data/stanza_models/en-default-v1.12.0
+en-default_fast-v1.12.0    English — default_fast    en    default_fast    1.12.0    1.12.0    /galaxy/tool-data/stanza_models/en-default_fast-v1.12.0
+en-default-v1.12.0         English — default         en    default         1.12.0    1.12.0    /galaxy/tool-data/stanza_models/en-default-v1.12.0
 ```
 
 ## Technical Details
