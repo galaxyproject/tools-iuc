@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<tool id="haplotype_window_caller" name="Call window haplotypes" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>read whole haplotypes off spanning reads and name them by their own content</description>
+    <macros><import>macros.xml</import></macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>    <command detect_errors="aggressive"><![CDATA[
+## The specimen id becomes column 1 of the calls and the row id of the sheet, so it
+## defaults to the collection element identifier rather than a dataset number.
+#set $eid = str($input.element_identifier)
+#if $eid.endswith('.bam')
+    #set $eid = $eid.rsplit('.bam', 1)[0]
+#end if
+#if $specimen and str($specimen).strip()
+    #set $spec = str($specimen).strip()
+#else
+    #set $spec = $eid
+#end if
+ln -s '$input' 'input.bam' &&
+ln -s '${input.metadata.bam_index}' 'input.bam.bai' &&
+pyeuk call-haplotypes
+    --bam 'input.bam'
+    --ref '$ref'
+    --specimen '$spec'
+    --bed '$windows'
+    --min-span $gates.min_span
+    --min-reads $gates.min_reads
+    --min-freq $gates.min_freq
+    --denoise-edits $gates.denoise_edits
+    --denoise-ratio $gates.denoise_ratio
+    --out '$calls'
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="bam" label="Aligned BAM (one specimen)"/>
+        <param name="ref" type="data" format="fasta" label="Reference the BAM was aligned to"/>
+        <param name="windows" type="data" format="bed" label="Windows"
+               help="From 'Define haplotype windows'. Must be the same windows for every specimen."/>
+        <param name="specimen" type="text" value="" optional="true" label="Specimen id"
+               help="Leave blank to use the collection element identifier.">
+            <sanitizer invalid_char=""><valid initial="string.ascii_letters,string.digits"><add value="_"/><add value="-"/><add value="."/></valid></sanitizer>
+        </param>
+        <section name="gates" title="Calling thresholds" expanded="false">
+            <param name="min_span" type="integer" value="30" min="1" label="Minimum spanning reads for the window"
+                   help="TOTAL fully-spanning reads required before a window is called at all, applied before any haplotype is examined. A read must cover every base of the window, so this is not coverage: a window can sit under 2000x coverage and have 19 spanning reads. Derived by holding BAMs and windows fixed and sweeping only this value on the Cyclospora 2018 cohort -- 24 to 42 is a flat plateau at ARI 0.9737 with one specimen misassigned, and 44 drops to 0.7536 with ten. The old default of 50 was an undocumented round number on the wrong side of that cliff. This gate is harsher on MIXED specimens: k co-infecting genotypes split the spanning reads k ways, so a mixture needs k times the depth of a clonal sample to pass it."/>
+            <param name="min_reads" type="integer" value="10" min="1" label="Minimum reads per haplotype"/>
+            <param name="min_freq" type="float" value="0.05" min="0.0" max="1.0" label="Minimum haplotype frequency"
+                   help="This is a HAPLOTYPE frequency -- the fraction of spanning reads carrying that whole string. It is a property of one haplotype, unlike per-site allele frequency, which is a sum over every haplotype carrying that site."/>
+            <param name="denoise_edits" type="integer" value="1" min="0" label="Denoise: fold strings within this many differing positions"
+                   help="0 disables. A window string is a whole molecule, so one sequencing error creates a NEW haplotype rather than perturbing an existing one; folding a rare string into a much more abundant neighbour collapses that error cloud. Default 1 is set from a Cryptosporidium mixture titration with KNOWN proportions: off detected 110/112 mixture components at mean minor-haplotype purity 0.294, 1 edit detected 112/112 at 0.434, 2 edits reached 0.556 but fell back to 110/112, and 3 edits to 79/84. More aggressive folding buys purity by losing genuine minor components, which is the worst failure this tool can have."/>
+            <param name="denoise_ratio" type="float" value="8.0" min="1.0" label="Denoise: abundance ratio required of the neighbour"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="calls" format="tabular" label="${tool.name} on ${on_string}: window haplotype calls"/>
+    </outputs>
+    <help><![CDATA[
+Only reads whose alignment covers an entire window are counted, so each haplotype is a complete
+observation on one molecule rather than an inference across molecules. Identical strings are
+collapsed and counted; there is no assembly.
+
+Each haplotype is named by how it differs from the reference over that window (HGVS-like,
+1-based within the window), so no curated nomenclature file is needed. A string identical to the
+reference is named ``=`` -- an ordinary haplotype, which is what keeps "amplified and
+reference-identical" distinguishable from "not amplified".
+
+Read frequency is reported per haplotype. A mixture appears as several haplotypes in one window,
+which is what per-site variant calling cannot represent.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
