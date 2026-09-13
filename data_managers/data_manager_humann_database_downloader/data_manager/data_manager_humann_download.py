@@ -4,8 +4,8 @@
 import argparse
 import json
 import subprocess
-from datetime import date
 from pathlib import Path
+from urllib.parse import urlparse
 
 HUMANN_REFERENCE_DATA = {
     "chocophlan": {
@@ -113,6 +113,22 @@ def add_data_table_entry(d, table, entry):
         raise Exception("add_data_table_entry: no table '%s'" % table)
 
 
+def get_database_source_id(database, build):
+    """Return the versioned artifact name advertised by HUMAnN."""
+    available = subprocess.check_output(
+        ["humann_databases", "--available"], text=True
+    )
+    prefix = f"{database} : {build} = "
+    for line in available.splitlines():
+        if line.startswith(prefix):
+            filename = Path(urlparse(line[len(prefix):]).path).name
+            for suffix in (".tar.gz", ".tar.bz2", ".tgz", ".zip"):
+                if filename.endswith(suffix):
+                    return filename[:-len(suffix)]
+            return filename
+    raise RuntimeError(f"Unable to determine source for {database} {build}")
+
+
 def download_humann_db(data_tables, table_name, database, build, version, target_dp):
     """Download HUMAnN database
 
@@ -134,12 +150,18 @@ def download_humann_db(data_tables, table_name, database, build, version, target
     db_target_dp = target_dp / Path(database)
     db_dp = db_target_dp / Path(database)
     build_target_dp = db_target_dp / Path(build)
+    source_id = get_database_source_id(database, build)
     # launch tool to get db
-    cmd = "humann_databases --download %s %s %s --update-config no" % (
+    cmd = [
+        "humann_databases",
+        "--download",
         database,
         build,
-        db_target_dp)
-    subprocess.check_call(cmd, shell=True)
+        str(db_target_dp),
+        "--update-config",
+        "no",
+    ]
+    subprocess.check_call(cmd)
     # move db
     db_dp.rename(build_target_dp)
     # add details to data table
@@ -148,7 +170,7 @@ def download_humann_db(data_tables, table_name, database, build, version, target
             data_tables,
             table_name,
             dict(
-                value="%s-%s-%s-%s" % (database, build, version, date.today().strftime("%d%m%Y")),
+                value=f"{database}-{build}-{source_id}",
                 name=HUMANN_REFERENCE_DATA[database][build],
                 dbkey=version,
                 path=str(build_target_dp)))
@@ -159,7 +181,7 @@ def download_humann_db(data_tables, table_name, database, build, version, target
                 data_tables,
                 table_name,
                 dict(
-                    value="%s-%s-%s-%s-%s%s" % (database, build, name, version, date.today().strftime("%d%m%Y"), x.suffix),
+                    value=f"{database}-{build}-{name}-{source_id}{x.suffix}",
                     name=HUMANN_REFERENCE_DATA["utility_mapping"][build][name],
                     dbkey=version,
                     path=str(x)))
