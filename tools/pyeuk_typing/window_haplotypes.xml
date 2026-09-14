@@ -41,31 +41,59 @@ pyeuk call-haplotypes
             <sanitizer invalid_char=""><valid initial="string.ascii_letters,string.digits"><add value="_"/><add value="-"/><add value="."/></valid></sanitizer>
         </param>
         <section name="gates" title="Calling thresholds" expanded="false">
-            <param name="min_span" type="integer" value="30" min="1" label="Minimum spanning reads for the window"
-                   help="TOTAL fully-spanning reads required before a window is called at all, applied before any haplotype is examined. A read must cover every base of the window, so this is not coverage: a window can sit under 2000x coverage and have 19 spanning reads. Derived by holding BAMs and windows fixed and sweeping only this value on the Cyclospora 2018 cohort -- 24 to 42 is a flat plateau at ARI 0.9737 with one specimen misassigned, and 44 drops to 0.7536 with ten. The old default of 50 was an undocumented round number on the wrong side of that cliff. This gate is harsher on MIXED specimens: k co-infecting genotypes split the spanning reads k ways, so a mixture needs k times the depth of a clonal sample to pass it."/>
-            <param name="min_reads" type="integer" value="10" min="1" label="Minimum reads per haplotype"/>
-            <param name="min_freq" type="float" value="0.05" min="0.0" max="1.0" label="Minimum haplotype frequency"
-                   help="This is a HAPLOTYPE frequency -- the fraction of spanning reads carrying that whole string. It is a property of one haplotype, unlike per-site allele frequency, which is a sum over every haplotype carrying that site."/>
-            <param name="denoise_edits" type="integer" value="1" min="0" label="Denoise: fold strings within this many differing positions"
-                   help="0 disables. A window string is a whole molecule, so one sequencing error creates a NEW haplotype rather than perturbing an existing one; folding a rare string into a much more abundant neighbour collapses that error cloud. Default 1 is set from a Cryptosporidium mixture titration with KNOWN proportions: off detected 110/112 mixture components at mean minor-haplotype purity 0.294, 1 edit detected 112/112 at 0.434, 2 edits reached 0.556 but fell back to 110/112, and 3 edits to 79/84. More aggressive folding buys purity by losing genuine minor components, which is the worst failure this tool can have."/>
-            <param name="denoise_ratio" type="float" value="8.0" min="1.0" label="Denoise: abundance ratio required of the neighbour"/>
+            <param argument="--min-span" type="integer" value="30" min="1" label="Minimum spanning reads for the window"
+                   help="Minimum fully-spanning reads before a window is called at all. Applied before any haplotype; harder on mixtures, which split reads between genotypes."/>
+            <param argument="--min-reads" type="integer" value="10" min="1" label="Minimum reads per haplotype" help="Minimum supporting reads per haplotype."/>
+            <param argument="--min-freq" type="float" value="0.05" min="0.0" max="1.0" label="Minimum haplotype frequency"
+                   help="Minimum haplotype frequency: the fraction of spanning reads carrying the whole string. Per haplotype, not per site."/>
+            <param argument="--denoise-edits" type="integer" value="1" min="0" label="Denoise: fold strings within this many differing positions"
+                   help="Fold a haplotype into an abundant neighbour within this many differing positions, removing sequencing-error strings. 0 disables."/>
+            <param argument="--denoise-ratio" type="float" value="8.0" min="1.0" label="Denoise: abundance ratio required of the neighbour" help="Abundance ratio the neighbour must exceed before a string is folded into it."/>
         </section>
     </inputs>
     <outputs>
         <data name="calls" format="tabular" label="${tool.name} on ${on_string}: window haplotype calls"/>
     </outputs>
+    <tests>
+        <test>
+            <param name="input" value="SpecB.bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="panel.fa"/>
+            </conditional>
+            <param name="windows" value="windows.bed"/>
+            <output name="calls">
+                <assert_contents>
+                    <has_text text="M1_W0001"/>
+                    <has_text text="51G&gt;A"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
     <help><![CDATA[
-Only reads whose alignment covers an entire window are counted, so each haplotype is a complete
-observation on one molecule rather than an inference across molecules. Identical strings are
-collapsed and counted; there is no assembly.
+Extracts, normalises, and filters single-molecule microhaplotypes across the defined windows
+for one specimen. Only reads that cover every base of a window are used, so each haplotype is
+one physically phased observation on a single molecule, not an inference across reads.
 
-Each haplotype is named by how it differs from the reference over that window (HGVS-like,
-1-based within the window), so no curated nomenclature file is needed. A string identical to the
-reference is named ``=`` -- an ordinary haplotype, which is what keeps "amplified and
-reference-identical" distinguishable from "not amplified".
+For each specimen and window the caller: (1) selects reads spanning the whole window,
+(2) left-aligns every gap to its leftmost equivalent position so that alternative alignments
+of the same insertion or deletion collapse into one tally, (3) counts exact sequence
+occurrences, (4) removes a haplotype if a 1-bp neighbour is at least denoise_ratio times more
+abundant (putative sequencing error or PCR chimera), (5) applies the three filters below, and
+(6) writes one record per surviving haplotype.
 
-Read frequency is reported per haplotype. A mixture appears as several haplotypes in one window,
-which is what per-site variant calling cannot represent.
+Filters:
+
+* ``min_span`` -- spanning reads required before a window is called at all (default 30).
+* ``min_reads`` -- reads that must carry one haplotype (default 10).
+* ``min_freq`` -- fraction of spanning reads that must carry one haplotype (default 0.05).
+
+A surviving haplotype is named by its 1-based reference differences (for example
+``45T>A,57T>C``) or ``=`` for reference identity. If none passes, the locus is recorded as
+NOT_CALLED with its spanning depth, so failed specimens are preserved downstream rather than
+dropped: a spanning depth below min_span means uncalled, at or above means evaluated but
+filtered.
+@HELP_FOOTER@
     ]]></help>
     <expand macro="citations"/>
 </tool>

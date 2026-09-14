@@ -31,33 +31,33 @@ python '$__tool_directory__/pyeuk_cluster.py'
     <inputs>
         <param name="sheet" type="data" format="tabular" label="Haplotype sheet"/>
         <section name="advanced" title="Advanced" expanded="false">
-            <param name="min_completeness" type="float" value="0.1" min="0.0" max="1.0" label="Minimum locus completeness"/>
-            <param name="k_min" type="integer" value="2" min="2" label="k min"/>
-            <param name="k_max" type="integer" value="50" min="2" label="k max"/>
-            <param name="project_psd" type="boolean" truevalue="true" falsevalue="false" checked="false"
+            <param argument="--min-completeness" type="float" value="0.1" min="0.0" max="1.0" label="Minimum locus completeness" help="Minimum fraction of loci a specimen must have called to enter the matrix."/>
+            <param argument="--k-min" type="integer" value="2" min="2" label="k min" help="Smallest cluster count to consider."/>
+            <param argument="--k-max" type="integer" value="50" min="2" label="k max" help="Largest cluster count to consider."/>
+            <param argument="--project-psd" type="boolean" truevalue="true" falsevalue="false" checked="false"
                    label="Project distances onto the PSD cone"
-                   help="OFF by default. The projection makes the distances embed in Euclidean space, which Ward assumes, but it compresses the closest pairs -- on one cohort it left the median pair almost unchanged while inflating the closest 1% by a factor of 19.6. Tight pairs are what a relatedness measure exists to resolve. Off improved pairwise AUC on all four labelled comparisons: Cyclospora went from 3 errors in 153 to 1, PvAmpSeq from 5 in 277 to 2. Turn it ON together with a distance cut, where the regularised geometry helps instead."/>
-            <param name="cut" type="select" label="How to cut the tree"
-                   help="Choose a cluster COUNT for a closed investigation where every specimen belongs somewhere. Cut at a DISTANCE for surveillance, where most specimens are unrelated and the true structure is mostly singletons -- a cluster count cannot represent that shape.">
+                   help="Project the distance matrix onto the PSD cone. Off by default; leave off with count, turn on with distance."/>
+            <param argument="--cut" type="select" label="How to cut the tree"
+                   help="How to cut the tree. count for a closed investigation; distance for surveillance, where unrelated specimens stay as singletons.">
                 <option value="count" selected="true">Cluster count (merge-height gap)</option>
                 <option value="distance">Distance threshold (linkage)</option>
             </param>
-            <param name="linkage_threshold" type="float" value="" optional="true" label="Distance to cut at"
-                   help="Distance-cut mode only. Leave empty to calibrate it from the data and print where the value came from."/>
-            <param name="report_excluded" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Report excluded specimens"/>
-            <param name="n_boot" type="integer" value="200" min="20" max="2000" label="Bootstrap resamples (sweep confidence)" help="More resamples = steadier support estimates; 200 is the package default."/>
-            <param name="linkage_method" type="select" label="Linkage method" help="ward (default) makes compact blobs. single follows chains (transmission-like) but chains through noise.">
+            <param argument="--linkage-threshold" type="float" value="" optional="true" label="Distance to cut at"
+                   help="Dissimilarity to cut at in distance mode. Leave empty to calibrate from the data."/>
+            <param argument="--report-excluded" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Report excluded specimens" help="List specimens excluded on completeness as cluster -1."/>
+            <param argument="--n-boot" type="integer" value="200" min="20" max="2000" label="Bootstrap resamples (sweep confidence)" help="Bootstrap resamples for branch support in the sweep."/>
+            <param argument="--linkage-method" type="select" label="Linkage method" help="Linkage for the tree. ward by default; single follows transmission chains.">
                 <option value="ward" selected="true">ward</option>
                 <option value="single">single</option>
                 <option value="average">average</option>
                 <option value="complete">complete</option>
             </param>
-            <param name="report_flavor" type="select" label="Report layout">
+            <param argument="--report-flavor" type="select" label="Report layout" help="Layout of the HTML report.">
                 <option value="dashboard" selected="true">dashboard (tiles + tree + sweep + heatmap)</option>
                 <option value="clinical">clinical (single-page verdict)</option>
                 <option value="narrative">narrative (prose walkthrough)</option>
             </param>
-            <param name="report_theme" type="select" label="Report theme" help="galaxy = system fonts + Galaxy palette, no external assets (renders inline in Galaxy). studio = Fraunces/Inter via Google Fonts (standalone viewing).">
+            <param argument="--report-theme" type="select" label="Report theme" help="Report theme. galaxy uses no external assets; studio links Google Fonts.">
                 <option value="galaxy" selected="true">galaxy (embeddable)</option>
                 <option value="studio">studio (Google Fonts)</option>
             </param>
@@ -66,29 +66,54 @@ python '$__tool_directory__/pyeuk_cluster.py'
     <outputs>
         <data name="distance_matrix" format="tabular" label="${tool.name} on ${on_string}: distance matrix"/>
         <data name="clusters" format="tabular" label="${tool.name} on ${on_string}: clusters"/>
-        <data name="sweep" format="json" label="${tool.name} on ${on_string}: SWEEP (official)"/>
+        <data name="sweep" format="json" label="${tool.name} on ${on_string}: Cluster sweep (JSON)"/>
         <data name="report" format="html" label="${tool.name} on ${on_string}: dashboard report"/>
     </outputs>
+    <tests>
+        <test>
+            <param name="sheet" value="sheet.tsv"/>
+            <section name="advanced">
+                <param name="k_max" value="3"/>
+            </section>
+            <output name="clusters">
+                <assert_contents>
+                    <has_text text="Seq_ID"/>
+                    <has_text text="Assigned_cluster"/>
+                    <has_text text="SpecA"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
     <help><![CDATA[
-Identical driver to the Cyclospora arm's PyEuk tool, but resolving against a SEPARATE image
-pinned to PyEuk **v0.7.0** (tag ``v0.7.0``, commit ``cf07dc88``) rather than to commit d8e45a81.
+Runs the distance and the clustering in one step: it takes a haplotype sheet and returns the
+pairwise wIBS distance matrix, a cluster assignment, a stability sweep, and an HTML report.
 
-That pin is deliberate and must not be merged with the Cyclospora arm's. The arm's reference
-result (label-free k=2, ARI 0.9721) was measured against d8e45a81 and moving it would
-invalidate a published number. This workflow needs two fixes that landed after it:
+**Distance.** Pairwise heterozygosity-weighted identity-by-state, computed over the windows
+called in both specimens, weighting each haplotype by its expected heterozygosity ``2p(1-p)``
+and dividing by locus ploidy. See the standalone PyEuk distance tool for the full definition.
 
-* ``37f59a3`` — unobserved allele columns no longer inflate the wIBS denominator
-  (spond/pyeuk#8). Without it distances are compressed roughly fivefold.
-* ``1f61e15`` — ``weight_mode`` is now selectable and defaults to **heterozygosity**
-  ``2p(1-p)``. The old KING form ``1/sqrt(p(1-p))`` is inverted for presence/absence input:
-  it weights RARE alleles hardest, while all the discriminating signal sits in balanced
-  columns. Measured consequence on a Cyclospora sheet: a near-universal column at p=0.9456
-  drew weight 4.4 against 2.0 for a perfectly informative one, and its inclusion moved
-  ARI from 0.9212 to 0.7536. Under heterozygosity the same column weighs 0.10.
-* ``13b808d`` — the minimum-cluster-size guard became ``max(2, min(5, int(0.10*n)))``.
-  The old ``max(5, ...)`` made k>1 structurally unreachable for any cohort of n<=9, and for
-  n=10 accepted only an exact 5/5 split. A 10-specimen, 3-species cohort collapsed to k=1
-  purely on that integer comparison, despite a clean 7/3 knee at 4.5x the noise floor.
+**Clustering.** Agglomerative hierarchical clustering under Ward's minimum-variance criterion,
+then one of two modes:
+
+* **count** -- selects a cluster number k from the largest merge-height gap, subject to a
+  relative gap of at least 0.22 and a minimum cluster size of ``max(2, min(5, floor(0.10 n)))``.
+  Specimens in sub-threshold clusters stay unassigned. For a closed investigation where every
+  accepted specimen belongs to a group and pairs of two are uninformative.
+* **distance** -- cuts the tree at an absolute dissimilarity without choosing k, leaving
+  unrelated specimens as singletons. For surveillance, where forcing singletons into a low k
+  invents linkage. Without labels the cut is the 5th percentile of pairwise distances; with
+  labelled pairs it is ``median + 3 x 1.4826 x MAD`` of the within-cluster distances.
+
+**Sweep.** Partition stability is assessed by subsampling 85% of specimens without replacement
+over 200 resamples and accumulating pairwise co-assignment. A pair is decisively resolved when
+``|2p - 1| >= 0.5``; stable cores are connected components of pairs co-assigned at least 90% of
+the time. Candidate k are judged by the merge-height gap knee, silhouette width, and the gap
+statistic; when they agree the partition is reported as determined, otherwise a stability range
+``[k_min, k_max]`` is reported instead of a forced point estimate.
+
+Choose the mode from study design, not organism: the two are not interchangeable, and no
+label-free test reliably tells an outbreak cohort from a surveillance one.
+@HELP_FOOTER@
     ]]></help>
     <expand macro="citations"/>
 </tool>
