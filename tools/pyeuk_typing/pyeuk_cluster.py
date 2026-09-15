@@ -23,9 +23,8 @@ import os
 import sys
 
 import pandas as pd
-
 from pyeuk.clustering import CyclosporaClusterFinder
-from pyeuk.distance_engine import PyEukDistanceEngine, parse_locus_name
+from pyeuk.distance_engine import parse_locus_name, PyEukDistanceEngine
 from pyeuk.report import render
 
 EPSILON = 0.3072
@@ -129,11 +128,17 @@ def main():
         _row = df[df["Seq_ID"] == _sid].iloc[0]
         _called[_sid] = {parse_locus_name(_c) for _c in marker_cols
                          if str(_row[_c]).strip().upper() == "X"}
-    _ids = list(df["Seq_ID"]); _tot = _shared = 0; _sh = []
+    _ids = list(df["Seq_ID"])
+    _tot = _shared = 0
+    _sh = []
     for _a, _b in _it.combinations(_ids, 2):
-        _tot += 1; _n = len(_called[_a] & _called[_b]); _sh.append(_n); _shared += 1 if _n else 0
+        _tot += 1
+        _n = len(_called[_a] & _called[_b])
+        _sh.append(_n)
+        _shared += 1 if _n else 0
     if _tot:
-        _pct = 100.0 * _shared / _tot; _sh.sort()
+        _pct = 100.0 * _shared / _tot
+        _sh.sort()
         print("[haplotype_pyeuk] pairwise completeness : %d/%d pairs (%.1f%%) share >=1 called "
               "locus; median shared loci %d" % (_shared, _tot, _pct, _sh[len(_sh) // 2]))
         if _pct < 90.0:
@@ -171,7 +176,8 @@ def main():
     with open(args.report_out, "w") as fh:
         fh.write(html)
 
-    cr = sweep.get("count_range"); pe = sweep.get("point_estimate")
+    cr = sweep.get("count_range")
+    pe = sweep.get("point_estimate")
     print("[haplotype_pyeuk] SWEEP count range   : %s" % (cr,))
     print("[haplotype_pyeuk] confident / point   : %s / %s" % (sweep.get("confident"), pe))
     print("[haplotype_pyeuk] representative k     : %s" % sweep.get("representative_k"))
