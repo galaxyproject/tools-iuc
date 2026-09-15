@@ -1,0 +1,199 @@
+<tool id="impg_partition" name="impg partition" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>splits a cohort into windowed homologous loci</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+@SETUP_ALIGNMENTS@
+#if str($out.format) == "fasta"
+    #set $sequence_files = $out.sequence_files
+#else
+    #set $sequence_files = []
+#end if
+@SETUP_SEQUENCE_FILES@
+mkdir -p outdir &&
+impg partition
+    @ALIGNMENT_ARGS@
+    -w $window_size
+    -d '$merge_distance'
+    -o $out.format
+    --output-folder outdir
+    #if str($out.format) == "bed" and str($out.bed_mode) == "separate"
+        --separate-files
+    #end if
+    #if str($out.format) == "fasta"
+        --separate-files
+        @SEQUENCE_FILE_ARGS@
+        $out.reverse_complement
+    #end if
+    --selection-mode $selection_mode
+    $partition_opts.no_rehome_singletons
+    --min-missing-size $partition_opts.min_missing_size
+    --min-boundary-distance $partition_opts.min_boundary_distance
+    #if $partition_opts.starting_sequences_file
+        --starting-sequences-file '$partition_opts.starting_sequences_file'
+    #end if
+    $transitive.transitive_dfs
+    -m $transitive.max_depth
+    --min-transitive-len $transitive.min_transitive_len
+    --min-distance-between-ranges $transitive.min_distance_between_ranges
+    $filtering.approximate
+    #if str($filtering.min_result_identity).strip()
+        --min-result-identity $filtering.min_result_identity
+    #end if
+    $filtering.no_merge
+    @CMD_INDEX_OPTS@
+    @THREADS@
+    ]]></command>
+    <inputs>
+        <expand macro="alignment_input"/>
+        <param argument="--window-size" type="integer" value="1000000" min="1" label="Window size (bp)" help="Window size for partitioning. impg greedily covers each sequence with windows of this size and groups homologous regions across the cohort."/>
+        <expand macro="merge_distance_param"/>
+        <conditional name="out">
+            <param name="format" type="select" label="Output format">
+                <option value="bed" selected="true">bed — partition table</option>
+                <option value="fasta">fasta — one sequence file per partition</option>
+            </param>
+            <when value="bed">
+                <param name="bed_mode" type="select" label="Output mode">
+                    <option value="single" selected="true">Single BED file (all partitions)</option>
+                    <option value="separate">One BED file per partition</option>
+                </param>
+            </when>
+            <when value="fasta">
+                <expand macro="sequence_files_param"/>
+                <param argument="--reverse-complement" type="boolean" truevalue="--reverse-complement" falsevalue="" checked="false" label="Reverse-complement reverse-strand sequences"/>
+            </when>
+        </conditional>
+        <param argument="--selection-mode" type="select" label="Selection mode" help="Strategy for picking the next starting sequence when partitioning.">
+            <option value="longest" selected="true">longest — sequence with the longest single missing region</option>
+            <option value="total">total — sequence with the highest total missing regions</option>
+            <option value="sample">sample — PanSN sample with the highest total missing regions</option>
+            <option value="haplotype">haplotype — PanSN haplotype with the highest total missing regions</option>
+        </param>
+        <section name="partition_opts" title="Partition options" expanded="false">
+            <param argument="--min-missing-size" type="integer" value="3000" min="0" label="Min missing region size"/>
+            <param argument="--min-boundary-distance" type="integer" value="3000" min="0" label="Min boundary distance" help="Regions closer than this to a sequence start/end are extended to the boundaries."/>
+            <param argument="--no-rehome-singletons" type="boolean" truevalue="--no-rehome-singletons" falsevalue="" checked="false" label="Disable singleton rehoming" help="Disable post-partition reassignment of singleton sliver partitions to their flanking partition."/>
+            <param name="starting_sequences_file" type="data" format="txt,tabular" optional="true" label="Starting sequences file" help="File of sequence names (one per line) to start partitioning from."/>
+        </section>
+        <section name="transitive" title="Transitive query options" expanded="false">
+            <param argument="--transitive-dfs" type="boolean" truevalue="--transitive-dfs" falsevalue="" checked="false" label="Use DFS instead of BFS" help="Depth-first search returns fewer, less overlapping results but is slower. (Partition always walks the transitive closure.)"/>
+            <param argument="--max-depth" type="integer" value="2" min="0" label="Max recursion depth"/>
+            <param argument="--min-transitive-len" type="integer" value="101" min="0" label="Min transitive region size"/>
+            <param argument="--min-distance-between-ranges" type="integer" value="10" min="0" label="Min distance between transitive ranges"/>
+        </section>
+        <section name="filtering" title="Filtering" expanded="false">
+            <param name="min_result_identity" type="float" value="" optional="true" min="0" max="1" label="Min result identity" help="Minimum gap-compressed identity threshold (0.0-1.0)."/>
+            <param argument="--no-merge" type="boolean" truevalue="--no-merge" falsevalue="" checked="false" label="Disable merging"/>
+            <param argument="--approximate" type="boolean" truevalue="--approximate" falsevalue="" checked="false" label="Approximate mode" help="Faster queries for tracepoint files (.1aln/.tpa); only bed output."/>
+        </section>
+        <expand macro="advanced_index_section"/>
+    </inputs>
+    <outputs>
+        <data name="output_bed" format="bed" from_work_dir="outdir/partitions.bed" label="${tool.name} on ${on_string}: partitions">
+            <filter>out['format'] == "bed" and out['bed_mode'] == "single"</filter>
+        </data>
+        <collection name="bed_collection" type="list" label="${tool.name} on ${on_string}: per-partition BED">
+            <discover_datasets pattern="__name_and_ext__" directory="outdir"/>
+            <filter>out['format'] == "bed" and out['bed_mode'] == "separate"</filter>
+        </collection>
+        <collection name="fasta_collection" type="list" label="${tool.name} on ${on_string}: per-partition FASTA">
+            <discover_datasets pattern="__name_and_ext__" directory="outdir"/>
+            <filter>out['format'] == "fasta"</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="alignment" value="pan2.paf" ftype="paf"/>
+            <param name="window_size" value="500"/>
+            <param name="merge_distance" value="100"/>
+            <conditional name="out">
+                <param name="format" value="bed"/>
+                <param name="bed_mode" value="single"/>
+            </conditional>
+            <output name="output_bed" file="impg_partition.bed" ftype="bed" compare="diff"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="alignment" value="pan2.paf" ftype="paf"/>
+            <param name="window_size" value="500"/>
+            <param name="merge_distance" value="100"/>
+            <conditional name="out">
+                <param name="format" value="bed"/>
+                <param name="bed_mode" value="separate"/>
+            </conditional>
+            <output_collection name="bed_collection" type="list" count="2">
+                <element name="partition0">
+                    <assert_contents>
+                        <has_text text="chrI"/>
+                        <not_has_text text="chrII"/>
+                    </assert_contents>
+                </element>
+                <element name="partition1">
+                    <assert_contents>
+                        <has_text text="chrII"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <assert_command>
+                <has_text text="--separate-files"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="alignment" value="pan2.paf" ftype="paf"/>
+            <param name="window_size" value="500"/>
+            <param name="merge_distance" value="100"/>
+            <conditional name="out">
+                <param name="format" value="fasta"/>
+                <param name="sequence_files" value="pan2.fa" ftype="fasta"/>
+            </conditional>
+            <output_collection name="fasta_collection" type="list" count="2">
+                <element name="partition0">
+                    <assert_contents>
+                        <has_text text="&gt;"/>
+                        <has_text text="chrI"/>
+                    </assert_contents>
+                </element>
+                <element name="partition1">
+                    <assert_contents>
+                        <has_text text="chrII"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**impg partition** — split a cohort into windowed homologous loci
+
+Walks the implicit alignment graph with fixed-size windows and partitions
+the cohort into comparable loci, so each partition can be processed
+independently (e.g. by `pggb` or `minigraph-cactus`). Output is a BED
+table (one row per sequence per partition, with the partition id in
+column 4) or one FASTA per partition.
+
+-----
+
+**Input**
+
+- One or more PAF files (optionally bgzipped).
+- **Window size** (bp): the partitioning window.
+- **Merge distance** (required): the largest internal gap/SV one query
+  hop can absorb into one partition interval.
+
+**Output**
+
+- **bed, single file**: one BED file with all partitions (column 4 =
+  partition id).
+- **bed, one file per partition**: a list collection of `partitionN.bed`
+  files.
+- **fasta**: a list collection of `partitionN.fasta` files (requires
+  sequence files).
+
+**Selection mode** picks the next starting sequence: `longest` (default),
+`total`, or by PanSN `sample`/`haplotype`.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,61 +1,96 @@
-<tool id="seqwish" name="seqwish" version="@TOOL_VERSION@" >
+<tool id="seqwish" name="seqwish" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Alignment to variation graph inducer</description>
     <macros>
-        <token name="@TOOL_VERSION@">0.7.11</token>
+        <token name="@TOOL_VERSION@">0.7.12</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.0</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">seqwish</requirement>
     </requirements>
     <version_command>seqwish --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
+## --seqs takes a single file, hence the concatenation of multiple inputs.
+
+#if len($seqs) == 1 and $seqs[0].ext.endswith('.gz')
+    #set $seqfile = 'seqs.fa.gz'
+    ln -s '$seqs[0]' $seqfile &&
+
+#elif len($seqs) == 1
+    #set $seqfile = 'seqs.fa'
+    ln -s '$seqs[0]' $seqfile &&
+
+#else
+    #set $seqfile = 'seqs.fa'
+    #for $s in $seqs
+        #if $s.ext.endswith('.gz')
+            gzip -dc '$s' >> $seqfile &&
+        #else
+            cat '$s' >> $seqfile &&
+        #end if
+    #end for
+#end if
+
 seqwish
 -p '$paf_alns'
--s ${ ' '.join(["'%s'" % x for x in $seqs]) }
+-s $seqfile
 --gfa='$out_gfa'
-#if $m:
-    -m '$m'
-#end if
---threads=\${GALAXY_SLOTS:-1}
+--threads="\${GALAXY_SLOTS:-1}"
 #if str($r):
     -r $r
+#end if
+#if str($l):
+    -l $l
 #end if
 #if str($k):
     -k $k
 #end if
+#if str($f):
+    -f $f
+#end if
 #if str($B):
     -B $B
 #end if
+$M
     ]]></command>
     <inputs>
-        <param argument="--paf-alns" type="data" format="paf" label="Induce the graph from these PAF formatted alignments" />
-        <param argument="--seqs" type="data" format="fasta,fasta.gz,fastq,fastq.gz" multiple="true" label="The sequences used to generate the alignments" />
-        <param argument="-m" type="data" optional="true" format="txt,tabular" label="Subset the input alignments"
-            help="" />
-        <param argument="-r" type="integer" min="1" optional="true" label="Limit copies of a given input base"
-            help="Limit transitive closure to include no more than N copies of a given input base" />
-        <param argument="-k" type="integer" min="1" optional="true" label="Filter exact matches below this length"
-            help="This can smooth the graph locally and prevent the formation of complex local graph topologies from forming due to differential alignments." />
-        <param argument="-B" type="integer" min="1" optional="true" label="Number of bp to use for transitive closure batch"
-            help="" />
+        <param argument="--paf-alns" type="data" format="paf" label="Induce the graph from these PAF formatted alignments"/>
+        <param argument="--seqs" type="data" format="fasta,fasta.gz,fastq,fastq.gz" multiple="true" label="The sequences used to generate the alignments" help="If several datasets are selected they are concatenated before being passed to seqwish, which accepts a single sequence file."/>
+        <param argument="-r" type="integer" min="1" optional="true" label="Limit copies of a given input base" help="Limit transitive closure to include no more than N copies of a given input base"/>
+        <param argument="-l" type="integer" min="1" optional="true" label="Minimum repeat distance" help="Prevent transitive closure for bases at least this far apart in input sequences"/>
+        <param argument="-k" type="integer" min="1" optional="true" label="Filter exact matches below this length" help="This can smooth the graph locally and prevent the formation of complex local graph topologies from forming due to differential alignments."/>
+        <param argument="-f" type="float" min="0.0" max="1.0" optional="true" label="Sparsification factor" help="Sparsify input matches, keeping the fraction that minimize a hash function. 0.0 keeps all matches."/>
+        <param argument="-B" type="integer" min="1" optional="true" label="Number of bp to use for transitive closure batch" help=""/>
+        <param argument="-M" type="boolean" truevalue="-M" falsevalue="" checked="false" label="Use in-memory interval trees" help="Faster for small datasets, but uses more memory than the disk-backed default."/>
     </inputs>
-
     <outputs>
-        <data name="out_gfa" format="gfa1" label="${tool.name} on ${on_string}" />
+        <data name="out_gfa" format="gfa1" label="${tool.name} on ${on_string}"/>
     </outputs>
-
     <tests>
-        <test>
-            <param name="seqs" value="A-3105.fa.gz" />
-            <param name="paf_alns" value="A-3105.paf.gz" />
-            <output name="out_gfa" md5="f82bea6331f62e86cce543c36fb4c1f6" />
+        <test expect_num_outputs="1">
+            <param name="seqs" value="A-3105.fa.gz"/>
+            <param name="paf_alns" value="A-3105.paf.gz"/>
+            <output name="out_gfa" md5="f82bea6331f62e86cce543c36fb4c1f6"/>
         </test>
-        <test>
-            <param name="seqs" value="A-3105.fa.gz" />
-            <param name="paf_alns" value="A-3105.paf.gz" />
-            <param name="r" value="3000" />
-            <param name="k" value="1" />
-            <param name="B" value="1000000" />
-            <output name="out_gfa" md5="f82bea6331f62e86cce543c36fb4c1f6" />
+        <test expect_num_outputs="1">
+            <param name="seqs" value="A-3105.fa.gz"/>
+            <param name="paf_alns" value="A-3105.paf.gz"/>
+            <param name="r" value="3000"/>
+            <param name="k" value="1"/>
+            <param name="B" value="1000000"/>
+            <output name="out_gfa" md5="f82bea6331f62e86cce543c36fb4c1f6"/>
+        </test>
+        <!-- several sequence datasets, mixing plain and gzipped input -->
+        <test expect_num_outputs="1">
+            <param name="seqs" value="A-3105.part1.fa,A-3105.part2.fa.gz"/>
+            <param name="paf_alns" value="A-3105.paf.gz"/>
+            <output name="out_gfa" md5="f82bea6331f62e86cce543c36fb4c1f6"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="seqs" value="A-3105.fa.gz"/>
+            <param name="paf_alns" value="A-3105.paf.gz"/>
+            <param name="M" value="true"/>
+            <output name="out_gfa" md5="f82bea6331f62e86cce543c36fb4c1f6"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -69,5 +104,6 @@ large numbers of noisy input sequences. Memory usage during construction and tra
 disk-backed arrays and succinct rank/select dictionaries to record a queryable version of the graph.
     ]]></help>
     <citations>
+        <citation type="doi">10.1093/bioinformatics/btac743</citation>
     </citations>
 </tool>

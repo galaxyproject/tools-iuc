@@ -1,7 +1,7 @@
 <tool id="rasusa" name="rasusa" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Randomly subsample reads to a specified coverage</description>
     <macros>
-        <token name="@TOOL_VERSION@">4.1.0</token>
+        <token name="@TOOL_VERSION@">5.1.0</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">25.0</token>
         <token name="@FORMATS@">fastqsanger,fastqsanger.gz,fasta,fasta.gz</token>
@@ -22,14 +22,14 @@
                 </param>
                 <when value="coverage">
                     <param name="genome_size_unit" type="select" label="Specify genome size in">
-                        <expand macro="size_units" />
+                        <expand macro="size_units"/>
                     </param>
                     <param name="genome_size" type="float" min="0" value="" label="Genome size to calculate coverage with respect to"/>
                     <param argument="--coverage" type="float" min="0" value="" label="The desired coverage to subsample the reads to"/>
                 </when>
                 <when value="num_bases">
                     <param name="num_bases_unit" type="select" label="Specify number of bases in">
-                        <expand macro="size_units" />
+                        <expand macro="size_units"/>
                     </param>
                     <param name="bases" type="float" min="0" value="" label="Explicitly set the number of bases required"/>
                 </when>
@@ -38,8 +38,11 @@
                 </when>
                 <when value="frac_reads">
                     <param argument="--frac" type="float" value="0.1" min="0" max="1"/>
+                    <param argument="--one-pass" type="boolean" truevalue="--one-pass" falsevalue="" checked="false" label="Read the input only once" help="Keep each read independently with a probability equal to the fraction above, instead of measuring the input first. This streams the input in a single pass, but the number of reads kept is only approximate. It cannot be combined with the strict option below."/>
                 </when>
             </conditional>
+            <param argument="--strict" type="boolean" truevalue="--strict" falsevalue="" checked="false" label="Fail if the requested subsample is not possible" help="Exit with an error instead of silently returning fewer reads than requested when the input does not contain enough data. This is ignored when reading the input only once, as rasusa rejects that combination."/>
+            <param argument="--compress-level" type="integer" min="1" max="21" optional="true" label="Compression level for the output" help="Only used when the output is compressed. Leave empty to use the default level for the format."/>
         </xml>
         <token name="@FASTQ_SUBSAMPLE_OPTIONS@"><![CDATA[
 #if str( $subsample.type ) == "coverage":
@@ -51,6 +54,13 @@
 --num $subsample.num
 #elif str( $subsample.type ) == "frac_reads":
 --frac $subsample.frac
+$subsample.one_pass
+#end if
+#if str($strict) == "--strict" and not (str($subsample.type) == "frac_reads" and str($subsample.one_pass) == "--one-pass")
+$strict
+#end if
+#if str($compress_level):
+--compress-level $compress_level
 #end if
 #if $r1_ext.endswith(".gz") or $r2_ext.endswith(".gz")
 --compress-type g
@@ -58,24 +68,33 @@
     </token>
     </macros>
     <xrefs>
-        <xref type='bio.tools'>rasusa</xref>
+        <xref type="bio.tools">rasusa</xref>
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">rasusa</requirement>
-        <requirement type="package" version="1.23.1">samtools</requirement>
+        <requirement type="package" version="1.24">samtools</requirement>
     </requirements>
-
+    <version_command>rasusa --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
 #if str($input.input_selector) == "aligned":
-    #if '$aligned_input.ext' == "bam":
-        ln -s '$aligned_input.metadata.bam_index' 'input.bam.bai' &&
+    ## the fetch strategy is the only one that needs a random access index
+    #if str($input.strategy.selector) == "fetch":
+        ln -s '$input.aligned_input.metadata.bam_index' 'input.bam.bai' &&
     #end if
-    ln -s '$aligned_input' input.$aligned_input.ext &&
+    ln -s '$input.aligned_input' 'input.bam' &&
     rasusa aln
     --coverage $input.coverage
-    --step-size $input.step_size
+    --strategy '$input.strategy.selector'
+    #if str($input.strategy.selector) == "stream":
+        --swap-distance $input.strategy.swap_distance
+    #else:
+        --step-size $input.strategy.step_size
+        --batch-size $input.strategy.batch_size
+    #end if
+    -@ "\${GALAXY_SLOTS:-1}"
 #else:
     rasusa reads
+    -@ "\${GALAXY_SLOTS:-1}"
 #end if
 
 #if $seed
@@ -106,13 +125,14 @@
 
 #elif str($input.input_selector) == "single":
     #set r1_ext = $input.reads.extension
+    #set r2_ext = $r1_ext
     -o 'single_out.$r1_ext'
     @FASTQ_SUBSAMPLE_OPTIONS@
     '${input.reads}' &&
     mv 'single_out.$r1_ext' '$single_output'
 
 #elif str($input.input_selector) == "aligned":
-    --output-format bam 'input.$aligned_input.ext' | samtools sort --no-PG -@ 1 -T '\${TMPDIR:-.}' -O bam -o '$bam_output' -
+    --output-format bam 'input.bam' | samtools sort --no-PG -@ 1 -T '\${TMPDIR:-.}' -O bam -o '$bam_output' -
 #end if
     ]]></command>
     <inputs>
@@ -126,33 +146,44 @@
             <when value="paired">
                 <param name="reads1" type="data" format="@FORMATS@" label="Select first set of reads" help="Specify dataset with forward reads"/>
                 <param name="reads2" type="data" format="@FORMATS@" label="Select second set of reads" help="Specify dataset with reverse reads"/>
-                <expand macro="params_fastq" />
+                <expand macro="params_fastq"/>
             </when>
             <when value="single">
                 <param name="reads" type="data" format="@FORMATS@" label="Select fasta/fastq dataset" help="Specify dataset with single reads"/>
-                <expand macro="params_fastq" />
+                <expand macro="params_fastq"/>
             </when>
             <when value="paired_collection">
                 <param name="collection" format="@FORMATS@" type="data_collection" collection_type="paired" label="Select a paired collection"/>
-                <expand macro="params_fastq" />
+                <expand macro="params_fastq"/>
             </when>
             <when value="aligned">
                 <param name="aligned_input" format="bam" type="data" label="Select BAM file with alignments"/>
-                <param argument="--coverage" type="integer" min="0" optional="true" value="" label="The desired depth of coverage to subsample the alignment to"/>
-                <param type="integer" argument="--step-size" value="100" label="When a region has less than the desired coverage, the step size to move along the chromosome to find more reads."
-                    help="The lowest of the step and the minimum end coordinate of the reads in the region will be used. This parameter can have a significant impact on the runtime of the subsampling process."/>
+                <param argument="--coverage" type="integer" min="1" value="10" label="The desired depth of coverage to subsample the alignment to"/>
+                <conditional name="strategy">
+                    <param name="selector" type="select" label="Subsampling strategy">
+                        <option value="stream" selected="true">Stream - linear scan of a coordinate sorted alignment</option>
+                        <option value="fetch">Fetch - random access by region, requires a BAM index</option>
+                    </param>
+                    <when value="stream">
+                        <param argument="--swap-distance" type="integer" min="0" value="5" label="Maximum distance (bp) between two reads for them to be considered swappable" help="Larger values allow swapping reads over greater distances, but may cause local undersampling. A value of 0 only allows swapping between reads that have the same start position."/>
+                    </when>
+                    <when value="fetch">
+                        <param argument="--step-size" type="integer" min="1" value="100" label="Step size to move along the chromosome when a region has less than the desired coverage" help="The lowest of the step and the minimum end coordinate of the reads in the region will be used. This parameter can have a significant impact on the runtime of the subsampling process."/>
+                        <param argument="--batch-size" type="integer" min="1000" value="10000" label="Size of the genomic window (bp) to cache into memory at once" help="Larger values reduce disk seeking, but at the cost of higher memory usage."/>
+                    </when>
+                </conditional>
             </when>
         </conditional>
         <param type="integer" argument="--seed" optional="true" label="Random seed to use"/>
     </inputs>
     <outputs>
-        <data name="paired_output1" label="${tool.name} on ${on_string}: paired-end r1" format_source="reads1">
+        <data name="paired_output1" label="${tool.name} on ${on_string}: paired-end r1" format_source="input|reads1">
             <filter>input['input_selector'] == "paired"</filter>
         </data>
-        <data name="paired_output2" label="${tool.name} on ${on_string}: paired-end R2" format_source="reads2">
+        <data name="paired_output2" label="${tool.name} on ${on_string}: paired-end R2" format_source="input|reads2">
             <filter>input['input_selector'] == "paired"</filter>
         </data>
-        <data name="single_output" label="${tool.name} on ${on_string}: single-end" format_source="reads">
+        <data name="single_output" label="${tool.name} on ${on_string}: single-end" format_source="input|reads">
             <filter>input['input_selector'] == 'single'</filter>
         </data>
         <collection name="collection_output" type="paired" label="${tool.name} on ${on_string}: paired-collection">
@@ -288,14 +319,64 @@
             </output_collection>
         </test>
         <test expect_num_outputs="1">
-            <!-- test 8: bam input, bam output -->
+            <!-- test 8: bam input, bam output, stream strategy -->
             <conditional name="input">
                 <param name="input_selector" value="aligned"/>
-                <param name="aligned_input" value="input.bam" />
+                <param name="aligned_input" value="input.bam"/>
                 <param name="coverage" value="1"/>
+                <conditional name="strategy">
+                    <param name="selector" value="stream"/>
+                    <param name="swap_distance" value="5"/>
+                </conditional>
             </conditional>
             <param name="seed" value="1"/>
-            <output name="bam_output" value="output.bam" ftype="bam"/>
+            <output name="bam_output" value="output.bam" ftype="bam" lines_diff="4"/>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 9: bam input, bam output, fetch strategy (needs the bam index) -->
+            <conditional name="input">
+                <param name="input_selector" value="aligned"/>
+                <param name="aligned_input" value="input.bam"/>
+                <param name="coverage" value="1"/>
+                <conditional name="strategy">
+                    <param name="selector" value="fetch"/>
+                    <param name="step_size" value="50"/>
+                    <param name="batch_size" value="2000"/>
+                </conditional>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="bam_output" value="output_fetch.bam" ftype="bam" lines_diff="4"/>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test 10: single-end fastq by fraction of reads, single pass -->
+            <conditional name="input">
+                <param name="input_selector" value="single"/>
+                <param name="reads" value="r1.fastq"/>
+                <conditional name="subsample">
+                    <param name="type" value="frac_reads"/>
+                    <param name="frac" value="0.6"/>
+                    <param name="one_pass" value="true"/>
+                </conditional>
+            </conditional>
+            <param name="seed" value="1"/>
+            <output name="single_output" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="28"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <!-- test 11: strict mode fails when more reads are requested than the input holds -->
+            <conditional name="input">
+                <param name="input_selector" value="single"/>
+                <param name="reads" value="r1.fastq"/>
+                <conditional name="subsample">
+                    <param name="type" value="num_reads"/>
+                    <param name="num" value="100000"/>
+                </conditional>
+                <param name="strict" value="true"/>
+            </conditional>
+            <param name="seed" value="1"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -305,8 +386,35 @@ specifying the size of the subset:
 
 * takes a genome size and the desired coverage
 * takes a target number of bases (nucleotides) or fraction of reads to be sampled
+
+-----
+
+**Subsampling reads**
+
+By default rasusa measures the input before deciding what to keep, so the requested number of bases, number of reads, or fraction of reads
+is met exactly. If the input does not contain enough data, rasusa returns everything it has; enable *Fail if the requested subsample is not
+possible* to turn that situation into an error instead.
+
+When subsampling by *fraction of reads*, the *Read the input only once* option streams the input in a single pass and keeps each read
+independently with the given probability. This is faster and uses less memory, but the number of reads kept is only approximate
+(binomially distributed around the requested fraction), and it cannot be combined with the strict option above. For paired input, mates are
+always kept or dropped together.
+
+-----
+
+**Subsampling alignments**
+
+A BAM file of aligned reads is subsampled to a target depth of coverage using one of two strategies:
+
+* **Stream** - a linear scan using a sweep line algorithm with random priority. The input must be coordinate sorted. The *swap distance*
+  controls how far apart two reads may start and still be considered interchangeable.
+* **Fetch** - randomly fetches reads by region, and therefore needs a BAM index. The *step size* and *batch size* trade runtime against
+  memory usage.
+
+The subsampled alignment is sorted with samtools before being returned, as rasusa does not guarantee the order of its output.
     ]]></help>
     <citations>
         <citation type="doi">10.21105/joss.03941</citation>
+        <citation type="doi">10.46471/gigabyte.180</citation>
     </citations>
 </tool>
