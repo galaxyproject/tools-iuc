@@ -22,6 +22,11 @@ bcftools @EXECUTABLE@
 ${section.allow_undef_tags}
 
 ${section.print_header}
+${section.disable_automatic_newline}
+
+#if str($section.print_filtered) != "":
+  --print-filtered "${section.print_filtered}"
+#end if
 
 ## Default section
 #set $section = $sec_restrict
@@ -30,7 +35,9 @@ ${section.print_header}
 @COLLAPSE@
 @REGIONS@
 @SAMPLES@
+${section.force_samples}
 @TARGETS@
+@VERBOSITY@
 
 ## Primary Input/Outputs
 --vcf-list @INPUT_LIST_FILE@
@@ -42,10 +49,12 @@ ${section.print_header}
         <section name="sec_restrict" expanded="false" title="Restrict to">
             <expand macro="macro_collapse" />
             <expand macro="macro_samples" />
+            <param name="force_samples" type="boolean" truevalue="--force-samples" falsevalue="" label="Force Samples" help="Only warn about unknown subset samples" />
             <expand macro="macro_region_restrict" />
             <expand macro="macro_target_restrict" />
             <expand macro="macro_include" />
             <expand macro="macro_exclude" />
+            <expand macro="macro_verbosity" />
         </section>
         <section name="sec_query" expanded="true" title="Query Options">
             <param name="format" type="text" value="" label="Format for Output">
@@ -63,8 +72,9 @@ ${section.print_header}
             <param name="allow_undef_tags" type="boolean" truevalue="--allow-undef-tags" falsevalue="" label="Allow Undefined Tags" 
                    help="Print &quot;.&quot; for undefined tags" />
             <param name="print_header" type="boolean" truevalue="--print-header" falsevalue="" label="Print Header Line" />
+            <param name="disable_automatic_newline" type="boolean" truevalue="--disable-automatic-newline" falsevalue="" label="Disable automatic newline" help="Disable automatic addition of newline character when not present in the formatting expression (-N)" />
+            <param name="print_filtered" type="text" value="" optional="true" label="Print Filtered" help="Output string for samples failing the -i/-e filtering expression (-F)" />
         </section>
-
     </inputs>
     <outputs>
         <data name="output_file" format="txt">
@@ -115,6 +125,7 @@ Extracts fields from VCF/BCF file and prints them in user-defined format
   ::
 
     ``%CHROM``          The CHROM column (similarly also other columns: POS, ID, REF, ALT, QUAL, FILTER)
+    ``%INFO``           Prints the whole INFO column
     ``%INFO/TAG``       Any tag in the INFO column
     ``%TYPE``           Variant type (REF, SNP, MNP, INDEL, OTHER)
     ``%MASK``           Indicates presence of the site in other files (with multiple files)
@@ -125,12 +136,17 @@ Extracts fields from VCF/BCF file and prints them in user-defined format
     ``%TBCSQ``          Translated FORMAT/BCSQ. See the csq command above for explanation and examples.
     ``%TGT``            Translated genotype (e.g. C/A)
     ``%IUPACGT``        Genotype translated to IUPAC ambiguity codes (e.g. M instead of C/A)
+    ``%FORMAT``         Prints all FORMAT fields or a subset of samples with -s or -S
+    ``%FUNCTION``       Functions supported by the -i/-e filtering expressions (e.g. "[ %sSUM(FMT/AD)] %SUM(FMT/AD) %SUM(INFO/AD)")
+    ``%N_PASS(expr)``   Number of samples that pass the filtering expression (see *<<expressions,EXPRESSIONS>>*)
+    ``%PBINOM(TAG)``    Calculate phred-scaled binomial probability, the allele index is determined from GT
+    ``%VKX``            VariantKey, biallelic hexadecimal encoding of CHROM,POS,REF,ALT (https://github.com/tecnickcom/variantkey)
     ``%LINE``           Prints the whole line
     ``%SAMPLE``         Sample name
     ``%POS0``           POS in 0-based coordinates
     ``%END``            End position of the REF allele
     ``%END0``           End position of the REF allele in 0-based cordinates
-    ``\n``              new line
+    ``\n``              new line, adds automatically unless disabled
     ``\t``              tab character
 
 
@@ -149,6 +165,28 @@ Extracts fields from VCF/BCF file and prints them in user-defined format
 
     # Make a BED file: chr, pos (0-based), end pos (1-based), id
     bcftools query -f'%CHROM\t%POS0\t%END\t%ID\n' file.bcf
+
+    # Print only samples with alternate (non-reference) genotypes
+    bcftools query -f'[%CHROM:%POS %SAMPLE %GT\n]' -i'GT="alt"' file.bcf
+
+    # Print all samples at sites with at least one alternate genotype
+    bcftools view -i'GT="alt"' file.bcf -Ou | bcftools query -f'[%CHROM:%POS %SAMPLE %GT\n]'
+
+    # Print phred-scaled binomial probability from FORMAT/AD tag for all heterozygous genotypes
+    bcftools query -i'GT="het"' -f'[%CHROM:%POS %SAMPLE %GT %PBINOM(AD)\n]' file.vcf
+
+    # Print the second value of AC field if bigger than 10. Note the (unfortunate) difference in
+    # index subscript notation: formatting expressions (-f) uses "{}" while filtering expressions
+    # (-i) use "[]". This is for historic reasons and backward-compatibility.
+    bcftools query -f '%AC{1}\n' -i 'AC[1]>10' file.vcf.gz
+
+    # Print all samples at sites where at least one sample has DP=1 or DP=2. In the second case
+    # print only samples with DP=1 or DP=2, the difference is in the logical operator used, || vs |.
+    bcftools query -f '[%SAMPLE %GT %DP\n]' -i 'FMT/DP=1 || FMT/DP=2' file.vcf
+    bcftools query -f '[%SAMPLE %GT %DP\n]' -i 'FMT/DP=1 |  FMT/DP=2' file.vcf
+
+    # Refer to ID column vs INFO/ID tag vs FORMAT/ID tag
+    bcftools query -f 'columnID=%ID   infoID=%INFO/ID  [fmtID=%ID ]  [columnID=%/ID]'
 
 
 @COLLAPSE_HELP@
