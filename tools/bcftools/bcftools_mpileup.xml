@@ -75,7 +75,7 @@ bcftools @EXECUTABLE@
 #if $input_fa_ref is not None:
     --fasta-ref '$input_fa_ref'
 #else:
-    --non-reference
+    --no-reference
 #end if
 
 ## Indel Calling section
@@ -88,6 +88,7 @@ bcftools @EXECUTABLE@
     -h "${section.perform_indel_calling.coefficient_for_modeling_homopolymer_errors}"
     -L "${section.perform_indel_calling.skip_indel_calling_above_sample_depth}"
     -m "${section.perform_indel_calling.minimum_gapped_reads_for_indel_candidates}"
+    -M "${section.perform_indel_calling.max_read_len}"
     --open-prob "${section.perform_indel_calling.open_seq_error_probability}"
     -F "${section.perform_indel_calling.minimum_gapped_read_fraction}"
     ${section.perform_indel_calling.gapped_read_per_sample}
@@ -96,17 +97,33 @@ bcftools @EXECUTABLE@
     #end if
 #end if
 
+#if str($section.config) != "":
+    --config "$section.config"
+#end if
+${section.indels_2_0}
+${section.indels_cns}
+${section.no_indels_cns}
+${section.poly_mqual}
+
+#if str($section.seqq_offset) != "":
+    --seqq-offset ${section.seqq_offset}
+#end if
 #if $section.ambig_reads
     --ambig-reads $section.ambig_reads
 #end if
-
 #if $section.indel_bias
     --indel-bias $section.indel_bias
 #end if
-
+#if str($section.del_bias) != "":
+    --del-bias $section.del_bias
+#end if
+#if str($section.score_vs_ref) != "":
+    --score-vs-ref $section.score_vs_ref
+#end if
 #if $section.indel_size
     --indel-size $section.indel_size
 #end if
+
 
 ## Filter section
 #set $section = $sec_filtering
@@ -127,18 +144,27 @@ bcftools @EXECUTABLE@
 -d "${section.max_reads_per_bam}"
 $section.ignore_overlaps
 ${section.skip_anomalous_read_pairs}
+
 #if str( $section.quality.quality_settings ) == "adjust":
     $section.quality.baq
+    ${section.quality.illumina13}
     -q "${section.quality.minimum_mapping_quality}"
     -Q "${section.quality.minimum_base_quality}"
+    --max-BQ "${section.quality.maximum_base_quality}"
+    --delta-BQ "${section.quality.delta_base_quality}"
     -C "${section.quality.coefficient_for_downgrading}"
 #end if
+
 #if str( $section.read_groups.read_groups_selector ) == "ignore_rg":
     --ignore-RG
 #elif str( $section.read_groups.read_groups_selector ) == "paste":
     -G "${section.read_groups.rg_action}${read_groups_file}"
 #elif str( $section.read_groups.read_groups_selector ) == "history"
     -G "${section.read_groups.rg_action}${section.read_groups.read_groups}"
+#end if
+
+#if str($section.seed) != "0":
+    --seed "${section.seed}"
 #end if
 
 #set $section = $sec_output_options
@@ -148,6 +174,8 @@ ${section.skip_anomalous_read_pairs}
 #if $section.gvcf:
     --gvcf "$section.gvcf"
 #end if
+@VERBOSITY@
+@NO_VERSION@
 
 ## Subset section
 #set $section = $sec_subset
@@ -221,11 +249,12 @@ ${pasted_data}
                 <when value="perform_indel_calling">
                     <param name="gap_open_sequencing_error_probability" type="integer" value="40" label="Phred-scaled gap open sequencing error probability" help="--open-prob; Reducing this value leads to more indel calls; default=40"/>
                     <param name="gap_extension_sequencing_error_probability" type="integer" value="20" label="Phred-scaled gap extension sequencing error probability" help="--ext-prob;  Reducing this value leads to longer indels. default=20"/>
-                    <param name="coefficient_for_modeling_homopolymer_errors" type="integer" value="100" label="Coefficient for modeling homopolymer errors." help="--tandem-qual; default=100"/>
+                    <param name="coefficient_for_modeling_homopolymer_errors" type="integer" value="500" label="Coefficient for modeling homopolymer errors." help="--tandem-qual; default=500"/>
                     <param name="skip_indel_calling_above_sample_depth" type="integer" value="250" label="Skip INDEL calling if the average per-sample depth is above" help="--max-idepth; default=250"/>
-                    <param name="minimum_gapped_reads_for_indel_candidates" type="integer" value="1" label="Minimum gapped reads for indel candidates" help="--min-ireads; default=1"/>
+                    <param name="minimum_gapped_reads_for_indel_candidates" type="integer" value="2" label="Minimum gapped reads for indel candidates" help="--min-ireads; default=2"/>
+                    <param name="max_read_len" type="integer" value="500" label="Maximum read length to pass to BAQ algorithm" help="--max-read-len; default=500"/>
                     <param name="open_seq_error_probability" type="integer" value="40" label="Phred-scaled gap open sequencing error probability" help="--open-prob; Reducing this value leads to more indel calls; default=40"/>
-                    <param name="minimum_gapped_read_fraction" type="float" value="0.002" label="Minimum fraction of gapped reads" help="--gap-frac; default=0.002"/>
+                    <param name="minimum_gapped_read_fraction" type="float" value="0.05" label="Minimum fraction of gapped reads" help="--gap-frac; default=0.05"/>
                     <param name="gapped_read_per_sample" type="boolean" truevalue="-p" falsevalue="" checked="False" label="Apply --min-ireads and --gap-frac values on a per-sample basis" help="--per-sample-mF;  by default both options are applied to reads pooled from all samples"/>
                     <repeat name="platform_list_repeat" title="Platform for INDEL candidates">
                         <param name="platform_entry" type="text" value="" label="Platform to use for INDEL candidates" help="It is recommended to collect indel candidates from sequencing technologies that have low indel error rate such as ILLUMINA"/>
@@ -233,18 +262,28 @@ ${pasted_data}
                 </when>
                 <when value="do_not_perform_indel_calling"/>
             </conditional>
+            <param argument="--config" type="text" value="" optional="true" label="Platform profile" help="Specify platform profile (use '-X list' for details)"/>
+            <param name="indels_2_0" type="boolean" truevalue="--indels-2.0" falsevalue="" label="Use EXPERIMENTAL indel calling model" help="--indels-2.0; diploid reference consensus sequence"/>
+            <param name="indels_cns" type="boolean" truevalue="--indels-cns" falsevalue="" label="Use EXPERIMENTAL indel calling model with edlib" help="--indels-cns"/>
+            <param argument="--no-indels-cns" type="boolean" truevalue="--no-indels-cns" falsevalue="" label="Disable CNS mode" help="To use after a -X profile"/>
+            <param argument="--poly-mqual" type="boolean" truevalue="--poly-mqual" falsevalue="" label="Use minimum quality within homopolymers" help="(Edlib mode)"/>
+            <param argument="--seqq-offset" type="integer" value="" optional="true" label="Indel-cns tuning for indel seq-qual scores" help="Default: 120"/>
             <param argument="--ambig-reads" type="select" optional="true" label="Ambiguous indel reads" help="What to do with ambiguous indel reads that do not span an entire short tandem repeat region: discard ambiguous reads from calling and do not increment high-quality AD depth counters (drop), exclude from calling but increment AD counters proportionally (incAD), exclude from calling and increment the first value of the AD counter (incAD0) ">
                 <option value="drop">Drop</option>
                 <option value="incAD">IncAD</option>
                 <option value="incAD0">IncAD0</option>
             </param>
             <param argument="--indel-bias" type="float" min="0" value="" optional="true" label="Indel bias" help="Skews the indel scores up or down, trading recall (low false-negative) vs precision (low false-positive) [1.0]. In Bcftools 1.12 and earlier this parameter didn’t exist, but had an implied value of 1.0. If you are planning to do heavy filtering of variants, selecting the best quality ones only (favouring precision over recall), it is advisable to set this lower (such as 0.75) while higher depth samples or where you favour recall rates over precision may work better with a higher value such as 2.0"/>
+            <param argument="--del-bias" type="float" value="" optional="true" label="Deletion bias" help="Relative likelihood of insertion to deletion [0.00]"/>
+            <param argument="--score-vs-ref" type="float" value="" optional="true" label="Score vs ref" help="Ratio of score vs ref (1) or 2nd-best allele (0) [0.00]"/>
             <param argument="--indel-size" type="integer" min="0" value="" optional="true" label="Indel size" help="Indel window size to use when assessing the quality of candidate indels. Note that although the window size approximately corresponds to the maximum indel size considered, it is not an exact threshold. Default: 110"/>
         </section>
         <section name="sec_filtering" expanded="false" title="Input Filtering Options">
             <param name="max_reads_per_bam" type="integer" value="250" min="1" label="Max reads per BAM" help="--max-depth; default=250"/>
             <param name="ignore_overlaps" type="boolean" truevalue="-x" falsevalue="" checked="False" label="Disable read-pair overlap detection" help="--ignore-overlaps"/>
             <param name="skip_anomalous_read_pairs" type="boolean" truevalue="-A" falsevalue="" checked="False" label="Do not skip anomalous read pairs in variant calling" help="--count-orphans"/>
+            <param name="seed" type="integer" value="0" label="Random number seed" help="--seed; Random number seed used for sampling deep regions (0 to disable)"/>
+            
             <conditional name="filter_by_flags">
                 <param name="filter_flags" type="select" label="Set filter by flags">
                     <option selected="True" value="nofilter">Do not filter</option>
@@ -278,12 +317,16 @@ ${pasted_data}
 --redo-BAQ; ignore existing BQ tags
                         </help>
                         <option value="">Default</option>
-                        <option value="--no-BAQ">disable BAQ (per-Base Alignment Quality) (no-BAQ)</option>
-                        <option value="--redo-BAQ">recalculate BAQ on the fly, ignore existing BQs (redo-BAQ)</option>
+                        <option value="--no-BAQ">Disable BAQ (-B, --no-BAQ)</option>
+                        <option value="--full-BAQ">Apply BAQ everywhere, not just in problematic regions (-D, --full-BAQ)</option>
+                        <option value="--redo-BAQ">Recalculate BAQ on the fly, ignore existing BQs (-E, --redo-BAQ)</option>
                     </param>
-                    <param name="coefficient_for_downgrading" type="integer" value="0" label="Coefficient for downgrading mapping quality for reads containing excessive mismatches" help="--adjust-MQ; Given a read with a phred-scaled probability q of being generated from the mapped position, the new mapping quality is about sqrt((INT-q)/INT)*INT. A zero value disables this functionality; if enabled, the recommended value for BWA is 50. default=0"/>
-                    <param label="Minimum mapping quality for an alignment to be used" name="minimum_mapping_quality" type="integer" value="0" help="-min-MQ; default=0"/>
-                    <param name="minimum_base_quality" type="integer" value="13" label="Minimum base quality for a base to be considered" help="--min-BQ; default=13"/>
+                    <param name="illumina13" type="boolean" truevalue="-6" falsevalue="" checked="False" label="Illumina 1.3+ encoding" help="-6, --illumina1.3+; Quality is in the Illumina-1.3+ encoding"/>
+                    <param name="coefficient_for_downgrading" type="integer" value="0" label="Adjust mapping quality" help="-C, --adjust-MQ; Coefficient for downgrading mapping quality. default=0"/>
+                    <param label="Minimum mapping quality" name="minimum_mapping_quality" type="integer" value="0" help="-q, --min-MQ; Skip alignments with mapQ smaller than INT. default=0"/>
+                    <param name="minimum_base_quality" type="integer" value="13" label="Minimum base quality" help="-Q, --min-BQ; Skip bases with baseQ/BAQ smaller than INT. default=13"/>
+                    <param name="maximum_base_quality" type="integer" value="60" label="Maximum base quality" help="--max-BQ; Limit baseQ/BAQ to no more than INT. default=60"/>
+                    <param name="delta_base_quality" type="integer" value="30" label="Delta base quality" help="--delta-BQ; Use neighbour_qual + INT if less than qual. default=30"/>
                 </when>
                 <when value="none"/>
             </conditional>
@@ -336,6 +379,11 @@ ${pasted_data}
                 <option value="DP4">DP4 (Number of high-quality ref-forward, ref-reverse, alt-forward and alt-reverse bases)</option>
                 <option value="DPR">DRP (Number of high-quality bases for each observed allele)</option>
                 <option value="INFO/DPR">INFO/DPR (Number of high-quality bases for each observed allele)</option>
+                <option value="NMBZ">NMBZ (Mann-Whitney U-z test of Number of Mismatches within supporting reads)</option>
+                <option value="QM">QM (Allele phred-score quality mean for use with +trio-dnm)</option>
+                <option value="SCR">SCR (Number of soft-clipped reads)</option>
+                <option value="INFO/FS">INFO/FS (Fisher's exact test P-value to detect strand bias)</option>
+                <option value="INFO/MQSBZ">INFO/MQSBZ (Mann-Whitney U-z test of Mapping Quality vs Strand Bias)</option>
             </expand>
             <param name="gvcf" type="text" value="" label="gVCF blocks of homozygous REF calls">
                 <help>
@@ -343,6 +391,8 @@ output gVCF blocks of homozygous REF calls, with depth (DP) ranges specified by 
                 </help>
                 <validator type="regex" message="integers separated by commas">^(\d+(,\d+)*)?$</validator>
             </param>
+            <expand macro="macro_verbosity" />
+            <expand macro="macro_no_version" />
         </section>
         <expand macro="macro_select_output_type"/>
     </inputs>
@@ -554,18 +604,15 @@ output gVCF blocks of homozygous REF calls, with depth (DP) ranges specified by 
  bcftools @EXECUTABLE@
 =====================================
 
-Haplotype aware consequence predictor which correctly handles combined variants such as MNPs split over multiple VCF records, SNPs separated by an intron (but adjacent in the spliced transcript) or nearby frame-shifting indels which in combination in fact are not frame-shifting.
+Generate VCF or BCF containing genotype likelihoods for one or multiple alignment (BAM or CRAM) files. 
 
-The output VCF is annotated with INFO/BCSQ and FORMAT/BCSQ tag (configurable with the -c option). The latter is a bitmask of indexes to INFO/BCSQ, with interleaved haplotypes. See the usage examples below for using the %TBCSQ converter in query for extracting a more human readable form from this bitmask. The contruction of the bitmask limits the number of consequences that can be referenced in the FORMAT/BCSQ tags. By default this is 16, but if more are required, see the --ncsq option.
+This command operates similarly to the old `samtools mpileup` command but generates raw genotype likelihoods natively in VCF or BCF format. It requires an indexed reference fasta file to generate the pileups efficiently. 
 
-The program requires on input a VCF/BCF file, the reference genome in fasta format (--fasta-ref) and genomic features in the GFF3 format downloadable from the Ensembl website (--gff-annot), and outputs an annotated VCF/BCF file. Currently, only Ensembl GFF3 files are supported.
+Once the `mpileup` command generates the raw likelihoods, you typically pipe the output directly into `bcftools call` to make the actual variant calls.
 
-By default, the input VCF should be phased. If phase is unknown, or only partially known, the --phase option can be used to indicate how to handle unphased data. Alternatively, haplotype aware calling can be turned off with the --local-csq option.
-
-If conflicting (overlapping) variants within one haplotype are detected, a warning will be emitted and predictions will be based on only the first variant in the analysis.
-
-Symbolic alleles are not supported. They will remain unannotated in the output VCF and are ignored for the prediction analysis.
-
+Example:
+   # See also http://samtools.github.io/bcftools/howtos/variant-calling.html
+   bcftools mpileup -Ou -f reference.fa alignments.bam | bcftools call -mv -Ob -o calls.bcf
 
 @REGIONS_HELP@
 @TARGETS_HELP@
