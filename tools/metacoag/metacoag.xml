@@ -1,0 +1,204 @@
+<tool id="metacoag" name="MetaCoAG" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>metagenomic contig binning via connectivity information</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.3.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">metacoag</requirement>
+        <requirement type="package" version="1.1.2">agtools</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+
+        #import re
+
+        mkdir outputs &&
+
+        #set $basename = re.sub('[^\w\-_\.]', '_', $assembler.contigs.element_identifier)
+
+        ln -s '$assembler.contigs' '${basename}.fasta' &&
+        ln -s '$assembler.abundance' '${basename}.tsv' &&
+
+        #if $assembler.is_select == 'spades':
+            ln -s '$assembler.paths' '${basename}.paths' &&
+        #end if
+
+        #if $assembler.is_select == 'flye':
+            ln -s '$assembler.paths' '${basename}.tsv' &&
+        #end if
+
+        #if $assembler.is_select == 'megahit':
+            agtools fastg2gfa -g '$assembler.graph' -k ${k} -o '${basename}.gfa' &&
+        #else
+            ln -s '$assembler.graph' '${basename}.gfa' &&
+        #end if
+
+        #if $marker_file.is_select == 'yes':
+            ln -s '$marker_file.hmm' 'marker.hmm' &&
+        #end if
+
+        metacoag
+        --assembler '$assembler.is_select'
+        --graph '${basename}.gfa'
+        --contigs '${basename}.fasta'
+        --abundance '${basename}.tsv'
+        #if $assembler.is_select == 'spades':
+            --paths '${basename}.paths'
+        #end if
+        #if $assembler.is_select == 'flye':
+            --paths '${basename}.tsv'
+        #end if
+        #if $marker_file.is_select == 'yes':
+            --hmm 'marker.hmm'
+            ${n_mg}
+        #end if
+        --output 'outputs'
+        --min_length ${min_length}
+        --p_intra ${p_intra}
+        --p_inter ${p_inter}
+        --d_limit ${d_limit}
+        --depth ${depth}
+        $no_cut_tc
+        --mg_threshold ${mg_threshold}
+        --bin_mg_threshold ${bin_mg_threshold}
+        --min_bin_size ${min_bin_size}
+        --delimiter '$delimiter'
+        --nthreads "\${GALAXY_SLOTS:-4}"
+
+        &&
+
+        mv '${basename}.fasta.frag.faa' '$faa_file' &&
+        mv '${basename}.fasta.frag.ffn' '$ffn_file' &&
+        mv '${basename}.fasta.frag.gff' '$gff_file' &&
+        mv '${basename}.fasta.hmmout' '$hmmout_file'
+
+    ]]></command>
+    <inputs>
+        <conditional name="assembler">
+            <param name="is_select" type="select" multiple="false" label="Select from assembler was used to create the contigs">
+                <option value="spades">spades</option>
+                <option value="megahit">MEGAHIT</option>
+                <option value="flye">Flye</option>
+                <option value="custom">Custom</option>
+            </param>
+            <when value="spades">
+                <param argument="--graph" type="data" format="gfa1,txt" multiple="false" label="Input assembly graph file"/>
+                <param argument="--contigs" type="data" format="fasta" multiple="false" label="Input Contigs file"/>
+                <param argument="--abundance" type="data" format="tsv" label="Input abundance file" help="It is recommended to use CoverM to generate this file."/> 
+                <param argument="--paths" type="data" format="txt" multiple="false" label="Input the contigs.paths file from spades"/>
+            </when>
+            <when value="flye">
+                <param argument="--graph" type="data" format="gfa1" multiple="false" label="Input assembly graph file (GFA format)"/>
+                <param argument="--contigs" type="data" format="fasta" multiple="false" label="Input Contigs file"/>
+                <param argument="--abundance" type="data" format="tsv" label="Input abundance file" help="It is recommended to use CoverM to generate this file."/> 
+                <param argument="--paths" type="data" format="tabular" multiple="false" label="Input the assembly info file from flye"/>
+            </when>
+            <when value="megahit">
+                <param argument="--graph" type="data" format="fastg" multiple="false" label="Input assembly graph file" help="To create such a file with MEGAHIT use the megahit contig2fastg utility tool in Galaxy!"/>
+                <param argument="--contigs" type="data" format="fasta" multiple="false" label="Input Contigs file"/>
+                <param argument="--abundance" type="data" format="tsv" label="Input abundance file" help="It is recommended to use CoverM to generate this file."/>
+                <param argument="-k" type="integer" value="" optional="false" label="Which kmer-size was used in MEGAHIT to create the contigs" help="The kmer size is part of the file name: {kmer-size}.contigs.fa or check the log when not sure." />
+            </when>
+            <when value="custom">
+                <param argument="--graph" type="data" format="gfa1" multiple="false" label="Input assembly graph file (GFA format)"/>
+                <param argument="--contigs" type="data" format="fasta" multiple="false" label="Input Contigs file"/>
+                <param argument="--abundance" type="data" format="tsv" label="Input abundance file" help="It is recommended to use CoverM to generate this file."/> 
+            </when>
+        </conditional>
+        <conditional name="marker_file">
+            <param name="is_select" type="select" label="Use own marker gene file?" help="There is a default marker file stored with 108">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--hmm" type="data" format="hmm3" label="Input marker gene file"/>
+                <param argument="--n_mg" type="integer" value="" label="How many marker genes are in the file?"/>
+            </when>
+            <when value="no"/> 
+        </conditional>
+        <param argument="--min_length" type="integer" value="1000" label="Minimum length of contigs to consider for binning"/>
+        <param argument="--p_intra" type="float" min="0" max="1" value="0.1" label="Minimum probability of an edge matching to assign to the same bin"/>
+        <param argument="--p_inter" type="float" min="0" max="1" value="0.01" label="aximum probability of an edge matching to create a new bin"/>
+        <param argument="--d_limit" type="integer" value="20" label="Distance limit for contig matching"/>
+        <param argument="--depth" type="integer" value="10" label="Depth to consider for label propagation"/>
+        <param argument="--no_cut_tc" type="boolean" truevalue="--no_cut_tc" falsevalue="" label="Use --cut_tc for hmmsearch"/>
+        <param argument="--mg_threshold" type="float" min="0" max="1" value="0.5" label="Length threshold to consider marker genes"/>
+        <param argument="--bin_mg_threshold" type="float" min="0" max="1" value="0.33" label="Miength threshold to consider marker genes be present in a bin"/>
+        <param argument="--min_bin_size" type="integer" value="200000" label="Mnimum size of a bin to output in base pairs (bp)"/>
+        <param argument="--delimiter" type="select" label="Delimiter for output results">
+            <option value="," selected="true">,</option>
+            <option value=";">;</option>
+            <option value=" ">Space</option>
+        </param>
+    </inputs>
+    <outputs>
+        <collection name="bins" type="list" format="fasta" label="${tool.name}: BINS">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fasta" directory="outputs/bins"/>
+        </collection>
+        <collection name="low_bins" type="list" format="fasta" label="${tool.name}: LOW QUALITY BINS">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fasta" directory="outputs/low_quality_bins"/>
+        </collection>
+        <data name="contig_to_bin" format="tabular" label="${tool.name}: CONITG TO BIN TABLE" from_work_dir="outputs/contig_to_bin.tsv"/>
+        <data name="faa_file" format="fasta" label="${tool.name}: FAA FILE"/>
+        <data name="ffn_file" format="fasta" label="${tool.name}: FFN FILE"/>
+        <data name="gff_file" format="gff" label="${tool.name}: GFF FILE"/>
+        <data name="hmmout_file" format="txt" label="${tool.name}: HMMOUT FILE"/>
+    </outputs> 
+    <tests>
+        <test expect_num_outputs="7">
+            <conditional name="assembler">
+                <param name="is_select" value="spades"/>
+                <param name="graph" location="https://zenodo.org/records/22853646/files/assembly_graph_with_scaffolds.gfa"/>
+                <param name="abundance" location="https://zenodo.org/records/22853646/files/spades_abundance.tsv"/>
+                <param name="contigs" location="https://zenodo.org/records/22853646/files/contigs.fasta"/>
+                <param name="paths" location="https://zenodo.org/records/22853646/files/contigs.paths"/>
+            </conditional>
+            <output_collection name="bins" count="2"/>
+            <output_collection name="low_bins" count="1"/>
+        </test>
+        <test expect_num_outputs="7">
+            <conditional name="assembler">
+                <param name="is_select" value="megahit"/>
+                <param name="graph" location="https://zenodo.org/records/22853646/files/final.fastg"/>
+                <param name="abundance" location="https://zenodo.org/records/22853646/files/megahit_abundance.tsv"/>
+                <param name="contigs" location="https://zenodo.org/records/22853646/files/final.contigs.fa"/>
+                <param name="k" value="59"/>
+            </conditional>
+            <output_collection name="bins" count="2"/>
+            <output_collection name="low_bins" count="1"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+        **What is this tool**
+
+        MetaCoAG is a metagenomic contig binning tool that makes use of the connectivity information found in assembly graphs, apart from the composition and coverage information. MetaCoAG makes use of single-copy marker genes along with a graph matching technique and a label propagation technique to bin contigs.
+
+        **Input**
+
+        For all assemblers:
+        
+        - Assembly graph file (GFA/TXT for Spades/Flye/Custom and FASTG for MEGAHIT [FASTG file will be convert to GFA via utility in the wrapper])
+        - Contigs in FASTA format
+        - Abundance (from for example CheckM)
+
+        Assembler specific file:
+
+        - For Spades the contigs.path file is required
+        - For Flye the assembly_info.txt file is required
+
+        **Outputs**
+
+        - List with all bins in FASTA format
+        - List with to low bins in FASTA format
+        - A tabular file which show where each contig is binned
+        - FragScan output (FFN, FAA and GFF file)
+        - Hmmsearch output 
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1007/978-3-031-04749-7_5</citation>
+        <citation type="doi">10.1089/cmb.2022.0262.</citation>
+    </citations>
+</tool>
