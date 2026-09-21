@@ -3,7 +3,9 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="wgcna_xrefs"/>
     <expand macro="wgcna_requirements"/>
+    <version_command>echo @TOOL_VERSION@</version_command>
     <command detect_errors="exit_code"><![CDATA[
         mkdir -p plots results &&
         Rscript '$wgcna_script'
@@ -32,10 +34,8 @@ filter_by_variance <- $filter_by_variance
 variance_quantile  <- as.numeric($variance_quantile)
 run_sample_gene_qc <- $run_sample_gene_qc
 
-## Use GALAXY_SLOTS if set by the cluster runner, fall back to 2 otherwise
-n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "2"))
-allowWGCNAThreads(nThreads = n_threads)
-
+## Use GALAXY_SLOTS if set by the cluster runner, fall back to 4 otherwise
+n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "4"))
 allowWGCNAThreads(nThreads = n_threads)
 
 ## corFnc/adjacency()/TOMsimilarity() expect the *function name* ("cor" or
@@ -75,6 +75,14 @@ if (is.na(soft_power)) {
                  ") does not match the selected variance_quantile (", variance_quantile, ").")
      }
  }
+ cfg_cor_fnc_line <- grep("^corFnc\\s*=", sft_config, value = TRUE)[1]
+ if (!is.na(cfg_cor_fnc_line) && nzchar(cfg_cor_fnc_line)) {
+     cfg_cor_fnc <- trimws(strsplit(cfg_cor_fnc_line, "=", fixed = TRUE)[[1]][2])
+     if (nzchar(cfg_cor_fnc) && cfg_cor_fnc != cor_fnc) {
+         warning("Correlation function in soft-thresholding config (", cfg_cor_fnc,
+                 ") does not match the selected correlation function (", cor_fnc, ").")
+     }
+ }
 cat("Soft power loaded from config file:", soft_power, "\n")
 #else:
 soft_power <- as.integer("$soft_power")
@@ -112,11 +120,18 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
         if (is.numeric(col_values)) {
             pieces[[col_name]] <- col_values
         } else {
-            col_factor <- factor(col_values, exclude = NULL)
-            levels(col_factor)[is.na(levels(col_factor))] <- "NA"
+            col_factor <- factor(col_values)
             mm <- model.matrix(~ col_factor - 1)
             colnames(mm) <- paste0(col_name, "_", levels(col_factor))
-            pieces[[col_name]] <- mm
+            if (any(is.na(col_values))) {
+                mm_full <- matrix(NA_real_, nrow = length(col_values), ncol = ncol(mm),
+                                  dimnames = list(NULL, colnames(mm)))
+                complete_rows <- which(!is.na(col_values))
+                mm_full[complete_rows, ] <- mm
+                pieces[[col_name]] <- mm_full
+            } else {
+                pieces[[col_name]] <- mm
+            }
         }
     }
 
@@ -125,14 +140,9 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
     return(result)
 }
 
-## Human-readable trait names for plot axes (one-hot columns like
-## sample_group_group_A become "Group A"; underscores become spaces).
+## Human-readable trait names for plot axes (underscores become spaces).
 prettify_trait_label <- function(labels) {
     vapply(labels, function(label) {
-        if (grepl("_group_", label, fixed = TRUE)) {
-            level <- sub(".*_group_", "", label)
-            return(paste0("Group ", level))
-        }
         gsub("_", " ", label)
     }, character(1), USE.NAMES = FALSE)
 }
@@ -274,8 +284,12 @@ meta   <- read.delim(metadata_file, check.names = FALSE)
 ## Sanity check: the samples in the counts matrix (columns) must match the
 ## samples listed in the first column of the metadata file.
 if (!setequal(colnames(counts), meta[[colnames(meta)[1]]])) {
-    stop("Sample names in the counts matrix columns do not match the sample ",
-         "names in the first column of the metadata file.")
+    extra_counts <- setdiff(colnames(counts), meta[[1]])
+    extra_meta   <- setdiff(meta[[1]], colnames(counts))
+    msg <- "Sample names in the counts matrix columns do not match the sample names in the first column of the metadata file."
+    if (length(extra_counts) > 0) msg <- paste0(msg, " Samples in counts but not metadata: ", paste(head(extra_counts, 5), collapse = ", "))
+    if (length(extra_meta) > 0) msg <- paste0(msg, " Samples in metadata but not counts: ", paste(head(extra_meta, 5), collapse = ", "))
+    stop(msg)
 }
 
 cat("Data loaded:", nrow(counts), "genes x", ncol(counts), "samples\n")
@@ -305,7 +319,7 @@ if (filter_by_variance) {
         warning("No finite variances found; skipping variance filtering.")
     } else {
         variance_threshold <- quantile(valid_var, variance_quantile, na.rm = TRUE)
-        filtered_expr_data <- expr_data[gene_variances > variance_threshold, , drop = FALSE]
+        filtered_expr_data <- expr_data[which(gene_variances > variance_threshold), , drop = FALSE]
         if (nrow(filtered_expr_data) == 0) {
             warning("Variance filter removed all genes; using unfiltered expression matrix.")
             filtered_expr_data <- expr_data
@@ -373,7 +387,6 @@ par(mar = plot02_mar, oma = c(0.4, 0.4, 0.8, 0.4), xpd = NA)
 plot(sampleTree,
      main = "Sample Clustering to Detect Outliers",
      xlab = "", ylab = "Height", cex = sample_label_cex, hang = 0.1)
-abline(h = 200, col = "red", lwd = 2, lty = 2)
 mtext("Height represents dissimilarity between samples",
       side = 1, line = max(plot02_mar[1] - 1.4, 3), cex = 0.75, col = "gray30")
 finish_plot(png_dev)
@@ -422,19 +435,20 @@ if (anyDuplicated(meta[[sample_column]]) > 0) {
 }
 
 ## ─── resolve trait column tokens (names or 1-based indices) ───
-trait_indices <- suppressWarnings(as.integer(trait_tokens))
-if (all(!is.na(trait_indices))) {
-    if (any(trait_indices < 1 | trait_indices > ncol(meta))) {
-        bad <- trait_indices[trait_indices < 1 | trait_indices > ncol(meta)]
-        stop("Trait column index out of range: ", paste(bad, collapse = ", "))
-    }
-    trait_columns <- colnames(meta)[trait_indices]
+if (all(trait_tokens %in% colnames(meta))) {
+    trait_columns <- trait_tokens
 } else {
-    missing <- setdiff(trait_tokens, colnames(meta))
-    if (length(missing) > 0) {
+    trait_indices <- suppressWarnings(as.integer(trait_tokens))
+    if (all(!is.na(trait_indices))) {
+        if (any(trait_indices < 1 | trait_indices > ncol(meta))) {
+            bad <- trait_indices[trait_indices < 1 | trait_indices > ncol(meta)]
+            stop("Trait column index out of range: ", paste(bad, collapse = ", "))
+        }
+        trait_columns <- colnames(meta)[trait_indices]
+    } else {
+        missing <- setdiff(trait_tokens, colnames(meta))
         stop("Trait column(s) not found: ", paste(missing, collapse = ", "))
     }
-    trait_columns <- trait_tokens
 }
 
 meta_subset <- meta[, c(sample_column, trait_columns), drop = FALSE]
@@ -466,6 +480,9 @@ if (run_sample_gene_qc) {
 }
 
 cat("After goodSamplesGenes:", ncol(datExpr), "genes,", nrow(datExpr), "samples\n")
+if (nrow(datExpr) < 2) {
+    stop("Too few samples (", nrow(datExpr), ") remaining after goodSamplesGenes.")
+}
 if (ncol(datExpr) < min_module_size) {
     stop("Too few genes (", ncol(datExpr), ") for min_module_size=", min_module_size)
 }
@@ -482,8 +499,7 @@ net <- blockwiseModules(
     mergeCutHeight    = merge_cut_height,
     numericLabels     = TRUE,
     pamRespectsDendro = FALSE,
-    saveTOMs          = TRUE,
-    saveTOMFileBase   = "WGCNA_TOM",
+    saveTOMs          = FALSE,
     nThreads          = n_threads,
     verbose           = 3
 )
@@ -547,7 +563,7 @@ if (ncol(module_eigengenes) > 1) {
     par(mar = plot06_mar, oma = c(0.4, 0.4, 0.8, 0.4), xpd = NA)
     plot(ME_tree, hang = 0.1, main = "Clustering of Module Eigengenes", xlab = "", sub = "",
          cex = 1.3, cex.main = 1.6, cex.axis = 1.3, cex.lab = 1.3)
-    abline(h = 0.25, col = "red", lty = 2)
+    abline(h = merge_cut_height, col = "red", lty = 2)
     finish_plot(png_dev)
 } else {
     cat("Only one module found; skipping module eigengene dendrogram.\n")
@@ -661,10 +677,17 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
     names(gene_significance_pval) <- colnames(datExpr)
 
     ## The most relevant module is the one whose eigengene shows the strongest
-    ## absolute correlation with this trait.
-    trait_vec            <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
-    best_idx             <- which.max(trait_vec)
-    most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
+    ## absolute correlation with this trait (excluding unassigned grey module).
+    candidate_modules <- setdiff(rownames(module_trait_cor_sub), c("MEgrey", "ME0"))
+    if (length(candidate_modules) > 0) {
+        trait_vec <- abs(module_trait_cor_sub[candidate_modules, trait_of_interest, drop = TRUE])
+        best_idx  <- which.max(trait_vec)
+        most_relevant_module <- candidate_modules[best_idx]
+    } else {
+        trait_vec <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
+        best_idx  <- which.max(trait_vec)
+        most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
+    }
     module_id_clean      <- sub("^ME", "", most_relevant_module)
 
     if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
@@ -947,7 +970,7 @@ cat("Results written to: results/\n")
         <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
         <param name="trait_columns" type="data_column" data_ref="metadata_file" use_header_names="true" multiple="true" label="Metadata trait columns" help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded. Gene significance, module membership, and hub-gene analysis are run for every selected trait (and each one-hot level of categorical traits)."/>
         <param name="plot_resolution" type="integer" value="300" min="72" max="600" label="Plot resolution (DPI)" help="Resolution, in dots per inch, used when rendering the individual plots. Ignored for PDF format, which is resolution-independent."/>
-        <param name="image_format" type="select" label="Plot image format" help="File format used for every individual plot in the plots collection. All plots are additionally combined into one PDF regardless of this setting.">
+        <param name="image_format" type="select" label="Plot image format" help="File format used for every individual plot in the plots collection.">
             <option value="png" selected="true">PNG</option>
             <option value="jpg">JPEG</option>
             <option value="pdf">PDF</option>
@@ -1213,18 +1236,17 @@ Runs the complete Weighted Gene Co-expression Network Analysis (WGCNA) workflow:
 
 **Network type, TOM type, and correlation type**
 
-Network type defaults to *Unsigned*. For most RNA-seq co-expression analyses, *Signed* (or *Signed hybrid*) is recommended instead, since it preserves the distinction between positive and negative correlations — set Network type and TOM type to matching signed/unsigned values. Correlation type defaults to Pearson; choose biweight midcorrelation (bicor) for a robust alternative that down-weights outlier samples.
+Network type defaults to *Signed* (recommended). For RNA-seq co-expression analyses, *Signed* (or *Signed hybrid*) preserves the distinction between positive and negative correlations — set Network type and TOM type to matching signed/unsigned values. Correlation type defaults to Pearson; choose biweight midcorrelation (bicor) for a robust alternative that down-weights outlier samples.
 
 **Plot image format**
 
-The plots in the wgcna_plots collection can be produced as PNG (default), JPEG, PDF, or SVG. The combined all-plots PDF output is always generated in PDF regardless of this setting. PDF and SVG formats are resolution-independent (vector graphics), so the Plot resolution (DPI) setting only affects the raster formats (PNG, JPEG).
+The plots in the wgcna_plots collection can be produced as PNG (default), JPEG, PDF, or SVG. PDF and SVG formats are resolution-independent (vector graphics), so the Plot resolution (DPI) setting only affects the raster formats (PNG, JPEG).
 
 **Outputs**
 
 - **wgcna_plots** — a collection of every diagnostic and results plot produced by the pipeline.
 - **gene_tables** — a collection of module gene info and hub gene tables, one pair per trait (and per one-hot level for categorical traits), each for the module most correlated with that trait.
 - **Genome-wide gene-module membership** — a single table listing every gene, its assigned module color, and its membership correlation (and p-value) with every module eigengene in the dataset, ordered by module color.
-- **All plots (PDF)** — every plot from the run combined into a single multi-page PDF, one plot per page, as a fallback in case any individual PNG in the plots collection fails to open.
 - **R script** (optional) — the exact R script executed for this run, provided when "Save the R script used for this run" is enabled; useful for debugging.
 
     ]]></help>
