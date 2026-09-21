@@ -366,7 +366,7 @@ def main(options):
     prediction_keys = sorted(
         column for tool in tools for column in PREDICTOR_COLUMNS[tool]
     )
-    if options.plot:
+    if options.plot_distribution:
         for prediction in prediction_keys:
             plot_distribution(
                 prediction,
@@ -374,7 +374,7 @@ def main(options):
                 options.plot_output,
                 options.highlight,
             )
-    if options.plot_aligned:
+    if options.plot_all:
         for prediction in prediction_keys:
             sequences_values = {
                 sequence_key: sequence_predictions[prediction]
@@ -435,11 +435,11 @@ if __name__ == "__main__":
         type="string"
     )
     parser.add_option(
-        "--plot",
+        "--plot_distribution",
         action="store_true"
     )
     parser.add_option(
-        "--plot_aligned",
+        "--plot_all",
         action="store_true"
     )
     parser.add_option(
@@ -458,7 +458,7 @@ if __name__ == "__main__":
             parser.error('Split output directory not given (--split-output)')
         if not options.json_output:
             parser.error('Json output file not given (--json)')
-        if (options.plot or options.plot_aligned) and not options.plot_output:
+        if (options.plot_distribution or options.plot_all) and not options.plot_output:
             parser.error('Plot output directory not given (--plot-output)')
         main(options)
     except optparse.OptionError as exc:
