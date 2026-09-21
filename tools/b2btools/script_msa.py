@@ -352,7 +352,8 @@ def main(options):
 
     predictions_df = build_predictions_dataframe(msa, tools)
     predictions_df.to_csv(options.tabular_output, sep="\t", index=False)
-    split_by_sequence(predictions_df, options.split_output)
+    if options.split_output:
+        split_by_sequence(predictions_df, options.split_output)
 
     distributions = msa.get_all_predictions_msa_distrib()["results"]
     distribution_df = build_distribution_dataframe(distributions)
@@ -454,8 +455,6 @@ if __name__ == "__main__":
             parser.error('Tabular output file not given (--tabular)')
         if not options.distribution_output:
             parser.error('Distribution output file not given (--distribution)')
-        if not options.split_output:
-            parser.error('Split output directory not given (--split-output)')
         if not options.json_output:
             parser.error('Json output file not given (--json)')
         if (options.plot_distribution or options.plot_all) and not options.plot_output:
