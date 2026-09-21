@@ -3,7 +3,9 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="wgcna_xrefs"/>
     <expand macro="wgcna_requirements"/>
+    <version_command>echo @TOOL_VERSION@</version_command>
     <command detect_errors="exit_code"><![CDATA[
         mkdir -p plots &&
         Rscript '$softpower_script'
@@ -53,7 +55,7 @@ if (filter_by_variance) {
          filtered_expr_data <- expr_data
      } else {
          variance_threshold <- quantile(valid_var, variance_quantile, na.rm = TRUE)
-         filtered_expr_data <- expr_data[gene_variances > variance_threshold, , drop = FALSE]
+         filtered_expr_data <- expr_data[which(gene_variances > variance_threshold), , drop = FALSE]
          if (nrow(filtered_expr_data) < 2) {
              warning("Variance filter removed too many genes; using unfiltered expression matrix.")
              filtered_expr_data <- expr_data
@@ -65,8 +67,12 @@ if (filter_by_variance) {
 
 datExpr <- t(filtered_expr_data)
 
-## Enable multithreading when available
-try(enableWGCNAThreads(), silent = TRUE)
+if (nrow(datExpr) < 2) stop("Too few samples (", nrow(datExpr), ") for soft-thresholding analysis.")
+if (ncol(datExpr) < 2) stop("Too few genes (", ncol(datExpr), ") for soft-thresholding analysis.")
+
+## Enable multithreading respecting Galaxy slots
+n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "4"))
+allowWGCNAThreads(nThreads = n_threads)
 
 ## Candidate powers
 powers <- c(seq(1, 10, by = 1), seq(12, 20, by = 2))
@@ -81,31 +87,41 @@ sft <- pickSoftThreshold(
     verbose = 3
 )
 
+sft_fit <- sft[["fitIndices"]]
+if (is.null(sft_fit) || nrow(sft_fit) == 0) {
+    stop("pickSoftThreshold failed to calculate fit indices.")
+}
+
+sft_signed_r2 <- -sign(sft_fit[, 3]) * sft_fit[, 2]
+y_range <- range(c(sft_signed_r2, RsquaredCut), na.rm = TRUE)
+
 ## Generate plot
 png("plots/soft_thresholding.png", width = 1200, height = 600, res = 100)
 par(mfrow = c(1, 2))
 
 plot(
-    sft\$fitIndices[, 1],
-    -sign(sft\$fitIndices[, 3]) * sft\$fitIndices[, 2],
+    sft_fit[, 1],
+    sft_signed_r2,
     type = "n",
     xlab = "Soft Threshold (power)",
     ylab = "Scale Free Topology Model Fit, signed R^2",
-    main = "Scale Independence"
+    main = "Scale Independence",
+    ylim = y_range
 )
 
 text(
-    sft\$fitIndices[, 1],
-    -sign(sft\$fitIndices[, 3]) * sft\$fitIndices[, 2],
-    labels = sft\$fitIndices[, 1],
+    sft_fit[, 1],
+    sft_signed_r2,
+    labels = sft_fit[, 1],
     cex = 0.9,
     col = "red"
 )
 
 abline(h = RsquaredCut, col = "blue", lty = 2)
+
 plot(
-    sft\$fitIndices[, 1],
-    sft\$fitIndices[, 5],
+    sft_fit[, 1],
+    sft_fit[, 5],
     type = "n",
     xlab = "Soft Threshold (power)",
     ylab = "Mean Connectivity",
@@ -113,9 +129,9 @@ plot(
 )
 
 text(
-    sft\$fitIndices[, 1],
-    sft\$fitIndices[, 5],
-    labels = sft\$fitIndices[, 1],
+    sft_fit[, 1],
+    sft_fit[, 5],
+    labels = sft_fit[, 1],
     cex = 0.9,
     col = "red"
 )
@@ -123,19 +139,18 @@ text(
 dev.off()
 
 ## Determine selected power
-soft_power <- sft\$powerEstimate ## then let user do r
-
+soft_power <- sft[["powerEstimate"]]
 
 ## based on WGCNA FAQ https://github.com/edo98811/WGCNA_official_documentation/blob/main/faq.html
 get_soft_power <- function(n_samples, network_type = "signed") {
     network_type <- tolower(network_type)
 
-    if (network_type == "signed") {
+    if (network_type %in% c("signed", "signed hybrid")) {
         if (n_samples < 20)       power <- 18
         else if (n_samples <= 30) power <- 16
         else if (n_samples <= 40) power <- 14
         else                      power <- 12
-    } else {  # unsigned or signed hybrid
+    } else {  # unsigned
         if (n_samples < 20)       power <- 9
         else if (n_samples <= 30) power <- 8
         else if (n_samples <= 40) power <- 7
@@ -145,8 +160,8 @@ get_soft_power <- function(n_samples, network_type = "signed") {
 }
 
 if (is.na(soft_power)) {
-    soft_power <- get_soft_power(n_samples=nrow(datExpr),network_type=network_type)
-     cat("No suitable power found. Using power based on the WGCNA authors' recommendation.\n")
+    soft_power <- get_soft_power(n_samples = nrow(datExpr), network_type = network_type)
+    cat("No suitable power found. Using power based on the WGCNA authors' recommendation.\n")
 } else {
     cat("Chosen soft-thresholding power:", soft_power, "\n")
 }
@@ -156,14 +171,15 @@ writeLines(
     c(
         paste0("soft_power = ", soft_power),
         paste0("network_type = ", network_type),
-        paste0("variance_quantile = ", variance_quantile)
+        paste0("variance_quantile = ", variance_quantile),
+        paste0("corFnc = ", corFnc)
     ),
     "softpower_config.txt"
 )
 
 ## Write full fit indices table
 write.table(
-    sft\$fitIndices,
+    sft_fit,
     file      = "softpower_fit_indices.tsv",
     sep       = "\t",
     quote     = FALSE,
@@ -193,7 +209,6 @@ cat("Fit indices written to: softpower_fit_indices.tsv\n")
         <test expect_num_outputs="3">
             <param name="counts_file" value="test_counts.tsv" ftype="tabular"/>
             <param name="network_type" value="signed"/>
-            <!-- CHANGE: corFnc value updated to "cor" to match fixed option value -->
             <param name="corFnc" value="cor"/>
             <param name="RsquaredCut" value="0.85"/>
             <param name="log_transform" value="true"/>
@@ -204,7 +219,32 @@ cat("Fit indices written to: softpower_fit_indices.tsv\n")
                     <has_text text="soft_power"/>
                     <has_text text="network_type = signed"/>
                     <has_text text="variance_quantile = 0.4"/>
+                    <has_text text="corFnc = cor"/>
                     <has_text_matching expression="soft_power = \d+"/>
+                </assert_contents>
+            </output>
+            <output name="softpower_fit_indices">
+                <assert_contents>
+                    <has_size min="100"/>
+                    <has_n_columns n="7"/>
+                </assert_contents>
+            </output>
+            <output name="softpower_plot">
+                <assert_contents>
+                    <has_image_channels channels="3"/>
+                    <has_image_height height="600"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test with defaults (uses signed network from macros) and bicor -->
+        <test expect_num_outputs="3">
+            <param name="counts_file" value="test_counts.tsv" ftype="tabular"/>
+            <param name="corFnc" value="bicor"/>
+            <output name="softpower_config">
+                <assert_contents>
+                    <has_text text="soft_power"/>
+                    <has_text text="network_type = signed"/>
+                    <has_text text="corFnc = bicor"/>
                 </assert_contents>
             </output>
             <output name="softpower_fit_indices">
@@ -224,7 +264,7 @@ cat("Fit indices written to: softpower_fit_indices.tsv\n")
     <help><![CDATA[
 **WGCNA Soft-Thresholding Power Estimation**
 
-Runs ``pickSoftThreshold`` from the WGCNA package to estimate an appropriate
+Runs `pickSoftThreshold` from the WGCNA package to estimate an appropriate
 soft-thresholding power for weighted gene co-expression network construction.
 
 **Inputs**
@@ -233,10 +273,10 @@ soft-thresholding power for weighted gene co-expression network construction.
   TSV file with genes as rows and samples as columns.
 
 - **Network type**
-  Choice of unsigned (default), signed, or signed hybrid network.
+  Choice of signed (default, recommended), unsigned, or signed hybrid network.
 
 - **Correlation function**
-  Choice of Pearson correlation (default, cor) or biweight midcorrelation (bicor,
+  Choice of Pearson correlation (default, `cor`) or biweight midcorrelation (`bicor`,
   more robust to outliers).
 
 - **Log2-transform counts**
@@ -258,7 +298,7 @@ soft-thresholding power for weighted gene co-expression network construction.
 
 - **Soft-thresholding config**
   Configuration file containing the selected soft-thresholding power, network
-  type, and variance quantile. If no power achieves an R-squared >= 0.85, the
+  type, variance quantile, and correlation function. If no power achieves an R-squared >= 0.85, the
   tool falls back to a sample-size/network-type heuristic from the WGCNA FAQ.
 
 - **Soft-thresholding fit indices**
