@@ -1,4 +1,4 @@
-<tool id="trackastra_track" name="Perform object tracking" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+<tool id="trackastra_track" name="Perform object tracking" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="BSD-3-Clause">
     <description>with Trackastra</description>
     <macros>
         <import>macros.xml</import>
@@ -48,7 +48,9 @@ trackastra track
 --mode '$mode' 
 --n-workers "\${GALAXY_SLOTS:-1}"
 --max-distance '$max_distance' &&
-python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ctc_output'
+python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ctc_output' &&
+tr ',' '\t' < 'edge_table.csv' > 'edge_table.tabular' &&
+tr ' ' '\t' < 'ctc_output/man_track.txt' > 'track_table.tabular'
     ]]></command>
     <inputs>
         <conditional name="inputs">
@@ -74,13 +76,12 @@ python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ct
         <param argument="--mode" type="select" label="Linking mode">
             <option value="greedy" selected="true">Greedy linking with divisions</option>
             <option value="greedy_nodiv">Greedy linking without divisions</option>
-            <option value="ilp">Integer linear programming (slower, usually more accurate)</option>
         </param>
         <param argument="--max-distance" type="float" value="128" min="0" label="Maximum linking distance" help="Maximum spatial distance, in pixels or voxels, considered while constructing candidate links."/>
     </inputs>
     <outputs>
-        <data name="edge_table" format="tabular" from_work_dir="edge_table.csv" label="${tool.name} on ${on_string}: association edge table"/>
-        <data name="track_table" format="tabular" from_work_dir="ctc_output/man_track.txt" label="${tool.name} on ${on_string}: CTC track table"/>
+        <data name="edge_table" format="tabular" from_work_dir="edge_table.tabular" label="${tool.name} on ${on_string}: association edge table"/>
+        <data name="track_table" format="tabular" from_work_dir="track_table.tabular" label="${tool.name} on ${on_string}: CTC track table"/>
         <collection name="tracked_masks" type="list" label="${tool.name} on ${on_string}: tracked masks">
             <discover_datasets pattern="man_track(?P&lt;designation&gt;[0-9]+)\.tiff" format="tiff" directory="galaxy_ctc_output"/>
         </collection>
@@ -111,15 +112,17 @@ python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ct
             <output name="edge_table">
                 <assert_contents>
                     <has_n_lines n="3"/>
-                    <has_line line="source_frame,source_label,target_frame,target_label,weight"/>
-                    <has_line_matching expression="^0,1,1,1,0\.99999[0-9]+$" n="1"/>
-                    <has_line_matching expression="^1,1,2,1,0\.99999[0-9]+$" n="1"/>
+                    <has_n_columns n="5"/>
+                    <has_line_matching expression="^source_frame\tsource_label\ttarget_frame\ttarget_label\tweight$"/>
+                    <has_line_matching expression="^0\t1\t1\t1\t0\.99999[0-9]+$" n="1"/>
+                    <has_line_matching expression="^1\t1\t2\t1\t0\.99999[0-9]+$" n="1"/>
                 </assert_contents>
             </output>
             <output name="track_table">
                 <assert_contents>
                     <has_n_lines n="1"/>
-                    <has_line line="1 0 2 0"/>
+                    <has_n_columns n="4"/>
+                    <has_line_matching expression="^1\t0\t2\t0$"/>
                 </assert_contents>
             </output>
             <output_collection name="tracked_masks" type="list" count="3">
@@ -141,17 +144,19 @@ python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ct
             <output name="edge_table">
                 <assert_contents>
                     <has_n_lines n="3"/>
-                    <has_line line="source_frame,source_label,target_frame,target_label,weight"/>
-                    <has_line_matching expression="^0,1,1,1,0\.99999[0-9]+$" n="1"/>
-                    <has_line_matching expression="^0,1,1,2,0\.99999[0-9]+$" n="1"/>
+                    <has_n_columns n="5"/>
+                    <has_line_matching expression="^source_frame\tsource_label\ttarget_frame\ttarget_label\tweight$"/>
+                    <has_line_matching expression="^0\t1\t1\t1\t0\.99999[0-9]+$" n="1"/>
+                    <has_line_matching expression="^0\t1\t1\t2\t0\.99999[0-9]+$" n="1"/>
                 </assert_contents>
             </output>
             <output name="track_table">
                 <assert_contents>
                     <has_n_lines n="3"/>
-                    <has_line line="1 0 0 0"/>
-                    <has_line line="2 1 1 1"/>
-                    <has_line line="3 1 1 1"/>
+                    <has_n_columns n="4"/>
+                    <has_line_matching expression="^1\t0\t0\t0$"/>
+                    <has_line_matching expression="^2\t1\t1\t1$"/>
+                    <has_line_matching expression="^3\t1\t1\t1$"/>
                 </assert_contents>
             </output>
             <output_collection name="tracked_masks" type="list" count="3">
@@ -160,64 +165,34 @@ python '$__tool_directory__/convert_tiff_compression.py' 'ctc_output' 'galaxy_ct
                 <element name="0002" file="expected_division_0002.tiff" ftype="tiff" compare="image_diff" metric="mae" eps="0"/>
             </output_collection>
         </test>
-        <!-- ILP linking mode. Exercises the motile/ilpy SCIP solver path.
-             Assertions are deliberately tolerant: the ILP optimum is stable for
-             this fixture, but solver tie-breaking is not something a tool test
-             should pin down. -->
-        <test expect_num_outputs="3">
-            <conditional name="inputs">
-                <param name="input_format" value="stacks"/>
-                <param name="images_stack" value="division_images_stack.tiff" ftype="tiff"/>
-                <param name="masks_stack" value="division_masks_stack.tiff" ftype="tiff"/>
-            </conditional>
-            <param name="model" value="tiny_test"/>
-            <param name="mode" value="ilp"/>
-            <param name="max_distance" value="32"/>
-            <output name="edge_table">
-                <assert_contents>
-                    <has_line line="source_frame,source_label,target_frame,target_label,weight"/>
-                    <has_n_lines min="2"/>
-                </assert_contents>
-            </output>
-            <output name="track_table">
-                <assert_contents>
-                    <has_n_lines min="1"/>
-                    <has_line_matching expression="^[0-9]+ [0-9]+ [0-9]+ [0-9]+$"/>
-                </assert_contents>
-            </output>
-            <output_collection name="tracked_masks" type="list" count="3"/>
-        </test>
     </tests>
     <help><![CDATA[
-**Trackastra** associates objects that have already been segmented in a microscopy time series. It does not perform segmentation.
+**What it does**
 
-Input organization
-==================
+Trackastra links objects that have already been segmented in a microscopy time series. It does not perform segmentation.
 
-Use either two ordered Galaxy list collections or two multi-page TIFF datasets. Images and masks must have matching time points and spatial dimensions. Masks must be integer-labelled instance segmentations; background is label 0. Trackastra currently supports one image channel.
+**Inputs**
 
-For list collections, Galaxy collection order defines time. The wrapper stages the inputs with deterministic numeric filenames and does not derive paths from collection element names.
+Images and masks are given either as two ordered list collections holding one TIFF per time point, or as two multi-page TIFF datasets with shape T,Y,X for 2D data and T,Z,Y,X for 3D data. Both must cover the same time points and have the same spatial shape. Masks must be integer-labelled instance segmentations with background 0. One image channel is supported.
 
-Models
-======
+With list collections the collection order defines time. The wrapper stages the inputs under numbered filenames and does not use the collection element names.
 
-Models are installed once by a Galaxy administrator with the accompanying Trackastra model data manager. The data manager installs the official models supported by the base Trackastra runtime, or a complete trusted custom archive containing ``model.pt``, ``config.yaml``, and ``train_config.yaml``. Analysis jobs do not download models and do not accept arbitrary user-supplied checkpoints.
+**Models**
 
-Linking modes
-=============
+Models are installed by a Galaxy administrator with the Trackastra model data manager. Analysis jobs read the installed model directory and download nothing.
 
-- **greedy**: fast linking that permits cell divisions.
-- **greedy_nodiv**: fast linking without divisions.
+**Linking modes**
 
-- **ilp**: global integer linear programming over the candidate graph. Usually the most accurate mode, and the one behind Trackastra's best published scores, but considerably slower, with a runtime that grows with the number of candidate links rather than with the number of frames alone.
+* ``greedy``: fast linking that allows divisions.
+* ``greedy_nodiv``: fast linking without divisions.
 
+**Outputs**
 
-Outputs
-=======
+* Association edge table with columns source_frame, source_label, target_frame, target_label and weight.
+* Cell Tracking Challenge track table with columns track_id, start_frame, end_frame and parent_track_id.
+* Tracked masks, one TIFF per time point, relabelled in Cell Tracking Challenge form and named by frame number.
 
-- **Association edge table**: CSV containing source/target frame and label identifiers plus association weights.
-- **CTC track table**: space-delimited ``track_id start_frame end_frame parent_track_id`` records.
-- **Tracked masks**: ordered ``tiff`` datasets, one per time point, relabelled in Cell Tracking Challenge form. Element identifiers are the zero-padded CTC frame numbers.
+Use **Trackastra CTC export** to turn the track table and the tracked masks into a stack for the Napari interactive tool.
     ]]></help>
     <expand macro="citations"/>
     <expand macro="creator"/>

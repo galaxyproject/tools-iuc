@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -214,8 +215,13 @@ def main() -> None:
         for value in requested:
             if value not in MODEL_CATALOG:
                 raise ValueError(f"Unknown Trackastra model: {value}")
+            # The data table rejects duplicate entries, so skip what is there.
             if value in known_models:
-                raise ValueError(f"Trackastra model is already installed: {value}")
+                print(
+                    f"Trackastra model {value} is already installed, skipping.",
+                    file=sys.stderr,
+                )
+                continue
 
             metadata = MODEL_CATALOG[value]
             with tempfile.TemporaryDirectory(
@@ -250,8 +256,10 @@ def main() -> None:
         validate_identifier(args.value, "model identifier")
         validate_identifier(args.model_version, "model version")
         if args.value in known_models:
-            raise ValueError(
-                f"Trackastra model is already installed: {args.value}"
+            print(
+                f"Trackastra model {args.value} is already installed and will "
+                "be replaced.",
+                file=sys.stderr,
             )
 
         installed, archive_hash = install_archive(

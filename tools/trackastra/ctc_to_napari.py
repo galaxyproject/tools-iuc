@@ -12,14 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import tifffile
 from skimage.measure import regionprops
+from trackastra.tracking import ctc_to_napari_tracks
 
-# The wrapper stages the incoming collection as "man_trackNNNN.tiff", but CTC
-# directories in the wild use ".tif", so accept either suffix on input.
 MASK_PATTERN = re.compile(r"^man_track(?P<frame>[0-9]+)\.tiff?$")
-
-# Files written into the exported bundle use Galaxy's .tiff datatype suffix.
 GALAXY_TIFF_SUFFIX = ".tiff"
 
 
@@ -155,82 +153,76 @@ def build_napari_outputs(
     dict[int, list[int]],
     "np.ndarray",
 ]:
-    rows: list[list[float | int]] = []
     frames: list["np.ndarray"] = []
-    spatial_ndim: int | None = None
-    expected_shape: tuple[int, ...] | None = None
-    expected_dtype = None
+    reference: "np.ndarray" | None = None
 
     for frame, path in masks:
         mask = tifffile.imread(path)
-        frames.append(mask)
         if mask.ndim not in (2, 3):
             raise ValueError(
                 f"Expected a 2D or 3D CTC mask in {path.name}; found {mask.shape}."
             )
-        if spatial_ndim is None:
-            spatial_ndim = mask.ndim
-            expected_shape = mask.shape
-            expected_dtype = mask.dtype
-        elif mask.ndim != spatial_ndim:
-            raise ValueError("All CTC masks must have the same dimensionality.")
-        elif mask.shape != expected_shape:
-            raise ValueError("All CTC masks must have the same spatial shape.")
-        elif mask.dtype != expected_dtype:
-            raise ValueError("All CTC masks must have the same data type.")
+        if reference is None:
+            reference = mask
+        elif mask.shape != reference.shape or mask.dtype != reference.dtype:
+            raise ValueError(
+                "All CTC masks must have the same shape and data type."
+            )
 
         active_ids = {
             record.track_id
             for record in table
             if record.start_frame <= frame <= record.end_frame
         }
-        regions = list(regionprops(mask))
-        observed_ids = {int(region.label) for region in regions}
+        observed_ids = {int(region.label) for region in regionprops(mask)}
         if observed_ids != active_ids:
-            missing = active_ids - observed_ids
-            unexpected = observed_ids - active_ids
             details = []
-            if missing:
+            if active_ids - observed_ids:
                 details.append(
-                    "missing labels " + ", ".join(str(value) for value in sorted(missing))
+                    "missing labels "
+                    + ", ".join(str(v) for v in sorted(active_ids - observed_ids))
                 )
-            if unexpected:
+            if observed_ids - active_ids:
                 details.append(
                     "unexpected labels "
-                    + ", ".join(str(value) for value in sorted(unexpected))
+                    + ", ".join(str(v) for v in sorted(observed_ids - active_ids))
                 )
             raise ValueError(
                 f"CTC table and mask {path.name} disagree: " + "; ".join(details)
             )
+        frames.append(mask)
 
-        for region in regions:
-            rows.append(
-                [int(region.label), frame, *[float(value) for value in region.centroid]]
-            )
-
-    if spatial_ndim == 2:
-        header = ["track_id", "t", "y", "x"]
-    elif spatial_ndim == 3:
-        header = ["track_id", "t", "z", "y", "x"]
-    else:
-        raise RuntimeError("Could not determine CTC mask dimensionality.")
-
-    rows.sort(key=lambda row: (int(row[0]), int(row[1])))
-    graph = {
-        record.track_id: [record.parent_track_id]
-        for record in table
-        if record.parent_track_id != 0
-    }
-    # Time is the leading axis, which is what Napari needs in order to show a
-    # single layer with a time slider instead of one layer per frame.
     stack = np.stack(frames, axis=0)
+    man_track = pd.DataFrame(
+        [
+            [
+                record.track_id,
+                record.start_frame,
+                record.end_frame,
+                record.parent_track_id,
+            ]
+            for record in table
+        ]
+    )
+    tracks, graph = ctc_to_napari_tracks(stack, man_track)
+
+    header = ["track_id", "t", "y", "x"]
+    if stack.ndim == 4:
+        header = ["track_id", "t", "z", "y", "x"]
+
+    rows = [
+        [int(entry[0]), int(entry[1]), *[float(v) for v in entry[2:]]]
+        for entry in tracks
+    ]
+    rows.sort(key=lambda row: (row[0], row[1]))
+    graph = {int(child): [int(v) for v in parents] for child, parents in graph.items()}
     return header, rows, graph, stack
 
 
 def write_tracks(path: Path, header: list[str], rows: list[list[float | int]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow(header)
         writer.writerows(rows)
 
@@ -250,13 +242,7 @@ def write_napari_stack(
     graph: dict[int, list[int]],
     table: list[TrackRecord],
 ) -> None:
-    """Write the tracked masks as one multi-page TIFF for the Napari viewer.
-
-    The Galaxy Napari interactive tool only accepts image datasets, so the
-    tracks table and the lineage graph are embedded in the TIFF description
-    rather than shipped as separate CSV/JSON datasets. That keeps everything
-    needed for a Tracks layer inside a single dataset the viewer can open.
-    """
+    """Write the tracked masks as one multi-page TIFF with the tracks embedded."""
     axes = "TYX" if stack.ndim == 3 else "TZYX"
     path.parent.mkdir(parents=True, exist_ok=True)
     tifffile.imwrite(
@@ -285,7 +271,6 @@ def write_napari_stack(
         },
     )
 
-    # Fail loudly rather than handing Napari a stack we cannot read back.
     with tifffile.TiffFile(path) as handle:
         written = handle.asarray()
         metadata = handle.shaped_metadata[0]
@@ -310,14 +295,7 @@ def write_ctc_directory(
     directory: Path,
     masks: list[tuple[int, Path]],
 ) -> None:
-    """Write the validated masks under canonical CTC names.
-
-    Galaxy discovers these into a list collection, which keeps the masks as
-    first-class datasets instead of burying them in an archive. Downloading the
-    collection yields ``man_trackNNNN.tiff`` files, so the result is a usable
-    CTC directory for TrackMate, Mastodon, and the Cell Tracking Challenge
-    evaluation software once ``man_track.txt`` is placed alongside it.
-    """
+    """Write the validated masks under canonical CTC names."""
     directory.mkdir(parents=True, exist_ok=True)
     if any(directory.iterdir()):
         raise ValueError(f"CTC output directory is not empty: {directory}")
