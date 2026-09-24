@@ -1,0 +1,170 @@
+<tool id="genome_uploader" name="Genome-uploader" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>upload bins and MAGs to ENA</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code">
+        <![CDATA[
+
+            #import re
+
+            mkdir outputs genome_contigs &&
+
+            #for $file in $contigs:
+                #set $f = re.sub('[^\w\-_\.]', '_', $file.element_identifier)
+                ln -s '$file' 'genome_contigs/$f' &&
+            #end for
+
+            genome_upload
+            -u '$study'
+            --genome_info '$genome_info'
+            --out outputs
+            $type
+            ${live}
+            #if '$centre_name':
+                --centre_name '$centre_name'
+            #end if
+            ${tpa}
+            ${private}
+
+        ]]>
+    </command>
+    <configfiles>
+        <configfile filename=".env"><![CDATA[
+            ENA_WEBIN='\$ENA_WEBIN_ACCOUNT_NAME'
+            ENA_WEBIN_PASSWORD='\$ENA_WEBIN_PASSWORD'
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="study" type="text" label="Study accession"
+            help="In format ERPxxxxxx or PRJEBxxxxxx where x stands for a number">
+            <validator type="regex">^(?:ERP\d{6}|PRJEB\d{6})$</validator>
+        </param>
+        <param argument="--genome_info" type="data" format="tabular" label="Input genomes metadata file (tsv file)"
+            help="To see an example how the tsv file should look like have a look into the help section an the bottom of the tool!"/>
+        <param name="contigs" type="data" format="fasta.gz" multiple="true" label="Input genome contigs"/>
+        <param name="type" type="select" label="What will be uploaded" help="Refer to the ENA definition in the help section at the bottom of the tool if you have doubt!">
+            <option value="--bins">Bins</option>
+            <option value="--mags">MAGs</option>
+        </param>
+        <!-- PLEASE READ THE COMMENT DOWN BELOW THIS PARAMETER -->
+        <param argument="--live" type="boolean" truevalue="--live" falsevalue="" label="Upload to ENA live server"
+            help="WARNING: only use this option if you want to upload the data to the live ENA server. If you want to TEST your upload do not use this option then!"/>
+        <!-- DO NOT USE THIS PARAMETER IN ANY TEST CASES SINCE THE TEST DATA SHOULD NOT BE UPLOADED TO THE LIVE ENA SERVER. IGNORE THIS PARAMETER FOR ANY TEST THEN! -->
+        <param argument="--private" type="boolean" truevalue="--private" falsevalue="" label="Use when data are private"/>
+        <param argument="--centre_name" type="text" label="Enter name of the centre generating and uploading genomes"/>
+        <param argument="--tpa" type="boolean" truevalue="--tpa" falsevalue="" label="Third party generated genome(s)?"
+            help="toggle if the genomes uploaded are third party generated genome(s)"/>
+    </inputs> 
+    <outputs>
+        <data name="samples" format="tabular" from_work_dir="outputs/bin_upload/genome_samples.xml" label="${tool.name}: GENOME SAMPLE FILE"/>
+        <data name="submission" format="tabular" from_work_dir="outputs/bin_upload/submission.xml" label="${tool.name}: SUBMISSION FILE"/>
+        <collection name="manifests_files" type="list" format="tabular" label="${tool.name}: MANIFEST FILES">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.manifest" directory="outputs/bin_upload/manifests"/>
+            <filter>live == True</filter>
+        </collection>
+        <collection name="manifests_files_test" type="list" format="tabular" label="${tool.name}: MANIFEST TEST FILES">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.manifest" directory="outputs/bin_upload/manifests_test"/>
+            <filter>live == False</filter>
+        </collection>
+        <collection name="registered_files" type="list" format="tabular" label="${tool.name}: REGISTERED GENOME">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv" directory="outputs/bin_upload/registered_bins"/>
+            <filter>live == True</filter>
+        </collection>
+        <collection name="registered_files_test" type="list" format="tabular" label="${tool.name}: REGISTERED GENOME TEST">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv" directory="outputs/bin_upload/registered_bins"/>
+            <filter>live == False</filter>
+        </collection>
+    </outputs>
+    <tests>
+       <!-- It might happen that the test might run again but at some point it 
+        happen if ENA service are down so the test might not work --> 
+        <test expect_failure="true" expect_exit_code="1"> <!-- expect_num_outputs="4" -->
+            <param name="study" value="ERP159782"/>
+            <param name="genome_info" ftype="tabular" value="input_fixture.tsv"/>
+            <param name="contigs" ftype="fasta.gz" value="ERR6769700_bin.1.fa.gz"/>
+            <param name="type" value="--bins"/>
+            <param name="centre_name" value="EMG"/>
+            <assert_command>
+                <has_text text="--centre_name 'EMG'"/>
+            </assert_command>
+            <assert_stderr>
+                <has_text text="Credentials for ENA are not set. Please set ENA_WEBIN and ENA_WEBIN_PASSWORD environment variables"/>
+            </assert_stderr>
+        </test>
+        <test expect_failure="true" expect_exit_code="1"><!-- expect_num_outputs="4" -->
+            <param name="study" value="ERP159782"/>
+            <param name="genome_info" ftype="tabular" value="input_with_registrered_fixture.tsv"/>
+            <param name="contigs" ftype="fasta.gz" value="ERR6769700_bin.1.fa.gz,ERR6769769_bin.1.fa.gz,ERR6769701_bin.1.fa.gz"/>
+            <param name="type" value="--bins"/>
+            <param name="centre_name" value="EMG"/>
+            <assert_command>
+                <has_text text="--centre_name 'EMG'"/>
+            </assert_command>
+            <assert_stderr>
+                <has_text text="Credentials for ENA are not set. Please set ENA_WEBIN and ENA_WEBIN_PASSWORD environment variables"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+
+            **Note**
+
+            - This tool use Galaxy credentials! To set them click on your account name - Preferences - Manage Your Tools Credentials 
+
+            - If uploading TPA (Third PArty) genomes, you will need to contact ENA support before using the script. They will provide instructions on how to correctly register a TPA project where to submit your genomes. If both TPA and non-TPA genomes need to be uploaded, please divide them in two batches and use the --tpa flag only with TPA genomes.
+
+            - No more than 5000 genomes can be submitted at the same time. If you have more than 5000, split your table into smaller ones and launch the genome_uploader for each table.
+
+            - This tool might fail because the ENA service might be offline just for your notice!
+
+            - For the definition of either using Bins or MAGs please check out the ENA `definition <https://ena-docs.readthedocs.io/en/latest/submit/assembly/metagenome.html>`_ .
+
+            **Input**
+
+            - a TSV file which contain multiple information's:
+                - genome_name: genome id (unique string identifier)
+                - accessions: run(s) or assembly(ies) the genome was generated from (DRR/ERR/SRRxxxxxx for runs, DRZ/ERZ/SRZxxxxxx for assemblies). If the genome was generated by a co-assembly of multiple runs, separate them with a comma.
+                - assembly_software: assemblerName_vX.X
+                - binning_software: binnerName_vX.X
+                - binning_parameters: binning parameters
+                - stats_generation_software: software_vX.X
+                - completeness: float
+                - contamination: float
+                - rRNA_presence: True/False if all among 5S, 16S, and 23S genes, and at least 18 tRNA genes, have been detected in the genome
+                - NCBI_lineage: full NCBI lineage - format: x;y;z;.... The same organism can be described in two different ways: either in tax ids (integers) or strings. For example, the lineage for E. coli can be: Bacteria;Pseudomonadati;Pseudomonadota;Gammaproteobacteria;Enterobacterales;Enterobacteriaceae;Escherichia or 2;1224;1236;91347;543;561;562
+                - metagenome: needs to be listed in the taxonomy tree here (you might need to press "Tax tree - Show" in the right most section of the page)
+                - co-assembly: True/False, whether the genome was generated from a co-assembly. N.B. the script only supports co-assemblies generated from the same project.
+                - genome_coverage : genome coverage against raw reads
+                - genome_path: path to genome to upload (already compressed)
+                - broad_environment: string (explanation following)
+                - local_environment: string (explanation following)
+                - environmental_medium: string (explanation following)
+
+                here one example:
+
+            ::
+             genome_name	genome_path	accessions	assembly_software	binning_software	binning_parameters	stats_generation_software	completeness	contamination	genome_coverage	metagenome	co-assembly	broad_environment	local_environment	environmental_medium	rRNA_presence	NCBI_lineage
+             ERR6769769_bin.1	./genome_contigs/ERR6769769_bin.1.fa.gz	ERR6769769	megahit_v1.2.9	MGnify-genomes-generation-pipeline_v1.0.0	default	CheckM2_v1.0.1	90.81314	0.59	14.2	chicken gut metagenome	False	chicken	gut	mucosa	True	d__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillus crispatus
+             ERR6769700_bin.1	./genome_contigs/ERR6769700_bin.1.fa.gz	ERR6769700	megahit_v1.2.9	MGnify-genomes-generation-pipeline_v1.0.0	default	CheckM2_v1.0.1	90.81314	0.59	14.2	chicken gut metagenome	False	chicken	gut	mucosa	True	d__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillus crispatus
+             ERR6769701_bin.1	./genome_contigs/ERR6769701_bin.1.fa.gz	ERR6769701	megahit_v1.2.9	MGnify-genomes-generation-pipeline_v1.0.0	default	CheckM2_v1.0.1	90.81314	0.59	14.2	chicken gut metagenome	False	chicken	gut	mucosa	True	d__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillus crispatus
+
+            NOTE: Please always use this structure!
+            IMPORTANT: As prefix for the genome_path column use './genome_contigs/' always! after this the filename which was uploaded should be stated otherwise this tool can not function!
+
+            - Multiple contig files which should be either uploaded to the test ENA server or to the live ENA serve
+
+            **IMPORTANT**
+
+            - DONT USE THE LIVE OPTION IF YOU WANT TO TEST IF YOUR DATA CAN BE UPLOADED! USE THE LIVE OPTION ONLY WHEN YOU WANT TO UPLOAD YOUR DATA TO THE LIVE SERVER WHICH THEN CAN BE COMMITTED WITH THE 'ena-webin-cli' TOOL!
+            
+            - It is recommended to validate your genomes in test mode (i.e. without the --live argument in the registration step) before attempting the final upload. Test run will proceed on the ENA's TEST server. Launching the registration in test mode will add a timestamp to the genome name to allow multiple executions of the test process. If no errors occur, then re-run the command with the --live argument for a live registration to ENA's REAL server.
+            
+            More information about this tool can be found on the `Genome-Upload GitHub <https://github.com/EBI-Metagenomics/genome_uploader>`_ page.
+            
+        ]]>
+    </help>
+    <expand macro="citations"/>
+</tool>
