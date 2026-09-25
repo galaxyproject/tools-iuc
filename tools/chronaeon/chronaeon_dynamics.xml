@@ -1,0 +1,133 @@
+<tool id="chronaeon_dynamics" name="ChronAeon Dynamics" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Estimate epidemic growth rate (r) and reproduction numbers (R0, Rt)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $input_file:
+            ln -s '$input_file' input.$input_file.extension &&
+        #end if
+        #if $input_tree:
+            ln -s '$input_tree' input.nwk &&
+        #end if
+        chronaeon dynamics
+        #if $input_file:
+            --alignment input.$input_file.extension
+        #end if
+        #if $input_tree:
+            --tree input.nwk
+        #end if
+        #if $metadata:
+            --metadata '$metadata'
+            ## data_column params store a 1-based column INDEX, but the
+            ## chronaeon CLI expects a column NAME. Resolve index -> name.
+            #if $date_col:
+                --date-col "\$(head -n1 '$metadata' | tr '\t' ',' | cut -d',' -f$date_col)"
+            #end if
+            #if $strain_col:
+                --strain-col "\$(head -n1 '$metadata' | tr '\t' ',' | cut -d',' -f$strain_col)"
+            #end if
+        #end if
+        #if $pathogen:
+            --pathogen '$pathogen'
+        #end if
+        #if $generation_time:
+            --generation-time $generation_time
+        #end if
+        #if $generation_sd:
+            --generation-sd $generation_sd
+        #end if
+        #if $latent_time:
+            --latent-time $latent_time
+        #end if
+        --units '$units'
+        #if $mu_prior:
+            --mu-prior $mu_prior
+        #end if
+        --window-size $window_size
+        --step-size $step_size
+        #if $plot:
+            --plot --plot-path chronaeon_dynamics_plot.png
+        #end if
+        @OUTPUTS@
+    ]]></command>
+    <inputs>
+        <param name="input_file" argument="--alignment" type="data" format="fasta,fasta.gz,nex" optional="true" label="Input alignment" help="FASTA alignment with dates in headers. Provide this and/or a tree — at least one is required."/>
+        <param name="input_tree" argument="--tree" type="data" format="newick,nhx,nex" optional="true" label="Phylogenetic tree" help="Newick tree with calibrated or substitution branch lengths. Provide this and/or an alignment — at least one is required."/>
+        <param argument="--metadata" type="data" format="csv,tsv,tabular" optional="true" label="Metadata (optional)" help="CSV/TSV containing collection dates"/>
+        <param argument="--pathogen" type="text" value="" optional="true" label="Pathogen preset" help="e.g. 'h1n1', 'ebola', 'sars-cov-2', 'measles', 'hiv_early'"/>
+        <param argument="--generation-time" type="float" value="" optional="true" label="Generation time" help="Mean clinical generation interval / serial interval in days (default from pathogen preset or 5.0)"/>
+        <param argument="--generation-sd" type="float" value="" optional="true" label="Generation SD" help="Standard deviation of clinical generation interval"/>
+        <param argument="--latent-time" type="float" value="" optional="true" label="Latent time" help="Optional latent period in days for SEIR renewal model"/>
+        <param argument="--units" type="select" value="days" label="Time units" help="Time units for generation interval parameters">
+            <option value="days" selected="true">Days</option>
+            <option value="years">Years</option>
+        </param>
+        <param argument="--date-col" type="data_column" data_ref="metadata" use_header_names="true" optional="true" label="Date column" help="Metadata column for sample collection date"/>
+        <param argument="--strain-col" type="data_column" data_ref="metadata" use_header_names="true" optional="true" label="Strain column" help="Metadata column for taxon / strain identifier"/>
+        <param argument="--mu-prior" type="float" value="" optional="true" label="Clock rate prior" help="Substitutions/site/year to convert substitution trees to calendar time"/>
+        <param argument="--window-size" type="float" value="0.25" label="R(t) window size (years)" help="Window span in years for dynamic R(t) skyline"/>
+        <param argument="--step-size" type="float" value="0.05" label="R(t) step size (years)" help="Step size in years for sliding window"/>
+        <param argument="--plot" type="boolean" truevalue="--plot" falsevalue="" checked="false" label="Generate diagnostic figures" help="Generate 3-panel diagnostic figures"/>
+        <expand macro="outputs_json_csv"/>
+    </inputs>
+    <outputs>
+        <data name="json_output" format="json" label="${tool.name} on ${on_string}: Dynamics JSON results">
+            <filter>output_json</filter>
+        </data>
+        <data name="csv_output" format="csv" label="${tool.name} on ${on_string}: R(t) skyline CSV">
+            <filter>output_csv</filter>
+        </data>
+        <data name="plot_png" format="png" label="${tool.name} on ${on_string}: Diagnostic plot (PNG)" from_work_dir="chronaeon_dynamics_plot.png">
+            <filter>plot</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="fasta" value="h1n1.fa"/>
+            <param name="input_tree" ftype="newick" value="h1n1.nwk"/>
+            <output name="json_output">
+                <assert_contents>
+                    <has_text text="r_year"/>
+                </assert_contents>
+            </output>
+            <output name="csv_output">
+                <assert_contents>
+                    <has_text text="Rt_gamma"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+ChronAeon Dynamics: Epidemic Growth Rate & Reproduction Number Estimation
+============================================================================
+
+**What question does this method answer?**
+
+What is the epidemic growth rate (r) and basic/effective reproduction number
+(R0/Rt) for a heterochronous sample of pathogen sequences?
+
+**How it works**
+
+ChronAeon Dynamics extracts coalescent intervals from a time-calibrated tree,
+estimates the exponential growth rate via profile likelihood, and converts
+to R0/Rt using pathogen-specific generation interval presets or user-supplied
+parameters. A sliding-window R(t) skyline captures time-varying reproduction.
+
+**Inputs**
+
+- A FASTA alignment (with dates in headers) or a Newick tree
+- Optional metadata CSV/TSV with collection dates
+- Optional pathogen preset (h1n1, ebola, sars-cov-2, measles, hiv_early)
+
+**Outputs**
+
+- **JSON**: growth rate (r), R0, R(t) skyline, confidence intervals
+- **CSV**: dynamic R(t) skyline time series
+- **Plot (PNG)**: optional 3-panel diagnostic figure
+    ]]></help>
+    <expand macro="creator"/>
+    <expand macro="citations"/>
+</tool>
