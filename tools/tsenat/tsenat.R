@@ -171,7 +171,7 @@ option_list <- list(
         type = "character",
         dest = "pseudocount",
         default = NULL,
-        help = "Pseudocount for zeros [default: NULL = use TSENAT default]"
+        help = "Pseudocount for zero handling [default: 0 = no regularization]"
     ),
     make_option(c("--shrinkage"),
         action = "store",
@@ -197,7 +197,7 @@ option_list <- list(
     make_option(c("--sait_pcorr"),
         action = "store",
         dest = "sait_pcorr",
-        default = "BH",
+        default = "hochberg",
         help = "P-value correction: 'BH', 'bonferroni', 'hochberg', or 'holm' [default: %default]"
     ),
     make_option(c("--sait_jis_fdr"),
@@ -205,6 +205,20 @@ option_list <- list(
         dest = "jis_use_sait_fdr",
         default = TRUE,
         help = "Use SAIT FDR for jackknife isoform switching [default: %default]"
+    ),
+    make_option(c("--jis_sait_p_threshold"),
+        action = "store",
+        type = "double",
+        dest = "jis_sait_p_threshold",
+        default = 0.05,
+        help = "SAIT p-value threshold for JIS gene filtering [default: %default]"
+    ),
+    make_option(c("--jis_threshold"),
+        action = "store",
+        type = "integer",
+        dest = "jis_threshold",
+        default = 90,
+        help = "JIS outlier percentile threshold [default: %default]"
     ),
     make_option(c("--divergence_ci"),
         action = "store",
@@ -419,7 +433,7 @@ option_list <- list(
     make_option(c("--skip_unmapped"),
         action = "store_true",
         dest = "skip_unmapped",
-        default = TRUE,
+        default = FALSE,
         help = "Skip unmapped transcripts (not found in annotation). If FALSE and unmapped transcripts exist, analysis will fail. [default: %default]"
     )
 )
@@ -504,6 +518,8 @@ tryCatch(
             multicorr = args$multicorr,
             corstr = args$corstr,
             jis_use_sait_fdr = args$jis_use_sait_fdr,
+            sait_p_threshold = args$jis_sait_p_threshold,
+            threshold = args$jis_threshold,
             divergence_ci = args$divergence_ci,
             control_group = if (args$control_group != "" && args$control_group != "NULL") args$control_group else NULL,
             assumptions_checks = args$assumptions_checks,
