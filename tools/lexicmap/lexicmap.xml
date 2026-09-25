@@ -1,4 +1,4 @@
-<tool id="lexicmap_search" name="LexicMap Search" version="@TOOL_VERSION@+galaxy4" profile="@PROFILE_VERSION@">
+<tool id="lexicmap_search" name="LexicMap Search" version="@TOOL_VERSION@+galaxy5" profile="@PROFILE_VERSION@">
     <description>nucleotide sequence tool for querying genomes</description>
     <macros>
         <import>macros.xml</import>
@@ -12,6 +12,8 @@
     #set INDICES = $db_opts.lexicmap_index.fields.path.split(",")
 #end if
 
+export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
+
 #for $counter, $index in enumerate($INDICES):
     set -eu;
     lexicmap search
@@ -21,9 +23,7 @@
 
         --index '${index}'
 
-        #for $q in $query
-            '$q'
-        #end for
+        '$query'
 
         --out-file 'lexicmap_search_result__index${counter}.tsv'
 
@@ -54,29 +54,34 @@
 
 #if len($INDICES) > 1
     mapfile -t query_array < <(
-        #for $query_file in $query
-            #if $query_file.is_of_type("fasta.gz")
-                zcat '$query_file' | grep '^>' | sed 's/^>//; s/[[:space:]].*//';
-            #else
-                cat '$query_file' | grep '^>' | sed 's/^>//; s/[[:space:]].*//';
-            #end if
-        #end for
+        #if $query.is_of_type("fasta.gz")
+            zcat '$query' | grep '^>' | sed 's/^>//; s/[[:space:]].*//';
+        #else
+            cat '$query' | grep '^>' | sed 's/^>//; s/[[:space:]].*//';
+        #end if
     ) &&
     counter=0 &&
+    pids="" &&
     for q in "\${query_array[@]}"; do
         counter=\$((counter + 1));
         lexicmap utils merge-search-results
             --out-file "combined_result.\${counter}.tsv"
             -q "\$q" lexicmap_search_result__index*.tsv
-            -j "\${GALAXY_SLOTS:-1}";
+            -j 1 &
+        pids="\$pids \$!";
+        if [ \$((counter % \${GALAXY_SLOTS:-1})) -eq 0 ]; then
+            for p in \$pids; do wait "\$p"; done;
+            pids="";
+        fi;
     done &&
+    for p in \$pids; do wait "\$p"; done &&
     cat combined_result.*.tsv | awk 'NR==1 || $0 !~ /^query\tqlen\thits/' > '$out_file'
 #else
     mv lexicmap_search_result__index0.tsv '$out_file'
 #end if
     ]]></command>
     <inputs>
-        <param name="query" type="data" format="@FASTA_TYPES@" label="LexicMap query file" multiple="true" help=""/>
+        <param name="query" type="data" format="@FASTA_TYPES@" label="LexicMap query file" help="FASTA file of query sequences (multiple sequences per file are fine). Feed a collection here to run each element as a separate parallel job — recommended for large batches, since each job gets its own CPU and memory allocation and a failure only affects one element. To batch several files into one job instead, concatenate them into a single multi-FASTA first."/>
         <conditional name="db_opts">
             <param name="db_opts_selector" type="select" label="LexiMap index source">
                 <option value="histdb">From your history</option>
@@ -92,7 +97,7 @@
             </when>
         </conditional>
         <param argument="--top-n-genomes" type="integer" value="0" label="Keep top N genome matches for a query (0 for all)"/>
-        <param argument="--all" type="boolean" truevalue="--all" falsevalue="" checked="true" label="Output all columns" help="Output more columns, e.g., matched sequences. Use this if you want to output blast-style format with 'lexicmap utils 2blast'."/>
+        <param argument="--all" type="boolean" truevalue="--all" falsevalue="" checked="false" label="Output all columns" help="Output more columns, e.g., matched sequences. Use this if you want to output blast-style format with 'lexicmap utils 2blast'. Increases memory usage and runtime."/>
         <section name="advanced_settings" title="Advanced settings" expanded="false">
             <param argument="--align-band" value="100" type="integer" label="Align band" help="Band size in backtracking the score matrix (pseudo alignment"/>
             <param argument="-align-ext-len" min="0" value="1000" type="integer" label="Align extend length" help="Extend length of upstream and downstream of seed regions, for extracting query and target sequences for alignment. It should be &lt;= contig interval length in database."/>
@@ -101,7 +106,7 @@
             <param argument="--align-min-match-pident" min="50" value="70" max="100" type="float" label="Align min match pident" help="Minimum base identity (percentage) in a HSP segment. Should be between 50 and 100."/>
             <param argument="--load-whole-seeds" type="boolean" truevalue="--load-whole-seeds" falsevalue="" checked="false" label="Load whole seeds" help="Load the whole seed data into memory for faster search"/>
             <param argument="--max-evalue" value="10" type="float" label="Max evalue" help="Maximum evalue of a HSP segment."/>
-            <param argument="--max-query-conc" value="12" type="integer" label="Max query conc" help="Maximum number of concurrent queries. Bigger values do not improve the batch searching speed and consume much memory."/>
+            <param argument="--max-query-conc" value="8" type="integer" label="Max query conc" help="Maximum number of concurrent queries. Bigger values do not improve the batch searching speed and consume much memory. Should not exceed the number of allocated CPU cores."/>
             <param argument="--min-qcov-per-genome" type="float" optional="true" help="Minimum query coverage (percentage) per genome."/>
             <param argument="--min-qcov-per-hsp" type="float" optional="true" help="Minimum query coverage (percentage) per HSP."/>
             <param argument="--seed-max-dist" value="1000" type="integer" label="Seed max dist" help="Minimum distance between seeds in seed chaining. It should be &lt;= contig interval length in database."/>
@@ -140,13 +145,13 @@
             </section>
             <output name="out_file" value="lexicmap_query_result.tsv"/>
         </test>
-        <!-- Test 2 - query one local index with multiple query files -->
+        <!-- Test 2 - query one local index with a multi-FASTA query file -->
         <test expect_num_outputs="1">
             <conditional name="db_opts">
                 <param name="db_opts_selector" value="db"/>
                 <param name="lexicmap_index" value="LexicMapIndex1"/>
             </conditional>
-            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz"/>
+            <param name="query" value="lexicmap_query12.fasta.gz"/>
             <param name="all" value="false"/>
             <section name="advanced_settings">
                 <param name="top_n_chains" value="0"/>
@@ -168,21 +173,7 @@
             </section>
             <output name="out_file" value="lexicmap_query_result.tsv"/>
         </test>
-        <!-- Test 4 - query two local index with multiple query files -->
-        <test expect_num_outputs="1">
-            <conditional name="db_opts">
-                <param name="db_opts_selector" value="db"/>
-                <param name="lexicmap_index" value="LexicMapIndexCombined"/>
-            </conditional>
-            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz,lexicmap_query3.fasta"/>
-            <param name="all" value="false"/>
-            <section name="advanced_settings">
-                <param name="top_n_chains" value="0"/>
-                <param name="load_whole_seeds" value="true"/>
-            </section>
-            <output name="out_file" value="lexicmap_query_result4.tsv" sort="true"/>
-        </test>
-        <!-- Test 4b - query two local indices with a single multi-FASTA query file (regression for #8388) -->
+        <!-- Test 4 - query two local indices with a multi-FASTA query file (regression for #8388) -->
         <test expect_num_outputs="1">
             <conditional name="db_opts">
                 <param name="db_opts_selector" value="db"/>
@@ -196,13 +187,13 @@
             </section>
             <output name="out_file" value="lexicmap_query_result4.tsv" sort="true"/>
         </test>
-        <!-- Test 5 - query one local index with multiple query files, where only one query will get hits -->
+        <!-- Test 5 - query one local index with a multi-FASTA query file, where only one query will get hits -->
         <test expect_num_outputs="1">
             <conditional name="db_opts">
                 <param name="db_opts_selector" value="db"/>
                 <param name="lexicmap_index" value="LexicMapIndex2"/>
             </conditional>
-            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz,lexicmap_query3.fasta"/>
+            <param name="query" value="lexicmap_query_multi.fasta.gz"/>
             <param name="all" value="false"/>
             <section name="advanced_settings">
                 <param name="top_n_chains" value="0"/>
@@ -210,13 +201,13 @@
             </section>
             <output name="out_file" value="lexicmap_query_result3.tsv"/>
         </test>
-        <!-- Test 6 - query multiple local index with multiple query files -->
+        <!-- Test 6 - query multiple local indices with a multi-FASTA query file -->
         <test expect_num_outputs="1">
             <conditional name="db_opts">
                 <param name="db_opts_selector" value="db"/>
                 <param name="lexicmap_index" value="LexicMapIndex1,LexicMapIndex2,LexicMapIndexCombined"/>
             </conditional>
-            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query2.fasta.gz,lexicmap_query3.fasta"/>
+            <param name="query" value="lexicmap_query_multi.fasta.gz"/>
             <param name="all" value="false"/>
             <section name="advanced_settings">
                 <param name="top_n_chains" value="0"/>
@@ -246,7 +237,7 @@
                 <param name="histdb" ftype="lexicmap_index" class="Directory" value="db.lmi,db2.lmi"/>
             </conditional>
             <param name="top_n_genomes" value="0"/>
-            <param name="query" value="lexicmap_query.fasta.gz,lexicmap_query3.fasta"/>
+            <param name="query" value="lexicmap_query13.fasta"/>
             <param name="all" value="false"/>
             <section name="advanced_settings">
                 <param name="top_n_chains" value="0"/>
