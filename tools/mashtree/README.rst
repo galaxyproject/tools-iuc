@@ -1,6 +1,3 @@
-Mashtree Galaxy wrapper
-=======================
-
 Scope
 -----
 
