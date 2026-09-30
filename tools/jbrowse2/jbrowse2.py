@@ -19,7 +19,6 @@ logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("jbrowse")
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 SELF_LOCATION = os.path.dirname(os.path.realpath(__file__))
-GALAXY_INFRASTRUCTURE_URL = None
 mapped_chars = {
     ">": "__gt__",
     "<": "__lt__",
@@ -76,9 +75,11 @@ def metadata_from_node(node):
     metadata = {}
 
     if len(node.findall("dataset")) == 1:
-
         for key, value in node.findall("dataset")[0].attrib.items():
             metadata[f"dataset_{key}"] = value
+
+        if "id" in node.findall("dataset")[0].attrib:
+            metadata["dataset_id"] = node.findall("dataset")[0].attrib["id"]
 
         for key, value in node.findall("history")[0].attrib.items():
             metadata[f"history_{key}"] = value
@@ -89,11 +90,10 @@ def metadata_from_node(node):
         for key, value in node.findall("tool")[0].attrib.items():
             metadata[f"tool_{key}"] = value
 
-        # Additional Mappings applied:
-        metadata["dataset_edam_format"] = f"{metadata['dataset_edam_format']}:{metadata['dataset_file_ext']}"
-        metadata["history_user_email"] = metadata["history_user_email"]
-        metadata["history_display_name"] = metadata["history_display_name"]
-        metadata["tool_tool"] = metadata["tool_tool_id"]
+        metadata["dataset_edam_format"] = f"{metadata.get('dataset_edam_format', '')}:{metadata.get('dataset_file_ext', '')}"
+        metadata["history_user_email"] = metadata.get("history_user_email", "")
+        metadata["history_display_name"] = metadata.get("history_display_name", "")
+        metadata["tool_tool"] = metadata.get("tool_tool_id", "")
 
     # Load additional metadata from a TSV file if any given by user
     bonus = node.findall("bonus")
@@ -112,13 +112,14 @@ def metadata_from_node(node):
 
 
 class JbrowseConnector(object):
-    def __init__(self, jbrowse, outdir, update, use_canvas_renderer=True, enable_workspaces=True, show_legends=True):
+    def __init__(self, jbrowse, outdir, update, use_canvas_renderer=True, enable_workspaces=True, show_legends=True, galaxy_infrastructure_url=None):
         self.jbrowse = jbrowse
         self.outdir = outdir
         self.update = update
         self.use_canvas_renderer = use_canvas_renderer
         self.enable_workspaces = enable_workspaces
         self.show_legends = show_legends
+        self.galaxy_infrastructure_url = galaxy_infrastructure_url
 
         # This is the id of the current assembly
         self.tracksToIndex = {}
@@ -318,8 +319,6 @@ class JbrowseConnector(object):
     def add_assembly(self, path, label, is_remote=False, cytobands=None, ref_name_aliases=None):
         label = re.sub(r"[/\\]", " ", label)  # sanitize path-unsafe characters
 
-        label = re.sub(r"[/\\]", " ", label)  # sanitize path-unsafe characters
-
         if not is_remote:
             # Find a non-existing filename for the new genome
             # (to avoid colision when upgrading an existing instance)
@@ -395,7 +394,7 @@ class JbrowseConnector(object):
                 "--name",
                 uniq_label,
                 "--type",
-                "BgzipFastaAdapter",
+                "bgzipFasta",
                 "--out",
                 self.outdir,
                 "--skipCheck",
@@ -436,7 +435,7 @@ class JbrowseConnector(object):
                 "--name",
                 uniq_label,
                 "--type",
-                "BgzipFastaAdapter",
+                "bgzipFasta",
                 "--out",
                 self.outdir,
                 "--skipCheck",
@@ -543,18 +542,12 @@ class JbrowseConnector(object):
         )
 
     def add_bigwig(self, parent, data, trackData, wiggleOpts, **kwargs):
-
-        if trackData['remote']:
-            rel_dest = data
-        else:
-            rel_dest = os.path.join("data", trackData["label"] + ".bw")
-            dest = os.path.join(self.outdir, rel_dest)
-            self.symlink_or_copy(os.path.realpath(data), dest)
+        rel_dest = os.path.join("data", trackData["label"] + ".bw")
+        dest = os.path.join(self.outdir, rel_dest)
+        self.symlink_or_copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
-
         track_metadata = self._prepare_track_metadata(trackData)
-
         style_json.update(track_metadata)
 
         self._add_track(
@@ -564,13 +557,11 @@ class JbrowseConnector(object):
             rel_dest,
             parent,
             config=style_json,
-            remote=trackData['remote']
+            remote=False
         )
 
     def add_bigwig_multi(self, parent, data_files, trackData, wiggleOpts, **kwargs):
-
         subadapters = []
-
         sub_num = 0
         for data in data_files:
             if trackData['remote']:
@@ -702,13 +693,9 @@ class JbrowseConnector(object):
         )
 
     def add_gff(self, parent, data, format, trackData, gffOpts, **kwargs):
-        if trackData['remote']:
-            rel_dest = data
-        else:
-            rel_dest = os.path.join("data", trackData["label"] + ".gff")
-            dest = os.path.join(self.outdir, rel_dest)
-            rel_dest = rel_dest + ".gz"
-            self._sort_gff(data, dest)
+        rel_dest = os.path.join("data", trackData["label"] + ".gff")
+        dest = os.path.join(self.outdir, rel_dest)
+        shutil.copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
         formatdetails = self._prepare_format_details(trackData)
@@ -721,31 +708,53 @@ class JbrowseConnector(object):
                 if "renderer" in display and display["renderer"]["type"] == "SvgFeatureRenderer":
                     display["renderer"]["type"] = "CanvasFeatureRenderer"
 
-        if gffOpts.get('index', 'false') in ("yes", "true", "True"):
-            if parent['uniq_id'] not in self.tracksToIndex:
-                self.tracksToIndex[parent['uniq_id']] = []
-            self.tracksToIndex[parent['uniq_id']].append(trackData["label"])
+        json_track_data = {
+            "type": "FeatureTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": {
+                "type": "Gff3Adapter",
+                "gffLocation": {
+                    "uri": rel_dest,
+                    "locationType": "UriLocation"
+                }
+            },
+            "category": [trackData["category"]],
+            "assemblyNames": [parent['uniq_id']],
+        }
+        json_track_data.update(style_json)
 
-        self._add_track(
-            trackData["label"],
-            trackData["key"],
-            trackData["category"],
-            rel_dest,
-            parent,
-            config=style_json,
-            remote=trackData['remote']
+        self.subprocess_check_call(
+            [
+                "jbrowse",
+                "add-track-json",
+                "--target",
+                self.outdir,
+                json.dumps(json_track_data),
+            ]
         )
 
     def add_gtf(self, parent, data, format, trackData, gffOpts, **kwargs):
-        # Not a super recommended format
-        # https://github.com/GMOD/jbrowse-components/pull/2389
-        # https://github.com/GMOD/jbrowse-components/issues/3876
-        if trackData['remote']:
-            rel_dest = data
-        else:
-            rel_dest = os.path.join("data", trackData["label"] + ".gtf")
-            dest = os.path.join(self.outdir, rel_dest)
-            shutil.copy(os.path.realpath(data), dest)
+        rel_dest = os.path.join("data", trackData["label"] + ".gtf")
+        dest = os.path.join(self.outdir, rel_dest)
+        shutil.copy(os.path.realpath(data), dest)
+
+        style_json = self._prepare_track_style(trackData)
+        formatdetails = self._prepare_format_details(trackData)
+        style_json.update(formatdetails)
+        track_metadata = self._prepare_track_metadata(trackData)
+        style_json.update(track_metadata)
+
+        displays = [
+            {
+                "type": "LinearBasicDisplay",
+                "displayId": f"{trackData['label']}-LinearBasicDisplay"
+            },
+            {
+                "type": "LinearArcDisplay",
+                "displayId": f"{trackData['label']}-LinearArcDisplay"
+            }
+        ]
 
         json_track_data = {
             "type": "FeatureTrack",
@@ -756,23 +765,12 @@ class JbrowseConnector(object):
                 "gtfLocation": {
                     "uri": rel_dest,
                     "locationType": "UriLocation"
-                },
+                }
             },
+            "displays": displays,
             "category": [trackData["category"]],
             "assemblyNames": [parent['uniq_id']],
         }
-
-        style_json = self._prepare_track_style(trackData)
-        formatdetails = self._prepare_format_details(trackData)
-        style_json.update(formatdetails)
-        track_metadata = self._prepare_track_metadata(trackData)
-        style_json.update(track_metadata)
-
-        if "displays" in style_json:
-            for display in style_json["displays"]:
-                if "renderer" in display and display["renderer"]["type"] == "SvgFeatureRenderer":
-                    display["renderer"]["type"] = "CanvasFeatureRenderer"
-
         json_track_data.update(style_json)
 
         self.subprocess_check_call(
@@ -786,13 +784,9 @@ class JbrowseConnector(object):
         )
 
     def add_bed(self, parent, data, format, trackData, gffOpts, **kwargs):
-        if trackData['remote']:
-            rel_dest = data
-        else:
-            rel_dest = os.path.join("data", trackData["label"] + ".bed")
-            dest = os.path.join(self.outdir, rel_dest)
-            rel_dest = rel_dest + ".gz"
-            self._sort_bed(data, dest)
+        rel_dest = os.path.join("data", trackData["label"] + ".bed")
+        dest = os.path.join(self.outdir, rel_dest)
+        shutil.copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
         formatdetails = self._prepare_format_details(trackData)
@@ -805,19 +799,30 @@ class JbrowseConnector(object):
                 if "renderer" in display and display["renderer"]["type"] == "SvgFeatureRenderer":
                     display["renderer"]["type"] = "CanvasFeatureRenderer"
 
-        if gffOpts.get('index', 'false') in ("yes", "true", "True"):
-            if parent['uniq_id'] not in self.tracksToIndex:
-                self.tracksToIndex[parent['uniq_id']] = []
-            self.tracksToIndex[parent['uniq_id']].append(trackData["label"])
+        json_track_data = {
+            "type": "FeatureTrack",
+            "trackId": trackData["label"],
+            "name": trackData["key"],
+            "adapter": {
+                "type": "BedAdapter",
+                "bedLocation": {
+                    "uri": rel_dest,
+                    "locationType": "UriLocation"
+                }
+            },
+            "category": [trackData["category"]],
+            "assemblyNames": [parent['uniq_id']],
+        }
+        json_track_data.update(style_json)
 
-        self._add_track(
-            trackData["label"],
-            trackData["key"],
-            trackData["category"],
-            rel_dest,
-            parent,
-            config=style_json,
-            remote=trackData['remote']
+        self.subprocess_check_call(
+            [
+                "jbrowse",
+                "add-track-json",
+                "--target",
+                self.outdir,
+                json.dumps(json_track_data),
+            ]
         )
 
     def add_paf(self, parent, data, trackData, pafOpts, **kwargs):
@@ -1380,6 +1385,10 @@ class JbrowseConnector(object):
         else:
             loc_str = refName
 
+        reference_track_id = f"{genome['uniq_id']}-ReferenceSequenceTrack"
+        if reference_track_id not in tracks_on:
+            tracks_on.insert(0, reference_track_id)
+
         # Updating an existing jbrowse instance, merge with pre-existing view
         view_specs = None
         if self.update:
@@ -1474,12 +1483,12 @@ class JbrowseConnector(object):
 
         Different methods that were tested/discussed earlier:
         - using a defaultSession item in config.json before PR 4970: this proved to be difficult:
-          forced to write a full session block, including hard-coded/hard-to-guess items,
-          no good way to let Jbrowse2 display a scaffold without knowing its size
+        forced to write a full session block, including hard-coded/hard-to-guess items,
+        no good way to let Jbrowse2 display a scaffold without knowing its size
         - using JBrowse2 as an embedded React component in a tool-generated html file:
-          it works but it requires generating js code to actually do what we want = chosing default view, assembly, tracks, ...
+        it works but it requires generating js code to actually do what we want = chosing default view, assembly, tracks, ...
         - writing a session-spec inside the config.json file: this is not yet supported as of 2.10.2 (see PR 4148 below)
-          a session-spec is a kind of simplified defaultSession where you don't need to specify every aspect of the session
+        a session-spec is a kind of simplified defaultSession where you don't need to specify every aspect of the session
         - passing a session-spec through URL params by embedding the JBrowse2 index.html inside an iframe
 
         Xrefs to understand the choices:
@@ -1640,11 +1649,15 @@ if __name__ == "__main__":
 
     # This should be done ASAP
     # Sometimes this comes as `localhost` without a protocol
-    GALAXY_INFRASTRUCTURE_URL = real_root.find("metadata/galaxyUrl").text
-    if not GALAXY_INFRASTRUCTURE_URL.startswith("http"):
-        # so we'll prepend `http://` and hope for the best. Requests *should*
-        # be GET and not POST so it should redirect OK
-        GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
+    galaxy_url_el = real_root.find("metadata/galaxyUrl")
+
+    if galaxy_url_el is not None and galaxy_url_el.text:
+        GALAXY_INFRASTRUCTURE_URL = galaxy_url_el.text.strip()
+
+        if not GALAXY_INFRASTRUCTURE_URL.startswith(("http://", "https://")):
+            GALAXY_INFRASTRUCTURE_URL = "http://" + GALAXY_INFRASTRUCTURE_URL
+    else:
+        GALAXY_INFRASTRUCTURE_URL = None
 
     use_canvas_renderer = real_root.find("metadata/general/useCanvasRenderer")
     enable_workspaces = real_root.find("metadata/general/enableWorkspaces")
@@ -1673,6 +1686,7 @@ if __name__ == "__main__":
         use_canvas_renderer=use_canvas_renderer if isinstance(use_canvas_renderer, bool) else (use_canvas_renderer.lower() == "true" if isinstance(use_canvas_renderer, str) else args.use_canvas_renderer),
         enable_workspaces=enable_workspaces if isinstance(enable_workspaces, bool) else (enable_workspaces.lower() == "true" if isinstance(enable_workspaces, str) else args.enable_workspaces),
         show_legends=show_legends if isinstance(show_legends, bool) else (show_legends.lower() == "true" if isinstance(show_legends, str) else args.show_legends),
+        galaxy_infrastructure_url=GALAXY_INFRASTRUCTURE_URL,
     )
 
     # Synteny options are special, check them first
