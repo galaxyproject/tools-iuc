@@ -18,6 +18,7 @@ clipkit '$input'
     #if str($sequence_type) and str($sequence_type) != "None":
         -s '$sequence_type'
     #end if
+    --ambiguity_handling '$ambiguity_handling'
     #if str($input_file_format) and str($input_file_format) != "None":
         -if '$input_file_format'
     #end if
@@ -31,6 +32,9 @@ clipkit '$input'
         -a '$auxiliary_file'
     #end if
     $codon
+    #if str($remove_stop_codons):
+        --remove_stop_codons '$remove_stop_codons'
+    #end if
     $ends_only
     #if $log_out:
         -l
@@ -76,6 +80,11 @@ clipkit '$input'
             <option value="aa">Amino acid</option>
             <option value="nt">Nucleotide</option>
         </param>
+        <param argument="--ambiguity_handling" type="select" label="IUPAC ambiguity handling" help="How recognized IUPAC ambiguity symbols contribute to trimming statistics. Configured gap characters take precedence, and alignment symbols are never rewritten in the output.">
+            <option value="missing" selected="true">missing - exclude from entropy, composition and KPI/KPIC state counts; count toward the unavailable fraction in gap-based modes (ClipKIT default)</option>
+            <option value="fractional">fractional - distribute each symbol equally among its possible states for entropy and composition, but exclude it from KPI/KPIC classification</option>
+            <option value="literal">literal - treat each ambiguity code as its own state (legacy behaviour, pre-2.14.0)</option>
+        </param>
         <param argument="--input_file_format" type="select" optional="true" label="Input file format" help="Leave unset to auto-detect.">
             <option value="">Auto-detect</option>
             <option value="fasta">fasta</option>
@@ -109,6 +118,12 @@ clipkit '$input'
         </param>
         <param argument="--auxiliary_file" type="data" format="txt,tabular" optional="true" label="Auxiliary file (cst mode)" help="Tab-delimited file with '&lt;position&gt;\ttrim|keep' per line. Required when mode is set to 'cst'."/>
         <param argument="--codon" type="boolean" truevalue="-co" falsevalue="" checked="false" label="Codon-aware trimming (-co)" help="If any of the three positions in a codon would be trimmed, trim the whole codon."/>
+        <param argument="--remove_stop_codons" type="select" optional="true" label="Mask in-frame stop codons" help="Masks selected in-frame stop codons as '---' before gap statistics and trimming. Requires nucleotide input, 'Codon-aware trimming' enabled above, and an alignment length divisible by three - the job fails otherwise.">
+            <option value="" selected="true">Do not mask stop codons</option>
+            <option value="terminal">terminal - only the stop at the final complete non-gap codon of each sequence</option>
+            <option value="internal">internal - all other in-frame stop codons</option>
+            <option value="all">all - terminal and internal</option>
+        </param>
         <param argument="--ends_only" type="boolean" truevalue="-eo" falsevalue="" checked="false" label="Trim only from the alignment ends (-eo)"/>
         <param argument="--complementary" type="boolean" truevalue="-c" falsevalue="" checked="false" label="Also output complementary alignment (-c)" help="Writes a second alignment containing the trimmed-out sites."/>
         <param name="log_out" type="boolean" checked="false" label="Output per-site log file (-l)"/>
@@ -249,6 +264,81 @@ clipkit '$input'
                 </assert_contents>
             </output>
         </test>
+        <!-- Ambiguity handling 'missing' (the default): the R columns are excluded from
+             the KPI state counts, so they read as constant and get trimmed, and they
+             count toward the effective unavailable fraction reported in log column 4. -->
+        <test expect_num_outputs="2">
+            <param name="input" value="ambiguity_nt.fa" ftype="fasta"/>
+            <param name="mode" value="kpi"/>
+            <param name="ambiguity_handling" value="missing"/>
+            <param name="log_out" value="true"/>
+            <output name="output" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="^GA$"/>
+                    <has_line_matching expression="^GC$"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="^5 trim constant 0\.5$"/>
+                    <has_line_matching expression="^6 trim constant 0\.5$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Ambiguity handling 'fractional' trims the same columns as 'missing', but the
+             R symbols no longer count as unavailable, so log column 4 is 0.0 instead of 0.5. -->
+        <test expect_num_outputs="2">
+            <param name="input" value="ambiguity_nt.fa" ftype="fasta"/>
+            <param name="mode" value="kpi"/>
+            <param name="ambiguity_handling" value="fractional"/>
+            <param name="log_out" value="true"/>
+            <output name="output" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="^GA$"/>
+                    <has_line_matching expression="^GC$"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="^5 trim constant 0\.0$"/>
+                    <has_line_matching expression="^6 trim constant 0\.0$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Ambiguity handling 'literal' (pre-2.14.0 behaviour): each R counts as its own
+             state, making the columns parsimony informative so kpi retains them. -->
+        <test expect_num_outputs="1">
+            <param name="input" value="ambiguity_nt.fa" ftype="fasta"/>
+            <param name="mode" value="kpi"/>
+            <param name="ambiguity_handling" value="literal"/>
+            <output name="output" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="^GRRA$"/>
+                    <has_line_matching expression="^GRRC$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Mask internal in-frame stop codons before trimming. -->
+        <test expect_num_outputs="2">
+            <param name="input" value="stop_codons_nt.fa" ftype="fasta"/>
+            <param name="codon" value="true"/>
+            <param name="remove_stop_codons" value="internal"/>
+            <param name="report_json_out" value="true"/>
+            <output name="output" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="^ATGAAAGGGCCC$"/>
+                    <has_line_matching expression="^ATGAAGGGGCCC$"/>
+                </assert_contents>
+            </output>
+            <output name="report_json" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="mode" value="&quot;internal&quot;"/>
+                    <has_json_property_with_value property="internal_masked" value="8"/>
+                    <has_json_property_with_value property="total_masked" value="8"/>
+                    <has_json_property_with_value property="ambiguity_handling" value="&quot;missing&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
@@ -265,14 +355,6 @@ gappy/smart-gap variants), and custom site trimming (cst, c3).
 - A multiple sequence alignment in FASTA, Clustal, Phylip, Stockholm, MAF, or
   Mauve XMFA format.
 
-**Key options**
-
-- *Trimming mode*: which algorithm to apply. The default is ``smart-gap``.
-- *Threshold (-g)*: gap fraction for gap-based modes (default 0.9), or the
-  per-site score threshold for entropy/composition-bias/heterotachy
-  (default 0.8). Ignored by modes that determine their own threshold.
-- *Codon* and *Ends only*: refine where trimming may occur.
-- *Auxiliary file*: required for ``cst`` (custom site trimming) mode.
 
 **Outputs**
 

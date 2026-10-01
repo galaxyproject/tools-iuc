@@ -1,0 +1,203 @@
+<tool id="rectanglepy" name="Rectangle" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>single-cell-informed cell-type deconvolution of bulk and spatial transcriptomic data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <version_command>python -c "import rectanglepy; print(rectanglepy.__version__)"</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+        cat '$script_file' &&
+        python '$script_file'
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+import os
+import tempfile
+import zipfile
+import anndata as ad
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import rectanglepy
+
+adata = ad.read_h5ad('$adata')
+
+#if $bulks.ext == 'spatialdata.zip':
+import spatialdata as sd
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    with zipfile.ZipFile('$bulks', 'r') as zip_ref:
+        zip_ref.extractall(tmp_dir)
+
+    ## Find the zarr store root: shallowest directory containing
+    ## (.zattrs AND .zgroup) OR zarr.json
+    zarr_dir = None
+    for root, dirs, files in os.walk(tmp_dir):
+        if ({'.zattrs', '.zgroup'} <= set(files)) or ('zarr.json' in files):
+            if zarr_dir is None or len(root) < len(zarr_dir):
+                zarr_dir = root
+
+    if zarr_dir is None:
+        raise RuntimeError("No zarr store found in the uploaded SpatialData archive")
+
+    spdata = sd.read_zarr(zarr_dir)
+    bulks = spdata['$table'].to_df()
+
+## ensure CPM
+bulks = bulks.div(bulks.sum(axis=1), axis=0) * 1e6
+## Transpose to have genes as rows and samples as columns
+bulks = bulks.T
+#else:
+bulks = pd.read_csv('$bulks', sep='\t', index_col=0)
+#end if
+
+fractions, signature = rectanglepy.rectangle(
+    adata=adata,
+    bulks=bulks.T, ## rectanglepy expects samples as rows and genes as columns
+    cell_type_col='$cell_type_col',
+#if $advanced.layer:
+    layer='advanced.layer',
+#end if
+    raw=$advanced.raw,
+    optimize_cutoffs=$advanced.optimize_cutoffs,
+    p=$advanced.p,
+    lfc=$advanced.lfc,
+    correct_mrna_bias=$advanced.correct_mrna_bias,
+    gene_expression_threshold=$advanced.gene_expression_threshold,
+    n_cpus=int(os.getenv("GALAXY_SLOTS", 4)),
+)
+
+fractions.to_csv('fractions.tabular', sep='\t')
+
+## width scales with number of bulk samples
+n_samples = fractions.shape[0]
+fig_width = min(max(6, n_samples * 0.5), 40)
+
+n_types = fractions.shape[1]
+base_cmap = plt.get_cmap('$figure.colormap')
+
+## setting the color maps based on map type (discrete vs continuous) and number of cell types
+if hasattr(base_cmap, 'colors'):
+    ## Discrete/qualitative colormap
+    palette = list(base_cmap.colors)
+    if n_types > len(palette):
+        ## Extend with a second qualitative palette to avoid repeating colors
+        extra_cmap = plt.get_cmap('tab20b' if '$figure.colormap' != 'tab20b' else 'tab20c')
+        palette += list(extra_cmap.colors)
+    colors = palette[:n_types]
+else:
+    ## Continuous colormap - sample evenly
+    colors = base_cmap(np.linspace(0, 1, n_types))
+
+fig, ax = plt.subplots(figsize=(fig_width, 6), dpi=$figure.dpi)
+fractions.plot(kind='bar', stacked=True, ax=ax, color=colors)
+ax.set_title('Rectangle deconvolution results', fontsize=16)
+ax.set_ylabel('Cell fractions (%)', fontsize=14)
+ax.set_xlabel('Bulk sample', fontsize=14)
+plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+ax.legend(title='Cell type', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=12)
+plt.tight_layout()
+plt.savefig('plot', format='$figure.plot_format')
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param argument="adata" type="data" format="h5ad" label="Reference Single-cell AnnData"/>
+        <param argument="cell_type_col" type="text" value="cell_type" label="Cell type key in Anndta.obs">
+            <expand macro="validator_macro"/>
+        </param>
+        <param argument="bulks" type="data" format="tabular,spatialdata.zip" label="Bulk data table or SpatialData object" help="The bulk expression data with genes as rows and samples as columns. Values should be in transcripts per million (TPM)."/>
+        <param name="table" type="text" value="table" optional="true" label="Table name in the SpatialData object" help="Only used if the bulk data is a SpatialData object">
+            <expand macro="validator_macro"/>
+        </param>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param argument="layer" type="text" optional="true" label="The Anndata layer to use">
+                <expand macro="validator_macro"/>
+            </param>
+            <param argument="raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw AnnData data?"/>
+            <param argument="optimize_cutoffs" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Optimize log fold change cutoffs using gridsearch?"/>
+            <param argument="p" type="float" value="0.015" min="0" max="1" label="p-value threshold for the DE analysis" help="Only used when optimize_cutoffs is disabled."/>
+            <param argument="lfc" type="float" value="1.5" min="0" label="log fold change threshold for the DE analysis" help="Only used when optimize_cutoffs is disabled."/>
+            <param argument="correct_mrna_bias" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Correct mRNA bias?"/>
+            <param argument="gene_expression_threshold" type="float" value="0.5" min="0" label="Gene expression threshold" help="Genes with expression below this threshold are removed from the analysis."/>
+        </section>
+        <section name="figure" title="Plotting options" expanded="false">
+            <param name="plot_format" type="select" label="Cell fraction plot output format">
+                <option value="png" selected="true">PNG</option>
+                <option value="jpg">JPG</option>
+                <option value="pdf">PDF</option>
+            </param>
+            <param name="dpi" type="integer" value="300" min="100" label="Plot resolution (DPI)"/>
+            <param argument="colormap" type="select" label="Matplotlib colormap name">
+                <option value="tab10">tab10 — qualitative, 10 colors</option>
+                <option value="tab20" selected="true">tab20 — qualitative, 20 colors</option>
+                <option value="tab20b">tab20b — qualitative, 20 colors</option>
+                <option value="tab20c">tab20c — qualitative, 20 colors</option>
+                <option value="Set1">Set1 — qualitative, 9 colors</option>
+                <option value="Set2">Set2 — qualitative, 8 colors</option>
+                <option value="Set3">Set3 — qualitative, 12 colors</option>
+                <option value="Pastel1">Pastel1 — qualitative, 9 colors</option>
+                <option value="Pastel2">Pastel2 — qualitative, 8 colors</option>
+                <option value="Paired">Paired — qualitative, 12 colors</option>
+                <option value="Accent">Accent — qualitative, 8 colors</option>
+                <option value="Dark2">Dark2 — qualitative, 8 colors</option>
+                <option value="viridis">viridis — continuous</option>
+                <option value="plasma">plasma — continuous</option>
+                <option value="inferno">inferno — continuous</option>
+                <option value="magma">magma — continuous</option>
+                <option value="cividis">cividis — continuous</option>
+                <option value="nipy_spectral">nipy_spectral — continuous</option>
+                <option value="gist_rainbow">gist_rainbow — continuous</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="fractions" from_work_dir="fractions.tabular" format="tabular" label="${tool.name} on ${on_string}: Cell fractions"/>
+        <data name="plot" from_work_dir="plot" format="png" label="${tool.name} on ${on_string}: Cell fractions plot">
+            <change_format>
+                <when input="figure.plot_format" value="jpg" format="jpg"/>
+                <when input="figure.plot_format" value="pdf" format="pdf"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <expand macro="testing">
+        </expand>
+        <!-- test jpg -->
+        <expand macro="testing" format="jpg" channels="3">
+        </expand>
+        <!-- test spatialdata - I created a spatialdata object from the same bulk_top2000_hvg.tabular file -->
+        <expand macro="testing" bulks="visium_top2000_hvg.spatialdata.zip" bulks_ftype="spatialdata.zip">
+            <has_text_matching expression="import spatialdata as sd"/>
+        </expand>
+        <!-- the spatialdata here is 3 levels deep. This tests if the zarr directory is found correctly -->
+        <expand macro="testing" bulks="visium_top2000_hvg.spatialdata_layered.zip" bulks_ftype="spatialdata.zip">
+            <has_text_matching expression="import spatialdata as sd"/>
+        </expand>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Rectangle performs single-cell-informed cell-type deconvolution of bulk and spatial transcriptomic data. It creates signatures from the single-cell data and deconvolutes the bulk or spot-based spatial data to estimate cell fractions.
+
+------
+
+**Inputs**
+
+- **Single-cell AnnData**: an `h5ad` file with raw single-cell counts.
+- **Bulk or spatial data**: A tabular file with genes as rows and samples as columns (values in transcripts per million, **TPM**), or a `SpatialData` object (`.zip`) containing spot-based spatial transcriptomics data. When a SpatialData object is provided, the specified table is extracted and normalized to CPM before deconvolution.
+- **Cell type column**: the column in `adata.obs` containing cell type labels.
+
+------
+
+**Outputs**
+
+- **Cell fractions**: a tabular file with estimated cell-type fractions for each bulk sample or spatial spot.
+- **Cell fractions plot**: a bar plot showing the estimated cell-type fractions for each bulk sample or spatial spot.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
