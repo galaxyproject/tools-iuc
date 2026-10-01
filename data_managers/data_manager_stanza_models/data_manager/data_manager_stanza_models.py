@@ -18,10 +18,15 @@ does not include.
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import stanza
+from certifi import where as certifi_where
 from stanza._version import __resources_version__, __version__
+
+# Ensure CA certificates are found by hf_xet in conda containers.
+os.environ.setdefault("SSL_CERT_FILE", certifi_where())
 
 
 # Language display names
