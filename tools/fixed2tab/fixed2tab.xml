@@ -1,0 +1,283 @@
+<tool id="fixed2tab" name="Fixed-width to tabular" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>convert fixed-width text columns to TSV</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <version_command>fixed2tab --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+fixed2tab
+    --input '$input'
+    --table '$table'
+    --report '$report'
+    --rejected '$rejected'
+    #if str($geometry.mode) == 'columns':
+        --columns '$geometry.columns'
+    #elif str($geometry.mode) == 'widths':
+        --widths '$geometry.widths'
+    #end if
+    --min-gutter $detection.min_gutter
+    #if str($detection.record_width):
+        --record-width $detection.record_width
+    #end if
+    #if str($detection.header_line):
+        --header-line $detection.header_line
+    #end if
+    --encoding '$reading.encoding'
+    --short-lines '$reading.short_lines'
+    $output_shape.collapse_spaces
+    --header '$output_shape.header'
+    #if str($strictness.mode) == 'strict':
+        --strict
+        #if $strictness.allow_rejects:
+            --allow-rejects
+            #for $reason in $strictness.allow_rejects:
+                '$reason'
+            #end for
+        #end if
+    #end if
+    ]]></command>
+    <inputs>
+        <param argument="--input" type="data" format="txt" label="Fixed-width text file" help="Do not upload it with 'convert spaces to tabs': that destroys the column positions."/>
+        <conditional name="geometry">
+            <param name="mode" type="select" label="Column boundaries">
+                <option value="auto" selected="true">Detect automatically</option>
+                <option value="columns">Give the column ranges (--columns)</option>
+                <option value="widths">Give the column widths (--widths)</option>
+            </param>
+            <when value="auto"/>
+            <when value="columns">
+                <param argument="--columns" type="text" value="" label="Column ranges" help="START-END[:NAME] separated by commas, for example 1-12:DATE,18-27:BEST_TIME. Positions start at 1, and both ends are included. The report of an earlier run prints this string: copy the part between the quotes.">
+                    <validator type="regex" message="Write START-END or START-END:NAME, separated by commas. Names use letters, digits and underscores only.">^\s*\d+-\d+(:[A-Za-z0-9_]+)?(\s*,\s*\d+-\d+(:[A-Za-z0-9_]+)?)*\s*$</validator>
+                </param>
+            </when>
+            <when value="widths">
+                <param argument="--widths" type="text" value="" label="Column widths" help="Read from position 1: N takes the next N positions as a column, N:NAME does the same and names it, and Nx skips N positions. For example 12:DATE,5x,10:BEST_TIME. A FORTRAN FORMAT such as 2X,I5,2X,F8.3 transcribes directly to 2x,5,2x,8.">
+                    <validator type="regex" message="Write N, N:NAME or Nx, separated by commas. Names use letters, digits and underscores only.">^\s*(\d*[xX]|\d+(:[A-Za-z0-9_]+)?)(\s*,\s*(\d*[xX]|\d+(:[A-Za-z0-9_]+)?))*\s*$</validator>
+                </param>
+            </when>
+        </conditional>
+        <section name="detection" title="Detection" expanded="false">
+            <param argument="--min-gutter" type="integer" min="1" value="2" label="Blank positions that separate two columns" help="Lower values give more columns, because a smaller blank run separates two columns. Higher values merge narrow columns."/>
+            <param argument="--record-width" type="integer" min="1" optional="true" label="Record width" help="Leave empty to detect it. Set it for a file whose trailing blanks were stripped."/>
+            <param argument="--header-line" type="integer" min="0" optional="true" label="Line with the column headings" help="Leave empty to detect it. Lines 1 to N are preamble and are not converted. 0 means that the file has no preamble. Required when short lines are padded."/>
+        </section>
+        <section name="reading" title="Reading" expanded="false">
+            <param argument="--encoding" type="select" label="Input encoding" help="Try latin-1 for byte-padded legacy output.">
+                <option value="utf-8" selected="true">UTF-8</option>
+                <option value="latin-1">Latin-1 (ISO-8859-1)</option>
+                <option value="cp1252">Windows-1252</option>
+            </param>
+            <param argument="--short-lines" type="select" label="Lines shorter than the record width" help="Padding can make page numbers and footers into data rows, so rejecting is the default.">
+                <option value="reject" selected="true">Reject them</option>
+                <option value="pad">Pad them with spaces</option>
+            </param>
+        </section>
+        <section name="output_shape" title="Output shape" expanded="false">
+            <param argument="--collapse-spaces" type="boolean" truevalue="--collapse-spaces" falsevalue="" checked="false" label="Reduce runs of spaces inside each cell to one space" help="Applies to every cell."/>
+            <param argument="--header" type="select" label="Header row in the table" help="The column names are always in the report. A header row shifts the row positions by one for later steps.">
+                <option value="none" selected="true">No header row</option>
+                <option value="plain">Column names as the first row</option>
+            </param>
+        </section>
+        <conditional name="strictness">
+            <param name="mode" type="select" label="Fail the job when lines are rejected?">
+                <option value="off" selected="true">No</option>
+                <option value="strict">Yes (--strict)</option>
+            </param>
+            <when value="off"/>
+            <when value="strict">
+                <param argument="--allow-rejects" type="select" multiple="true" optional="true" label="Rejection reasons to tolerate">
+                    <option value="length">length</option>
+                    <option value="control-char">control-char</option>
+                    <option value="preamble-identity">preamble-identity</option>
+                    <option value="rule-line">rule-line</option>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="table" format="tabular" label="${tool.name} on ${on_string}: table"/>
+        <data name="report" format="txt" label="${tool.name} on ${on_string}: report"/>
+        <data name="rejected" format="tabular" label="${tool.name} on ${on_string}: rejected lines"/>
+    </outputs>
+    <tests>
+        <!-- Automatic detection gives the expected table and a reconciled report. -->
+        <test expect_num_outputs="3">
+            <param name="input" value="fixedwidth_input.txt"/>
+            <output name="table" file="fixedwidth_expected.tsv"/>
+            <output name="report">
+                <assert_contents>
+                    <has_text text="rows + rejected  8  [OK]"/>
+                    <has_text text="--columns '1-12:DATE,18-27:BEST_TIME,"/>
+                </assert_contents>
+            </output>
+            <output name="rejected">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- A file with a title block and rule lines: rejected lines and a warning. -->
+        <test expect_num_outputs="3">
+            <param name="input" value="fixedwidth_messy.txt"/>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                </assert_contents>
+            </output>
+            <output name="report">
+                <assert_contents>
+                    <has_text text="rows + rejected  16  [OK]"/>
+                    <has_text text="[width-share]"/>
+                </assert_contents>
+            </output>
+            <output name="rejected">
+                <assert_contents>
+                    <has_n_lines n="10"/>
+                    <has_text text="rule-line"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Explicit ranges, as the report prints them, give the same table. -->
+        <test expect_num_outputs="3">
+            <param name="input" value="fixedwidth_input.txt"/>
+            <conditional name="geometry">
+                <param name="mode" value="columns"/>
+                <param name="columns" value="1-12:DATE,18-27:BEST_TIME,31-37:DELTAT_s,42-47:sigma,53-64:Egyptian_Date,70-73:TSun,77-80:TMoon,85-89:q,92-93:code,100-110:NEW_MOON_DATE,115-125:TIME"/>
+            </conditional>
+            <section name="reading">
+                <param name="encoding" value="latin-1"/>
+            </section>
+            <output name="table" file="fixedwidth_expected.tsv"/>
+        </test>
+        <!-- Widths that describe the same columns give the same table. -->
+        <test expect_num_outputs="3">
+            <param name="input" value="fixedwidth_input.txt"/>
+            <conditional name="geometry">
+                <param name="mode" value="widths"/>
+                <param name="widths" value="12:DATE,5x,10:BEST_TIME,3x,7:DELTAT_s,4x,6:sigma,5x,12:Egyptian_Date,5x,4:TSun,3x,4:TMoon,4x,5:q,2x,2:code,6x,11:NEW_MOON_DATE,4x,11:TIME"/>
+            </conditional>
+            <output name="table" file="fixedwidth_expected.tsv"/>
+        </test>
+        <!-- Detection overrides, a header row and collapsed spaces. -->
+        <test expect_num_outputs="3">
+            <param name="input" value="fixedwidth_input.txt"/>
+            <section name="detection">
+                <param name="min_gutter" value="2"/>
+                <param name="record_width" value="128"/>
+                <param name="header_line" value="2"/>
+            </section>
+            <section name="output_shape">
+                <param name="collapse_spaces" value="true"/>
+                <param name="header" value="plain"/>
+            </section>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_line line="DATE&#9;BEST_TIME&#9;DELTAT_s&#9;sigma&#9;Egyptian_Date&#9;TSun&#9;TMoon&#9;q&#9;code&#9;NEW_MOON_DATE&#9;TIME"/>
+                    <has_text text="3h 5m 1s"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Strict mode passes when every rejection reason is tolerated. -->
+        <test expect_num_outputs="3">
+            <param name="input" value="fixedwidth_messy.txt"/>
+            <conditional name="strictness">
+                <param name="mode" value="strict"/>
+                <param name="allow_rejects" value="length,rule-line"/>
+            </conditional>
+            <output name="rejected">
+                <assert_contents>
+                    <has_n_lines n="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Strict mode fails the job with exit code 4 when lines are rejected. -->
+        <test expect_exit_code="4" expect_failure="true">
+            <param name="input" value="fixedwidth_messy.txt"/>
+            <conditional name="strictness">
+                <param name="mode" value="strict"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="--strict"/>
+            </assert_stderr>
+        </test>
+        <!-- Padding short lines without a header line is a parameter error (exit code 2). -->
+        <test expect_exit_code="2" expect_failure="true">
+            <param name="input" value="fixedwidth_input.txt"/>
+            <section name="reading">
+                <param name="short_lines" value="pad"/>
+            </section>
+            <assert_stderr>
+                <has_text text="--short-lines pad needs --header-line"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+Converts a fixed-width text file into a tab-separated table. Legacy programs
+often write their results as aligned columns. Tools that split on a delimiter
+cannot read such files: a cell that contains spaces breaks into several cells,
+and a blank cell shifts every later field to the left.
+
+The tool finds the column boundaries itself. A boundary is a run of character
+positions that are blank in every record. Usually, no settings are necessary.
+
+-----
+
+**Outputs**
+
+Every successful run gives three datasets:
+
+- **Table**: one row per record, cells separated by tabs. It has no header row
+  unless you select one.
+- **Report**: what the tool detected, and how to correct it.
+- **Rejected lines**: every input line that the tool did not convert, as three
+  columns: line number, reason and the line itself. It usually holds only the
+  title and heading lines.
+
+The table rows plus the rejected lines always equal the input lines, so no
+line disappears without a record.
+
+-----
+
+**Check and correct the result**
+
+Read the report in this order:
+
+1. **Reconciliation** must end in `[OK]`.
+2. **Input** shows the record width and the line used as the header.
+3. **Columns** lists each column with its range, name and sample values.
+4. **Warnings** names what to change.
+
+To correct a boundary or a name, find the section "Reproducing or correcting
+this geometry" in the report. Copy the text between the quotes, for example
+`1-12:DATE,18-27:BEST_TIME`. Select "Give the column ranges", paste the text,
+change only the wrong range or name, and run the tool again.
+
+-----
+
+**Upload hazard**
+
+Do not upload the file with "convert spaces to tabs". That option destroys
+the column positions before the tool sees the data. A tab inside a record
+makes the job fail.
+
+-----
+
+**Exit codes**
+
+A failed job shows its reason in the error message:
+
+- 2: the parameters are not valid.
+- 3: the input cannot be used. It cannot be decoded, has a tab inside a
+  record, is empty, or has no records.
+- 4: strict mode is on, and lines were rejected.
+
+More information: [Running fixed2tab on a file, step by step](https://github.com/dasch-swiss/rdu-fixed2tab/blob/main/docs/running-fixed2tab.md)
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
