@@ -3,6 +3,7 @@ FOR CONTRIBUTOR:
 * [ ] Use of AI
   - [ ] The contribution is mostly AI generated
   - [ ] The contribution has been assisted by AI
+  - [ ] The contribution has not involved AI
 * [ ] License permits unrestricted use (educational + commercial)
 * [ ] This PR adds a new tool or tool collection
 * [ ] This PR updates an existing tool or tool collection
