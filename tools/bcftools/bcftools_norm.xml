@@ -23,7 +23,11 @@ bcftools @EXECUTABLE@
 #set $section = $reference_source
 @FASTA_REF@
 --check-ref $check_ref
-$normalize_indels
+#if $realign.realign_mode == 'skip':
+  -N
+#elif $realign.realign_mode == 'length':
+  -N${realign.no_realign_length}
+#end if
 #if $rm_dup:
   --rm-dup "$rm_dup"
 #end if
@@ -33,6 +37,9 @@ $atomization
 #end if
 #if $multiallelics.mode:
   --multiallelics '${multiallelics.mode}${multiallelics.multiallelic_types}'
+#end if
+#if $multiallelics.mode == '-':
+--multi-overlaps '${multiallelics.multi_overlaps}'
 #end if
 #if $multiallelics.mode == '+':
   ${multiallelics.strict_filter}
@@ -47,10 +54,23 @@ $atomization
 #if str($sec_filter_norm.exclude):
   --exclude '${sec_filter_norm.exclude}'
 #end if
+#if $force
+--force
+#end if
+#if $gff_annot
+--gff-annot '$gff_annot'
+#end if
+#if $keep_sum
+--keep-sum '$keep_sum'
+#end if
 
 #set $section = $sec_restrict
 @REGIONS@
 @TARGETS@
+
+#set $section = $sec_default
+@VERBOSITY@
+@NO_VERSION@
 
 @OUTPUT_TYPE@
 @THREADS@
@@ -66,7 +86,7 @@ $atomization
         <param name="check_ref" type="select" display="radio" label="When any REF allele does not match the reference genome base" help="Warnings about REF mismatches will be emitted to the standard error (stderr) stream, and it is recommended to check there for problems if you choose not to exit with an error immediately upon encountering a mismatch.">
             <option value="w">ignore the problem (-w)</option>
             <option value="wx">exclude the variant record from the output (-wx)</option>
-            <option value="ws">fix the variant record using the reference genome information (-ws)</option>
+            <option value="ws">fix the variant record using the reference genome information (-ws). Updates GT and AC, but not PL.</option>
             <option value="e">exit with an error (-e)</option>
         </param>
         <param name="atomization" type="select" display="radio" label="Atomize" help="Decompose complex variants (e.g. MNVs become consecutive SNVs)">
@@ -74,7 +94,18 @@ $atomization
             <option value="--atomize">Atomize and use * ALT allele for proper genotype representation (--atomize)</option>
             <option value="--atomize --atom-overlaps .">Atomize and accept missing genotype information (legacy behavior; --atomize --atom-overlaps .)</option>
         </param>
-        <param argument="--do-not-normalize" name="normalize_indels" type="boolean" truevalue="" falsevalue="--do-not-normalize" checked="false" label="Left-align and normalize indels?"/>
+        <conditional name="realign">
+            <param name="realign_mode" type="select" label="Left-align and normalize indels">
+                <option value="skip" selected="true">No, skip realignment completely (-N)</option>
+                <option value="all">Yes, left-align and normalize all indels</option>
+                <option value="length">Yes, but skip realignment for events longer than a specific length (-N NUM)</option>
+            </param>
+            <when value="skip" />
+            <when value="all" />
+            <when value="length">
+                <param name="no_realign_length" type="integer" value="1000" min="0" label="Length threshold (bp)" help="Skips realignment only for events longer than this value." />
+            </when>
+        </conditional>
         <param argument="--old-rec-tag" type="text" value="" optional="true" label="Annotate modified records with INFO/STR indicating the original variant">
             <sanitizer invalid_char="">
                 <valid initial="string.letters,string.digits">
@@ -84,13 +115,17 @@ $atomization
             </sanitizer>
             <validator type="regex">[0-9a-zA-Z_/]+</validator>
         </param>
-        <param name="rm_dup" type="select" display="radio" label="Perform deduplication for the folowing types of variant records">
+        <param name="rm_dup" type="select" display="radio" label="Perform deduplication for the folowing types of variant records" help="If a record is present multiple times, output only the first instance (-d).">
             <option value="">do not deduplicate any records</option>
             <option value="snps">snps</option>
             <option value="indels">indels</option>
             <option value="both">both</option>
-            <option value="any">any</option>
+            <option value="all">all</option>
+            <option value="exact">exact (replaces --remove-duplicates)</option>
         </param>
+        <param argument="--force" type="boolean" truevalue="--force" falsevalue="" checked="false" label="Try to proceed even if malformed tags are encountered" help="Experimental, use at your own risk"/>
+        <param argument="--gff-annot" type="data" format="gff,gff3" optional="true" label="GFF annotation file" help="Follow HGVS 3'rule and right-align variants in transcripts on the forward strand"/>
+        <param argument="--keep-sum" type="text" value="" optional="true" label="Keep vector sum constant when splitting multiallelics" help="Only AD tag is currently supported."/>
         <conditional name="multiallelics">
             <param name="mode" type="select" label="~multiallelics">
                 <option value="">preserve multiallelic/biallelic sites</option>
@@ -103,6 +138,10 @@ $atomization
                     <option value="snps">SNPs</option>
                     <option value="indels">indels</option>
                     <option value="both" selected="true">both</option>
+                </param>
+                <param argument="--multi-overlaps" type="select" label="Fill in the reference or missing allele when splitting multiallelics">
+                    <option value="0" selected="true">Reference allele (0)</option>
+                    <option value=".">Missing allele (.)</option>
                 </param>
             </when>
             <when value="+">
@@ -122,9 +161,11 @@ $atomization
         <section name="sec_default" expanded="false" title="Other Options">
             <param name="site_win" type="integer" label="Site Window" value="1000" optional="True" help="(-w, --site-win) Buffer for sorting lines which changed position during realignment"/>
             <param argument="--sort" type="select" label="Sort normalized allele order" help="Select the sort order for output records after normalization.">
-                <option value="pos" selected="true">Chromosome then position (pos)</option>
+                <option value="pos" selected="true">Position (pos)</option>
                 <option value="lex">Lexicographical allele order (lex)</option>
             </param>
+            <expand macro="macro_verbosity" />
+            <expand macro="macro_no_version" />
         </section>
         <section name="sec_filter_norm" expanded="false" title="Normalize only selected records">
             <param name="include" type="text" optional="true" label="Include (normalize only matching records)" help="Expression evaluated before normalization to select records to normalize">
@@ -143,7 +184,9 @@ $atomization
         <test>
             <param name="input_file" ftype="vcf" value="norm.vcf"/>
             <expand macro="test_using_reference" ref="norm.fa"/>
-            <param name="normalize_indels" value="true"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="all"/>
+            </conditional>
             <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
@@ -155,7 +198,9 @@ $atomization
         <test>
             <param name="input_file" ftype="vcf" dbkey="?" value="norm.vcf"/>
             <expand macro="test_using_reference" select_from="cached" ref="norm"/>
-            <param name="normalize_indels" value="true"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="all"/>
+            </conditional>
             <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
@@ -182,7 +227,9 @@ $atomization
         <test>
             <param name="input_file" ftype="vcf" value="norm.split.vcf"/>
             <expand macro="test_using_reference" ref="norm.fa"/>
-            <param name="normalize_indels" value="true"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="all"/>
+            </conditional>
             <conditional name="multiallelics">
                 <param name="mode" value="-"/>
             </conditional>
@@ -240,10 +287,12 @@ $atomization
         <test>
             <param name="input_file" ftype="vcf" value="norm.split.vcf"/>
             <expand macro="test_using_reference" ref="norm.fa"/>
-            <param name="normalize_indels" value="true"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="all"/>
+            </conditional>
             <conditional name="multiallelics">
                 <param name="mode" value="-"/>
-                <param name="multiallelic_types" value="snps"/>
+                <param name="multiallelic_types" value="indels"/>
             </conditional>
             <param name="atomization" value="--atomize --atom-overlaps ."/>
             <param name="output_type" value="v"/>
@@ -262,7 +311,9 @@ $atomization
         <test>
             <param name="input_file" ftype="vcf" dbkey="?" value="norm.vcf"/>
             <expand macro="test_using_reference" select_from="cached" ref="norm"/>
-            <param name="normalize_indels" value="true"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="all"/>
+            </conditional>
             <param name="output_type" value="v"/>
             <section name="sec_restrict">
                 <conditional name="regions">
@@ -286,7 +337,9 @@ $atomization
         <test>
             <param name="input_file" ftype="vcf" value="norm.vcf"/>
             <expand macro="test_using_reference" ref="norm.fa"/>
-            <param name="normalize_indels" value="true"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="all"/>
+            </conditional>
             <section name="sec_default">
                 <param name="sort" value="lex"/>
             </section>
@@ -304,6 +357,41 @@ $atomization
                 <has_text text="--include 'QUAL&gt;10'"/>
             </assert_command>
         </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.vcf"/>
+            <expand macro="test_using_reference" ref="norm.fa"/>
+            <conditional name="realign">
+                <param name="realign_mode" value="length"/>
+                <param name="no_realign_length" value="500"/>
+            </conditional>
+            <param name="rm_dup" value="exact"/>
+            <param name="old_rec_tag" value="STR"/>
+            <param name="force" value="true"/>
+            <section name="sec_filter_norm">
+                <param name="exclude" value="QUAL&lt;10"/>
+            </section>
+            <section name="sec_default">
+                <param name="verbosity" value="1"/>
+                <param name="no_version" value="true"/>
+            </section>
+            <param name="output_type" value="v"/>
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="#CHROM"/>
+                    <has_text text="STR=20|3|GATG|GACT"/>
+                    <not_has_text text="bcftools_normCommand"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="-N500"/>
+                <has_text text="--rm-dup &quot;exact&quot;"/>
+                <has_text text="--old-rec-tag 'STR'"/>
+                <has_text text="--force"/>
+                <has_text text="--exclude 'QUAL&lt;10'"/>
+                <has_text text="--verbosity=1"/>
+                <has_text text="--no-version"/>
+            </assert_command>
+        </test>
     </tests>
     <help><![CDATA[
 =====================================
@@ -312,6 +400,23 @@ $atomization
 
 
 Left-align and normalize indels; check if REF alleles match the reference; split multiallelic sites into multiple rows; recover multiallelics from multiple rows.
+
+Atomization (-a, --atomize)
+---------------------------
+Decomposes complex variants (e.g. splits MNVs into consecutive SNVs). Alleles missing because of an overlapping variant can be set either to missing (.) or to the star allele (*), as recommended by the VCF specification.
+
+**Before atomization:**
+100  CC  C,GG   1/2
+
+**After (Atomize and use * ALT allele):**
+100  C   G,*    2/1
+100  CC  C,*    1/2
+101  C   G,*    2/1
+
+**After (Atomize and accept missing genotype info):**
+100  C   G      ./1
+100  CC  C      1/.
+101  C   G      ./1
 
 @REGIONS_HELP@
 @TARGETS_HELP@
