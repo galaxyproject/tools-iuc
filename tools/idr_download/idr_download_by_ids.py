@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import sys
 import tarfile
@@ -227,7 +226,6 @@ def download_image_data(
     download_tar: bool = False,
     omero_host: str = "idr.openmicroscopy.org",
     omero_secured: bool = False,
-    config_file: str = None,
 ) -> None:
     """Download the image data of
       either a list of image ids or all images from a dataset.
@@ -253,7 +251,10 @@ def download_image_data(
         download_tar (bool, optional): Put all downloaded images into a tar file. Defaults to False.
         omero_host (str, optional): omero host url. Defaults to "idr.openmicroscopy.org".
         omero_secured (bool, optional): Whether the omero connects with secure connection. Defaults to False.
-        config_file (string, optional): File path with config file with credentials to connect to OMERO. Defaults to None.
+        Credentials are read from the environment variables:
+            OMERO_USERNAME
+            OMERO_PASSWORD
+        If not set, defaults to "public".
 
     Raises:
         ValueError: If the region_spec is not 'rectangle' nor 'center' and a cropped region is wanted.
@@ -263,18 +264,12 @@ def download_image_data(
         ValueError: If the channel name could not be identified
     """
 
-    if config_file is None:  # IDR connection
+    omero_username = os.getenv("OMERO_USERNAME", "public")
+    omero_password = os.getenv("OMERO_PASSWORD", "public")
+
+    if not omero_username or not omero_password:
         omero_username = "public"
         omero_password = "public"
-    else:  # other omero instance
-        with open(config_file) as f:
-            cfg = json.load(f)
-            omero_username = cfg["username"]
-            omero_password = cfg["password"]
-
-            if omero_username == "" or omero_password == "":
-                omero_username = "public"
-                omero_password = "public"
 
     if (
         not download_original
@@ -576,7 +571,15 @@ def _center_to_ul(center_x: int, center_y: int, width: int, height: int) -> list
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(
+        description=(
+            "Download image data from OMERO.\n\n"
+            "Authentication is read from environment variables:\n"
+            "  OMERO_USERNAME\n"
+            "  OMERO_PASSWORD\n"
+            "If not set, defaults to 'public'."
+        )
+    )
     p.add_argument(
         "image_ids_or_dataset_id",
         nargs="*",
@@ -648,7 +651,6 @@ if __name__ == "__main__":
     p.add_argument("--download-tar", action="store_true")
     p.add_argument("-oh", "--omero-host", type=str, default="idr.openmicroscopy.org")
     p.add_argument("--omero-secured", action="store_true", default=True)
-    p.add_argument("-cf", "--config-file", dest="config_file", default=None)
     p.add_argument("--dataset", action="store_true")
     args = p.parse_args()
     if not args.image_ids_or_dataset_id:
