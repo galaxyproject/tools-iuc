@@ -20,6 +20,11 @@ except ImportError:
     print("Error: Stanza is not installed. Please install stanza.", file=sys.stderr)
     sys.exit(1)
 
+from certifi import where as certifi_where
+
+# Ensure CA certificates are found by hf_xet in conda containers.
+os.environ.setdefault("SSL_CERT_FILE", certifi_where())
+
 
 # Map annotator selections to Stanza processor strings
 PROCESSOR_MAP = {
