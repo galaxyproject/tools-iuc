@@ -1,0 +1,133 @@
+<tool id="ucsc_hubcheck" name="hubCheck" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="26.0">
+    <description>validate a UCSC track hub</description>
+    <macros>
+        <token name="@TOOL_VERSION@">482</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">UCSC_Genome_Browser_Utilities</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">ucsc-hubcheck</requirement>
+    </requirements>
+    <version_command><![CDATA[hubCheck 2>&1 | head -1]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## ⛔ NOT "aggressive", AND IT WAS. Aggressive mode scans the job's stdout/stderr for error
+## text -- but both streams are redirected into the report dataset below, so there was
+## nothing left to scan and it silently degraded to exit_code anyway. Declaring it claimed a
+## check that could not run. hubCheck's exit status is meaningful and authoritative here.
+##
+## ⚠ THE REPORT IS THE DIAGNOSIS, so it is copied to stderr as well. Previously a hub defect
+## failed the job and the only copy of the reason sat in a dataset marked error, with the
+## job's stderr empty -- nothing to read in the invocation view. No process substitution:
+## the job script is not guaranteed to run under bash (see faToTwoBit's note).
+##
+## ⛔ THE FLAG LIVES IN `truevalue`, NOT IN AN `#if`, SO THIS TOOL CAN BECOME A UDT. A
+## User-Defined Tool carries a `shell_command`, where a leading `#` is a SHELL COMMENT -- so
+## `udt_convert.py` refuses any wrapper whose command holds a Cheetah directive rather than
+## translate it and silently drop the branch. `#if str($settings_level) -settings #end if` was
+## that blocker and was the ONLY one here: hubCheck needs a single package, unlike faToTwoBit and
+## bedToBigBed, which each need two and so cannot have one container at all.
+##
+## ⚠ The rendered command is unchanged in both states. A boolean's `falsevalue=""` emits nothing,
+## and putting the flag in `truevalue` is where Galaxy expects it -- the `#if` was only ever
+## re-deriving what the boolean already knew. Both <test>s still assert both sides.
+hubCheck
+    $no_tracks
+    $settings_level
+    '$hub_url'
+    > '$report' 2>&1 ; rc=\$? ; cat '$report' >&2 ; exit \$rc
+    ]]></command>
+    <inputs>
+        <param argument="hub_url" type="text" label="Hub URL" help="URL (or local path) of the hub.txt to validate.">
+            <validator type="empty_field"/>
+        </param>
+        <param name="no_tracks" argument="-noTracks" type="boolean" truevalue="-noTracks" falsevalue="" checked="false" label="Skip per-track data checks" help="Check hub/genome/track structure only; do not fetch and validate track data files."/>
+        <param name="settings_level" argument="-settings" type="boolean" truevalue="-settings" falsevalue="" checked="false" label="Report setting support level" help="Output the support level of each track setting encountered."/>
+    </inputs>
+    <outputs>
+        <data name="report" format="txt" label="${tool.name} on ${on_string}: hubCheck report"/>
+    </outputs>
+    <tests>
+        <!-- ⛔ WHY THERE IS NO PASSING CASE HERE, STATED PRECISELY. A valid hub IS
+             reproducible offline: a 7-file fixture (hub.txt, genomes.txt, trackDb.txt,
+             two description pages and a 2bit built by faToTwoBit) passes hubCheck at exit 0,
+             measured. What is not reproducible is STAGING it: `hub_url` is a text param, and
+             Galaxy stages datasets, not directories, so a test cannot put seven sibling files
+             next to each other in the job directory. The earlier note here said such a hub was
+             not reproducible at all, which is not the same claim and is not true.
+             These two cases therefore assert the failure PATH and the flag rendering. -->
+        <test expect_failure="true" expect_exit_code="1">
+            <param name="hub_url" value="does_not_exist_hub.txt"/>
+            <param name="no_tracks" value="false"/>
+            <param name="settings_level" value="false"/>
+            <!-- ⛔ THE EXIT CODE, NOT THE TEXT. Asserting WHY it failed separates a real
+                 hub rejection from the tool being absent (127), mis-containerised, or dying
+                 in the settings fetch (255). It has to be the code: on a FAILED job
+                 assert_stderr is handed Galaxy's own synthesised "Fatal error: Exit code 1 ()"
+                 rather than the tool's stderr, so a has_text on hubCheck's own wording cannot
+                 match no matter what the wrapper writes. Measured: hubCheck exits 1 on a hub
+                 it cannot open, and 0 on a hub with no problems. -->
+        </test>
+        <!-- ⛔ BOTH SIDES OF EVERY BOOLEAN, SET EXPLICITLY. check_tool_defects' rule reads the
+             booleans a <test> SETS, so leaving one at its default is not the false side: it is
+             no side at all, and the rule used to stay silent for exactly that case. Asserted on
+             the COMMAND, which needs no new fixture and is what the flag affects. -->
+        <test expect_failure="true">
+            <param name="hub_url" value="does_not_exist_hub.txt"/>
+            <param name="no_tracks" value="true"/>
+            <param name="settings_level" value="true"/>
+            <!-- ⚠ This one does NOT fail on the hub: -settings makes hubCheck fetch the
+                 settings spec from genome.ucsc.edu first and it exits 255 there. So the
+                 assertion is on the COMMAND, which is what the two flags actually affect;
+                 do not add a stderr assertion about the hub file here. -->
+            <assert_command>
+                <has_text text="-noTracks"/>
+                <has_text text="-settings"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**hubCheck** — validate the structure and settings of a UCSC **track hub**.
+
+hubCheck walks a hub starting from its `hub.txt`, follows `genomes.txt` and each
+`trackDb`, and reports problems: missing required settings, unreadable
+`bigDataUrl` targets, malformed track stanzas, unsupported settings, etc. It is
+the standard pre-flight check before publishing a hub.
+
+-----
+
+**Input**
+
+- `Hub URL` — URL (or path) of the top-level `hub.txt`.
+
+**Output**
+
+- A plain-text validation report. A clean hub yields no warnings.
+
+-----
+
+**Key options**
+
+- `-noTracks` — validate hub/genome/trackDb structure only, skipping fetch and
+  validation of the underlying track data files (faster, works offline-ish).
+- `-settings` — annotate each track setting with its support level.
+
+**Note**
+
+A meaningful end-to-end check requires a complete, fetchable hub (hub.txt,
+genomes.txt, a 2bit assembly, and all bigDataUrl targets). The bundled test only
+exercises that the executable is invocable and fails on a missing hub.
+
+-----
+
+**References**
+
+- UCSC track hub reference: https://genome.ucsc.edu/goldenPath/help/hgTrackHubHelp.html
+- `hubCheck` source: https://github.com/ucscGenomeBrowser/kent/blob/master/src/hg/utils/hubCheck/hubCheck.c
+- Pre-built binaries and the full usage text: https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/FOOTER.txt
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bib/bbs038</citation>
+    </citations>
+</tool>

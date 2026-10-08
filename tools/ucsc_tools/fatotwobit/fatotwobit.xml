@@ -1,0 +1,114 @@
+<tool id="ucsc_fatotwobit" name="faToTwoBit" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="26.0">
+    <description>convert FASTA to the compact binary 2bit format</description>
+    <macros>
+        <token name="@TOOL_VERSION@">482</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@TWOBITTOFA_VERSION@">482</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">UCSC_Genome_Browser_Utilities</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">ucsc-fatotwobit</requirement>
+        <!-- ⛔ READ-BACK VERIFIER, NOT A CONVENIENCE. A 2bit keeps its sequence index at
+             the FRONT and the packed sequence after it, so a write that stopped early leaves
+             a file whose header still parses and whose datatype still sniffs, and the job
+             still reports ok. Galaxy offers no declarative equivalent: <assert_contents> is
+             declared only inside complexType TestOutput, so it never runs on a production job.
+             ⛔ THIS WAS twoBitInfo, AND twoBitInfo CANNOT SEE THE FAILURE. Measured against
+             kent v482 on a 99-byte 2bit: truncated by 1, 4 and 16 bytes it exits ZERO and
+             prints both sequence sizes, because it resolves the index and the record headers
+             and never reads the packed bases. Only at 40 bytes, once a header is damaged, does
+             it fail. twoBitToFa exits non-zero on all three ("End of file reading 7 bytes")
+             because it actually reads the bases, which is what a read-back is for. -->
+        <requirement type="package" version="@TWOBITTOFA_VERSION@">ucsc-twobittofa</requirement>
+    </requirements>
+    <version_command><![CDATA[faToTwoBit 2>&1 | head -1]]></version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#set $in_ext = 'fa.gz' if str($input.ext) == 'fasta.gz' else 'fa'
+ln -sf '$input' 'input.${in_ext}' &&
+faToTwoBit
+    $long
+    $no_mask
+    'input.${in_ext}'
+    '$output'
+## Read every base back. twoBitInfo resolves only the index and the record headers,
+## so a truncation inside the last sequence's packed bases leaves it exiting 0.
+&& twoBitToFa '$output' /dev/null
+    ]]></command>
+    <inputs>
+        <param argument="input" type="data" format="fasta,fasta.gz" label="Input FASTA" help="Nucleotide FASTA, plain or gzipped."/>
+        <param argument="-long" type="boolean" truevalue="-long" falsevalue="" checked="false" label="Use 64-bit offsets" help="Write a long (64-bit offset) 2bit file, required for genomes larger than 4 Gb."/>
+        <param name="no_mask" argument="-noMask" type="boolean" truevalue="-noMask" falsevalue="" checked="false" label="Ignore lowercase masking" help="Do not store soft-masking (lowercase) information."/>
+    </inputs>
+    <outputs>
+        <data name="output" format="twobit" label="${tool.name} on ${on_string}: 2bit"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="test.fa" ftype="fasta"/>
+            <param name="long" value="false"/>
+            <param name="no_mask" value="false"/>
+            <output name="output">
+                <assert_contents>
+                    <!-- 2bit magic 0x1A412743 -->
+                    <has_size min="40"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- ⛔ BOTH SIDES OF EVERY BOOLEAN, SET EXPLICITLY. check_tool_defects' rule reads the
+             booleans a <test> SETS, so leaving one at its default is not the false side: it is
+             no side at all, and the rule used to stay silent for exactly that case. Asserted on
+             the COMMAND, which needs no new fixture and is what the flag affects. -->
+        <test expect_num_outputs="1">
+            <param name="input" value="test.fa" ftype="fasta"/>
+            <param name="long" value="true"/>
+            <param name="no_mask" value="true"/>
+            <assert_command>
+                <has_text text="-long"/>
+                <has_text text="-noMask"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**faToTwoBit** — pack one or more FASTA sequences into the compact, random-access
+binary **2bit** format.
+
+2bit stores each base in two bits plus side tables for N-runs and soft-masking,
+giving a small file that genome browsers and track hubs can index by sequence
+and position. It is the canonical assembly container referenced from a hub's
+`genomes.txt` (`twoBitPath`).
+
+-----
+
+**Input**
+
+- `Input FASTA` — nucleotide FASTA, plain or gzipped.
+
+**Output**
+
+- A `twobit` dataset (magic `0x1A412743`).
+
+-----
+
+**Key options**
+
+- `-long` — emit 64-bit offsets (assemblies > 4 Gb).
+- `-noMask` — drop lowercase soft-masking.
+
+Pair with `twoBitInfo` to derive the `chrom.sizes` needed by `bedToBigBed`.
+
+-----
+
+**References**
+
+- UCSC 2bit format: https://genome.ucsc.edu/goldenPath/help/twoBit.html
+- `faToTwoBit` source: https://github.com/ucscGenomeBrowser/kent/blob/master/src/utils/faToTwoBit/faToTwoBit.c
+- Pre-built binaries and the full usage text: https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/FOOTER.txt
+
+This wrapper exposes the options that matter to a Galaxy job. faToTwoBit also accepts `-stripVersion`, `-ignoreDups`, `-namePrefix`, which are either process tuning or write paths a job cannot use; run `faToTwoBit` with no arguments to see the program's own list.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bib/bbs038</citation>
+    </citations>
+</tool>
