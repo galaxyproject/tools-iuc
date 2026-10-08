@@ -13,6 +13,7 @@ def build_from_existing_taxonomy(output_db, taxonomy_dir):
     required = [
         "nodes.dmp",
         "names.dmp",
+        "merged.dmp",
     ]
 
     for filename in required:
