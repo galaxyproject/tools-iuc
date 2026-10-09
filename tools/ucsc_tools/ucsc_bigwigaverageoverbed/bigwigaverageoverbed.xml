@@ -1,0 +1,170 @@
+<tool id="ucsc_bigwigaverageoverbed" name="bigWigAverageOverBed" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0" license="MIT">
+    <description>Compute average score of a bigWig over each BED region</description>
+    <macros>
+        <token name="@TOOL_VERSION@">482</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">UCSC_Genome_Browser_Utilities</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">ucsc-bigwigaverageoverbed</requirement>
+    </requirements>
+    <version_command><![CDATA[ echo "@TOOL_VERSION@" ]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+bigWigAverageOverBed
+    '$bigwig'
+    '$regions'
+    '$output'
+    #if $region_mode.mode == 'center'
+        -sampleAroundCenter=$region_mode.sampleAroundCenter
+    #end if
+    $minMax
+    $tsv
+    #if $extra_outputs.out_bed
+        -bedOut='$bed_output'
+    #end if
+    #if $extra_outputs.out_stats
+        -stats='$stats_output'
+    #end if
+    ]]></command>
+    <inputs>
+        <param name="bigwig" type="data" format="bigwig" label="bigWig signal file"
+               help="For example read coverage created from a BAM file."/>
+        <param name="regions" type="data" format="bed" label="Regions (BED)"
+               help="Needs at least 4 columns, and the names in column 4 must be unique. With BED12 only the blocks (exons) are counted."/>
+        <conditional name="region_mode">
+            <param name="mode" type="select" label="Where to measure the signal">
+                <option value="region" selected="true">Over each whole region</option>
+                <option value="center">In a window around the centre of each region</option>
+            </param>
+            <when value="region"/>
+            <when value="center">
+                <param argument="-sampleAroundCenter" type="integer" value="100" min="1" label="Window width (bases)"
+                       help="The window is centred on the middle of each region and replaces the region itself."/>
+            </when>
+        </conditional>
+        <param argument="-minMax" type="boolean" truevalue="-minMax" falsevalue="" checked="false"
+               label="Report minimum and maximum" help="Adds two columns with the lowest and highest value seen in each region."/>
+        <param argument="-tsv" type="boolean" truevalue="-tsv" falsevalue="" checked="false"
+               label="Add a header line" help="Writes the column names as the first line of the summary table."/>
+        <section name="extra_outputs" title="Additional outputs" expanded="false">
+            <param name="out_bed" type="boolean" checked="false" label="Regions with the mean appended"
+                   help="(-bedOut) A copy of the input regions with the mean as an extra column."/>
+            <param name="out_stats" type="boolean" checked="false" label="Overall statistics"
+                   help="(-stats) Totals over all regions, such as the share of the total signal that falls inside them."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}: summary"/>
+        <data name="bed_output" format="interval" label="${tool.name} on ${on_string}: regions with mean">
+            <filter>extra_outputs['out_bed']</filter>
+        </data>
+        <data name="stats_output" format="txt" label="${tool.name} on ${on_string}: overall statistics">
+            <filter>extra_outputs['out_stats']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: defaults, plain BED6 -->
+        <test expect_num_outputs="1">
+            <param name="bigwig" value="signal.bigwig"/>
+            <param name="regions" value="genes.bed"/>
+            <output name="output" file="genes_default.tabular"/>
+        </test>
+        <!-- 2: BED12 (only the blocks are counted), min/max columns and header line -->
+        <test expect_num_outputs="1">
+            <param name="bigwig" value="signal.bigwig"/>
+            <param name="regions" value="transcripts.bed12" ftype="bed12"/>
+            <param name="minMax" value="true"/>
+            <param name="tsv" value="true"/>
+            <output name="output" file="transcripts_minmax_header.tabular">
+                <assert_contents>
+                    <has_n_columns n="8"/>
+                    <has_line line="txB&#009;500&#009;300&#009;1200&#009;2.4&#009;4&#009;2&#009;5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3: window around the centre, plus both additional outputs -->
+        <test expect_num_outputs="3">
+            <param name="bigwig" value="signal.bigwig"/>
+            <param name="regions" value="genes.bed"/>
+            <conditional name="region_mode">
+                <param name="mode" value="center"/>
+                <param name="sampleAroundCenter" value="100"/>
+            </conditional>
+            <section name="extra_outputs">
+                <param name="out_bed" value="true"/>
+                <param name="out_stats" value="true"/>
+            </section>
+            <output name="output" file="genes_center100.tabular"/>
+            <output name="bed_output" file="genes_center100.interval"/>
+            <output name="stats_output" file="genes_center100_stats.txt">
+                <assert_contents>
+                    <has_text text="basesInSpots 400"/>
+                    <has_text text="basesInSpotsWithSignal 100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 4: duplicated region names must fail with a clear message -->
+        <test expect_failure="true">
+            <param name="bigwig" value="signal.bigwig"/>
+            <param name="regions" value="duplicate_names.bed"/>
+            <assert_stderr>
+                <has_text text="geneA duplicated in input bed"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+`bigWigAverageOverBed`_ summarises the signal of a bigWig file over each region of a BED file.
+It reports one line per region, for example the read coverage of every gene in one sample.
+
+**Inputs**
+
+- A bigWig file with the signal, for example coverage made from a BAM file.
+- A BED file with the regions. It needs at least 4 columns and the names in column 4 must be unique.
+  If the file is BED12, only the blocks (exons) are counted and the gaps between them (introns) are skipped.
+
+**Output**
+
+A table with one row per region:
+
+======= =======================================================================
+Column  Meaning
+======= =======================================================================
+name    name of the region (column 4 of the BED file)
+size    number of bases in the region (sum of the block sizes for BED12)
+covered number of those bases that have data in the bigWig
+sum     sum of the signal over the covered bases
+mean0   sum / size, so bases without data count as zero
+mean    sum / covered, the average over the covered bases only
+======= =======================================================================
+
+``covered / size`` gives the breadth of coverage of a region and ``mean0`` its average depth.
+With *Report minimum and maximum* two more columns, ``min`` and ``max``, are added.
+
+**Note on the "covered" column**
+
+``covered`` counts bases that have *any* value in the bigWig, including an explicit zero.
+If the bigWig stores zeros for bases without reads, ``covered`` always equals ``size`` and every
+region looks fully covered. To measure breadth of coverage, create the bigWig without those zeros,
+for example with the *Skip non-covered regions* option of bamCoverage.
+
+**Additional outputs**
+
+- *Regions with the mean appended*: the input regions with the ``mean`` as an extra last column
+  (followed by ``min`` and ``max`` if requested).
+- *Overall statistics*: totals over all regions, such as the fraction of the total signal that
+  lies inside the regions (``spotRatio``).
+
+For implementation details see the `source code`_.
+
+.. _bigWigAverageOverBed: http://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/FOOTER.txt
+.. _source code: https://github.com/ucscGenomeBrowser/kent/blob/master/src/utils/bigWigAverageOverBed/bigWigAverageOverBed.c
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bib/bbs038</citation>
+        <citation type="doi">10.1093/bioinformatics/btq351</citation>
+    </citations>
+</tool>
