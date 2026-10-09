@@ -542,9 +542,12 @@ class JbrowseConnector(object):
         )
 
     def add_bigwig(self, parent, data, trackData, wiggleOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".bw")
-        dest = os.path.join(self.outdir, rel_dest)
-        self.symlink_or_copy(os.path.realpath(data), dest)
+        if trackData['remote']:
+            rel_dest = data
+        else:
+            rel_dest = os.path.join("data", trackData["label"] + ".bw")
+            dest = os.path.join(self.outdir, rel_dest)
+            self.symlink_or_copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
         track_metadata = self._prepare_track_metadata(trackData)
@@ -557,8 +560,8 @@ class JbrowseConnector(object):
             rel_dest,
             parent,
             config=style_json,
-            remote=False
-        )
+            remote=trackData['remote']
+            )
 
     def add_bigwig_multi(self, parent, data_files, trackData, wiggleOpts, **kwargs):
         subadapters = []
@@ -652,6 +655,25 @@ class JbrowseConnector(object):
             remote=trackData['remote']
         )
 
+        seq_adapter = {}
+        config_path = os.path.join(self.outdir, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as config_file:
+                config_json = json.load(config_file)
+
+                if "assemblies" in config_json:
+                    for assembly in config_json["assemblies"]:
+                        if assembly.get("name", "") == parent['uniq_id']:
+                            seq_adapter = assembly.get("sequence", {}).get("adapter", {})
+
+                if seq_adapter:
+                    for track in config_json.get("tracks", []):
+                        if track.get("trackId") == trackData["label"] and "adapter" in track:
+                            track["adapter"]["sequenceAdapter"] = seq_adapter
+
+            with open(config_path, "w") as config_file:
+                json.dump(config_json, config_file, indent=2)
+
     def add_vcf(self, parent, data, trackData, vcfOpts={}, zipped=False, **kwargs):
         if trackData['remote']:
             rel_dest = data
@@ -673,13 +695,9 @@ class JbrowseConnector(object):
                 rel_dest = os.path.join("data", trackData["label"] + ".vcf.gz")
 
         style_json = self._prepare_track_style(trackData)
-
         formatdetails = self._prepare_format_details(trackData)
-
         style_json.update(formatdetails)
-
         track_metadata = self._prepare_track_metadata(trackData)
-
         style_json.update(track_metadata)
 
         self._add_track(
@@ -693,9 +711,13 @@ class JbrowseConnector(object):
         )
 
     def add_gff(self, parent, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".gff")
-        dest = os.path.join(self.outdir, rel_dest)
-        shutil.copy(os.path.realpath(data), dest)
+        if trackData['remote']:
+            rel_dest = data
+        else:
+            rel_dest = os.path.join("data", trackData["label"] + ".gff")
+            dest = os.path.join(self.outdir, rel_dest)
+            rel_dest = rel_dest + ".gz"
+            self._sort_gff(data, dest)
 
         style_json = self._prepare_track_style(trackData)
         formatdetails = self._prepare_format_details(trackData)
@@ -708,37 +730,29 @@ class JbrowseConnector(object):
                 if "renderer" in display and display["renderer"]["type"] == "SvgFeatureRenderer":
                     display["renderer"]["type"] = "CanvasFeatureRenderer"
 
-        json_track_data = {
-            "type": "FeatureTrack",
-            "trackId": trackData["label"],
-            "name": trackData["key"],
-            "adapter": {
-                "type": "Gff3Adapter",
-                "gffLocation": {
-                    "uri": rel_dest,
-                    "locationType": "UriLocation"
-                }
-            },
-            "category": [trackData["category"]],
-            "assemblyNames": [parent['uniq_id']],
-        }
-        json_track_data.update(style_json)
+        if gffOpts.get('index', 'false') in ("yes", "true", "True"):
+            if parent['uniq_id'] not in self.tracksToIndex:
+                self.tracksToIndex[parent['uniq_id']] = []
+            self.tracksToIndex[parent['uniq_id']].append(trackData["label"])
 
-        self.subprocess_check_call(
-            [
-                "jbrowse",
-                "add-track-json",
-                "--target",
-                self.outdir,
-                json.dumps(json_track_data),
-            ]
+        self._add_track(
+            trackData["label"],
+            trackData["key"],
+            trackData["category"],
+            rel_dest,
+            parent,
+            config=style_json,
+            remote=trackData['remote']
         )
 
     def add_gtf(self, parent, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".gtf")
-        dest = os.path.join(self.outdir, rel_dest)
-        shutil.copy(os.path.realpath(data), dest)
-
+        if trackData['remote']:
+            rel_dest = data
+        else:
+            rel_dest = os.path.join("data", trackData["label"] + ".gtf")
+            dest = os.path.join(self.outdir, rel_dest)
+            shutil.copy(os.path.realpath(data), dest)
+        
         style_json = self._prepare_track_style(trackData)
         formatdetails = self._prepare_format_details(trackData)
         style_json.update(formatdetails)
@@ -784,9 +798,13 @@ class JbrowseConnector(object):
         )
 
     def add_bed(self, parent, data, format, trackData, gffOpts, **kwargs):
-        rel_dest = os.path.join("data", trackData["label"] + ".bed")
-        dest = os.path.join(self.outdir, rel_dest)
-        shutil.copy(os.path.realpath(data), dest)
+        if trackData['remote']:
+            rel_dest = data
+        else:
+            rel_dest = os.path.join("data", trackData["label"] + ".bed")
+            dest = os.path.join(self.outdir, rel_dest)
+            rel_dest = rel_dest + ".gz"
+            self._sort_bed(data, dest)
 
         style_json = self._prepare_track_style(trackData)
         formatdetails = self._prepare_format_details(trackData)
@@ -799,30 +817,19 @@ class JbrowseConnector(object):
                 if "renderer" in display and display["renderer"]["type"] == "SvgFeatureRenderer":
                     display["renderer"]["type"] = "CanvasFeatureRenderer"
 
-        json_track_data = {
-            "type": "FeatureTrack",
-            "trackId": trackData["label"],
-            "name": trackData["key"],
-            "adapter": {
-                "type": "BedAdapter",
-                "bedLocation": {
-                    "uri": rel_dest,
-                    "locationType": "UriLocation"
-                }
-            },
-            "category": [trackData["category"]],
-            "assemblyNames": [parent['uniq_id']],
-        }
-        json_track_data.update(style_json)
+        if gffOpts.get('index', 'false') in ("yes", "true", "True"):
+            if parent['uniq_id'] not in self.tracksToIndex:
+                self.tracksToIndex[parent['uniq_id']] = []
+            self.tracksToIndex[parent['uniq_id']].append(trackData["label"])
 
-        self.subprocess_check_call(
-            [
-                "jbrowse",
-                "add-track-json",
-                "--target",
-                self.outdir,
-                json.dumps(json_track_data),
-            ]
+        self._add_track(
+            trackData["label"],
+            trackData["key"],
+            trackData["category"],
+            rel_dest,
+            parent,
+            config=style_json,
+            remote=trackData['remote']
         )
 
     def add_paf(self, parent, data, trackData, pafOpts, **kwargs):
@@ -934,9 +941,7 @@ class JbrowseConnector(object):
             self.symlink_or_copy(os.path.realpath(data), dest)
 
         style_json = self._prepare_track_style(trackData)
-
         track_metadata = self._prepare_track_metadata(trackData)
-
         style_json.update(track_metadata)
 
         self._add_track(
@@ -1029,7 +1034,7 @@ class JbrowseConnector(object):
         }
 
         if query_refnames:
-            json_track_data["adapter"]["refNamesQueryTemplate"]: query_refnames
+            json_track_data["adapter"]["refNamesQueryTemplate"]= query_refnames
 
         # TODO handle metadata somehow for sparql too
 
