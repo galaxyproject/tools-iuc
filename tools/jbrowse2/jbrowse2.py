@@ -561,7 +561,7 @@ class JbrowseConnector(object):
             parent,
             config=style_json,
             remote=trackData['remote']
-            )
+        )
 
     def add_bigwig_multi(self, parent, data_files, trackData, wiggleOpts, **kwargs):
         subadapters = []
@@ -752,7 +752,7 @@ class JbrowseConnector(object):
             rel_dest = os.path.join("data", trackData["label"] + ".gtf")
             dest = os.path.join(self.outdir, rel_dest)
             shutil.copy(os.path.realpath(data), dest)
-        
+
         style_json = self._prepare_track_style(trackData)
         formatdetails = self._prepare_format_details(trackData)
         style_json.update(formatdetails)
@@ -1034,7 +1034,7 @@ class JbrowseConnector(object):
         }
 
         if query_refnames:
-            json_track_data["adapter"]["refNamesQueryTemplate"]= query_refnames
+            json_track_data["adapter"]["refNamesQueryTemplate"] = query_refnames
 
         # TODO handle metadata somehow for sparql too
 
