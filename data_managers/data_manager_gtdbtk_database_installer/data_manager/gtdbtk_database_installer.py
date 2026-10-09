@@ -38,6 +38,14 @@ urls = {
         "meta_ar": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/ar53_metadata_r226.tsv.gz",
         "meta_bac": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/bac120_metadata_r226.tsv.gz",
     },
+    "232": {
+        "full": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz",
+        "meta_ar": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/ar53_metadata_r232.tsv.gz",
+        "meta_bac": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/bac120_metadata_r232.tsv.gz",
+    },
+    "mocked": {
+        "full": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/mockup_db/r232_mockup.tar.gz",
+    },
 }
 
 
@@ -179,7 +187,10 @@ def create_data_manager_entry(database_name, release, file_path):
     data_manager_entry["value"] = (
         f"{database_name.replace(' ', '_').lower()}_release_{release}_downloaded_{time}"
     )
-    data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
+    if release == "mocked_232":
+        data_manager_entry["name"] = "Mocked GTBD DB (232)"
+    else:
+        data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
     data_manager_entry["path"] = file_path
     data_manager_entry["version"] = release
     return data_manager_entry

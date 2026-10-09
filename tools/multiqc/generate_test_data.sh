@@ -174,8 +174,8 @@ rm -rf 'multiqc_data/'
 
 # 4th test
 mkdir -p 'multiqc_WDir/custom_content_0'
-cp 'test-data/cc_ko15.bpc.tab' 'multiqc_WDir/custom_content_0/file_0_0.tsv'
-cp 'test-data/cc_wt15.bpc.tab' 'multiqc_WDir/custom_content_0/file_0_1.tsv'
+cp 'test-data/cc_ko15.bpc.tab' 'multiqc_WDir/custom_content_0/file_0_cc_ko15_bpc_tab'
+cp 'test-data/cc_wt15.bpc.tab' 'multiqc_WDir/custom_content_0/file_0_cc_wt15_bpc_tab'
 
 echo "custom_data:" > 'config_file'
 echo "    section_0:" >> 'config_file'
@@ -191,6 +191,9 @@ echo "            xlab: 'Retention Time'" >> 'config_file'
 echo "sp:" >> 'config_file'
 echo "    section_0:" >> 'config_file'
 echo "        fn: 'file_0_*'" >> 'config_file'
+echo "extra_fn_clean_exts:" >> 'config_file'
+echo "    - type: regex" >> 'config_file'
+echo "      pattern: '^file_0_'" >> 'config_file'
 
 multiqc multiqc_WDir -c 'config_file'
 

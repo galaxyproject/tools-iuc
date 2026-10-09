@@ -1,0 +1,441 @@
+<tool id="chromap" name="chromap" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Fast alignment and preprocessing of chromatin profiles</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    ## Step 1: Build index from reference FASTA
+    chromap
+        -i
+        -r '$input_options.ref'
+        -o chromap_index
+        -k $index_options.kmer
+        -w $index_options.window
+        #if $index_options.min_frag_length
+            --min-frag-length $index_options.min_frag_length
+        #end if
+    &&
+
+    ## Step 2: Map reads using built index
+    chromap
+        --preset $mapping_options.preset
+        #if $input_options.read_type.input_reads_type == 'single'
+            #set reads = $input_options.read_type.single_read
+            -1 #echo ' '.join(["'%s'" % f for f in str($reads).split(',')])#
+        #else
+            -1 '$input_options.read_type.paired_collection.forward'
+            -2 '$input_options.read_type.paired_collection.reverse'
+        #end if
+
+        ## --- Reference and index ---
+        -r '$input_options.ref'
+        -x chromap_index
+
+        ## --- Optional barcode inputs ---
+        #if $input_options.barcode
+            -b '$input_options.barcode'
+        #end if
+        #if $input_options.barcode_whitelist
+            --barcode-whitelist '$input_options.barcode_whitelist'
+        #end if
+        #if $input_options.read_format
+            --read-format '$input_options.read_format'
+        #end if
+        #if $input_options.barcode_translate
+            --barcode-translate '$input_options.barcode_translate'
+        #end if
+
+        ## --- Mapping options ---
+        $mapping_options.split_alignment
+        --error-threshold $mapping_options.error_threshold
+        --min-num-seeds $mapping_options.min_num_seeds
+        #if $mapping_options.max_seed_frequencies
+            --max-seed-frequencies '$mapping_options.max_seed_frequencies'
+        #end if
+        --max-insert-size $mapping_options.max_insert_size
+        --MAPQ-threshold $mapping_options.MAPQ_threshold
+        --min-read-length $mapping_options.min_read_length
+        $mapping_options.trim_adapters
+        $mapping_options.Tn5_shift
+        #if $mapping_options.bc_error_threshold
+            --bc-error-threshold $mapping_options.bc_error_threshold
+        #end if
+        #if $mapping_options.bc_probability_threshold
+            --bc-probability-threshold $mapping_options.bc_probability_threshold
+        #end if
+        #if $mapping_options.chr_order
+            --chr-order '$mapping_options.chr_order'
+        #end if
+        #if $mapping_options.pairs_natural_chr_order
+            --pairs-natural-chr-order '$mapping_options.pairs_natural_chr_order'
+        #end if
+
+        ## --- Output format ---
+        $output_options.out_format
+        #if $output_options.summary
+            --summary '$summary_out'
+        #end if
+        -t "\${GALAXY_SLOTS:-8}"
+        -o '$mapping_out'
+    
+    ]]></command>
+    <inputs>
+        <!-- Input Options -->
+        <section name="input_options" title="Input options" expanded="true">
+            <conditional name="read_type">
+                <param name="input_reads_type" type="select" label="Select the Input read type">
+                    <option value="single" selected="true">Single-end</option>
+                    <option value="paired">Paired-end collection</option>
+                </param>
+                <when value="single">
+                    <param name="single_read" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" multiple="true" label="Single Read"/>
+                </when>
+                <when value="paired">
+                    <param name="paired_collection" type="data_collection" collection_type="paired" label="Paired reads collection" help="Select a paired collection containing forward and reverse reads."/>
+                </when>
+            </conditional>
+            <param argument="--ref" type="data" format="fasta" label="Reference (FASTA)"/>
+            <param argument="--barcode" type="data" format="fastq,fastq.gz" label="Barcode file" optional="true"/>
+            <param argument="--barcode-whitelist" type="data" format="txt" label="Barcode whitelist file" optional="true"/>
+            <param argument="--read-format" type="text" optional="true" label="Read/barcode format string" help='Example: "r1:0:-1,bc:0:-1" (10x single-end)'/>
+            <param argument="--barcode-translate" type="data" format="tabular" label="Barcode translate file" optional="true"/>
+        </section>
+
+        <!-- Indexing Options -->
+        <section name="index_options" title="Indexing options" expanded="false">
+            <param argument="--min-frag-length" type="integer" optional="true" value="30" label="Min fragment length for choosing kmer length and window automatically" help="chromap --min-frag-length (default 30)"/>
+            <param argument="--kmer" type="integer" value="17" label="K-mer length"/>
+            <param argument="--window" type="integer" value="7" label="Window size"/>
+        </section>
+
+        <!-- Mapping Options -->
+        <section name="mapping_options" title="Mapping" expanded="false">
+            <param argument="--preset" type="select" label="Preset" help="Preset parameters for mapping reads">
+                <option value="atac">atac (ATAC-seq/scATAC-seq)</option>
+                <option value="chip">chip (ChIP-seq)</option>
+                <option value="hic">hic (Hi-C)</option>
+            </param>
+            <param argument="--split-alignment" type="boolean" label="Allow split alignments" truevalue="--split-alignment" falsevalue="" checked="false"/>
+            <param argument="--error-threshold" type="integer" value="8" label="Max errors allowed"/>
+            <param argument="--min-num-seeds" type="integer" value="2" label="Min number of seeds"/>
+            <param argument="--max-seed-frequencies" type="text" optional="true" value="500,1000" label="Max seed frequencies" help="Comma-separated(default 500,1000)"/>
+            <param argument="--max-insert-size" type="integer" value="1000" label="Max insert size (only for paired-end read mapping)"/>
+            <param argument="--MAPQ-threshold" type="integer" value="30" min="0" max="60" label="Min MAPQ (-q)"/>
+            <param argument="--min-read-length" type="integer" value="30" label="Minimum read length"/>
+            <param argument="--trim-adapters" type="boolean" label="Trim adapters on 3' (--trim-adapters)" truevalue="--trim-adapters" falsevalue="" checked="false"/>
+            <param argument="--Tn5-shift" type="boolean" label="Perform Tn5 shift" truevalue="--Tn5-shift" falsevalue="" checked="false"/>
+            <param argument="--bc-error-threshold" type="integer" optional="true" value="1" label="Barcode error threshold"/>
+            <param argument="--bc-probability-threshold" type="float" optional="true" value="0.9" label="Barcode probability threshold"/>
+            <param argument="--chr-order" type="data" format="tabular"  label="Custom chromosome order" optional="true"/>
+            <param argument="--pairs-natural-chr-order" type="data" format="tabular" label="Chrom order for pairs flipping" optional="true"/>
+
+        </section>
+
+        <!-- Output Options -->
+        <section name="output_options" title="Output" expanded="true">
+            <param name="out_format" type="select" label="Output format">
+                <option value="--SAM">SAM</option>
+                <option value="--BED" selected="true">BED/BEDPE</option>
+                <option value="--TagAlign">TagAlign/PairedTagAlign</option>
+                <option value="--pairs">4dn pairs</option>
+            </param>
+            <param name="summary" type="boolean" label="Produce summary file" truevalue="--summary" falsevalue="" checked="true"/>
+        </section>
+    </inputs>
+
+    <outputs>
+        <!-- Mapping primary output; actual datatype depends on out_format -->
+        <data name="mapping_out" format="bed" label="${tool.name} on ${on_string}: Mapping output">
+            <change_format>
+                <when input="output_options.out_format" value="--SAM" format="sam"/>
+                <when input="output_options.out_format" value="--BED" format="bed"/>
+                <when input="output_options.out_format" value="--TagAlign" format="tabular"/>
+                <when input="output_options.out_format" value="--pairs" format="4dn_pairs"/>
+            </change_format>
+        </data>
+        <data name="summary_out" format="txt" label="${tool.name} on ${on_string}: Summary">
+            <filter>output_options['summary']</filter>
+        </data>
+    </outputs>
+
+    <tests>
+    <!-- Test 1: Paired-end ChIP-seq, BED output, with summary. -->
+        <test expect_num_outputs="2">
+            <section name="input_options">
+                <conditional name="read_type">
+                    <param name="input_reads_type" value="paired"/>
+                    <param name="paired_collection">
+                        <collection type="paired">
+                            <element name="forward" value="read1.fq"/>
+                            <element name="reverse" value="read2.fq"/>
+                        </collection>
+                    </param>
+                </conditional>
+                <param name="ref" value="ref.fa" ftype="fasta"/>
+            </section>
+            <section name="index_options">
+                <param name="kmer" value="17"/>
+                <param name="window" value="7"/>
+            </section>
+            <section name="mapping_options">
+                <param name="preset" value="chip"/>
+                <param name="split_alignment" value="false"/>
+                <param name="error_threshold" value="8"/>
+                <param name="min_num_seeds" value="2"/>
+                <param name="max_insert_size" value="1000"/>
+                <param name="MAPQ_threshold" value="30"/>
+                <param name="min_read_length" value="30"/>
+                <param name="trim_adapters" value="false"/>
+                <param name="Tn5_shift" value="false"/>
+            </section>
+            <section name="output_options">
+                <param name="out_format" value="--BED"/>
+                <param name="summary" value="true"/>
+            </section>
+            <output name="mapping_out" file="test01_mapping.bed" ftype="bed"/>
+            <output name="summary_out" file="test01_summary.txt" ftype="txt"/>
+        </test>
+
+    <!-- Test 2: Single-end ATAC-seq, SAM output, Tn5 shift and adapter trimming enabled, no summary. -->
+        <test expect_num_outputs="1">
+            <section name="input_options">
+                <conditional name="read_type">
+                    <param name="input_reads_type" value="single"/>
+                    <param name="single_read" value="read1_se.fq"/>
+                </conditional>
+                <param name="ref" value="ref.fa" ftype="fasta"/>
+            </section>
+            <section name="index_options">
+                <param name="kmer" value="17"/>
+                <param name="window" value="7"/>
+            </section>
+            <section name="mapping_options">
+                <param name="preset" value="atac"/>
+                <param name="split_alignment" value="false"/>
+                <param name="error_threshold" value="8"/>
+                <param name="min_num_seeds" value="2"/>
+                <param name="max_insert_size" value="1000"/>
+                <param name="MAPQ_threshold" value="0"/>
+                <param name="min_read_length" value="30"/>
+                <param name="trim_adapters" value="true"/>
+                <param name="Tn5_shift" value="true"/>
+            </section>
+            <section name="output_options">
+                <param name="out_format" value="--SAM"/>
+                <param name="summary" value="false"/>
+            </section>
+            <output name="mapping_out" file="test02_mapping.sam" ftype="sam"/>
+        </test>
+
+    <!-- Test 3: Paired-end Hi-C, TagAlign output, split alignments on -->
+        <test expect_num_outputs="1">
+            <section name="input_options">
+                <conditional name="read_type">
+                    <param name="input_reads_type" value="paired"/>
+                    <param name="paired_collection">
+                        <collection type="paired">
+                            <element name="forward" value="read1.fq"/>
+                            <element name="reverse" value="read2.fq"/>
+                        </collection>
+                    </param>
+                </conditional>
+                <param name="ref" value="ref.fa" ftype="fasta"/>
+            </section>
+            <section name="index_options">
+                <param name="kmer" value="17"/>
+                <param name="window" value="7"/>
+            </section>
+            <section name="mapping_options">
+                <param name="preset" value="hic"/>
+                <param name="split_alignment" value="true"/>
+                <param name="error_threshold" value="8"/>
+                <param name="min_num_seeds" value="2"/>
+                <param name="max_insert_size" value="1000"/>
+                <param name="MAPQ_threshold" value="0"/>
+                <param name="min_read_length" value="30"/>
+                <param name="trim_adapters" value="false"/>
+                <param name="Tn5_shift" value="false"/>
+            </section>
+            <section name="output_options">
+                <param name="out_format" value="--TagAlign"/>
+                <param name="summary" value="false"/>
+            </section>
+            <output name="mapping_out" file="test03_mapping.tsv" ftype="tabular"/>
+        </test>
+
+    <!-- Test 4: Paired-end Hi-C, 4DN pairs output, preset hic, pairs format, summary off -->
+        <test expect_num_outputs="1">
+            <section name="input_options">
+                <conditional name="read_type">
+                    <param name="input_reads_type" value="paired"/>
+                    <param name="paired_collection">
+                        <collection type="paired">
+                            <element name="forward" value="read1.fq"/>
+                            <element name="reverse" value="read2.fq"/>
+                        </collection>
+                    </param>
+                </conditional>
+                <param name="ref" value="ref.fa" ftype="fasta"/>
+            </section>
+            <section name="index_options">
+                <param name="kmer" value="17"/>
+                <param name="window" value="7"/>
+            </section>
+            <section name="mapping_options">
+                <param name="preset" value="hic"/>
+                <param name="split_alignment" value="false"/>
+                <param name="error_threshold" value="8"/>
+                <param name="min_num_seeds" value="2"/>
+                <param name="max_insert_size" value="2000"/>
+                <param name="MAPQ_threshold" value="0"/>
+                <param name="min_read_length" value="30"/>
+                <param name="trim_adapters" value="false"/>
+                <param name="Tn5_shift" value="false"/>
+            </section>
+            <section name="output_options">
+                <param name="out_format" value="--pairs"/>
+                <param name="summary" value="false"/>
+            </section>
+            <output name="mapping_out" file="test04_mapping.pairs" ftype="4dn_pairs"/>
+        </test>
+
+    <!-- Test 5: Single-end scATAC with barcode file and whitelist -->
+        <test expect_num_outputs="2">
+            <section name="input_options">
+                <conditional name="read_type">
+                    <param name="input_reads_type" value="single"/>
+                    <param name="single_read" value="read1_se.fq"/>
+                </conditional>
+                <param name="ref" value="ref.fa" ftype="fasta"/>
+                <param name="barcode" value="barcode.fq"/>
+                <param name="barcode_whitelist" value="whitelist.txt"/>
+                <param name="read_format" value="r1:0:-1,bc:0:-1"/>
+            </section>
+            <section name="index_options">
+                <param name="kmer" value="17"/>
+                <param name="window" value="7"/>
+            </section>
+            <section name="mapping_options">
+                <param name="preset" value="atac"/>
+                <param name="split_alignment" value="false"/>
+                <param name="error_threshold" value="8"/>
+                <param name="min_num_seeds" value="2"/>
+                <param name="max_insert_size" value="1000"/>
+                <param name="MAPQ_threshold" value="0"/>
+                <param name="min_read_length" value="30"/>
+                <param name="trim_adapters" value="false"/>
+                <param name="Tn5_shift" value="false"/>
+                <param name="bc_error_threshold" value="1"/>
+                <param name="bc_probability_threshold" value="0.9"/>
+            </section>
+            <section name="output_options">
+                <param name="out_format" value="--BED"/>
+                <param name="summary" value="true"/>
+            </section>
+            <output name="mapping_out" file="test05_mapping.bed" ftype="bed"/>
+            <output name="summary_out" file="test05_summary.txt" ftype="txt"/>
+        </test>
+
+    <!-- Test 6: Single-end ATAC, relaxed MAPQ (threshold=0), custom kmer/window, no summary -->
+        <test expect_num_outputs="1">
+            <section name="input_options">
+                <conditional name="read_type">
+                    <param name="input_reads_type" value="single"/>
+                    <param name="single_read" value="read1_se.fq"/>
+                </conditional>
+                <param name="ref" value="ref.fa" ftype="fasta"/>
+            </section>
+            <section name="index_options">
+                <param name="kmer" value="15"/>
+                <param name="window" value="5"/>
+            </section>
+            <section name="mapping_options">
+                <param name="preset" value="atac"/>
+                <param name="split_alignment" value="false"/>
+                <param name="error_threshold" value="8"/>
+                <param name="min_num_seeds" value="2"/>
+                <param name="max_insert_size" value="1000"/>
+                <param name="MAPQ_threshold" value="0"/>
+                <param name="min_read_length" value="30"/>
+                <param name="trim_adapters" value="false"/>
+                <param name="Tn5_shift" value="false"/>
+            </section>
+            <section name="output_options">
+                <param name="out_format" value="--BED"/>
+                <param name="summary" value="false"/>
+            </section>
+            <output name="mapping_out" file="test06_mapping.bed" ftype="bed"/>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+
+**chromap** is a fast aligner and preprocessor for chromatin profiling data (ATAC-seq, ChIP-seq, Hi-C and their single-cell variants).
+
+-----
+
+**Inputs**
+
+*Reads* : Provide either single-end FASTQ files or a paired-end collection. Multiple single-end files can be selected and will be processed together.  
+
+*Reference* : A reference genome in FASTA format. The index is built automatically — no separate indexing step is needed.  
+
+*Barcode file* (optional) : For single-cell experiments, provide a FASTQ file containing cell barcode sequences. Use the **Read/barcode format string** to describe how reads and barcodes are distributed across files. The default ``r1:0:-1,bc:0:-1`` corresponds to 10x Genomics single-end layout.  
+
+*Barcode whitelist* (optional) : A plain-text file of known valid barcodes (one per line). Barcodes not in the list will be corrected if within the Hamming distance set by **Barcode error threshold**. Without a whitelist, all barcodes are passed through uncorrected.  
+
+-----
+
+**Preset**
+
+Presets load recommended parameter bundles for each assay type. They are applied first; any parameter you set explicitly will override the preset value.
+
+- *atac* - ATAC-seq / scATAC-seq
+- *chip* - ChIP-seq
+- *hic* - Hi-C
+
+-----
+
+**Indexing options**
+
+These control the minimiser index built from the reference before mapping.
+
+- **K-mer length** (default 17) and **Window size** (default 7) together determine index density and sensitivity. Shorter k-mers or smaller windows increase sensitivity at the cost of speed and memory.
+- **Min fragment length** : if set, chromap automatically chooses k and w to suit the expected fragment size, ignoring the manual values above.
+
+-----
+
+**Key mapping parameters**
+
+- **Tn5 shift** : shifts read 5′ ends by +4 bp (forward) or −5 bp (reverse) to centre on the Tn5 insertion site. Enable this for ATAC-seq when calling peaks with MACS2 or similar tools.
+- **Trim adapters** : detects and removes 3′ adapter sequence before alignment. Useful when reads extend beyond short inserts.
+- **Split alignments** : allows a read to align as two separate segments. Required for Hi-C reads spanning a ligation junction.
+- **Min MAPQ** (default 30) : alignments below this mapping quality are excluded from the output. Set to 0 to retain all alignments.
+- **Max insert size** (default 1000) : paired-end only. Read pairs with an inferred insert size above this value are not reported.
+- **Max errors** (default 8) : maximum mismatches/indels allowed in a reported alignment.
+- **Max seed frequencies** (default ``500,1000``) : seeds found more often than these thresholds are skipped as repetitive. Reducing these values speeds up mapping in repetitive genomes at the cost of sensitivity.
+
+-----
+
+
+**Output formats**
+
+Based on the selected options, output can be: SAM, BED / BEDPE, TagAlign, or 4DN pairs format.
+
+*Summary file* : when enabled, produces a CSV with per-barcode (or bulk) alignment statistics including total reads, duplicates, unmapped, low-MAPQ counts, and an estimated FRiP score.
+
+
+-----
+
+**Tips**
+
+- For bulk ATAC-seq peak calling, use the ``atac`` preset with **Tn5 shift** enabled and **BED** output.
+- For scATAC-seq, add a barcode file and whitelist; the summary CSV will contain one row per cell barcode.
+- For Hi-C contact matrix generation, use the ``hic`` preset with **4DN pairs** output and enable **Split alignments**.
+
+
+    ]]></help>
+    <expand macro="citations"/>
+    <expand macro="creator"/>
+</tool>

@@ -1,0 +1,1052 @@
+<tool id="squidpy_graph" name="Squidpy" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>perform graph-based spatial analysis on SpatialData and AnnData objects</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        export NUMBA_NUM_THREADS="\${GALAXY_SLOTS:-4}" &&
+        mkdir -p input output &&
+        #if $input_data.ext == 'spatialdata.zip':
+            unzip -q '$input_data' -d input &&
+
+            ## Rename directory to spatialdata.zarr if it has a different name
+            dir_name=\$(ls -d input/*/ | head -1 | xargs basename) &&
+            if [ -n "\$dir_name" ] && [ "\$dir_name" != "spatialdata.zarr" ]; then
+                mv "input/\$dir_name" input/spatialdata.zarr;
+            fi &&
+        #else if $input_data.ext == 'h5ad':
+            ln -s '$input_data' input/spatialdata.h5ad &&
+        #end if
+        ## run the graph operation
+        cat 'squidpy_graph.py' &&
+        python3 'squidpy_graph.py'
+        #if $input_data.ext == 'spatialdata.zip':
+            && cd output && zip -r ../spatialdata.spatialdata.zip spatialdata.zarr/ && cd ..
+        #end if
+    ]]></command>
+    <configfiles>
+        <configfile name="squidpy_config" filename="squidpy_graph.py"><![CDATA[
+import spatialdata as sd
+import anndata as ad
+import squidpy as sq
+import numpy as np
+
+#if $input_data.ext == 'spatialdata.zip':
+## Load the spatial object
+spatial_obj = sd.read_zarr("input/spatialdata.zarr")
+
+#else if $input_data.ext == 'h5ad':
+## Load the AnnData object
+    #if $operation_condi.operation in ['ligrec', 'spatial_autocorr', 'sepal']:
+## Operations that need full data access (expression matrix)
+spatial_obj = ad.read_h5ad("input/spatialdata.h5ad")
+    #else:
+## Operations that only work with graph data can use backed mode
+spatial_obj = ad.read_h5ad("input/spatialdata.h5ad", backed='r')
+    #end if
+
+#end if
+
+
+#if $operation_condi.operation == 'spatial_neighbors':
+## Compute spatial neighbors
+    #if $operation_condi.elements_to_coordinate_systems:
+import json
+with open('$operation_condi.elements_to_coordinate_systems', 'r') as f:
+    elements_to_coordinate_systems = json.load(f)
+    #else:
+elements_to_coordinate_systems = None
+    #end if
+    #if $operation_condi.radius:
+        #if ',' in str($operation_condi.radius):
+            #set radius_list = [float(x.strip()) for x in str($operation_condi.radius).split(',')]
+radius = tuple($radius_list)
+        #else:
+radius = $operation_condi.radius
+        #end if
+    #else:
+radius = None
+    #end if
+
+sq.gr.spatial_neighbors(
+    spatial_obj,
+    spatial_key='$operation_condi.spatial_key',
+    #if $input_data.ext == 'spatialdata.zip':
+    elements_to_coordinate_systems=elements_to_coordinate_systems,
+    table_key='$table_key',
+    #end if
+    #if $operation_condi.library_key:
+    library_key='$operation_condi.library_key',
+    #end if
+    #if $operation_condi.coord_type != 'None':
+    coord_type='$operation_condi.coord_type',
+    #end if
+    n_neighs=$operation_condi.n_neighs,
+    radius=radius,
+    delaunay=$operation_condi.delaunay,
+    n_rings=$operation_condi.n_rings,
+    #if $operation_condi.percentile:
+    percentile=$operation_condi.percentile,
+    #end if
+    #if $operation_condi.transform:
+    transform='$operation_condi.transform',
+    #end if
+    set_diag=$operation_condi.set_diag,
+    key_added='$operation_condi.key_added',
+    copy=False
+)
+
+#else if $operation_condi.operation == 'mask_graph':
+## Mask graph by polygon
+from shapely.geometry import Polygon, MultiPolygon
+coords_str = '$operation_condi.polygon_coords'
+    #if $operation_condi.polygon_type == 'polygon':
+coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in coords_str.split(';')]
+polygon_mask = Polygon(coords_list)
+    #else:
+polygons = []
+for polygon_str in coords_str.split('|'):
+    coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in polygon_str.strip().split(';')]
+    polygons.append(Polygon(coords_list))
+polygon_mask = MultiPolygon(polygons)
+    #end if
+
+    #if $input_data.ext == 'h5ad':
+## Convert AnnData to SpatialData for mask_graph operation
+spatial_obj = sd.SpatialData(tables={str('$table_key'): spatial_obj})
+    #end if
+
+sq.gr.mask_graph(
+    spatial_obj,
+    table_key='$table_key',
+    polygon_mask=polygon_mask,
+    negative_mask=$operation_condi.negative_mask,
+    spatial_key='$operation_condi.spatial_key',
+    key_added='$operation_condi.key_added',
+    copy=False
+)
+
+#else if $operation_condi.operation == 'nhood_enrichment':
+## Compute neighborhood enrichment
+import os
+sq.gr.nhood_enrichment(
+    spatial_obj,
+    cluster_key='$operation_condi.cluster_key',
+    #if $operation_condi.library_key:
+    library_key='$operation_condi.library_key',
+    #end if
+    #if $operation_condi.connectivity_key:
+    connectivity_key='$operation_condi.connectivity_key',
+    #end if
+    n_perms=$operation_condi.n_perms,
+    numba_parallel=True, ## If None, it is determined automatically. [But set to true because None is not recognized by numba]
+    #if $operation_condi.seed:
+    seed=$operation_condi.seed,
+    #end if
+    copy=False,
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    show_progress_bar=False
+)
+
+#else if $operation_condi.operation == 'co_occurrence':
+## Compute co-occurrence
+import os
+interval_str = str('$operation_condi.interval').strip()
+if ',' in interval_str:
+    interval_list = [float(x.strip()) for x in interval_str.split(',')]
+    interval = np.array(interval_list)
+else:
+    interval = int(interval_str)
+
+sq.gr.co_occurrence(
+    spatial_obj,
+    cluster_key='$operation_condi.cluster_key',
+    spatial_key='$operation_condi.spatial_key',
+    interval=interval,
+    copy=False,
+    #if $operation_condi.n_splits:
+    n_splits=$operation_condi.n_splits,
+    #end if
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+)
+
+#else if $operation_condi.operation == 'centrality_scores':
+## Compute centrality scores
+import os
+
+    #if $operation_condi.score:
+        #set score_list = [str(x.strip()) for x in str($operation_condi.score).split(',')]
+score = $score_list
+    #else:
+score = None
+    #end if
+
+sq.gr.centrality_scores(
+    spatial_obj,
+    cluster_key='$operation_condi.cluster_key',
+    score=score,
+    #if $operation_condi.connectivity_key:
+    connectivity_key = '$operation_condi.connectivity_key',
+    #end if
+    copy=False,
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    show_progress_bar=False
+)
+
+#else if $operation_condi.operation == 'interaction_matrix':
+## Compute interaction matrix
+
+sq.gr.interaction_matrix(
+    spatial_obj,
+    cluster_key='$operation_condi.cluster_key',
+    #if $operation_condi.connectivity_key:
+    connectivity_key='$operation_condi.connectivity_key',
+    #end if
+    normalized=$operation_condi.normalized,
+    copy=False,
+    weights=$operation_condi.weights
+)
+
+#else if $operation_condi.operation == 'ripley':
+## Compute Ripley's statistic
+
+sq.gr.ripley(
+    spatial_obj,
+    cluster_key='$operation_condi.cluster_key',
+    mode='$operation_condi.mode',
+    spatial_key='$operation_condi.spatial_key',
+    metric='$operation_condi.metric',
+    n_neigh=$operation_condi.n_neigh,
+    n_simulations=$operation_condi.n_simulations,
+    n_observations=$operation_condi.n_observations,
+    #if $operation_condi.max_dist:
+    max_dist=$operation_condi.max_dist,
+    #end if
+    n_steps=$operation_condi.n_steps,
+    #if $operation_condi.seed:
+    seed=$operation_condi.seed,
+    #end if
+    copy=False
+)
+
+#else if $operation_condi.operation == 'ligrec':
+## Compute ligand-receptor interactions
+import pandas as pd
+
+    #if $operation_condi.interactions:
+interactions = pd.read_csv('$operation_condi.interactions', sep='\t')
+    #else:
+interactions = None
+    #end if
+
+sq.gr.ligrec(
+    spatial_obj,
+    cluster_key='$operation_condi.cluster_key',
+    interactions=interactions,
+    complex_policy='$operation_condi.complex_policy',
+    threshold=$operation_condi.threshold,
+    #if str($operation_condi.corr_method) != 'None':
+    corr_method='$operation_condi.corr_method',
+    #end if
+    corr_axis='$operation_condi.corr_axis',
+    use_raw=$operation_condi.use_raw,
+    copy=False,
+    #if $operation_condi.key_added:
+    key_added='$operation_condi.key_added',
+    #end if
+    #if $operation_condi.gene_symbols:
+    gene_symbols='$operation_condi.gene_symbols'
+    #end if
+)
+
+## Convert tuple column names and SparseArrays to strings/dense for zarr compatibility
+    #if $operation_condi.key_added:
+ligrec_key = '$operation_condi.key_added'
+    #else:
+ligrec_key = '$operation_condi.cluster_key' + '_ligrec'
+    #end if
+
+    #if $input_data.ext == 'spatialdata.zip':
+table_obj = spatial_obj.tables['$table_key']
+    #else:
+table_obj = spatial_obj
+    #end if
+
+if ligrec_key in table_obj.uns:
+    for sub_key in ['means', 'pvalues', 'metadata']:
+        if sub_key in table_obj.uns[ligrec_key] and isinstance(table_obj.uns[ligrec_key][sub_key], pd.DataFrame):
+            df = table_obj.uns[ligrec_key][sub_key]
+
+            ## Convert tuple column/index names to strings
+            if len(df.columns) > 0 and isinstance(df.columns[0], tuple):
+                df.columns = ['|'.join(map(str, col)) if isinstance(col, tuple) else str(col) for col in df.columns]
+            if len(df.index) > 0 and isinstance(df.index[0], tuple):
+                df.index = ['|'.join(map(str, idx)) if isinstance(idx, tuple) else str(idx) for idx in df.index]
+
+            ## Convert SparseArray columns to dense (zarr doesn't support SparseArray)
+            for col in df.columns:
+                if isinstance(df[col].dtype, pd.SparseDtype):
+                    df[col] = df[col].sparse.to_dense()
+
+            ## For metadata DataFrame, ensure proper dtypes for h5ad compatibility
+            if sub_key == 'metadata':
+                for col in df.columns:
+                    ## Try to convert to numeric if possible, otherwise to string
+                    try:
+                        df[col] = pd.to_numeric(df[col])
+                    except (ValueError, TypeError):
+                        ## Convert complex objects (lists, arrays, etc.) to strings element-wise
+                        df[col] = df[col].apply(lambda x: str(x) if not isinstance(x, str) else x)
+
+#else if $operation_condi.operation == 'spatial_autocorr':
+## Compute spatial autocorrelation
+import os
+
+sq.gr.spatial_autocorr(
+    spatial_obj,
+    connectivity_key='$operation_condi.connectivity_key',
+    #if $operation_condi.genes:
+        #set genes_list = [str(x.strip()) for x in str($operation_condi.genes).split(',')]
+    genes=$genes_list,
+    #end if
+    mode='$operation_condi.mode',
+    transformation=$operation_condi.transformation,
+    #if str($operation_condi.n_perms) != '':
+    n_perms=$operation_condi.n_perms,
+    #end if
+    two_tailed=$operation_condi.two_tailed,
+    #if str($operation_condi.corr_method) != 'None':
+    corr_method='$operation_condi.corr_method',
+    #else:
+    corr_method=None,
+    #end if
+    attr='$operation_condi.attr',
+    #if $operation_condi.layer:
+    layer='$operation_condi.layer',
+    #end if
+    #if $operation_condi.seed:
+    seed=$operation_condi.seed,
+    #end if
+    use_raw=$operation_condi.use_raw,
+    copy=False,
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    show_progress_bar=False
+)
+
+#else if $operation_condi.operation == 'sepal':
+## Compute Sepal scores
+import os
+
+sq.gr.sepal(
+    spatial_obj,
+    max_neighs=$operation_condi.max_neighs,
+    #if $operation_condi.genes:
+        #set genes_list = [str(x.strip()) for x in str($operation_condi.genes).split(',')]
+    genes=$genes_list,
+    #end if
+    #if $operation_condi.n_iter:
+    n_iter=$operation_condi.n_iter,
+    #else:
+    n_iter=None,
+    #end if
+    dt=$operation_condi.dt,
+    thresh=$operation_condi.thresh,
+    connectivity_key='$operation_condi.connectivity_key',
+    spatial_key='$operation_condi.spatial_key',
+    #if $operation_condi.layer:
+    layer='$operation_condi.layer',
+    #end if
+    use_raw=$operation_condi.use_raw,
+    copy=False,
+    n_jobs=int(os.getenv("GALAXY_SLOTS", 4)),
+    show_progress_bar=False
+)
+
+#end if
+
+
+## Save the result
+#if $input_data.ext == 'spatialdata.zip':
+spatial_obj.write("./output/spatialdata.zarr", overwrite=True)
+#else if $input_data.ext == 'h5ad':
+    #if $operation_condi.operation == 'mask_graph':
+## Extract table from SpatialData back to AnnData for mask_graph with h5ad input
+adata_table = spatial_obj.tables['$table_key']
+adata_table.write_h5ad("./output/spatialdata.h5ad", compression="gzip")
+    #else:
+spatial_obj.write_h5ad("./output/spatialdata.h5ad", compression="gzip")
+    #end if
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="param_input_data"/>
+        <param argument="--table_key" type="text" value="table" label="Key in SpatialData.tables where the table is stored">
+            <expand macro="sanitize_query"/>
+        </param>
+        <conditional name="operation_condi">
+            <param name="operation" type="select" label="Operation">
+                <option value="spatial_neighbors">Create a graph from spatial coordinates (gr.spatial_neighbors)</option>
+                <option value="mask_graph">Mask the graph based on a polygon mask (gr.mask_graph)</option>
+                <option value="nhood_enrichment">Compute neighborhood enrichment by permutation test (gr.nhood_enrichment)</option>
+                <option value="co_occurrence">Compute co-occurrence probability of clusters (gr.co_occurrence)</option>
+                <option value="centrality_scores">Compute centrality scores per cluster or cell type (gr.centrality_scores)</option>
+                <option value="interaction_matrix">Compute interaction matrix for clusters (gr.interaction_matrix)</option>
+                <option value="ripley">Calculate various Ripley's statistics for point processes. (gr.ripley)</option>
+                <option value="ligrec">Perform the permutation test based on CellPhoneDB (gr.ligrec)</option>
+                <option value="spatial_autocorr">Calculate Global Autocorrelation Statistic (Moran’s I or Geary's C) (gr.spatial_autocorr)</option>
+                <option value="sepal">Identify spatially variable genes with Sepal (gr.sepal)</option>
+            </param>
+            <when value="spatial_neighbors">
+                <expand macro="param_spatial_key" help="If spatialdata, the coordinates of the centroids will be stored in the adata with this key."/>
+                <param argument="--elements_to_coordinate_systems" type="data" format="json" optional="true" label="JSON file containing dictionary mapping element names to coordinate systems" help="e.g., {'cell_masks': 'global'}. The elements can be either Shapes or Labels."/>
+                <expand macro="param_library_key"/>
+                <param argument="--coord_type" type="select" optional="true" label="Coordinate type" help="Auto uses ‘grid’ if spatial_key is in anndata.AnnData.uns with n_neighs = 6 (Visium), otherwise use ‘generic’">
+                    <option value="None">Auto (grid if Visium, else generic)</option>
+                    <option value="grid">Grid coordinates</option>
+                    <option value="generic">Generic coordinates</option>
+                </param>
+                <param argument="--n_neighs" type="integer" min="0" value="6" label="Number of neighbors" help="For grid: number of neighboring tiles. For generic: number of neighborhoods (when delaunay=False)"/>
+                <param argument="--radius" type="text" optional="true" label="Radius" help="For generic coord_type: compute graph based on radius. Single float or two comma-separated floats for min,max interval">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param argument="--delaunay" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Delaunay triangulation?" help="Compute graph from Delaunay triangulation (generic coord_type only)"/>
+                <param argument="--n_rings" type="integer" min="0" value="1" label="Number of rings of neighbors for grid data (generic coord_type only)"/>
+                <param argument="--percentile" type="float" optional="true" min="0" max="100" label="Percentile of distances to use as threshold (generic coord_type only)"/>
+                <param argument="--transform" type="select" optional="true" label="Adjacency matrix transform" help="If not selected, no transformation is applied">
+                    <option value="spectral">Spectral</option>
+                    <option value="cosine">Cosine</option>
+                </param>
+                <param argument="--set_diag" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Whether to set diagonal of spatial connectivities to 1.0"/>
+                <expand macro="param_key_added" value="spatial" label="Key prefix for storing results in adata.obsp and adata.uns"/>
+            </when>
+            <when value="mask_graph">
+                <param name="polygon_type" type="select" label="Polygon mask type">
+                    <option value="polygon" selected="true">Polygon</option>
+                    <option value="multipolygon">MultiPolygon</option>
+                </param>
+                <param name="polygon_coords" type="text" label="Polygon coordinates" help="For Polygon: semicolon-separated coordinate pairs (x,y). Example: '0,0;100,0;100,100;0,100'. For MultiPolygon: pipe-separated polygons. Example: '0,0;100,0;100,100;0,100 | 200,200;300,200;300,300;200,300'">
+                    <expand macro="sanitize_digits">
+                        <add value=";"/>
+                        <add value="|"/>
+                    </expand>
+                </param>
+                <param argument="--negative_mask" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Keep edges outside polygon (True) or inside polygon (False)" help="Note that when negative_mask = True, only the edges fully contained in the polygon are removed. If edges are partially contained in the polygon, they are kept."/>
+                <expand macro="param_spatial_key"/>
+                <expand macro="param_key_added" value="mask" label="Key prefix for storing masked results"/>
+            </when>
+            <when value="nhood_enrichment">
+                <expand macro="param_cluster_key"/>
+                <expand macro="param_library_key"/>
+                <expand macro="param_connectivity_key"/>
+                <expand macro="param_n_perms"/>
+                <expand macro="param_seed"/>
+            </when>
+            <when value="co_occurrence">
+                <expand macro="param_cluster_key"/>
+                <expand macro="param_spatial_key"/>
+                <param argument="--interval" type="text" value="50" label="Distance interval" help="For integer (e.g., '50'): uniformly spaced interval size. For array (e.g., '10,20,50,100'): comma-separated distance thresholds">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param argument="--n_splits" type="integer" optional="true" label="Number of splits to divide spatial coordinates in spatial_key"/>
+            </when>
+            <when value="centrality_scores">
+                <expand macro="param_cluster_key"/>
+                <param argument="--score" type="select" multiple="true" optional="true" label="Centrality measures" help="If none selected, all measures are computed">
+                    <option value="closeness_centrality">Closeness centrality</option>
+                    <option value="average_clustering">Average clustering</option>
+                    <option value="degree_centrality">Degree centrality</option>
+                </param>
+                <expand macro="param_connectivity_key"/>
+            </when>
+            <when value="interaction_matrix">
+                <expand macro="param_cluster_key"/>
+                <expand macro="param_connectivity_key" optional="true"/>
+                <param argument="--normalized" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Normalize rows?" help="Each row is normalized to sum to 1"/>
+                <param argument="--weights" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use edge weights? Otherwise binarize"/>
+            </when>
+            <when value="ripley">
+                <expand macro="param_cluster_key"/>
+                <param argument="--mode" type="select" label="Ripley statistic mode">
+                    <option value="F" selected="true">F statistic</option>
+                    <option value="G">G statistic</option>
+                    <option value="L">L statistic</option>
+                </param>
+                <expand macro="param_spatial_key"/>
+                <param argument="--metric" type="select" label="Distance metric for computing distances">
+                    <option value="euclidean" selected="true">Euclidean</option>
+                    <option value="manhattan">Manhattan</option>
+                    <option value="chebyshev">Chebyshev</option>
+                    <option value="minkowski">Minkowski</option>
+                    <option value="seuclidean">SEuclidean</option>
+                    <option value="mahalanobis">Mahalanobis</option>
+                </param>
+                <param argument="--n_neigh" type="integer" value="2" label="Number of neighbors for KNN graph"/>
+                <param argument="--n_simulations" type="integer" value="100" label="Number of simulations for computing p-values"/>
+                <param argument="--n_observations" type="integer" value="1000" label="Number of observations for Spatial Poisson Point Process"/>
+                <param argument="--max_dist" type="float" optional="true" label="Maximum distance" help="If not provided, max_dist=sqrt(area)/2"/>
+                <param argument="--n_steps" type="integer" value="50" label="Number of steps for the support"/>
+                <expand macro="param_seed"/>
+            </when>
+            <when value="ligrec">
+                <expand macro="param_cluster_key"/>
+                <param argument="--interactions" type="data" format="tabular" optional="true" label="Interactions table" help="Optional tabular file with at least 'source' and 'target' columns. If not provided, interactions are extracted from OmniPath. Protein complexes can be specified by delimiting components with '_', e.g., 'alpha_beta_gamma'"/>
+                <param argument="--complex_policy" type="select" label="Policy on how to handle complexes">
+                    <option value="min" selected="true">Min (select gene with the minimum average expression)</option>
+                    <option value="all">All (select all possible combinations between ‘source’ and ‘target’ complexes.)</option>
+                </param>
+                <param argument="--threshold" type="float" value="0.01" min="0" max="1" label="Expression threshold" help="Do not perform permutation test if any of the interacting components is being expressed in less than threshold percent of cells within a given cluster."/>
+                <expand macro="param_corr_method">
+                    <option value="None">None</option>
+                    <option value="fdr_bh">FDR Benjamini-Hochberg</option>
+                </expand>
+                <param argument="--corr_axis" type="select" label="Correction axis for FDR correction">
+                    <option value="clusters" selected="true">Clusters (correct interactions by performing FDR correction across the clusters)</option>
+                    <option value="interactions">Interactions (correct clusters by performing FDR correction across the interactions)</option>
+                </param>
+                <expand macro="param_use_raw" checked="true"/>
+                <expand macro="param_key_added" optional="true" label="Key in adata.uns for results. Default: '{cluster_key}_ligrec'"/>
+                <param argument="--gene_symbols" type="text" optional="true" label="Gene symbols key in adata.var to use instead of var_names">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="spatial_autocorr">
+                <expand macro="param_connectivity_key"/>
+                <expand macro="param_genes"/>
+                <param argument="--mode" type="select" label="Autocorrelation mode">
+                    <option value="moran" selected="true">Moran's I</option>
+                    <option value="geary">Geary's C</option>
+                </param>
+                <param argument="--transformation" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Row-normalize weights in connectivity_key?" help="Advised for analytic p-value calculation"/>
+                <expand macro="param_n_perms" optional="true" label="Number of permutations" help="If not provided, only p-values under normality assumption are computed"/>
+                <param argument="--two_tailed" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Two-tailed test?" help="Set to false for one-tailed test"/>
+                <expand macro="param_corr_method">
+                    <option value="fdr_bh">FDR Benjamini-Hochberg</option>
+                    <option value="None">None</option>
+                </expand>
+                <param argument="--attr" type="select" label="Attribute to access">
+                    <option value="X" selected="true">X (expression matrix)</option>
+                    <option value="obs">obs (observations)</option>
+                    <option value="obsm">obsm (multidimensional observations)</option>
+                </param>
+                <expand macro="param_layer"/>
+                <expand macro="param_seed"/>
+                <expand macro="param_use_raw" help="Only used when attr='X'"/>
+            </when>
+            <when value="sepal">
+                <param argument="--max_neighs" type="select" label="Maximum neighbors" help="Maximum number of neighbors in the graph">
+                    <option value="4">4 (square-grid: ST, Dbit-seq)</option>
+                    <option value="6" selected="true">6 (hexagonal-grid: Visium)</option>
+                </param>
+                <expand macro="param_genes"/>
+                <param argument="--n_iter" type="integer" min="0" value="30000" label="Maximum iterations for diffusion simulation" help="If n_iter iterations are reached, the simulation will terminate even though convergence has not been achieved."/>
+                <param argument="--dt" type="float" min="0" value="0.001" label="Time step in diffusion simulation"/>
+                <param argument="--thresh" type="float" value="0.00000001" label="Entropy threshold for convergence of diffusion simulation"/>
+                <expand macro="param_connectivity_key"/>
+                <expand macro="param_spatial_key"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_use_raw"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation} - Spatialdata">
+            <filter>input_data.ext == "spatialdata.zip"</filter>
+        </data>
+        <data name="spatialdata_output_h5ad" format="h5ad" from_work_dir="output/spatialdata.h5ad" label="${tool.name} on ${on_string}: ${operation_condi.operation} - Anndata">
+            <filter>input_data.ext == "h5ad"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: spatial_neighbors spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_spatialdata.spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="spatial_neighbors"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="elements_to_coordinate_systems" location="https://zenodo.org/records/20407398/files/elements_to_coordinate_systems.json"/>
+                <param name="coord_type" value="grid"/>
+                <param name="n_neighs" value="6"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.spatial_neighbors"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/obsp/spatial_connectivities"/>
+                        <has_text text="tables/table/obsp/spatial_distances"/>
+                        <has_text text="tables/table/uns/spatial_neighbors"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: spatial_neighbors adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="spatial_neighbors"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="elements_to_coordinate_systems" location="https://zenodo.org/records/20407398/files/elements_to_coordinate_systems.json"/>
+                <param name="coord_type" value="grid"/>
+                <param name="n_neighs" value="6"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.spatial_neighbors"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsp/spatial_connectivities,obsp/spatial_distances,uns/spatial_neighbors"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: mask_graph spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="mask_graph"/>
+                <param name="polygon_type" value="polygon"/>
+                <param name="polygon_coords" value="0,0;100,0;100,100;0,100"/>
+                <param name="spatial_key" value="spatial"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.mask_graph"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/obsp/mask_spatial_connectivities"/>
+                        <has_text text="tables/table/obsp/mask_spatial_distances"/>
+                        <has_text text="tables/table/uns/mask_spatial_neighbors"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: mask_graph adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="mask_graph"/>
+                <param name="polygon_type" value="polygon"/>
+                <param name="polygon_coords" value="0,0;100,0;100,100;0,100"/>
+                <param name="spatial_key" value="spatial"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.mask_graph"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsp/mask_spatial_connectivities,obsp/mask_spatial_distances,uns/mask_spatial_neighbors"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: nhood_enrichment spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="nhood_enrichment"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="n_perms" value="100"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.nhood_enrichment"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_nhood_enrichment"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: nhood_enrichment adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value=""/>
+            <conditional name="operation_condi">
+                <param name="operation" value="nhood_enrichment"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="n_perms" value="100"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.nhood_enrichment"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/leiden_nhood_enrichment"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: co_occurrence spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="co_occurrence"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="interval" value="50"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.co_occurrence"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_co_occurrence"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: co_occurrence adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="co_occurrence"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="interval" value="50"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.co_occurrence"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/leiden_co_occurrence"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 9: centrality_scores spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="centrality_scores"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="score" value="closeness_centrality,degree_centrality"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.centrality_scores"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_centrality_scores"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 10: centrality_scores adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="centrality_scores"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="score" value="closeness_centrality,degree_centrality"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.centrality_scores"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/leiden_centrality_scores"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 11: interaction_matrix spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="interaction_matrix"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="normalized" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.interaction_matrix"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_interactions"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 12: interaction_matrix adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="interaction_matrix"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="normalized" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.interaction_matrix"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/leiden_interactions"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 13: ripley spdata-->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="ripley"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="mode" value="F"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="n_simulations" value="50"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.ripley"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_ripley_F"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 14: ripley adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="ripley"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="mode" value="F"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="n_simulations" value="50"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.ripley"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/leiden_ripley_F"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 15: ligrec spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="ligrec"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="complex_policy" value="min"/>
+                <param name="threshold" value="0.01"/>
+                <param name="use_raw" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.ligrec"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/leiden_ligrec"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 16: ligrec adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="ligrec"/>
+                <param name="cluster_key" value="leiden"/>
+                <param name="complex_policy" value="min"/>
+                <param name="threshold" value="0.01"/>
+                <param name="use_raw" value="false"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.ligrec"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/leiden_ligrec"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 17: spatial_autocorr spdata-->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="spatial_autocorr"/>
+                <param name="connectivity_key" value="spatial_connectivities"/>
+                <param name="mode" value="moran"/>
+                <param name="n_perms" value="1"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.spatial_autocorr"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/moranI"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 18: spatial_autocorr adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="spatial_autocorr"/>
+                <param name="connectivity_key" value="spatial_connectivities"/>
+                <param name="mode" value="moran"/>
+                <param name="n_perms" value="1"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.spatial_autocorr"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/moranI"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 19: sepal spdata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.zip"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="sepal"/>
+                <param name="max_neighs" value="6"/>
+                <param name="connectivity_key" value="spatial_connectivities"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="n_iter" value="1"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.sepal"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="tables/table/uns/sepal_score"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 20: sepal adata -->
+        <test expect_num_outputs="1">
+            <param name="input_data" location="https://zenodo.org/records/20407398/files/visium_sq_nhood_enrichment_spatialdata.h5ad"/>
+            <param name="table_key" value="table"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="sepal"/>
+                <param name="max_neighs" value="6"/>
+                <param name="connectivity_key" value="spatial_connectivities"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="n_iter" value="1"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sq.gr.sepal"/>
+            </assert_stdout>
+            <output name="spatialdata_output_h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/sepal_score"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**What it does**
+
+This tool performs graph-based spatial analysis on SpatialData and AnnData objects using Squidpy.
+
+**Operations**
+
+**Graph Construction:**
+
+- **Spatial Neighbors**: Create a spatial graph from coordinates. Supports grid (Visium) and generic (other technologies) coordinate systems. Can use KNN, radius-based, or Delaunay triangulation approaches.
+
+- **Mask Graph**: Filter a spatial graph to keep only edges within (or outside) a polygon or multipolygon region. Supports both Polygon and MultiPolygon mask types. Accepts both SpatialData and AnnData inputs (AnnData is converted to SpatialData internally).
+
+**Spatial Statistics:**
+
+- **Neighborhood Enrichment**: Test whether cell types/clusters co-locate or avoid each other using permutation tests. Results include z-scores and enrichment counts.
+
+- **Co-occurrence**: Compute co-occurrence probability of clusters at different distance intervals.
+
+- **Centrality Scores**: Calculate network centrality measures (closeness, clustering, degree) for each cluster.
+
+- **Interaction Matrix**: Compute a matrix showing interaction counts/probabilities between clusters.
+
+**Spatial Patterns:**
+
+- **Ripley Statistics**: Calculate Ripley's F, G, or L statistics to detect spatial clustering or dispersion patterns.
+
+- **Spatial Autocorrelation**: Calculate Moran's I or Geary's C to identify spatially variable genes or features.
+
+- **Sepal**: Identify spatially variable genes using a diffusion-based approach.
+
+**Cell-Cell Communication:**
+
+- **Ligand-Receptor**: Analyze ligand-receptor interactions between cell types using the CellPhoneDB database (via OmniPath).
+
+**Input**
+
+- A spatial object (.zip format) or AnnData object (.h5ad format)
+- Table key: name of the table in the spatial object (default: 'table')
+- Operation-specific parameters
+
+**Output**
+
+- Modified SpatialData (.zip) or AnnData (.h5ad) object with results stored in:
+  - `adata.obsp`: spatial connectivities and distances matrices
+  - `adata.uns`: computed statistics and enrichment scores
+
+**Notes**
+
+- Most operations require a pre-computed spatial graph (use Spatial Neighbors first)
+- For Visium data, use coord_type='grid' with n_neighs=6
+- **Mask Graph** accepts both SpatialData and AnnData inputs; AnnData inputs are automatically converted to SpatialData for processing
+- Spatial Neighbors with SpatialData-specific parameters (elements_to_coordinate_systems, library_key) requires SpatialData (.zip) format
+- Permutation tests (neighborhood enrichment, Ripley) can be computationally intensive
+- Ligand-receptor analysis requires internet connection to download interaction databases from OmniPath
+
+-----
+
+**More Information**
+
+- `Squidpy documentation <https://squidpy.readthedocs.io/>`__
+- `Squidpy graph API <https://squidpy.readthedocs.io/en/stable/api.html#module-squidpy.gr>`__
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

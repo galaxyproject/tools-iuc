@@ -1,0 +1,186 @@
+<tool id="minibwa_index_builder_data_manager" name="minibwa index builder" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" tool_type="manage_data" profile="@PROFILE@">
+    <description/>
+    <macros>
+        <token name="@TOOL_VERSION@">0.5</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">24.2</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">minibwa</requirement>
+    </requirements>
+    <stdio>
+        <exit_code range="1:"/>
+        <exit_code range=":-1"/>
+        <!-- minibwa reports some fatal conditions on stderr but still exits with status 0. -->
+        <regex match="\[ERROR\]" source="stderr" level="fatal" description="minibwa reported an error"/>
+        <regex match="ERROR: (failed to open|unknown|unrecognized)" source="stderr" level="fatal" description="minibwa reported an error"/>
+        <regex match="ABORT!" source="stderr" level="fatal" description="minibwa aborted"/>
+    </stdio>
+    <version_command>minibwa version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #set $fasta_file_name = str($all_fasta_source.fields.path).split('/')[-1]
+        mkdir -p '${out_file.extra_files_path}' &&
+        ln -s '${all_fasta_source.fields.path}' '${out_file.extra_files_path}/${fasta_file_name}' &&
+        minibwa index
+        -s '$s'
+        -u '$u'
+        ## -t is only effective without -l, -b is only effective with it
+        #if str($l) == "-l":
+            -l
+            #if str($b):
+                -b '$b'
+            #end if
+        #else:
+            -t "\${GALAXY_SLOTS:-1}"
+        #end if
+        $meth
+        '${out_file.extra_files_path}/${fasta_file_name}' &&
+        rm '${out_file.extra_files_path}/${fasta_file_name}' &&
+        cp '$dmjson' '$out_file'
+        ]]>
+    </command>
+    <configfiles>
+        <configfile name="dmjson"><![CDATA[#slurp
+#set $fasta_file_name = str($all_fasta_source.fields.path).split('/')[-1]
+#set $value = $sequence_id or $all_fasta_source.fields.dbkey
+#set $name = $sequence_name or $all_fasta_source.fields.name
+##
+## Several indices can be built for the same genome with different `minibwa index`
+## settings, so the non-default settings are recorded in the value (to keep it unique,
+## as the value is the key of the data table) and in the name (so that the difference is
+## visible in the tool form). An index built with all defaults keeps the plain value.
+#set $value_parts = []
+#set $name_parts = []
+#if str($s) != "11"
+    #silent $value_parts.append("s" + str($s))
+    #silent $name_parts.append("seed " + str($s))
+#end if
+#if str($u) != "4"
+    #silent $value_parts.append("u" + str($u))
+    #silent $name_parts.append("SA rate 1/" + str(2 ** int(str($u))))
+#end if
+#if str($l) == "-l"
+    #silent $value_parts.append("lowmem")
+    #silent $name_parts.append("low-memory")
+    #if str($b)
+        #silent $value_parts.append("b" + str($b))
+        #silent $name_parts.append("block " + str($b))
+    #end if
+#end if
+#if str($meth) == "--meth"
+    #silent $value_parts.append("meth")
+    #silent $name_parts.append("BS-seq")
+#end if
+#if $value_parts
+    #set $value = str($value) + "-" + "-".join($value_parts)
+    #set $name = str($name) + " (" + ", ".join($name_parts) + ")"
+#end if
+{
+  "data_tables":{
+    "minibwa_indexes":[
+      {
+        "value": "${value}",
+        "dbkey": "${all_fasta_source.fields.dbkey}",
+        "name": "${name}",
+        "path": "${fasta_file_name}",
+        "version": "@TOOL_VERSION@"
+      }
+    ]
+  }
+}
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="all_fasta_source" type="select" label="Source FASTA Sequence">
+            <options from_data_table="all_fasta"/>
+        </param>
+        <param name="sequence_name" type="text" value="" label="Name of sequence"/>
+        <param name="sequence_id" type="text" value="" label="ID for sequence"/>
+        <param argument="--meth" type="boolean" truevalue="--meth" falsevalue="" label="Build the additional BS-seq index" help="Adds the FM-index needed to map directional bisulfite sequencing reads with the --meth option of the minibwa mapper. It is written next to the regular index, which stays usable for ordinary mapping, but it takes extra build time and disk space."/>
+        <param argument="-s" type="integer" value="11" label="Random seed for ambiguous bases" help="-s; default=11"/>
+        <param argument="-u" type="integer" value="4" min="0" label="Suffix array sample rate, as 1/(2^INT)" help="-u; default=4; a larger value yields a smaller index at the cost of slower mapping"/>
+        <param argument="-l" type="boolean" truevalue="-l" falsevalue="" label="Use the low-memory BWT construction algorithm" help="-l; a GPL'd algorithm that needs less memory for large genomes. It is single threaded, so the thread count has no effect when it is enabled."/>
+        <param argument="-b" type="text" optional="true" label="Block size for the low-memory algorithm" help="-b; default=10m; only effective together with the low-memory algorithm above. Accepts suffixes, e.g. 10m.">
+            <sanitizer invalid_char="">
+                <valid initial="string.digits">
+                    <add value="k"/>
+                    <add value="m"/>
+                    <add value="g"/>
+                </valid>
+            </sanitizer>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="data_manager_json"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="all_fasta_source" value="phiX174"/>
+            <output name="out_file" file="minibwa_data_manager.1.json"/>
+        </test>
+        <test>
+            <param name="all_fasta_source" value="phiX174"/>
+            <param name="sequence_name" value="Galeocerdo cuvier"/>
+            <param name="sequence_id" value="tigHai1"/>
+            <param name="meth" value="true"/>
+            <param name="s" value="7"/>
+            <param name="u" value="5"/>
+            <param name="l" value="true"/>
+            <param name="b" value="5m"/>
+            <output name="out_file" file="minibwa_data_manager.2.json"/>
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**Notice:** If you leave name, description, or id blank, it will be generated automatically.
+
+minibwa is a successor to BWA-MEM that aligns short reads and accurate long reads to a
+reference genome. It combines the variable-length seeding of BWA-MEM with the chaining and
+base-level alignment of minimap2, and additionally supports Hi-C reads and directional
+bisulfite sequencing reads.
+
+This data manager builds a minibwa reference index (a ``.mbw`` and a ``.l2b`` file) with
+``minibwa index`` and adds it to the ``minibwa_indexes`` tool data table, so that it can be
+selected as a built-in index in the minibwa mapper.
+
+All options of ``minibwa index`` are available: the random seed for ambiguous bases (``-s``),
+the suffix array sample rate (``-u``, a larger value gives a smaller index but slower
+mapping), and the low-memory BWT construction algorithm (``-l``) with its block size
+(``-b``). The low-memory algorithm is single threaded and is worth enabling when a large
+genome does not index within the memory available to the data manager job; otherwise the
+index is built with all allocated cores.
+
+Because several indices can be built for the same genome with different settings, any
+non-default option is recorded in the entry. It is appended to the value, which is the key of
+the data table and therefore has to stay unique, and to the displayed name, so that the
+difference is visible when the index is picked in the mapper. Building mm39 with the
+low-memory algorithm and a BS-seq index, for example, is registered as ``mm39-lowmem-meth``
+and shown as *Mouse (Mus musculus): mm39 (low-memory, BS-seq)*, next to a plain ``mm39``
+entry rather than colliding with it. An index built entirely with defaults keeps the plain
+value and name.
+
+The ``minibwa`` version the index was built with is stored in a separate ``version`` column
+of the data table. The index format may change between minibwa releases, so recording it
+makes it possible to tell which cached indices need rebuilding after an upgrade. Rebuilding a
+genome with a newer minibwa and the same ID deliberately replaces the existing entry, so that
+workflows referring to it pick up the new index; give the rebuild a different ID if both
+should remain selectable side by side.
+
+Ticking **Build the additional BS-seq index** also creates a ``.meth.mbw`` file. That file is
+required by the mapper's *Directional bisulfite sequencing reads* library type; without it
+such a job fails to load the index. The regular index is built either way, so an index built
+with this option covers both ordinary and bisulfite mapping.
+]]>
+    </help>
+    <citations>
+        <citation type="bibtex">@misc{2606.15357,
+            Author = {Heng Li},
+            Title = {Fast genomic read alignment with minibwa},
+            Year = {2026},
+            Eprint = {arXiv:2606.15357},
+            url = {https://arxiv.org/abs/2606.15357},
+            }</citation>
+    </citations>
+</tool>

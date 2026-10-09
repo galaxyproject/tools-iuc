@@ -1,37 +1,77 @@
-<?xml version="1.0"?>
 <tool id="bracken_build_database" name="Bracken Database Builder" tool_type="manage_data" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>bracken database builder</description>
     <macros>
-        <token name="@TOOL_VERSION@">2.8</token>
+        <token name="@TOOL_VERSION@">3.1</token>
         <token name="@VERSION_SUFFIX@">0</token>
-        <token name="@PROFILE@">22.01</token>
+        <token name="@PROFILE@">24.0</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">bracken</requirement>
     </requirements>
     <command>
     <![CDATA[
-        #import os
-        #set db_dir = os.path.basename($kraken_db.fields.path)
-
+        #set $db_dir = $out_file.extra_files_path
         mkdir '$db_dir' &&
-        ln -s '${kraken_db.fields.path}/*' '$db_dir/' &&
-        python '$__tool_directory__/bracken_build_database.py'
-          '${out_file}'
-          
-          --threads \${GALAXY_SLOTS:-1}
-          #if $check_prebuilt.prebuilt == "no"
-              --kraken-db '$db_dir'
-              --kmer-len ${check_prebuilt.kmer_len}
-          #end if
-          #if $check_prebuilt.prebuilt == "yes"
-              --kraken-db '${kraken_db.fields.path}'
-              --prebuilt
-          #end if
-          --read-len ${check_prebuilt.read_len}
-          --database-name '${database_name}'
+
+        ## Create symlinks to the contents of the kraken database, since otherwise
+        ## the DM tool (ie bracken-build) would write to the kraken DB folder. 
+        ## 
+        ## These symlinks will be part of the final db_dir which will be moved
+        ## to the tool-data (except for some of the pre-exsting *mers.kraken
+        ## and *mers.kmer_distrib which may be deleted -- depending on the
+        ## choice of prebuilt).
+        ## Hence the final db_dir will have
+        ## - either a created mers.kmer_distrib file or a symlink pointing to the kraken2 db source  
+         ## - either a created mers.kraken file or a symlink pointing to the kraken2 db source  
+        ## - and symlinks to the krakenDB
+        ## Note that in the data table entry only the path to mers.kmer_distrib file is used 
+        ln -s '${kraken_db.fields.path}'/* '$db_dir/' &&
+
+        #if $check_prebuilt.prebuilt == "no"
+            ## remove any other pre-existing bracken-build results
+            find '$db_dir' -maxdepth 1 -name "*mers*" -delete &&
+            bracken-build
+                -t "\${GALAXY_SLOTS:-1}"
+                -k $check_prebuilt.kmer_len
+                -l $check_prebuilt.read_len
+                -d '$db_dir/'
+        #else
+            if [ ! -e '$db_dir/database${check_prebuilt.read_len}mers.kmer_distrib' ]; then
+                >&2 echo "Have you chosen the correct k-mer length? file $db_dir/database${check_prebuilt.read_len}mers.kmer_distrib does not exist.";
+                exit 1; 
+            fi
+            ## delete any other (links to) prebuilt bracken databases (except the one of the chosen read_len)
+            && find '$db_dir' -maxdepth 1 -name "*mers.kraken" -a \! -name "*${check_prebuilt.read_len}mers.kraken" -delete
+            && find '$db_dir' -maxdepth 1 -name "*mers.kmer_distrib" -a \! -name "*${check_prebuilt.read_len}mers.kmer_distrib" -delete
+        #end if
+        && cp '$dmjson' '$out_file'
     ]]>
     </command>
+    <configfiles>
+        <configfile name="dmjson"><![CDATA[#slurp
+#import uuid
+#set $database_value = str(uuid.uuid4())
+#set $db_dir = $out_file.extra_files_path
+
+#if $database_name == ""
+    #if $check_prebuilt.prebuilt == "no"
+        #set $database_name = $kraken_db.fields.name + " (k-mer length = " + str($check_prebuilt.kmer_len) +", read length = " + str($check_prebuilt.read_len) + ")"
+    #else
+        #set $database_name = $kraken_db.fields.name + " (Prebuilt bracken DB with read length = " + str($check_prebuilt.read_len) + ")"
+    #end if
+#end if
+{
+  "data_tables":{
+    "bracken_databases":[
+        {
+          "value": "$database_value",
+          "name": "$database_name",
+          "path": "$db_dir/database${check_prebuilt.read_len}mers.kmer_distrib"
+        }
+    ]
+  }
+}]]></configfile>
+    </configfiles>
     <inputs>
         <param name="kraken_db" type="select">
             <options from_data_table="kraken2_databases">
@@ -58,8 +98,8 @@
                     <option value="300">300</option>
                 </param>
             </when>
-	</conditional>
-	<param name="database_name" type="text" label="Database Name" help="Please add a clear reference to the corresponding kraken2 DB the read length to the name." />
+	    </conditional>
+    	<param name="database_name" type="text" label="Database Name" help="If left empty a name will be constructed from the name of the Kraken2 database suffixed by info on read and k-mer length. Otherwise please add a clear reference to the corresponding kraken2 DB the read length and kmer length to the name." />
     </inputs>
     <outputs>
         <data name="out_file" format="data_manager_json" />
@@ -67,10 +107,29 @@
     <tests>
         <test>
             <param name="kraken_db" value="test_entry" />
-            <param name="database_name" value="database" />
+            <param name="database_name" value="" />
+            <conditional name="check_prebuilt">
+                <param name="prebuilt" value="yes" />
+                <param name="read_len" value="100" />
+            </conditional>
             <output name="out_file">
                 <assert_contents>
-                    <has_text text="test_db/database100mers.kmer_distrib" />
+                    <has_text text="Prebuilt bracken DB with read length = 100" />
+                    <has_text text="database100mers.kmer_distrib" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="kraken_db" value="test_entry" />
+            <param name="database_name" value="custom database name" />
+            <conditional name="check_prebuilt">
+                <param name="prebuilt" value="no" />
+                <param name="read_len" value="150" />
+            </conditional>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text="custom database name" />
+                    <has_text text="database150mers.kmer_distrib" />
                 </assert_contents>
             </output>
         </test>
@@ -85,15 +144,16 @@ Using prebuilt DBs
 ====================================== 
 
 The prebuilt option does use existing bracken DBs, that are shipped with kraken2 DBs. This is the case for DBs downloaded from https://benlangmead.github.io/aws-indexes/k2.
-All prebuilt databases contain a Kraken 2 database along with Bracken databases built for 50, 75, 100, 150, 200, 250 and 300 read lengths (refering to the lenght of the sequenced reads to be analysis using that database (one read in case of paired reads)).
+All prebuilt databases contain a Kraken 2 database along with Bracken databases built for 50, 75, 100, 150, 200, 250 and 300 read lengths (referring to the length of the sequenced reads to be analysis using that database (one read in case of paired reads)).
 In this case the data manager points to the same DB as the kracken2 DB.
+Note the Kraken 2 / Bracken 16s DBs only contain the Bracken databases built for 100mers, 150mers, and 200mers.
 **The prebuilt option must not be used for custom kraken2 DBs ! For this the bracken DB needs to be build.**
 
 ======================================
 Building new DBs
 ======================================
 
-Use the same K-mer length as the kraken2 DB and choose read lengths that are close to the read length of analysis you want to perform (one read in case of paired reads).
+Use the same K-mer length as the kraken2 DB and choose read lengths that are close to the read length of the analysis you want to perform (one read in case of paired reads).
     </help>
     <citations>
         <citation type="doi">10.7717/peerj-cs.104</citation>

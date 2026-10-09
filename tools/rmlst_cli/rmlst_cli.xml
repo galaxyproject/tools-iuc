@@ -1,0 +1,161 @@
+<tool id="rmlst_cli" name="rMLST" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Identify species using the rMLST API</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creator" />
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #if $input_fasta.is_of_type('fasta.gz'):
+            gunzip -c '$input_fasta' > input_fasta.fa &&
+        #end if
+
+        rmlst 
+        --fasta
+        #if $input_fasta.is_of_type('fasta.gz'):
+            input_fasta.fa
+        #else:
+            '$input_fasta'
+        #end if
+        --output '$output_file'
+        
+        #if $mode_cond.mode == 'species':
+            --species-only
+            #if $mode_cond.custom_header_cond.use_custom_header == 'true':
+                '$mode_cond.custom_header_cond.species_header,$mode_cond.custom_header_cond.support_header'
+            #end if
+        #end if
+
+        $trim_to_5000
+        $graceful
+        --retries $advanced.retries
+        --retry-delay $advanced.retry_delay
+        --force
+        
+        #if $advanced.uri:
+            --uri '$advanced.uri'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="input_fasta" type="data" format="fasta,fasta.gz" label="Input FASTA file" />
+        
+        <conditional name="mode_cond">
+            <param name="mode" type="select" label="Output Format">
+                <option value="json" selected="true">JSON</option>
+                <option value="species">Species and support</option>
+            </param>
+            <when value="json"/>
+            <when value="species">
+                <conditional name="custom_header_cond">
+                    <param name="use_custom_header" type="select" label="Custom header" help="Replace the default species and support column headers.">
+                        <option value="false" selected="true">No</option>
+                        <option value="true">Yes</option>
+                    </param>
+                    <when value="false"/>
+                    <when value="true">
+                        <param name="species_header" type="text" value="species" label="Species column header">
+                            <sanitizer>
+                                <valid initial="string.ascii_letters,string.digits">
+                                    <add value="_" />
+                                    <add value="-" />
+                                    <add value="." />
+                                </valid>
+                            </sanitizer>
+                            <validator type="regex" message="Use only letters, numbers, underscores, hyphens, or dots.">^[A-Za-z0-9_.-]+$</validator>
+                        </param>
+                        <param name="support_header" type="text" value="support" label="Support column header">
+                            <sanitizer>
+                                <valid initial="string.ascii_letters,string.digits">
+                                    <add value="_" />
+                                    <add value="-" />
+                                    <add value="." />
+                                </valid>
+                            </sanitizer>
+                            <validator type="regex" message="Use only letters, numbers, underscores, hyphens, or dots.">^[A-Za-z0-9_.-]+$</validator>
+                        </param>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+        <param name="trim_to_5000" type="boolean" truevalue="--trim-to-5000" falsevalue="" checked="false" label="Trim to 5000 contigs" help="Automatically keep only the 5000 largest contigs if the file exceeds the limit." />
+        <param name="graceful" type="boolean" truevalue="--graceful" falsevalue="" checked="false" label="Graceful failure" help="Do not exit with error on API failures, output empty result instead." />
+        
+        <section name="advanced" title="Advanced Options" expanded="false">
+            <param argument="--retries" type="integer" value="3" min="0" label="Number of retries" />
+            <param argument="--retry-delay" type="integer" value="60" min="0" label="Retry delay (seconds)" />
+            <param name="uri" type="text" optional="true" label="Custom API URI" help="Leave empty to use the default rMLST API." />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_file" format="json" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="mode_cond.mode" value="species" format="tabular" />
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_fasta" value="real_valid.fasta" />
+            <conditional name="mode_cond">
+                <param name="mode" value="json" />
+            </conditional>
+            <output name="output_file" ftype="json">
+                <assert_contents>
+                    <has_text text="exact_matches" />
+                    <has_text text="Clostridioides difficile" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input_fasta" value="real_valid.fasta" />
+            <conditional name="mode_cond">
+                <param name="mode" value="species" />
+            </conditional>
+            <output name="output_file" file="output_species.txt" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input_fasta" value="real_valid.fasta.gz" ftype="fasta.gz" />
+            <conditional name="mode_cond">
+                <param name="mode" value="species" />
+            </conditional>
+            <output name="output_file" file="output_species.txt" ftype="tabular" />
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input_fasta" value="real_valid.fasta" />
+            <conditional name="mode_cond">
+                <param name="mode" value="species" />
+                <conditional name="custom_header_cond">
+                    <param name="use_custom_header" value="true" />
+                    <param name="species_header" value="organism" />
+                    <param name="support_header" value="confidence" />
+                </conditional>
+            </conditional>
+            <output name="output_file" ftype="tabular">
+                <assert_contents>
+                    <has_line line="organism&#009;confidence" />
+                    <has_line line="Clostridioides difficile&#009;100" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**rMLST CLI**
+
+This tool identifies species from FASTA files using the PubMLST rMLST API.
+
+**Inputs**
+
+*   **FASTA file**: A DNA sequence file.
+
+**Outputs**
+
+*   **JSON**: Full API response.
+*   **Species and support**: Species name and support percentage in two columns.
+
+**Limits**
+
+The rMLST API has a limit of 5,000 contigs. Use the "Trim to 5000 contigs" option to automatically filter your input if necessary.
+    ]]></help>
+    <expand macro="citations" />
+</tool>

@@ -1,0 +1,124 @@
+<tool id="sopa_patchify" name="SOPA Patchify" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>generate patches for cell segmentation</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="creators"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @CMD_UNZIP_ZARR@
+
+        mkdir -p output_dir &&
+
+        ## Run patchify
+        sopa patchify
+        #if $patch_type.type == 'image'
+            image
+            --patch-width-pixel $patch_type.patch_width_pixel
+            --patch-overlap-pixel $patch_type.patch_overlap_pixel
+        #else
+            transcripts
+            --patch-width-microns $patch_type.patch_width_microns
+            --patch-overlap-microns $patch_type.patch_overlap_microns
+            #if str($patch_type.unassigned_value) != ''
+                --unassigned-value '$patch_type.unassigned_value'
+            #end if
+            #if str($patch_type.prior_shapes_key) != ''
+                --prior-shapes-key '$patch_type.prior_shapes_key'
+            #end if
+            $patch_type.write_cells_centroids
+        #end if
+        input/spatialdata.zarr &&
+
+        ## Move to output directory
+        mv "input/spatialdata.zarr" output_dir/ &&
+
+        @CMD_ZIP_ZARR@
+    ]]></command>
+    <inputs>
+        <expand macro="input_sdata"/>
+        <conditional name="patch_type">
+            <param name="type" type="select" label="Choose whether to create patches based on images or transcripts">
+                <option value="image" selected="true">Image-based patches (for staining-based segmentation (including Cellpose))</option>
+                <option value="transcripts">Transcript-based patches (for transcript-based segmentation (e.g., for Proseg or Baysor))</option>
+            </param>
+            <when value="image">
+                <param argument="--patch-width-pixel" type="float" value="5000" min="100" label="Width (and height) of each patch in pixels"/>
+                <param argument="--patch-overlap-pixel" type="float" value="100" min="0" label="Number of overlapping pixels between the patches" help="We advise to choose approximately twice the diameter of a cell."/>
+            </when>
+            <when value="transcripts">
+                <param argument="--patch-width-microns" type="float" value="50000" min="1.0" label="Width (and height) of each patch in microns"/>
+                <param argument="--patch-overlap-microns" type="float" value="100" min="0.0" label="Number of overlapping microns between the patches." help="We advise to choose approximately twice the diameter of a cell."/>
+                <param argument="--prior-shapes-key" type="text" optional="true" label="Name of the boundaries element to use as a segmentation prior" help="Key in SpatialData object containing prior cell segmentation to use as input for transcript-based segmentation (e.g., 'cellpose_boundaries' or 'cell_id').">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="--unassigned_value" type="text" optional="true" label="Value given to transcripts that are not inside any cell" help="(e.g., 'UNASSIGNED' for Xenium, '-1' for MERSCOPE). Works when --prior-shapes-key is provided.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="write_cells_centroids" type="boolean" truevalue="--write-cells-centroids" falsevalue="--no-write-cells-centroids" checked="false" label="Write cell centroids?" help="Must be True for ComSeg."/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <expand macro="output_sdata"/>
+    </outputs>
+    <tests>
+        <!-- test 1: image-based patching -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto.spatialdata.zip"/>
+            <conditional name="patch_type">
+                <param name="type" value="image"/>
+                <param name="patch_width_pixel" value="1500"/>
+                <param name="patch_overlap_pixel" value="50"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="shapes/image_patches"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 2: transcript-based patching -->
+        <test expect_num_outputs="1">
+            <param name="input_sdata" location="https://zenodo.org/records/20703092/files/tuto.spatialdata.zip"/>
+            <conditional name="patch_type">
+                <param name="type" value="transcripts"/>
+            </conditional>
+            <output name="output_sdata">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="shapes/transcripts_patches"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+SOPA Patchify creates patches (tiles) from spatial omics data to enable efficient cell segmentation. This is a required preprocessing step before running segmentation algorithms like Cellpose or Baysor.
+
+The tool supports two types of patching:
+
+1. **Image-based patches**: For staining-based segmentation methods (e.g., Cellpose) that work on fluorescence images. Patches are defined in pixel coordinates.
+
+2. **Transcript-based patches**: For transcript-based segmentation methods (e.g., Baysor) that work on spatial transcriptomics data. Patches are defined in physical micron coordinates.
+
+**Inputs**
+
+- **SpatialData object**: A zipped .zarr directory containing spatial omics data (output from SpatialData IO tool or previous SOPA tool)
+
+**Output**
+
+- Updated SpatialData object with patch metadata, ready for segmentation
+
+**More Information**
+
+For more details, see the `SOPA documentation <https://prism-oncology.github.io/sopa/tutorials/cli_usage/#run-segmentation>`_.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

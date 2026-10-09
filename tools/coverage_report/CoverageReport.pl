@@ -162,6 +162,7 @@ print OUT '\usepackage{longtable}'."\n";
 print OUT '\usepackage{fancyhdr}'."\n";
 print OUT '\usepackage{fontspec}' . "\n";
 print OUT '\usepackage{color}'."\n";
+print OUT '\usepackage{graphicx}'."\n";
 print OUT '\definecolor{grey}{RGB}{160,160,160}'."\n";
 print OUT '\definecolor{darkgrey}{RGB}{100,100,100}'."\n";
 print OUT '\definecolor{red}{RGB}{255,0,0}'."\n";

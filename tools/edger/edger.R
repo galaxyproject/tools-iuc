@@ -88,6 +88,17 @@ unmake_names <- function(string) {
 # Sanitise file base names coming from factors or contrasts
 sanitise_basename <- function(string) {
     string <- gsub("[/^]", "_", string)
+    # If string is longer than 200 characters, truncate intelligently
+    if (nchar(string) > 200) {
+        # Keep first 80 characters, last 80 characters, and add hash in middle
+        start_part <- substr(string, 1, 80)
+        end_part <- substr(string, nchar(string) - 79, nchar(string))
+        # Create a simple hash of the full string using built-in functions
+        hash_input <- utf8ToInt(string)
+        hash_value <- sum(hash_input * seq_along(hash_input)) %% 99999999
+        hash_str <- sprintf("%08d", hash_value)
+        string <- paste0(start_part, "_", hash_str, "_", end_part)
+    }
     return(string)
 }
 
@@ -330,6 +341,8 @@ if (file.exists(opt$contrastData)) {
 }
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
+# Convert colons to dots to match design matrix column name processing
+contrast_data <- gsub(":", ".", contrast_data, fixed = TRUE)
 
 bcv_pdf <- make_out("bcvplot.pdf")
 bcv_png <- make_out("bcvplot.png")
@@ -430,6 +443,9 @@ design <- model.matrix(formula, factors)
 for (i in seq_along(factor_list)) {
     colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)
 }
+
+# Ensure column names are syntactically valid
+colnames(design) <- make.names(colnames(design))
 
 # Calculating normalising factor, estimating dispersion
 data <- calcNormFactors(data, method = opt$normOpt)

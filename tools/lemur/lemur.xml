@@ -1,0 +1,433 @@
+<tool id="lemur" name="LEMUR" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>Multi-condition single-cell latent modeling analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <required_files>
+        <include path="lemur.R"/>
+    </required_files>
+    <version_command>Rscript -e 'cat(as.character(packageVersion("lemur")))'</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+export OMP_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+export OPENBLAS_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+Rscript '$__tool_directory__/lemur.R'
+    --input_rds '$sce'
+    --meta_table '$meta_table'
+    --cell_id_column '$cell_id_column'
+    --condition_column '$condition_column'
+    #if str($covariate_columns).strip() not in ('', 'None'):
+        --covariate_columns '$covariate_columns'
+    #end if
+    --contrast_condition '$contrast_condition'
+    --reference_condition '$reference_condition'
+    --n_embedding '$n_embedding'
+    --test_fraction '$test_fraction'
+    --linear_coefficient_estimator '$linear_coefficient_estimator'
+    --use_assay '$use_assay'
+    --consider '$consider'
+    --group_by_columns '$group_by_columns'
+    --test_method '$test_method'
+    --n_threads "\${GALAXY_SLOTS:-1}"
+    --output_umap 'umap_out'
+    --output_volcano 'volcano_out'
+    --output_de 'de_results.tsv'
+    #if str($sel_gene).strip():
+        --sel_gene '$sel_gene'
+        --output_gene_umap 'gene_umap_out'
+        --output_gene_hist 'gene_hist_out'
+    #end if
+    --use_harmony '$use_harmony'
+    --plot_format '$plot_format'
+    --plot_width '$plot_width'
+    --plot_height '$plot_height'
+    --run_tumor_analysis '$tumor_analysis_cond.run_tumor_analysis'
+    #if str($tumor_analysis_cond.run_tumor_analysis) == 'yes':
+        --output_chr_scatter 'chr_scatter_out'
+        --output_tumor_umap 'tumor_umap_out'
+        --output_tumor_neigh 'tumor_neigh.tsv'
+        --tumor_annotation_column '$tumor_analysis_cond.tumor_annotation_column'
+        --chrom1_name '$tumor_analysis_cond.chrom1_name'
+        --chrom2_name '$tumor_analysis_cond.chrom2_name'
+        --chrom1_thresh '$tumor_analysis_cond.chrom1_thresh'
+        --chrom2_thresh '$tumor_analysis_cond.chrom2_thresh'
+    #end if
+    ]]></command>
+    <inputs>
+        <param name="sce" type="data" format="rds" label="SingleCellExperiment object (RDS)"/>
+        <param name="meta_table" type="data" format="tabular" label="Sample metadata table (TSV)" help="Tabular file with one row per sample/cell. Must contain columns for condition and optionally for batch or covariates."/>
+        <param name="cell_id_column" type="data_column" data_ref="meta_table" label="Cell ID column" help="Column in metadata that contains the cell IDs matching colnames of SCE"/>
+        <param name="condition_column" type="data_column" data_ref="meta_table" label="Condition column" help="Any metadata column with two or more levels (e.g. treatment, batch, timepoint, genotype), not only a treatment variable. The comparison is built from the two values you enter in 'Condition for contrast' and 'Reference condition' below."/>
+        <param name="covariate_columns" type="data_column" data_ref="meta_table" multiple="true" optional="true" label="Covariate columns (optional)" help="Optional covariate variables to add to the LEMUR design formula, in addition to the condition (e.g. batch, sex, age). These affect the model fit only; the replication unit used for the differential expression test is set separately below."/>
+        <param name="group_by_columns" type="data_column" data_ref="meta_table" multiple="true" label="Group-by column(s) for differential expression" help="Metadata column(s) defining the replication unit that find_de_neighborhoods uses to form pseudobulk samples (e.g. patient or sample ID). Required. The condition and any design covariates are added automatically, so select only the replication variable(s) here."/>
+        <param name="contrast_condition" type="text" value="treatment" label="Condition for contrast (e.g. treatment)">
+            <validator type="empty_field" message="This field cannot be empty."/>
+        </param>
+        <param name="reference_condition" type="text" value="ctrl" label="Reference condition (e.g. control)">
+            <validator type="empty_field" message="This field cannot be empty."/>
+        </param>
+        <param name="n_embedding" type="integer" min="1" value="15" label="Number of latent dimensions (embedding)"/>
+        <param name="test_fraction" type="float" value="0.2" min="0.01" max="0.9" label="The fraction of cells that are split off before the model fit to keep an independent set of test observations"/>
+        <param name="linear_coefficient_estimator" type="select" label="Linear coefficient estimator" help="Estimator used to center the conditions in the linear model fit.">
+            <option value="linear" selected="true">linear</option>
+            <option value="mean">mean</option>
+            <option value="cluster_median">cluster_median</option>
+            <option value="zero">zero</option>
+        </param>
+        <param name="use_assay" type="text" value="logcounts" label="Assay to use for model fitting" help="Name of the SCE assay used for LEMUR model fitting (also used as the continuous assay by the 'limma' DE method). The 'glmGamPoi' and 'edgeR' DE methods instead read the raw 'counts' assay, so a counts assay is required unless the DE test method is set to 'limma'.">
+            <validator type="empty_field" message="This field cannot be empty."/>
+        </param>
+        <param name="consider" type="select" label="Model parts considered for the DE test" help="Which part of the model is considered for the differential expression test. Note: 'linear' can fail in find_de_neighborhoods with the default direction-selection setting, because the DE assay then has no embedding-dependent variation, making the correlation against random directions undefined.">
+            <option value="embedding+linear" selected="true">embedding+linear</option>
+            <option value="embedding">embedding</option>
+            <option value="linear">linear</option>
+        </param>
+        <param name="test_method" type="select" label="Pseudobulk DE test method" help="Statistical method for the pseudobulk differential expression test in find_de_neighborhoods. 'glmGamPoi' and 'edgeR' operate on the raw 'counts' assay; 'limma' operates on the continuous assay (see 'Assay to use for model fitting'). 'none' skips this test entirely: the exported DE table then has no lfc/pval/adj_pval columns, and the volcano plot is not produced.">
+            <option value="glmGamPoi" selected="true">glmGamPoi</option>
+            <option value="edgeR">edgeR</option>
+            <option value="limma">limma</option>
+            <option value="none">none</option>
+        </param>
+        <param name="use_harmony" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Apply Harmony alignment?" help="Enforces additional alignment of cell clusters beyond the direct differential embedding."/>
+        <param name="sel_gene" type="text" optional="true" label="Gene ID for gene-specific plots (optional)" help="Must match a gene ID in the rownames of the SCE object."/>
+        <param name="plot_format" type="select" label="Plot format">
+            <option value="pdf" selected="true">PDF</option>
+            <option value="png">PNG</option>
+            <option value="jpg">JPG</option>
+        </param>
+        <param name="plot_width" type="float" value="15" min="1" max="100" label="Plot width (in cm)"/>
+        <param name="plot_height" type="float" value="12" min="1" max="100" label="Plot height (in cm)"/>
+        <conditional name="tumor_analysis_cond">
+            <param name="run_tumor_analysis" type="select" label="Run tumor-specific classification (chromosome-based)" help="Optional: classifies cells as tumor/non-tumor based on chromosome gain/loss (as in the glioblastoma example). Not applicable to all datasets — enable only if relevant to your data.">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="yes">
+                <param name="tumor_annotation_column" type="text" value="chromosome" label="Gene annotation column (in rowData)" help="Name of the gene-level (rowData) annotation column that assigns each gene to a chromosome, used to compute per-chromosome expression for tumor classification. Default is 'chromosome'. Override if your SCE uses a different rowData column name."/>
+                <expand macro="chromosome_params"/>
+                <param name="chrom1_thresh" type="float" value="0.8" label="Minimum expression threshold for the gained chromosome" help="Minimum mean expression of the gained chromosome (above) required to classify a cell as tumor."/>
+                <param name="chrom2_thresh" type="float" value="2.5" label="Maximum expression threshold for the lost chromosome" help="Maximum mean expression of the lost chromosome (above) required to classify a cell as tumor."/>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="umap_plot" format="pdf" from_work_dir="umap_out" label="${tool.name} on ${on_string}: UMAP plot">
+            <expand macro="plot_change_format"/>
+        </data>
+        <data name="volcano_plot" format="pdf" from_work_dir="volcano_out" label="${tool.name} on ${on_string}: Volcano plot">
+            <expand macro="plot_change_format"/>
+            <filter>test_method != 'none'</filter>
+        </data>
+        <data name="de_results" format="tabular" from_work_dir="de_results.tsv" label="${tool.name} on ${on_string}: DE results"/>
+        <data name="gene_umap" format="pdf" from_work_dir="gene_umap_out" label="${tool.name} on ${on_string}: Gene UMAP plot">
+            <expand macro="plot_change_format"/>
+            <filter>sel_gene and sel_gene.strip()</filter>
+        </data>
+        <data name="gene_hist" format="pdf" from_work_dir="gene_hist_out" label="${tool.name} on ${on_string}: Gene histogram plot">
+            <expand macro="plot_change_format"/>
+            <filter>sel_gene and sel_gene.strip()</filter>
+        </data>
+        <data name="chr_scatter" format="pdf" from_work_dir="chr_scatter_out" label="${tool.name} on ${on_string}: Chromosome scatter plot">
+            <expand macro="plot_change_format"/>
+            <filter>tumor_analysis_cond['run_tumor_analysis'] == 'yes'</filter>
+        </data>
+        <data name="tumor_umap" format="pdf" from_work_dir="tumor_umap_out" label="${tool.name} on ${on_string}: Tumor UMAP plot">
+            <expand macro="plot_change_format"/>
+            <filter>tumor_analysis_cond['run_tumor_analysis'] == 'yes'</filter>
+        </data>
+        <data name="tumor_neigh" format="tabular" from_work_dir="tumor_neigh.tsv" label="${tool.name} on ${on_string}: Tumor neighborhood DE results">
+            <filter>tumor_analysis_cond['run_tumor_analysis'] == 'yes'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: PDF -->
+        <test expect_num_outputs="8">
+            <param name="sce" location="https://zenodo.org/records/16575009/files/glioblastoma_example_data.rds"/>
+            <param name="meta_table" value="metadata.tsv"/>
+            <param name="cell_id_column" value="11"/>
+            <param name="condition_column" value="8"/>
+            <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
+            <param name="contrast_condition" value="panobinostat"/>
+            <param name="reference_condition" value="ctrl"/>
+            <param name="n_embedding" value="15"/>
+            <param name="test_fraction" value="0.2"/>
+            <param name="sel_gene" value="ENSG00000210082"/>
+            <param name="plot_format" value="pdf"/>
+            <param name="plot_width" value="15"/>
+            <param name="plot_height" value="12"/>
+            <conditional name="tumor_analysis_cond">
+                <param name="run_tumor_analysis" value="yes"/>
+                <param name="tumor_annotation_column" value="chromosome"/>
+            </conditional>
+            <output name="de_results">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="12"/>
+                    <has_line_matching expression="^name\tn_cells\t.*did_lfc$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="tumor_neigh">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="12"/>
+                    <has_line_matching expression="^name\tn_cells\t.*did_lfc$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="umap_plot" ftype="pdf">
+                <assert_contents>
+                    <has_size value="186480" delta="75000"/>
+                </assert_contents>
+            </output>
+            <output name="volcano_plot" ftype="pdf">
+                <assert_contents>
+                    <has_size value="22468" delta="9000"/>
+                </assert_contents>
+            </output>
+            <output name="gene_umap" ftype="pdf">
+                <assert_contents>
+                    <has_size value="331168" delta="130000"/>
+                </assert_contents>
+            </output>
+            <output name="gene_hist">
+                <assert_contents>
+                    <has_size value="5296" delta="2000"/>
+                </assert_contents>
+            </output>
+            <output name="chr_scatter" ftype="pdf">
+                <assert_contents>
+                    <has_size value="283574" delta="110000"/>
+                </assert_contents>
+            </output>
+            <output name="tumor_umap" ftype="pdf">
+                <assert_contents>
+                    <has_size value="281064" delta="110000"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="Condition column: condition"/>
+                <has_text text="cond(condition = &quot;panobinostat&quot;) - cond(condition = &quot;ctrl&quot;)"/>
+            </assert_stdout>
+        </test>
+        <!-- Test 2: PNG -->
+        <test expect_num_outputs="8">
+            <param name="sce" location="https://zenodo.org/records/16575009/files/glioblastoma_example_data.rds"/>
+            <param name="meta_table" value="metadata.tsv"/>
+            <param name="cell_id_column" value="11"/>
+            <param name="condition_column" value="8"/>
+            <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
+            <param name="contrast_condition" value="panobinostat"/>
+            <param name="reference_condition" value="ctrl"/>
+            <param name="n_embedding" value="15"/>
+            <param name="test_fraction" value="0.2"/>
+            <param name="sel_gene" value="ENSG00000210082"/>
+            <param name="plot_format" value="png"/>
+            <param name="plot_width" value="15"/>
+            <param name="plot_height" value="12"/>
+            <conditional name="tumor_analysis_cond">
+                <param name="run_tumor_analysis" value="yes"/>
+                <param name="tumor_annotation_column" value="chromosome"/>
+            </conditional>
+            <output name="de_results">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="12"/>
+                    <has_line_matching expression="^name\tn_cells\t.*did_lfc$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="tumor_neigh">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="12"/>
+                    <has_line_matching expression="^name\tn_cells\t.*did_lfc$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="umap_plot" ftype="png">
+                <assert_contents>
+                    <has_size min="75000"/>
+                </assert_contents>
+            </output>
+            <output name="volcano_plot" ftype="png">
+                <assert_contents>
+                    <has_size min="45000"/>
+                </assert_contents>
+            </output>
+            <output name="gene_umap" ftype="png">
+                <assert_contents>
+                    <has_size min="140000"/>
+                </assert_contents>
+            </output>
+            <output name="gene_hist" ftype="png">
+                <assert_contents>
+                    <has_size min="14000"/>
+                </assert_contents>
+            </output>
+            <output name="chr_scatter" ftype="png">
+                <assert_contents>
+                    <has_size min="190000"/>
+                </assert_contents>
+            </output>
+            <output name="tumor_umap" ftype="png">
+                <assert_contents>
+                    <has_size min="58000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: parameter-coverage test — test_method="none" (volcano skipped,
+             validating the skip path and its output filter), use_harmony="no",
+             and non-default consider / linear_coefficient_estimator, in JPG. -->
+        <test expect_num_outputs="7">
+            <param name="sce" location="https://zenodo.org/records/16575009/files/glioblastoma_example_data.rds"/>
+            <param name="meta_table" value="metadata.tsv"/>
+            <param name="cell_id_column" value="11"/>
+            <param name="condition_column" value="8"/>
+            <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
+            <param name="contrast_condition" value="panobinostat"/>
+            <param name="reference_condition" value="ctrl"/>
+            <param name="n_embedding" value="15"/>
+            <param name="test_fraction" value="0.2"/>
+            <param name="linear_coefficient_estimator" value="mean"/>
+            <param name="consider" value="embedding"/>
+            <param name="test_method" value="none"/>
+            <param name="sel_gene" value="ENSG00000210082"/>
+            <param name="use_harmony" value="false"/>
+            <param name="plot_format" value="jpg"/>
+            <param name="plot_width" value="15"/>
+            <param name="plot_height" value="12"/>
+            <conditional name="tumor_analysis_cond">
+                <param name="run_tumor_analysis" value="yes"/>
+                <param name="tumor_annotation_column" value="chromosome"/>
+            </conditional>
+            <output name="de_results">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="3"/>
+                    <has_line_matching expression="^name\tn_cells\tsel_statistic$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="tumor_neigh">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="3"/>
+                    <has_line_matching expression="^name\tn_cells\tsel_statistic$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="umap_plot" ftype="jpg">
+                <assert_contents>
+                    <has_size min="80000"/>
+                </assert_contents>
+            </output>
+            <output name="gene_umap" ftype="jpg">
+                <assert_contents>
+                    <has_size min="90000"/>
+                </assert_contents>
+            </output>
+            <output name="gene_hist" ftype="jpg">
+                <assert_contents>
+                    <has_size min="50000"/>
+                </assert_contents>
+            </output>
+            <output name="chr_scatter" ftype="jpg">
+                <assert_contents>
+                    <has_size min="190000"/>
+                </assert_contents>
+            </output>
+            <output name="tumor_umap" ftype="jpg">
+                <assert_contents>
+                    <has_size min="100000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: minimal outputs — no sel_gene and tumor analysis off, so the
+             gene and tumor outputs are filtered out, leaving 3 outputs -->
+        <test expect_num_outputs="3">
+            <param name="sce" location="https://zenodo.org/records/16575009/files/glioblastoma_example_data.rds"/>
+            <param name="meta_table" value="metadata.tsv"/>
+            <param name="cell_id_column" value="11"/>
+            <param name="condition_column" value="8"/>
+            <param name="covariate_columns" value="1"/>
+            <param name="group_by_columns" value="1"/>
+            <param name="contrast_condition" value="panobinostat"/>
+            <param name="reference_condition" value="ctrl"/>
+            <param name="n_embedding" value="15"/>
+            <param name="test_fraction" value="0.2"/>
+            <param name="plot_format" value="pdf"/>
+            <param name="plot_width" value="15"/>
+            <param name="plot_height" value="12"/>
+            <conditional name="tumor_analysis_cond">
+                <param name="run_tumor_analysis" value="no"/>
+            </conditional>
+            <output name="de_results">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_n_columns n="12"/>
+                    <has_line_matching expression="^name\tn_cells\t.*did_lfc$"/>
+                    <has_text text="ENSG00000210082"/>
+                </assert_contents>
+            </output>
+            <output name="umap_plot" ftype="pdf">
+                <assert_contents>
+                    <has_size value="186480" delta="75000"/>
+                </assert_contents>
+            </output>
+            <output name="volcano_plot" ftype="pdf">
+                <assert_contents>
+                    <has_size value="22468" delta="9000"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="Condition column: condition"/>
+                <has_text text="cond(condition = &quot;panobinostat&quot;) - cond(condition = &quot;ctrl&quot;)"/>
+            </assert_stdout>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+LEMUR identifies transcriptional differences across conditions in latent space using single-cell RNA-seq data. This tool wraps the core LEMUR workflow (latent embedding multivariate regression) and can be applied to single-cell data from any tissue or cell type — it is not limited to any specific disease or dataset.
+
+**Inputs:**
+- A `SingleCellExperiment` object in RDS format.
+- A metadata table, with column selectors for the condition and, optionally, one or more covariate columns; the design formula is built as `~ covariates + condition`, where "condition" is whichever column you select and the comparison is between two of its levels (given in the contrast and reference fields).
+- Parameters for dimensionality and model training.
+- Optionally, a gene ID for extra gene-specific plots.
+- Apply Harmony alignment: If selected, the latent space is aligned using Harmony before differential expression analysis.
+- Selectable output format for all plots: PDF, PNG, or JPG.
+
+**Why use `SingleCellExperiment` (SCE)?**
+LEMUR uses the `SingleCellExperiment` (SCE) format because it is the standard Bioconductor structure for single-cell data in R. Unlike Seurat or AnnData, SCE is lightweight, interoperable, and not tied to a specific framework. It cleanly separates assays (e.g., expression values), cell metadata (`colData`), feature metadata (`rowData`), and reduced dimensions (`reducedDims`).
+
+For LEMUR to work correctly, the SCE object **must include**:
+- **`counts()`**: matrix of raw (non-normalized) integer counts, required for the pseudobulk differential expression test in `find_de_neighborhoods()` when the DE test method is `glmGamPoi` (the default) or `edgeR`. The `limma` method instead uses the continuous assay (see "Assay to use for model fitting"), so counts are not needed when `limma` is selected.
+- **`logcounts()`**: matrix of log-normalized gene expression, used for model fitting and visualization.
+- **`colData`**: must contain the variables referenced in the `design` formula (e.g., `patient_id`, `condition`).
+
+You can easily convert Seurat objects using `as.SingleCellExperiment()` in R. Within Galaxy, you can convert between single-cell formats (e.g. Seurat or AnnData) and `SingleCellExperiment` using the **sceasy** and **anndata2ri** tools.
+
+**Outputs:**
+- UMAP plot
+- Volcano plot
+- Table of differentially expressed neighborhoods. Note: `find_de_neighborhoods()` returns each neighborhood's member cell IDs as a nested list-column, which cannot be represented in a flat TSV, so that column is dropped from the exported table.
+- Gene UMAP + histogram plots if a gene ID is given
+
+**Optional tumor-specific classification:**
+Enabling "Run tumor-specific classification" performs a chromosome gain/loss-based tumor/non-tumor cell classification, using two configurable chromosome-arm markers (default: chromosome 7 gain / chromosome 10 loss, as used in the glioblastoma example below). This approach can be applied to other tumor types with known chromosome-level copy number alterations by adjusting the chromosome names and thresholds to match your data — it is disabled by default since it's only relevant if your dataset includes this kind of copy-number-based tumor signal. When enabled, it adds three outputs: a chromosome expression scatter plot, a tumor/non-tumor UMAP plot, and a table of differentially expressed neighborhoods restricted to the classified tumor cells.
+
+**More information:**
+For details on the LEMUR method, see the official LEMUR repository: https://github.com/const-ae/lemur
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41588-024-01996-0</citation>
+    </citations>
+    <creator>
+        <organization name="European Galaxy Team" url="https://galaxyproject.org/eu/"/>
+        <person givenName="Diana" familyName="Chiang Jurado" email="dianachj@informatik.uni-freiburg.de"/>
+    </creator>
+</tool>

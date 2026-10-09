@@ -9,21 +9,49 @@
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 export NUMBA_CACHE_DIR="\${TEMP:-/tmp}";
-@PREP_ADATA@
+#if $method.method == 'tl.multi_spectral'
+    #for $i in range(len($method.adata))
+        cp $method.adata[$i] 'adata_${i}.h5ad' &&
+    #end for
+#else
+    @CMD_PREP_ADATA@
+#end if
 @CMD@
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 
-@CMD_imports@
-@CMD_read_inputs@
+@CONF_IMPORTS@
+#if $method.method == 'tl.multi_spectral'
+## read all files ending with .h5ad in the working directory
+import glob
+files = sorted(glob.glob('adata_*.h5ad'))
+
+adata_list = []
+for fn in files:
+    ad = snap.read(fn, backed=None)
+    adata_list.append(ad)
+#else
+@CONF_READ_INPUTS@
+#end if
 
 #if $method.method == 'tl.spectral'
     #if $method.features
 with open('$method.features') as f:
     features_mask = [x.lower().capitalize() == "True" for x in f.read().splitlines()]
     #end if
-sa.tl.spectral(
+
+## somewhere in the SnapATAC2 code, a pandas Series is being passed where a numpy array is expected.
+## This is a workaround to add the nonzero method back to pandas Series.
+## Add the nonzero method back to pandas Series
+import pandas as pd
+def series_nonzero(self):
+    return (self != 0).values.nonzero()
+
+pd.Series.nonzero = series_nonzero
+
+
+snap.tl.spectral(
     adata,
     n_comps = $method.n_comps,
     #if $method.features
@@ -39,8 +67,31 @@ sa.tl.spectral(
     inplace = True
 )
 
+#else if $method.method == 'tl.multi_spectral'
+    #if $method.features
+with open('$method.features') as f:
+    features_mask = [x.lower().capitalize() == "True" for x in f.read().splitlines()]
+    #end if
+
+embedding = snap.tl.multi_spectral(
+    adatas = adata_list,
+    n_comps = $method.n_comps,
+    #if $method.features
+    features = features_mask,
+    #else
+    features = None,
+    #end if
+    weights = None,  # Will enable if requested by users
+    random_state = $method.random_state,
+    weighted_by_sd = $method.weighted_by_sd,
+)
+
+adata = adata_list[0].copy()
+adata.uns['spectral_eigenvalue_joint'] = embedding[0]
+adata.obsm['X_joint'] = embedding[1]
+
 #else if $method.method == 'tl.umap'
-sa.tl.umap(
+snap.tl.umap(
     adata,
     n_comps = $method.n_comps,
     #if $method.use_dims != ''
@@ -54,7 +105,7 @@ sa.tl.umap(
 )
 
 #else if $method.method == 'pp.knn'
-sa.pp.knn(
+snap.pp.knn(
     adata,
     n_neighbors = $method.n_neighbors,
     #if $method.use_dims != ''
@@ -67,18 +118,43 @@ sa.pp.knn(
     random_state = $method.random_state
 )
 
+#else if $method.method == 'tl.leiden'
+snap.tl.leiden(
+    adata,
+    resolution = $method.resolution,
+    objective_function = '$method.objective_function',
+    min_cluster_size = $method.min_cluster_size,
+    n_iterations = $method.n_iterations,
+    random_state = $method.random_state,
+    key_added = '$method.key_added',
+    use_leidenalg = $method.use_leidenalg,
+    weighted = $method.weighted,
+    inplace = True
+)
+
+#else if $method.method == 'tl.kmeans'
+snap.tl.kmeans(
+    adata,
+    n_clusters = $method.n_clusters,
+    n_iterations = $method.n_iterations,
+    random_state = $method.random_state,
+    use_rep = '$method.use_rep',
+    key_added = '$method.key_added'
+)
+
 #else if $method.method == 'tl.dbscan'
-sa.tl.dbscan(
+snap.tl.dbscan(
     adata,
     eps = $method.eps,
     min_samples = $method.min_samples,
     leaf_size = $method.leaf_size,
     use_rep = '$method.use_rep',
-    key_added = '$method.key_added'
+    key_added = '$method.key_added',
+    n_jobs = int(os.getenv("GALAXY_SLOTS", 4))
 )
 
 #else if $method.method == 'tl.hdbscan'
-sa.tl.hdbscan(
+snap.tl.hdbscan(
     adata,
     min_cluster_size = $method.min_cluster_size,
     #if $method.min_samples
@@ -92,43 +168,18 @@ sa.tl.hdbscan(
     key_added = '$method.key_added'
 )
 
-#else if $method.method == 'tl.leiden'
-sa.tl.leiden(
-    adata,
-    resolution = $method.resolution,
-    objective_function = '$method.objective_function',
-    #if $method.objective_function == 'RBConfiguration'
-    use_leidenalg = True,
-    #end if
-    min_cluster_size = $method.min_cluster_size,
-    n_iterations = $method.n_iterations,
-    random_state = $method.random_state,
-    key_added = '$method.key_added',
-    weighted = $method.weighted,
-    inplace = True
-)
-
-#else if $method.method == 'tl.kmeans'
-sa.tl.kmeans(
-    adata,
-    n_clusters = $method.n_clusters,
-    n_iterations = $method.n_iterations,
-    random_state = $method.random_state,
-    use_rep = '$method.use_rep',
-    key_added = '$method.key_added'
-)
-
-#else if $method.method == 'tl.aggregate_X'
-sa.tl.aggregate_X(
-    adata,
-    #if $method.groupby != ''
-    groupby = '$method.groupby',
-    #end if
-    normalize = '$method.normalize'
-)
+## It is implemented in select_feature function, and it is problematic if the user don't select a groupby  (will return an array). i think this can be skipped unless needed
+## #else if $method.method == 'tl.aggregate_X'
+## snap.tl.aggregate_X(
+##     adata,
+##     #if $method.groupby != ''
+##     groupby = '$method.groupby',
+##     #end if
+##     normalize = '$method.normalize'
+## )
 
 #else if $method.method == 'tl.aggregate_cells'
-sa.tl.aggregate_cells(
+snap.tl.aggregate_cells(
     adata,
     use_rep = '$method.use_rep',
     #if $method.target_num_cells
@@ -141,26 +192,28 @@ sa.tl.aggregate_cells(
 )
 #end if
 
-@CMD_anndata_write_outputs@
+@CONF_ANNDATA_WRITE_OUTPUTS@
     ]]></configfile>
     </configfiles>
     <inputs>
         <conditional name="method">
             <param name="method" type="select" label="Dimension reduction and Clustering">
                 <option value="tl.spectral">Perform dimension reduction using Laplacian Eigenmap, using 'tl.spectral'</option>
+                <option value="tl.multi_spectral">similar to 'tl.multi_spectral' but it can work on multiple modalities.</option>
                 <option value="tl.umap">Compute Umap, using 'tl.umap'</option>
                 <option value="pp.knn">Compute a neighborhood graph of observations, using 'pp.knn'</option>
                 <option value="tl.leiden">Cluster cells into subgroups, using 'tl.leiden'</option>
                 <option value="tl.kmeans">Cluster cells into subgroups using the K-means algorithm, using 'tl.kmeans'</option>
                 <option value="tl.dbscan">Cluster cells into subgroups using the DBSCAN algorithm, using 'tl.dbscan'</option>
                 <option value="tl.hdbscan">Cluster cells into subgroups using the HDBSCAN algorithm, using 'tl.hdbscan'</option>
-                <option value="tl.aggregate_X">Aggregate values in adata.X in a row-wise fashion, using 'tl.aggregate_X'</option>
+                <!-- It is implemented in select_feature function in preprocessing.xml tool (implemented in upstream code, not in the xml). It is problematic if the user don't select a groupby  (will return an array). i think this can be skipped unless needed -->
+                <!-- <option value="tl.aggregate_X">Aggregate values in adata.X in a row-wise fashion, using 'tl.aggregate_X'</option> -->
                 <option value="tl.aggregate_cells">Aggregate cells into pseudo-cells, using 'tl.aggregate_cells'</option>
             </param>
             <when value="tl.spectral">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <expand macro="param_n_comps"/>
-                <param argument="features" type="data" format="txt" optional="true" label="Text file indicating features to keep. Each line contains only word (True/False)." help="True means that the feature is kept. False means the feature is removed"/>
+                <param argument="features" type="data" format="txt,tabular" optional="true" label="Text file indicating features to keep. Each line contains only word (True/False)." help="True means that the feature is kept. False means the feature is removed"/>
                 <expand macro="param_random_state"/>
                 <param argument="sample_size" type="float" min="0" max="1" optional="true" label="Approximate the embedding using the Nystrom algorithm by selecting a subset of cells" help="Using this only when the number of cells is too large, e.g. &gt; 10,000,000, or the `distance_metric` is “jaccard”"/>
                 <param argument="chunk_size" type="integer" value="20000" label="chunk size"/>
@@ -170,9 +223,18 @@ sa.tl.aggregate_cells(
                 </param>
                 <param argument="weighted_by_sd" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to weight the result eigenvectors by the square root of eigenvalues"/>
             </when>
+            <when value="tl.multi_spectral">
+                <expand macro="param_inputs_anndata" multiple="true" label="list of Anndatas to use for multi_spectral" help="Please note that the embedding will be saved in the first Anndata"/>
+                <!-- Will enable if requested by users -->
+                <!-- <param name="weights" type="data" format="tabular" optional="true" label="Weights" help="Text file indicating weights for each modality. Each line contains only floats.If not provided, all modalities are weighted equally" /> -->
+                <expand macro="param_n_comps"/>
+                <param argument="features" type="data" format="txt,tabular" optional="true" label="Text file indicating features to keep. Each line contains only word (True/False)." help="True means that the feature is kept. False means the feature is removed"/>
+                <expand macro="param_random_state"/>
+                <param argument="weighted_by_sd" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Whether to weight the result eigenvectors by the square root of eigenvalues"/>
+            </when>
             <when value="tl.umap">
-                <expand macro="inputs_anndata"/>
-                <param argument="n_comps" type="integer" value="2" label="Number of dimensions of embedding"/>
+                <expand macro="param_inputs_anndata"/>
+                <expand macro="param_n_comps" value="2" label="Number of components" help=""/>
                 <param argument="use_dims" type="text" optional="true" label="Use these dimensions in `use_rep`" help="comma separated list of dimensions">
                     <expand macro="sanitize_query"/>
                 </param>
@@ -181,21 +243,21 @@ sa.tl.aggregate_cells(
                 <expand macro="param_random_state"/>
             </when>
             <when value="pp.knn">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="n_neighbors" type="integer" value="50" label="The number of nearest neighbors to be searched"/>
                 <param argument="use_dims" type="text" value="" optional="true" label="The dimensions used for computation">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="use_rep" type="text" value="X_spectral" label="The key for the matrix"/>
+                <expand macro="param_use_rep" label="The key for the matrix"/>
                 <param argument="algorithm" type="select" label="Choose method">
                     <option value="kdtree" selected="true">'kdtree': use the kdtree algorithm to find the nearest neighbors</option>
                     <option value="hora">'hora': use the HNSW algorithm to find the approximate nearest neighbors</option>
                     <option value="pynndescent">'pynndescent': use the pynndescent algorithm to find the approximate nearest neighbors</option>
                 </param>
-                <param argument="random_state" type="integer" value="0" label="Random seed for approximate nearest neighbor search"/>
+                <expand macro="param_random_state" label="Random seed for approximate nearest neighbor search" help="Note that this is only used when method='pynndescent'. Currently hora does not support random seed, so the result of hora is not reproducible."/>
             </when>
             <when value="tl.leiden">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="resolution" type="float" value="1" label="Parameter value controlling the coarseness of the clustering" help="Higher values lead to more clusters"/>
                 <param argument="objective_function" type="select" label="Whether to use the Constant Potts Model (CPM) or modularity">
                     <option value="CPM">CPM</option>
@@ -206,10 +268,11 @@ sa.tl.aggregate_cells(
                 <expand macro="param_n_iterations"/>
                 <expand macro="param_random_state"/>
                 <expand macro="param_key_added" key_added="leiden"/>
+                <param argument="use_leidenalg" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Whether to use the leidenalg package for Leiden clustering"/>
                 <param argument="weighted" type="boolean" truevalue="True" falsevalue="False" label="Whether to use the edge weights in the graph"/>
             </when>
             <when value="tl.kmeans">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="n_clusters" type="integer" value="5" label="Number of clusters to return"/>
                 <expand macro="param_n_iterations"/>
                 <expand macro="param_random_state"/>
@@ -217,7 +280,7 @@ sa.tl.aggregate_cells(
                 <expand macro="param_key_added" key_added="kmeans"/>
             </when>
             <when value="tl.dbscan">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="eps" type="float" value="0.5" label=" The maximum distance between two samples for one to be considered as in the neighborhood of the other" help="This is not a maximum bound on the distances of points within a cluster. This is the most important DBSCAN parameter to choose appropriately for your data set and distance function."/>
                 <param argument="min_samples" type="integer" value="5" label="The number of samples (or total weight) in a neighborhood for a point to be considered as a core point."/>
                 <param argument="leaf_size" type="integer" value="30" label="Leaf size passed to BallTree or cKDTree" help="This can affect the speed of the construction and query, as well as the memory required to store the tree."/>
@@ -225,9 +288,9 @@ sa.tl.aggregate_cells(
                 <expand macro="param_key_added" key_added="dbscan"/>
             </when>
             <when value="tl.hdbscan">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <param argument="min_cluster_size" type="integer" value="5" label="The minimum size of clusters"/>
-                <param argument="min_samples" type="integer" value="" optional="true" label="The number of samples in a neighbourhood for a point to be considered a core point"/>
+                <param argument="min_samples" type="integer" value="" optional="true" label="The number of samples in a neighborhood for a point to be considered a core point"/>
                 <param argument="cluster_selection_epsilon" type="float" value="0.0" label="A distance threshold. Clusters below this value will be merged"/>
                 <param argument="alpha" type="float" value="1.0" label="A distance scaling parameter as used in robust single linkage"/>
                 <param argument="cluster_selection_method" type="select" label="The method used to select clusters from the condensed tree">
@@ -238,16 +301,16 @@ sa.tl.aggregate_cells(
                 <expand macro="param_use_rep"/>
                 <expand macro="param_key_added" key_added="hdbscan"/>
             </when>
-            <when value="tl.aggregate_X">
-                <expand macro="inputs_anndata"/>
+            <!-- <when value="tl.aggregate_X">
+                <expand macro="param_inputs_anndata"/>
                 <expand macro="param_groupby"/>
                 <param argument="normalize" type="select" optional="true" label="normalization method">
                     <option value="RPM">RPM</option>
                     <option value="RPKM">RPKM</option>
                 </param>
-            </when>
+            </when> -->
             <when value="tl.aggregate_cells">
-                <expand macro="inputs_anndata"/>
+                <expand macro="param_inputs_anndata"/>
                 <expand macro="param_use_rep"/>
                 <param argument="target_num_cells" type="integer" value="" optional="true" label="target_num_cells" help="If None, `target_num_cells = num_cells / min_cluster_size`"/>
                 <param argument="min_cluster_size" type="integer" value="50" label="The minimum size of clusters"/>
@@ -255,15 +318,12 @@ sa.tl.aggregate_cells(
                 <expand macro="param_key_added" key_added="pseudo_cell"/>
             </when>
         </conditional>
-        <expand macro="inputs_common_advanced"/>
+        <expand macro="param_common_advanced"/>
     </inputs>
     <outputs>
-        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix"/>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad.gz" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix"/>
         <data name="hidden_output" format="txt" label="Log file">
             <filter>advanced_common['show_log']</filter>
-        </data>
-        <data name="diff_peaks" format="tabular" from_work_dir="differential_peaks.tsv" label="${tool.name} on ${on_string}: Differential peaks">
-            <filter>method['method'] and 'tl.diff_test' in method['method']</filter>
         </data>
     </outputs>
     <tests>
@@ -271,7 +331,7 @@ sa.tl.aggregate_cells(
             <!-- tl.spectral -->
             <conditional name="method">
                 <param name="method" value="tl.spectral"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/pp.select_features.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.select_features.pbmc_500_chr21.h5ad"/>
                 <param name="n_comps" value="30"/>
                 <param name="random_state" value="0"/>
                 <param name="chunk_size" value="20000"/>
@@ -283,7 +343,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.spectral"/>
+                    <has_text_matching expression="snap.tl.spectral"/>
                     <has_text_matching expression="random_state = 0"/>
                     <has_text_matching expression="n_comps = 30"/>
                     <has_text_matching expression="chunk_size = 20000"/>
@@ -291,13 +351,46 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="weighted_by_sd = True"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/spectral_eigenvalue"/>
+                    <has_h5_keys keys="obsm/X_spectral"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <!-- tl.multi_spectral -->
+            <conditional name="method">
+                <param name="method" value="tl.multi_spectral"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/snap_datasets_pbmc10k_multiome_RNA.h5ad.gz,https://zenodo.org/records/17512085/files/snap_datasets_pbmc10k_multiome_ATAC.h5ad.gz"/>
+                <param name="n_comps" value="30"/>
+                <param name="random_state" value="0"/>
+                <param name="weighted_by_sd" value="True"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="snap.tl.multi_spectral"/>
+                    <has_text_matching expression="random_state = 0"/>
+                    <has_text_matching expression="n_comps = 30"/>
+                    <has_text_matching expression="weighted_by_sd = True"/>
+                    <has_text_matching expression="features = None"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/spectral_eigenvalue_joint"/>
+                    <has_h5_keys keys="obsm/X_joint"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- tl.umap -->
             <conditional name="method">
                 <param name="method" value="tl.umap"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.spectral.pbmc_500_chr21.h5ad"/>
                 <param name="n_comps" value="2"/>
                 <param name="use_rep" value="X_spectral"/>
                 <param name="key_added" value="umap"/>
@@ -308,24 +401,27 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.umap"/>
+                    <has_text_matching expression="snap.tl.umap"/>
                     <has_text_matching expression="n_comps = 2"/>
                     <has_text_matching expression="use_rep = 'X_spectral'"/>
                     <has_text_matching expression="key_added = 'umap'"/>
                     <has_text_matching expression="random_state = 0"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.umap.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/X_umap"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- pp.knn -->
             <conditional name="method">
                 <param name="method" value="pp.knn"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.umap.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.umap.pbmc_500_chr21.h5ad"/>
                 <param name="n_neighbors" value="50"/>
                 <param name="use_rep" value="X_spectral"/>
-                <param name="method_" value="kdtree"/>
-                <param name="inplace" value="True"/>
+                <param name="algorithm" value="kdtree"/>
                 <param name="random_state" value="0"/>
             </conditional>
             <section name="advanced_common">
@@ -333,7 +429,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.pp.knn"/>
+                    <has_text_matching expression="snap.pp.knn"/>
                     <has_text_matching expression="n_neighbors = 50"/>
                     <has_text_matching expression="use_rep = 'X_spectral'"/>
                     <has_text_matching expression="method = 'kdtree'"/>
@@ -341,13 +437,17 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="random_state = 0"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/pp.knn.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsp/distances"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- tl.leiden -->
             <conditional name="method">
                 <param name="method" value="tl.leiden"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/pp.knn.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.knn.pbmc_500_chr21.h5ad"/>
                 <param name="resolution" value="2"/>
                 <param name="objective_function" value="modularity"/>
                 <param name="min_cluster_size" value="3"/>
@@ -361,7 +461,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.leiden"/>
+                    <has_text_matching expression="snap.tl.leiden"/>
                     <has_text_matching expression="resolution = 2"/>
                     <has_text_matching expression="objective_function = 'modularity'"/>
                     <has_text_matching expression="min_cluster_size = 3"/>
@@ -371,13 +471,17 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="weighted = False"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.leiden.modularity.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/leiden"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- tl.leiden -->
             <conditional name="method">
                 <param name="method" value="tl.leiden"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/pp.knn.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/pp.knn.pbmc_500_chr21.h5ad"/>
                 <param name="resolution" value="2"/>
                 <param name="objective_function" value="RBConfiguration"/>
                 <param name="min_cluster_size" value="3"/>
@@ -391,7 +495,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.leiden"/>
+                    <has_text_matching expression="snap.tl.leiden"/>
                     <has_text_matching expression="resolution = 2"/>
                     <has_text_matching expression="objective_function = 'RBConfiguration'"/>
                     <has_text_matching expression="min_cluster_size = 3"/>
@@ -401,13 +505,17 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="weighted = False"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.leiden.RBConfiguration.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/leiden"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- tl.kmeans -->
             <conditional name="method">
                 <param name="method" value="tl.kmeans"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.spectral.pbmc_500_chr21.h5ad"/>
                 <param name="n_iterations" value="-1"/>
                 <param name="random_state" value="0"/>
                 <param name="use_rep" value="X_spectral"/>
@@ -418,20 +526,24 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.kmeans"/>
+                    <has_text_matching expression="snap.tl.kmeans"/>
                     <has_text_matching expression="n_iterations = -1"/>
                     <has_text_matching expression="random_state = 0"/>
                     <has_text_matching expression="use_rep = 'X_spectral'"/>
                     <has_text_matching expression="key_added = 'kmeans'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.kmeans.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/kmeans"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- tl.dbscan -->
             <conditional name="method">
                 <param name="method" value="tl.dbscan"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.spectral.pbmc_500_chr21.h5ad"/>
                 <param name="eps" value="0.5"/>
                 <param name="min_samples" value="3"/>
                 <param name="leaf_size" value="5"/>
@@ -443,7 +555,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.dbscan"/>
+                    <has_text_matching expression="snap.tl.dbscan"/>
                     <has_text_matching expression="eps = 0.5"/>
                     <has_text_matching expression="min_samples = 3"/>
                     <has_text_matching expression="leaf_size = 5"/>
@@ -451,13 +563,17 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="key_added = 'dbscan'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.dbscan.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/dbscan"/>
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="2">
             <!-- tl.hdbscan -->
             <conditional name="method">
                 <param name="method" value="tl.hdbscan"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.spectral.pbmc_500_chr21.h5ad"/>
                 <param name="min_cluster_size" value="3"/>
                 <param name="min_samples" value="3"/>
                 <param name="cluster_selection_method" value="eom"/>
@@ -470,7 +586,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.hdbscan"/>
+                    <has_text_matching expression="snap.tl.hdbscan"/>
                     <has_text_matching expression="min_cluster_size = 3"/>
                     <has_text_matching expression="min_samples = 3"/>
                     <has_text_matching expression="cluster_selection_method = 'eom'"/>
@@ -479,13 +595,17 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="key_added = 'hdbscan'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.hdbscan.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/hdbscan"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="2">
-            <!-- tl.aggregate_X -->
+        <!-- <test expect_num_outputs="2">
+            tl.aggregate_X
             <conditional name="method">
                 <param name="method" value="tl.aggregate_X"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.spectral.pbmc_500_chr21.h5ad"/>
                 <param name="normalize" value="RPKM"/>
             </conditional>
             <section name="advanced_common">
@@ -493,17 +613,21 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.aggregate_X"/>
+                    <has_text_matching expression="snap.tl.aggregate_X"/>
                     <has_text_matching expression="normalize = 'RPKM'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.aggregate_X.pbmc_500_chr21.h5ad"/>
-        </test>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/n_fragment"/>
+                </assert_contents>
+            </output>
+        </test> -->
         <test expect_num_outputs="2">
             <!-- tl.aggregate_cells -->
             <conditional name="method">
                 <param name="method" value="tl.aggregate_cells"/>
-                <param name="adata" location="https://zenodo.org/records/11260316/files/tl.spectral.pbmc_500_chr21.h5ad"/>
+                <param name="adata" location="https://zenodo.org/records/17512085/files/tl.spectral.pbmc_500_chr21.h5ad"/>
                 <param name="use_rep" value="X_spectral"/>
                 <param name="target_num_cells" value="5"/>
                 <param name="min_cluster_size" value="3"/>
@@ -515,7 +639,7 @@ sa.tl.aggregate_cells(
             </section>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="sa.tl.aggregate_cells"/>
+                    <has_text_matching expression="snap.tl.aggregate_cells"/>
                     <has_text_matching expression="use_rep = 'X_spectral'"/>
                     <has_text_matching expression="target_num_cells = 5"/>
                     <has_text_matching expression="min_cluster_size = 3"/>
@@ -523,7 +647,11 @@ sa.tl.aggregate_cells(
                     <has_text_matching expression="key_added = 'pseudo_cell'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad" compare="sim_size" delta_frac="0.1" location="https://zenodo.org/records/11260316/files/tl.aggregate_cells.pbmc_500_chr21.h5ad"/>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/pseudo_cell"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -535,7 +663,15 @@ Perform dimension reduction using Laplacian Eigenmaps.
 Convert the cell-by-feature count matrix into lower dimensional representations using the spectrum of the normalized graph Laplacian defined by pairwise similarity between cells. This function utilizes the matrix-free spectral embedding algorithm to compute the embedding when `distance_metric` is “cosine”, which scales linearly with the number of cells. For other types of similarity metrics, the time and space complexity scale quadratically with the number of cells.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.spectral.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.spectral.html>`__
+
+Compute Laplacian Eigenmaps simultaneously on multiple modalities, with linear space and time complexity, using `tl.multi_spectral`
+===================================================================================================================================
+
+This is similar to `spectral`, but it can work on multiple modalities.
+
+More details on the `SnapATAC2 documentation
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.multi_spectral.html>`__
 
 Compute Umap, using `tl.umap`
 =============================
@@ -543,7 +679,7 @@ Compute Umap, using `tl.umap`
 Compute Umap
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.umap.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.umap.html>`__
 
 Compute a neighborhood graph of observations, using `pp.knn`
 ============================================================
@@ -553,7 +689,7 @@ Compute a neighborhood graph of observations.
 Computes a neighborhood graph of observations stored in adata using the method specified by method. The distance metric used is Euclidean.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.pp.knn.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.pp.knn.html>`__
 
 Cluster cells into subgroups, using `tl.leiden`
 ===============================================
@@ -563,7 +699,7 @@ Cluster cells into subgroups.
 Cluster cells using the Leiden algorithm, an improved version of the Louvain algorithm. It has been proposed for single-cell analysis by. This requires having ran `knn`.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.leiden.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.leiden.html>`__
 
 Cluster cells into subgroups using the K-means algorithm, using `tl.kmeans`
 ===========================================================================
@@ -571,7 +707,7 @@ Cluster cells into subgroups using the K-means algorithm, using `tl.kmeans`
 Cluster cells into subgroups using the K-means algorithm, a classical algorithm in data mining.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.kmeans.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.kmeans.html>`__
 
 Cluster cells into subgroups using the DBSCAN algorithm, using `tl.dbscan`
 ==========================================================================
@@ -579,7 +715,7 @@ Cluster cells into subgroups using the DBSCAN algorithm, using `tl.dbscan`
 Cluster cells into subgroups using the DBSCAN algorithm.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.dbscan.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.dbscan.html>`__
 
 Cluster cells into subgroups using the HDBSCAN algorithm, using `tl.hdbscan`
 ============================================================================
@@ -587,17 +723,17 @@ Cluster cells into subgroups using the HDBSCAN algorithm, using `tl.hdbscan`
 Cluster cells into subgroups using the HDBSCAN algorithm.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.hdbscan.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.hdbscan.html>`__
 
-Aggregate values in adata.X in a row-wise fashion, using `tl.aggregate_X`
-=========================================================================
+.. Aggregate values in adata.X in a row-wise fashion, using `tl.aggregate_X`
+.. =========================================================================
 
-Aggregate values in adata.X in a row-wise fashion.
+.. Aggregate values in adata.X in a row-wise fashion.
 
-Aggregate values in adata.X in a row-wise fashion. This is used to compute RPKM or RPM values stratified by user-provided groupings.
+.. Aggregate values in adata.X in a row-wise fashion. This is used to compute RPKM or RPM values stratified by user-provided groupings.
 
-More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.aggregate_X.html>`__
+.. More details on the `SnapATAC2 documentation
+.. <https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.aggregate_X.html>`__
 
 Aggregate cells into pseudo-cells, using `tl.aggregate_cells`
 =============================================================
@@ -607,7 +743,7 @@ Aggregate cells into pseudo-cells.
 Aggregate cells into pseudo-cells by iterative clustering.
 
 More details on the `SnapATAC2 documentation
-<https://kzhang.org/SnapATAC2/api/_autosummary/snapatac2.tl.aggregate_cells.html>`__
+<https://scverse.org/SnapATAC2/api/_autosummary/snapatac2.tl.aggregate_cells.html>`__
     ]]></help>
     <expand macro="citations"/>
 </tool>
