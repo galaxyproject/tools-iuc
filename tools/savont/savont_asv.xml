@@ -1,0 +1,267 @@
+<tool id="savont_asv" name="Savont ASV" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Generate amplicon sequence variants (ASVs)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">savont</requirement>
+    </requirements>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+#if str($input_mode.mode) == "single"
+    #set $reads_list = [$input_mode.reads]
+#else
+    #set $reads_list = $input_mode.reads
+#end if
+#for $read in $reads_list
+    #set $safe_name = re.sub('[^\w\-_\.]', '_', str($read.element_identifier))
+    ln -sf '$read' "$safe_name" &&
+#end for
+savont asv
+#for $read in $reads_list
+    #set $safe_name = re.sub('[^\w\-_\.]', '_', str($read.element_identifier))
+    "$safe_name"
+#end for
+    -o 'savont_out'
+    -t "\${GALAXY_SLOTS:-1}"
+    $general.no_band
+    #if str($amplicon_preset.preset) == "hifi"
+        --hifi
+    #end if
+    #if str($amplicon_preset.preset) == "rrna_operon"
+        --rrna-operon
+    #end if
+    #if str($amplicon_preset.preset) == "custom"
+        --min-read-length $amplicon_preset.min_read_length
+        --max-read-length $amplicon_preset.max_read_length
+    #end if
+    #if str($amplicon_preset.preset) != "hifi"
+        --min-cluster-size $amplicon_preset.min_cluster_size
+    #end if
+    #if str($input_mode.mode) == "joint" and str($input_mode.pooled_samples) not in ("", "false", "False")
+        --pooled-samples
+    #end if
+    --quality-value-cutoff $io.quality_value_cutoff
+    --minimum-base-quality $io.minimum_base_quality
+    $clustering.single_strand
+    --n-depth-cutoff $consensus.n_depth_cutoff
+    $consensus.use_hpc
+    $consensus.mask_low_quality
+    --posterior-threshold-ln $consensus.posterior_threshold_ln
+    $consensus.low_polymorphism
+    --chimera-allowable-errors $chimera.chimera_allowable_errors
+    #if $chimera.chimera_detect_length
+        --chimera-detect-length $chimera.chimera_detect_length
+    #end if
+&&
+cp savont_out/savont_*.log '$output_log'
+    ]]></command>
+    <inputs>
+        <conditional name="input_mode">
+            <param name="mode" type="select" label="Input mode">
+                <option value="single">Batch processing (one file, one sample)</option>
+                <option value="joint" selected="true">Joint processing (multiple files)</option>
+            </param>
+            <when value="single">
+                <param name="reads" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" multiple="false" label="Input amplicon sequences" help="A FASTQ or FASTA file (optionally gzipped) containing full-length amplicon reads with &gt;98% base accuracy, e.g. from ONT R10.4.1 or PacBio HiFi sequencing."/>
+            </when>
+            <when value="joint">
+                <param name="reads" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" multiple="true" label="Input amplicon sequences" help="Two or more FASTQ or FASTA files (optionally gzipped) containing full-length amplicon reads with &gt;98% base accuracy, e.g. from ONT R10.4.1 or PacBio HiFi sequencing. The files are concatenated into one sample unless 'Treat each input file as a separate sample' is checked."/>
+                <param name="pooled_samples" type="boolean" checked="false" truevalue="--pooled-samples" falsevalue="" label="Treat each input file as a separate sample" help="Pool all reads together for ASV detection but quantify each input file separately, producing one feature table column per input file. Leave unchecked to concatenate all input files into a single sample."/>
+            </when>
+        </conditional>
+        <conditional name="amplicon_preset">
+            <param name="preset" type="select" label="Amplicon type">
+                <option value="fl16s" selected="true">Full-length 16S rRNA gene (~1500 bp)</option>
+                <option value="hifi">PacBio HiFi full-length 16S rRNA</option>
+                <option value="rrna_operon">rRNA operon (~4000 bp)</option>
+                <option value="custom">Other amplicon (custom read lengths)</option>
+            </param>
+            <when value="fl16s">
+                <expand macro="min_cluster_size_param"/>
+            </when>
+            <when value="hifi">
+                <!-- the hifi preset fixes the minimum cluster size to 4 -->
+            </when>
+            <when value="rrna_operon">
+                <expand macro="min_cluster_size_param"/>
+            </when>
+            <when value="custom">
+                <param name="min_read_length" type="integer" label="Minimum read length" value="1100" min="0" help="Reads shorter than this are discarded."/>
+                <param name="max_read_length" type="integer" label="Maximum read length" value="2000" min="1" help="Reads longer than this are discarded."/>
+                <expand macro="min_cluster_size_param"/>
+            </when>
+        </conditional>
+        <section name="general" title="General options" expanded="false">
+            <param name="no_band" type="boolean" checked="false" truevalue="--no-band" falsevalue="" label="Use exact (unbanded) POA alignment" help="Slower, but better handles highly variable clusters."/>
+        </section>
+        <section name="io" title="Input/Output options" expanded="false">
+            <param name="quality_value_cutoff" type="float" label="Minimum estimated read accuracy" value="98" min="0" max="100" help="Reads whose estimated per-base accuracy is below this percentage are discarded."/>
+            <param name="minimum_base_quality" type="integer" label="Minimum base quality" value="25" min="0" max="60" help="Bases with a quality score below this Phred value are masked. Set lower for older reads."/>
+        </section>
+        <section name="clustering" title="Clustering parameters" expanded="false">
+            <param name="single_strand" type="boolean" checked="false" truevalue="--single-strand" falsevalue="" label="Input reads are single-stranded" help="Use only forward strand k-mers (for strand-specific protocols)."/>
+        </section>
+        <section name="consensus" title="Consensus parameters" expanded="false">
+            <param name="n_depth_cutoff" type="integer" label="Minimum depth for ambiguous sites" value="250" min="0" help="A site with more than one base is only resolved when the total depth exceeds this value."/>
+            <param name="use_hpc" type="boolean" checked="false" truevalue="--use-hpc" falsevalue="" label="Use homopolymer compression" help="Speeds up the clustering, useful for complex eukaryotic genomes."/>
+            <param name="mask_low_quality" type="boolean" checked="false" truevalue="--mask-low-quality" falsevalue="" label="Mask low-quality bases in the consensus" help="Mask (instead of resolving) low-quality sites in the consensus sequence."/>
+            <param name="posterior_threshold_ln" type="float" label="Negative alternate posterior probability threshold (natural log scale)" value="30" min="0" max="100" help="Higher values are more stringent for low-quality consensuses. Do not set higher than min_depth * ln(error_rate)."/>
+            <param name="low_polymorphism" type="boolean" checked="false" truevalue="--low-polymorphism" falsevalue="" label="Expect low polymorphism in the sample" help="Skips SNPmer clustering and maps reads to ASVs with minimap2 instead (e.g. single-strain samples)."/>
+        </section>
+        <section name="chimera" title="Chimera detection options" expanded="false">
+            <param name="chimera_allowable_errors" type="integer" label="Allowable errors for bi-chimeric detection" value="1" min="0" help="Higher values are more sensitive, but may filter out true ASVs."/>
+            <param name="chimera_detect_length" type="integer" optional="true" label="Length of near-perfect ASV segment matches" min="1" help="Higher values are less sensitive. By default this is 1/10 of the minimum read length."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="asvs" format="fasta" label="${tool.name} on ${on_string}" from_work_dir="savont_out/final_asvs.fasta"/>
+        <data name="feature_table" format="tabular" label="${tool.name} on ${on_string}: feature table" from_work_dir="savont_out/feature-table.tsv"/>
+        <data name="assignments" format="tabular" label="${tool.name} on ${on_string}: read assignments" from_work_dir="savont_out/final_assignments.tsv"/>
+        <data name="output_log" format="txt" label="${tool.name} on ${on_string}: log"/>
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="input_mode">
+                <param name="mode" value="single"/>
+                <param name="reads" value="ont_zymo_500.trimmed.fq.gz"/>
+            </conditional>
+            <conditional name="amplicon_preset">
+                <param name="preset" value="fl16s"/>
+                <param name="min_cluster_size" value="5"/>
+            </conditional>
+            <output name="asvs">
+                <assert_contents>
+                    <has_n_lines min="30"/>
+                    <has_text text="final_asv_0_depth_58"/>
+                    <has_text text="final_asv_1_depth_54"/>
+                </assert_contents>
+            </output>
+            <output name="feature_table">
+                <assert_contents>
+                    <has_n_lines min="20"/>
+                    <has_n_columns n="2"/>
+                    <has_text text="#OTU ID&#9;ont_zymo_500.trimmed.fq"/>
+                    <has_text text="final_asv_0_depth_58&#9;58"/>
+                </assert_contents>
+            </output>
+            <output name="assignments">
+                <assert_contents>
+                    <has_text text="read_id&#9;asv&#9;alignment_identity&#9;est_read_identity"/>
+                </assert_contents>
+            </output>
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="SAVONT COMPLETED SUCCESSFULLY"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="input_mode">
+                <param name="mode" value="joint"/>
+                <param name="reads" value="ont_zymo_500.trimmed.fq.gz,ont_zymo_150.trimmed.fq.gz"/>
+                <param name="pooled_samples" value="true"/>
+            </conditional>
+            <conditional name="amplicon_preset">
+                <param name="preset" value="fl16s"/>
+                <param name="min_cluster_size" value="5"/>
+            </conditional>
+            <output name="asvs">
+                <assert_contents>
+                    <has_n_lines min="30"/>
+                </assert_contents>
+            </output>
+            <output name="feature_table">
+                <assert_contents>
+                    <has_n_columns n="3"/>
+                    <has_text text="#OTU ID&#9;ont_zymo_500.trimmed.fq&#9;ont_zymo_150.trimmed.fq"/>
+                </assert_contents>
+            </output>
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="SAVONT COMPLETED SUCCESSFULLY"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="input_mode">
+                <param name="mode" value="joint"/>
+                <param name="reads" value="ont_zymo_500.trimmed.fq.gz,ont_zymo_150.trimmed.fq.gz"/>
+                <param name="pooled_samples" value="false"/>
+            </conditional>
+            <conditional name="amplicon_preset">
+                <param name="preset" value="fl16s"/>
+                <param name="min_cluster_size" value="5"/>
+            </conditional>
+            <output name="asvs">
+                <assert_contents>
+                    <has_n_lines min="30"/>
+                    <has_text text="final_asv_0_depth_77"/>
+                </assert_contents>
+            </output>
+            <output name="feature_table">
+                <assert_contents>
+                    <has_n_columns n="2"/>
+                    <has_text text="#OTU ID&#9;ont_zymo_500.trimmed.fq"/>
+                    <has_text text="final_asv_0_depth_77&#9;77"/>
+                </assert_contents>
+            </output>
+            <output name="assignments">
+                <assert_contents>
+                    <has_text text="read_id&#9;asv&#9;alignment_identity&#9;est_read_identity"/>
+                </assert_contents>
+            </output>
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="SAVONT COMPLETED SUCCESSFULLY"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Savont ASV** turns high-accuracy long-read amplicon sequences (ONT R10.4.1
+or PacBio HiFi) into Amplicon Sequence Variants (ASVs) at single-nucleotide
+resolution.
+
+The tool builds a k-mer (SNPmer) index of the input reads, clusters reads that
+differ only by sequencing errors, resolves a consensus sequence for every
+cluster with an EM-based refinement, and finally dereplicates the consensus
+sequences.
+
+Inputs
+------
+
+* **Input mode**: select *Batch processing* for a single input file (one
+  sample), or *Joint processing* to supply several files at once. In joint
+  mode the files are either concatenated into a single sample (default) or
+  quantified separately, one feature table column per file (*Treat each
+  input file as a separate sample*).
+* **Input amplicon sequences**: full-length amplicon reads in FASTQ or FASTA
+  format. For 16S rRNA data, use the complete gene (about 1500 bp).
+* **Amplicon type**: selects sensible default read-length and clustering
+  parameters. The PacBio HiFi option activates the ``--hifi`` preset, which
+  lowers the minimum cluster size to 4 (HiFi reads have a lower error rate).
+
+Outputs
+-------
+
+* **ASVs**: representative consensus sequences.
+* **Feature table**: QIIME2-compatible tabular count table, one column per
+  sample.
+* **Read assignments**: per-read assignment to an ASV with the estimated
+  alignment identity.
+* **Log**: the full Savont run log.
+
+Next steps
+----------
+
+The ASVs and feature table can be passed to **Savont classify** or
+**Savont SINTAX** for taxonomic profiling, or to **Savont export** to merge
+the results of several samples.
+
+Note that Savont expects reads with a base accuracy of at least 98%;
+standard short-read (Illumina) data is **not** a suitable input for this tool.
+]]></help>
+    <expand macro="citations"/>
+</tool>
