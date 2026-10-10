@@ -1,0 +1,134 @@
+<tool id="ucsc_bedtobigbed" name="bedToBigBed" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="26.0">
+    <description>convert a sorted BED to the indexed binary bigBed format</description>
+    <macros>
+        <token name="@TOOL_VERSION@">482</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@BIGBEDINFO_VERSION@">482</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">UCSC_Genome_Browser_Utilities</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">ucsc-bedtobigbed</requirement>
+        <!-- ⛔ READ-BACK VERIFIER. A bigBed writes its R-tree index and total-summary
+             block LAST, and the header at the front points at them by offset. Truncate the
+             file and the header still reads, the datatype still sniffs, the job still
+             reports ok, and every consumer fails later on an index that is not there.
+             bigBedInfo resolves those offsets, so it either loads or it does not. -->
+        <requirement type="package" version="@BIGBEDINFO_VERSION@">ucsc-bigbedinfo</requirement>
+    </requirements>
+    <version_command><![CDATA[bedToBigBed 2>&1 | head -1]]></version_command>
+    <command detect_errors="aggressive"><![CDATA[
+ln -sf '$bed' 'input.bed' &&
+ln -sf '$chrom_sizes' 'chrom.sizes' &&
+#if $as_file
+    ln -sf '$as_file' 'fields.as' &&
+#end if
+bedToBigBed
+    -type='$type'
+    #if $as_file
+        -as=fields.as
+    #end if
+    $tab
+    'input.bed'
+    'chrom.sizes'
+    '$output'
+## Resolve the index the header points at. A truncated bigBed fails here, not downstream.
+&& bigBedInfo '$output' > /dev/null
+    ]]></command>
+    <inputs>
+        <param argument="bed" type="data" format="bed,tabular" label="Sorted BED" help="BED file sorted by chrom then chromStart (sort -k1,1 -k2,2n). May carry extra typed columns."/>
+        <param argument="chrom_sizes" type="data" format="tabular" label="Chromosome sizes" help="Two-column file: chrom name and size in bases."/>
+        <param argument="-type" type="text" value="bed3+1" label="BED type" help="bedN[+[P]] declaring the number of standard BED columns and any extra fields, e.g. bed3+1, bed6+, bed12+8.">
+            <validator type="regex" message="Expected a bedN, bedN+ or bedN+P type string">^bed([0-9]+)(\+([0-9]*)?)?$</validator>
+        </param>
+        <param name="as_file" argument="-as" type="data" format="txt" optional="true" label="AutoSql (.as) definition" help="AutoSql file describing the extra fields. Required when the BED carries non-standard columns (the '+' part of -type)."/>
+        <param argument="-tab" type="boolean" truevalue="-tab" falsevalue="" checked="true" label="Tab-separated input" help="Parse input as strictly tab-separated, allowing spaces inside fields (recommended for MAF/lstring columns)."/>
+    </inputs>
+    <outputs>
+        <data name="output" format="bigbed" label="${tool.name} on ${on_string}: bigBed"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="bed" value="test.bed" ftype="bed"/>
+            <param name="chrom_sizes" value="chrom.sizes" ftype="tabular"/>
+            <param name="type" value="bed3+1"/>
+            <param name="as_file" value="bigMaf.as" ftype="txt"/>
+            <param name="tab" value="true"/>
+            <output name="output">
+                <assert_contents>
+                    <!-- bigBed magic 0x8789F2EB, little-endian on disk -->
+                    <has_size min="200"/>
+                    <!-- AutoSql table name + extra-field name embedded in the bigBed header -->
+                    <has_text text="bedMaf"/>
+                    <has_text text="mafBlock"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="-type='bed3+1'"/>
+                <has_text text="-tab"/>
+            </assert_command>
+        </test>
+        <!-- ⛔ BOTH SIDES OF EVERY BOOLEAN, SET EXPLICITLY. check_tool_defects' rule reads the
+             booleans a <test> SETS, so leaving one at its default is not the false side: it is
+             no side at all, and the rule used to stay silent for exactly that case. Asserted on
+             the COMMAND, which needs no new fixture and is what the flag affects. -->
+        <test expect_num_outputs="1">
+            <param name="bed" value="test.bed" ftype="bed"/>
+            <param name="chrom_sizes" value="chrom.sizes" ftype="tabular"/>
+            <param name="type" value="bed3+1"/>
+            <param name="as_file" value="bigMaf.as" ftype="txt"/>
+            <param name="tab" value="false"/>
+            <assert_command>
+                <not_has_text text="-tab"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**bedToBigBed** — convert a sorted BED file into the indexed binary **bigBed**
+format used by genome browsers and track hubs.
+
+bigBed is a compressed, R-tree-indexed representation of BED data that can be
+served over HTTP and queried by region without downloading the whole file —
+the standard delivery format for custom annotation tracks in a UCSC track hub.
+
+-----
+
+**Input**
+
+- `Sorted BED` — must be sorted by `chrom` then `chromStart`
+  (`sort -k1,1 -k2,2n`). Extra typed columns beyond the standard BED fields
+  are allowed when declared via the type/AutoSql below.
+- `Chromosome sizes` — two columns: sequence name and length in bases
+  (e.g. from `faToTwoBit` + `twoBitInfo`, or `samtools faidx` .fai cut 1,2).
+- `AutoSql (.as)` — optional; required whenever the BED has non-standard
+  columns (the `+` portion of the type). For bigMaf use `bed3+1` with a
+  `bedMaf`/`bigMaf` AutoSql definition.
+
+**Output**
+
+- A `bigbed` dataset (magic `0x8789F2EB`).
+
+-----
+
+**Key options**
+
+- `-type` — `bedN[+[P]]` declaring standard BED column count and extra fields.
+- `-as` — AutoSql definition describing the extra fields.
+- `-tab` — treat input as strictly tab-separated (needed when fields, such as
+  a MAF block, contain spaces).
+
+-----
+
+**References**
+
+- UCSC bigBed format: https://genome.ucsc.edu/goldenPath/help/bigBed.html
+- `bedToBigBed` source: https://github.com/ucscGenomeBrowser/kent/blob/master/src/utils/bedToBigBed/bedToBigBed.c
+- Pre-built binaries and the full usage text: https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/FOOTER.txt
+
+This wrapper exposes the options that matter to a Galaxy job. bedToBigBed also accepts `-sort`, `-extraIndex`, `-unc`, `-blockSize`, `-itemsPerSlot`, `-allow1bpOverlap`, `-fixScores`, `-maxAlloc`, `-sizesIs2Bit`, `-sizesIsBb`, `-sizesIsChromAliasBb`, `-udcDir`, which are either process tuning or write paths a job cannot use; run `bedToBigBed` with no arguments to see the program's own list.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bib/bbs038</citation>
+    </citations>
+</tool>
