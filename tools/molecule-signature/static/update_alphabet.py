@@ -15,6 +15,8 @@ smiles_0 = sys.argv[3]
 Alphabet = load_alphabet(alphabet_path)
 
 mol = Chem.MolFromSmiles(smiles_0)
+if mol is None:
+    sys.exit(f"SMILES is not validated by rdkit: {smiles_0}")
 smiles = get_first_stereoisomer(smiles_0)
 
 Alphabet_mol = SignatureAlphabet(radius=RADIUS, nBits=NBITS, use_stereo=USE_STEREO)
