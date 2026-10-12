@@ -1,0 +1,171 @@
+<tool id="bionym" name="BioNym resolve" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>resolve a gene identifier into a confidence-scored knowledge graph</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">bionym</requirement>
+        <!-- Judge (JEV / POST /v1/systemone): key is required for real runs.
+             base_url/model are optional variables — unset falls back to the
+             TypeSafe endpoint (https://api.typesafe.ai) and jev-latest. -->
+        <credentials name="typesafe_jev" version="1.0" label="JEV judge (TypeSafe systemone)"
+                     description="API credentials for the typed-question judge. Get a key at https://console.typesafe.ai/keys">
+            <variable name="base_url" inject_as_env="JEV_BASE_URL" optional="true"
+                      label="Judge base URL" description="Alternate /v1/systemone endpoint (e.g. CLM/Laya). Leave empty for TypeSafe." />
+            <variable name="model" inject_as_env="JEV_MODEL" optional="true"
+                      label="Judge model" description="Judge model string. Leave empty for the endpoint default." />
+            <secret name="api_key" inject_as_env="TYPESAFE_API_KEY" optional="false"
+                    label="TypeSafe API key" description="Your TypeSafe/JEV API key" />
+        </credentials>
+        <!-- LLM passes (proposals, summary): optional — when unset the tool runs
+             evidence+JEV only. Admins can instead inject LLM_API_KEY /
+             LLM_BASE_URL via the job destination env (e.g. a LiteLLM proxy);
+             user credentials below take precedence per the credentials doc. -->
+        <credentials name="litellm_llm" version="1.0" optional="true" label="LLM endpoint (OpenAI-compatible)"
+                     description="Optional LLM used for claim proposals and summaries. Any OpenAI-compatible endpoint (LiteLLM proxy, OpenRouter, Ollama).">
+            <variable name="base_url" inject_as_env="LLM_BASE_URL" optional="false"
+                      label="LLM base URL" description="Endpoint base URL, e.g. your LiteLLM proxy /v1" />
+            <variable name="model" inject_as_env="LLM_MODEL" optional="true"
+                      label="LLM model" description="Model string for your endpoint. Only needed for a custom endpoint — on an admin-configured LiteLLM proxy, pick per-run in the tool form instead." />
+            <secret name="api_key" inject_as_env="LLM_API_KEY" optional="false"
+                    label="LLM API key" description="API key for the OpenAI-compatible endpoint" />
+        </credentials>
+        <credentials name="ncbi" version="1.0" optional="true" label="NCBI API key"
+                     description="Optional — raises the NCBI rate limit from 3/s to 10/s.">
+            <secret name="api_key" inject_as_env="NCBI_API_KEY" optional="false"
+                    label="NCBI API key" description="From your NCBI account settings" />
+        </credentials>
+        <credentials name="veupathdb" version="1.0" optional="true" label="VEuPathDB API key"
+                     description="Optional — registered-user key enables direct VEuPathDB lookups (release 71+); without it resolution falls back to NCBI.">
+            <secret name="api_key" inject_as_env="VEUPATHDB_API_KEY" optional="false"
+                    label="VEuPathDB API key" description="VEuPathDB user profile → service access" />
+        </credentials>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+## per-job cache keeps API/JEV responses across retries within this job
+export BIONYM_CACHE_DIR="\$PWD/.bionym_cache" &&
+export BIONYM_PROPOSAL_MIN_SCORE=$adv.proposal_min_score &&
+export BIONYM_PROPOSAL_CONCURRENCY=$adv.proposal_concurrency &&
+#if $adv.llm_model:
+export LLM_MODEL="$adv.llm_model.fields.model_id" &&
+#end if
+bionym resolve
+    '$identifier'
+    --out graph.json
+    --depth $depth
+    --min-confidence $min_confidence
+    $propose
+    #if str($test_mode) == 'true':
+    --mock-jev --mock-llm
+    #end if
+    #if $summarize:
+    --summarize
+    #end if
+    #if $report_output:
+    --report
+    #end if
+    ]]></command>
+    <inputs>
+        <param name="identifier" type="text" label="Gene identifier"
+               help="NCBI GeneID, symbol, VEuPathDB locus tag, UniProt accession, Ensembl ID — any species">
+            <validator type="empty_field" />
+        </param>
+        <param name="depth" type="select" label="Pipeline depth"
+               help="How far the JEV-judged evidence pipeline runs. Depth 6 adds cross-assembly presence: which related assemblies NCBI annotates the gene in, plus JEV-judged presence where unannotated. All stages use JEV + public APIs only — the LLM is only used by the proposal/summary passes below.">
+            <option value="0">0 — classify only</option>
+            <option value="1">1 — + entity resolution</option>
+            <option value="2">2 — + related assemblies</option>
+            <option value="3">3 — + orthologs (OMA)</option>
+            <option value="4">4 — + annotation (UniProt/GO/KEGG)</option>
+            <option value="5">5 — + expression</option>
+            <option value="6" selected="true">6 — + cross-assembly presence (full)</option>
+        </param>
+        <param name="min_confidence" type="float" value="0.0" min="0.0" max="1.0"
+               label="Minimum edge confidence"
+               help="Drop edges (and orphan nodes) below this confidence after resolution"/>
+        <param name="propose" type="boolean" checked="true"
+               truevalue="--propose" falsevalue="--no-propose"
+               label="LLM proposal passes"
+               help="One post-pipeline pass: JEV triages dataset/publication nodes, the LLM proposes claims on the top candidates, JEV verifies each. Requires LLM credentials; without them this is a no-op."/>
+        <param name="summarize" type="boolean" checked="false"
+               truevalue="true" falsevalue=""
+               label="Write gene summary"
+               help="Also produce a JEV-verified summary into graph metadata (needs LLM + JEV)"/>
+        <param name="report_output" type="boolean" checked="true"
+               truevalue="true" falsevalue=""
+               label="HTML report"
+               help="Also emit a self-contained HTML report"/>
+        <section name="adv" title="Advanced" expanded="false">
+            <param name="llm_model" type="select" optional="true" label="LLM model"
+                   help="Model for proposal/summary passes — from the same genai_models table as the LLM Hub tool">
+                <options from_data_table="genai_models">
+                    <filter type="static_value" column="3" value="text"/>
+                </options>
+            </param>
+            <param name="proposal_min_score" type="float" value="0.5" min="0.0" max="1.0"
+                   label="Proposal triage score"
+                   help="JEV score a dataset/publication needs before the LLM spends a call on it"/>
+            <param name="proposal_concurrency" type="integer" value="8" min="1" max="64"
+                   label="Proposal concurrency" help="Max simultaneous LLM calls"/>
+        </section>
+        <param name="test_mode" type="hidden" value="false" />
+    </inputs>
+    <outputs>
+        <data name="graph" format="json" label="${tool.name} on ${on_string}: graph" from_work_dir="graph.json"/>
+        <data name="html_report" format="html" label="${tool.name} on ${on_string}: report"
+              from_work_dir="graph.html">
+            <filter>report_output</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- TODO: the mock flags bypass the judge+LLM, but S1 still hits
+             live NCBI. If planemo CI flakes on external APIs, gate this test or
+             extend the mock layer upstream in bionym. -->
+        <test expect_num_outputs="1">
+            <param name="identifier" value="k13"/>
+            <param name="depth" value="1"/>
+            <param name="report_output" value="false"/>
+            <param name="test_mode" value="true"/>
+            <output name="graph">
+                <assert_contents>
+                    <has_text text="nodes"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**BioNym** resolves a gene identifier — any species — into a knowledge graph
+where every edge carries a JEV confidence score and evidence provenance.
+
+.. class:: infomark
+
+**Credentials.** Before first run, set your TypeSafe (JEV judge) API key under
+*User → Preferences → Credentials Management*. NCBI, VEuPathDB, and LLM
+credentials are optional; without an LLM key the proposal and summary passes
+are skipped. Admins may alternatively configure a LiteLLM proxy at the job
+destination, matching the LLM Hub tool's setup.
+
+**Outputs**
+
+- *graph* — the full knowledge graph as JSON (nodes, edges, per-edge
+  confidence + evidence, per-stage token usage in ``metadata``)
+- *report* — optional self-contained HTML report
+
+**Depth** selects how many pipeline stages run: S0 classify → S1 resolve →
+S2 assemblies → S3 orthologs → S4 annotation → S5 expression → S6
+cross-assembly presence (``annotated_in`` edges from NCBI's gene report,
+JEV-judged presence for unannotated related assemblies). The optional
+**proposal pass** runs once afterwards over dataset/publication nodes
+(LLM-proposed, JEV-verified claims), and **summary** adds a JEV-verified
+gene summary to the graph metadata.
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@misc{bionym,
+    title = {BioNym: identifier resolution into confidence-scored knowledge graphs},
+    howpublished = {\url{https://github.com/d-callan/bionym}},
+    year = {2026}
+}
+        </citation>
+    </citations>
+</tool>
