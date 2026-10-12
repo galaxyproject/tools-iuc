@@ -107,6 +107,8 @@ def plot_prediction(pred_name, hlighting_regions, predicted_values, seq_name):
         bbox_to_anchor=(1.04, 1), loc="upper left", fancybox=True, shadow=True
     )
     ax.add_artist(legend_lines)
+    # add_artist() clips to the axes, which would hide a legend placed outside
+    legend_lines.set_clip_on(False)
     # Define regions
     if hlighting_regions:
         if pred_name in ordered_regions_dict.keys():
@@ -143,6 +145,7 @@ def plot_prediction(pred_name, hlighting_regions, predicted_values, seq_name):
                 bbox_to_anchor=(1.04, 0),
             )
             ax.add_artist(region_legend)
+            region_legend.set_clip_on(False)
     ax.set_ylim([min_value, max_value])
     ax.set_xlabel("residue index")
     ax.set_ylabel("prediction values")
@@ -165,11 +168,30 @@ def df_dict_to_dict_of_values(df_dict, predictor):
     return results_dict
 
 
+def unwrap_predictions(raw_predictions):
+    """Normalise the b2bTools result to the legacy {seq_id: {key: values}} shape.
+
+    Since b2bTools 3.0.6 the per-sequence results are nested under a "proteins"
+    key next to a "metadata" entry, and each protein dictionary carries
+    non-deterministic "<predictor>_execution_time" floats. Both are dropped
+    here so that the JSON and tabular outputs stay stable.
+    """
+    proteins = raw_predictions.get("proteins", raw_predictions)
+    return {
+        seq_id: {
+            key: value
+            for key, value in seq_preds.items()
+            if key == "seq" or isinstance(value, list)
+        }
+        for seq_id, seq_preds in proteins.items()
+    }
+
+
 def main(options):
     single_seq = SingleSeq(options.input_fasta)
-    b2b_tools = []
-    if options.dynamine:
-        b2b_tools.append("dynamine")
+    # DynaMine is always executed: every other predictor is built on its
+    # output, so b2bTools runs it whether or not it was asked for.
+    b2b_tools = ["dynamine"]
     if options.disomine:
         b2b_tools.append("disomine")
     if options.efoldmine:
@@ -177,7 +199,9 @@ def main(options):
     if options.agmata:
         b2b_tools.append("agmata")
     single_seq.predict(b2b_tools)
-    predictions = single_seq.get_all_predictions()
+    predictions = unwrap_predictions(single_seq.get_all_predictions())
+    if options.metadata:
+        single_seq.get_metadata(options.metadata, sep="\t")
 
     def rounder_function(value):
         return round(float(value), 3)
@@ -189,7 +213,7 @@ def main(options):
     with open(options.json_output, "w") as f:
         f.write(results_json)
     first_sequence_key = next(iter(predictions))
-    prediction_keys = predictions[first_sequence_key].keys()
+    prediction_keys = list(predictions[first_sequence_key].keys())
     # Sort column names
     tsv_column_names = list(prediction_keys)
     tsv_column_names.remove("seq")
@@ -221,7 +245,7 @@ def main(options):
                 if predictor != "seq":
                     plot_prediction(
                         pred_name=predictor,
-                        hlighting_regions=True,
+                        hlighting_regions=options.highlight,
                         predicted_values=seq_preds[predictor],
                         seq_name=sequence_key,
                     )
@@ -234,7 +258,7 @@ def main(options):
                 )
                 plot_prediction(
                     pred_name=predictor,
-                    hlighting_regions=True,
+                    hlighting_regions=options.highlight,
                     predicted_values=results_dictionary,
                     seq_name="all",
                 )
@@ -242,10 +266,6 @@ def main(options):
 
 if __name__ == "__main__":
     parser = optparse.OptionParser()
-    parser.add_option(
-        "--dynamine",
-        action="store_true"
-    )
     parser.add_option(
         "--disomine",
         action="store_true"
@@ -279,6 +299,11 @@ if __name__ == "__main__":
         type="string"
     )
     parser.add_option(
+        "--metadata",
+        dest="metadata",
+        type="string"
+    )
+    parser.add_option(
         "--plot",
         action="store_true"
     )
@@ -292,8 +317,6 @@ if __name__ == "__main__":
     )
     try:
         options, args = parser.parse_args()
-        if not (options.dynamine or options.disomine or options.efoldmine or options.agmata):
-            parser.error('At least one predictor is required')
         if not options.input_fasta:
             parser.error('Input file not given (--file)')
         if not options.output:
