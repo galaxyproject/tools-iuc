@@ -1,0 +1,167 @@
+<tool id="alevin_fry_quant" name="alevin-fry quant" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" python_template_version="3.5" profile="@PROFILE_VERSION@">
+    <description>quantify expression from a collated RAD file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+    ln -s '$input_collated_rad_dir.extra_files_path/$input_collated_rad_dir.metadata.store_root/collated_permit_list' collated_permit_list &&
+    ln -s '$input_transcript_to_gene_map' t2g.tsv &&
+    mkdir output &&
+    #if $sec_advanced_options.quant_subset:
+        ln -s '$sec_advanced_options.quant_subset' quant_subset.tsv &&
+    #end if
+    
+    alevin-fry quant --input-dir collated_permit_list --tg-map t2g.tsv --resolution $resolution_selection --output-dir output $sec_advanced_options.dump_eqclasses --small-thresh '$small_thresh'
+
+    #if int($sec_advanced_options.num_bootstraps) > 0:
+        --num-bootstraps '$sec_advanced_options.num_bootstraps'
+        $sec_advanced_options.init_uniform
+        $sec_advanced_options.summary_stat
+    #end if
+
+    #if $sec_advanced_options.quant_subset:
+        --quant-subset quant_subset.tsv
+    #end if
+
+    #if $sec_advanced_options.multi_sample_output == 'separate':
+        --multi-sample-output separate
+    #else if $sec_advanced_options.multi_sample_output == 'combined':
+        --multi-sample-output combined
+    #else if $sec_advanced_options.multi_sample_output == 'both':
+        --multi-sample-output both
+    #end if
+    &&
+    #if $sec_advanced_options.feature_dump:
+        mv output/featureDump.txt $output_feature_dump &&
+    #end if
+    #if $sec_advanced_options.quant_json:
+        mv output/quant.json $output_quant_json &&
+    #end if
+    #if $sec_advanced_options.dump_eqclasses:
+        ## This changes the matrix header in geqc_counts.mtx to use 'integer' instead of 'real'. Otherwise alevin-fry infer runs into an error. This is a known issue and is still present in version 0.17.1. See https://github.com/COMBINE-lab/alevin-fry/issues/150
+        sed -i '1s/real/integer/' output/alevin/geqc_counts.mtx &&
+    #end if
+    mkdir -p '$output_dir.extra_files_path/quant_output' &&
+    mv output/alevin/* '$output_dir.extra_files_path/quant_output'
+    ]]></command>
+    <inputs>
+        <param name="input_collated_rad_dir" type="data" format="directory" label="Directory containing the collated RAD file"/>
+        <param name="input_transcript_to_gene_map" type="data" format="tsv,tabular" label="Transcript-to-gene map" help="Headerless tab-separated transcript-to-gene map. Use two columns (target, gene) for standard quantification or three columns (target, gene, S/U) for USA-mode quantification."/>
+        <param name="resolution_selection" argument="--resolution" type="select" label="Resolution">
+            <option value="cr-like">cr-like</option>
+            <option value="cr-like-em">cr-like-em</option>
+            <option value="parsimony-em">parsimony-em</option>
+            <option value="parsimony">parsimony</option>
+            <option value="parsimony-gene">parsimony-gene</option>
+            <option value="parsimony-gene-em">parsimony-gene-em</option>
+            <option value="trivial">trivial</option>
+        </param>
+        <param argument="--small-thresh" type="integer" min="0" value="100" label="Small threshold" help="Cells with fewer than this many reads are resolved by a fast path that applies cr-like (winner-take-all) semantics regardless of the chosen resolution. Use value 0 to resolve every cell with the chosen resolution. Default value: 100"/>
+        <section name="sec_advanced_options" title="Advanced options" expanded="false">
+            <param name="dump_eqclasses" type="boolean" truevalue="--dump-eqclasses" falsevalue="" checked="false" label="Write equivalence class counts" help="Writes a gene-level, UMI-deduplicated equivalence class counts file. This can be used for subsequent analyses where gene-ambiguous reads have been neither resolved nor discarded."/>
+            <!-- did not restrict num_bootstraps to only be usable with cr-like-em and parsimony-em, because the alevin-fry documentation is based on version 0.11.0, so this information could be outdated. Thus num_bootstraps is unrestricted for the case that it may have more functionality in recent versions.  -->
+            <param name="num_bootstraps" type="integer" min="0" value="0" label="Number of bootstraps to use" help="Writes bootstrap inferential replicate information to the outputs. This flag is only meaningful with the resolution modes cr-like-em and parsimony-em."/>
+            <param name="init_uniform" type="boolean" truevalue="--init-uniform" falsevalue="" checked="false" label="Uniform sampling" help="Only applicable when bootstrap is used."/>
+            <param name="summary_stat" type="boolean" truevalue="--summary-stat" falsevalue="" checked="false" label="Store only bootstrap summary statistics" help="Only applicable when bootstrap is used. Writes the summary statistics of the bootstrap replicates (i.e. the mean and variance of the inferential replicates)."/>
+            <param name="quant_subset" type="data" format="tsv,tabular" optional="true" label="List of barcodes to quantify" help="One barcode per line. Barcodes not in this list will be ignored during inference and will not appear in the output quantification matrix."/>
+            <param argument="--multi-sample-output" type="select" label="Multi-sample output mode" help="Output mode for multi-sample data. Either per-sample matrices, one combined matrix, or both. Default value: separate.">
+                <option value="separate">separate</option>
+                <option value="combined">combined</option>
+                <option value="both">both</option>
+            </param>
+            <param name="feature_dump" type="boolean" checked="false" label="Output featureDump.txt file"/>
+            <param name="quant_json" type="boolean" checked="false" label="Output quant.json file"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_dir" format="directory" label="${tool.name} on ${on_string}"/>
+        <data name="output_feature_dump" format="txt" label="${tool.name} on ${on_string}: feature dump">
+            <filter>sec_advanced_options['feature_dump']</filter>
+        </data>
+        <data name="output_quant_json" format="json" label="${tool.name} on ${on_string}: quant.json">
+            <filter>sec_advanced_options['quant_json']</filter>
+        </data>
+    </outputs>
+    <tests>
+    <test expect_num_outputs="1">
+        <param name="input_collated_rad_dir" value="collated_permit_list"/>
+        <param name="input_transcript_to_gene_map" value="t2g.tsv"/>
+        <param name="resolution_selection" value="cr-like"/>
+        <param name="small_thresh" value="0"/>
+        <section name="sec_advanced_options">
+            <param name="dump_eqclasses" value="false"/>
+            <param name="num_bootstraps" value="0"/>
+            <param name="init_uniform" value="false"/>
+            <param name="summary_stat" value="false"/>
+            <param name="multi_sample_output" value="separate"/>
+            <param name="feature_dump" value="false"/>
+            <param name="quant_json" value="false"/>
+        </section>
+        <output name="output_dir">
+            <extra_files type="directory" value="quant_output/quants_mat.mtx"/>
+            <extra_files type="directory" value="quant_output/quants_mat_cols.txt"/>
+            <extra_files type="directory" value="quant_output/quants_mat_rows.txt"/>
+        </output>
+    </test>
+    <test expect_num_outputs="3">
+        <param name="input_collated_rad_dir" value="collated_permit_list"/>
+        <param name="input_transcript_to_gene_map" value="t2g.tsv"/>
+        <param name="resolution_selection" value="cr-like"/>
+        <param name="small_thresh" value="0"/>
+        <section name="sec_advanced_options">
+            <param name="dump_eqclasses" value="true"/>
+            <param name="num_bootstraps" value="0"/>
+            <param name="init_uniform" value="false"/>
+            <param name="summary_stat" value="false"/>
+            <param name="multi_sample_output" value="separate"/>
+            <param name="feature_dump" value="true"/>
+            <param name="quant_json" value="true"/>
+        </section>
+        <output name="output_dir">
+            <extra_files type="directory" value="quant_output/quants_mat.mtx"/>
+            <extra_files type="directory" value="quant_output/quants_mat_cols.txt"/>
+            <extra_files type="directory" value="quant_output/quants_mat_rows.txt"/>
+            <extra_files type="directory" value="quant_output/gene_eqclass.txt.gz"/>
+            <extra_files type="directory" value="quant_output/geqc_counts.mtx"/>
+        </output>
+        <output name="output_feature_dump">
+            <assert_contents>
+                <has_line_matching expression="TAAAATCCAGGAAGGA\t3\t3\t1\t1\t0.33333334\t1\t1\t0"/>
+                <has_line_matching expression="GCAAGTGGAAAGGATG\t2\t2\t0\t1\t0\tNaN\t0\t0"/>
+                <has_line_matching expression="GAAGGCATGGGCCCGA\t4\t4\t1\t1\t0.25\t1\t1\t0"/>
+            </assert_contents>
+        </output>
+        <output name="output_quant_json">
+            <assert_contents>
+                <has_json_property_with_text property="resolution" text="CellRangerLike"/>
+                <has_json_property_with_value property="num_bootstraps" value="0"/>
+                <has_json_property_with_value property="small_thresh" value="0"/>
+            </assert_contents>
+        </output>
+    </test>
+    </tests>
+    <help><![CDATA[
+This tool runs **alevin-fry quant**, quantifying expression from a collated RAD file using the selected resolution strategy.
+For details on the different resolution strategies and more, see the alevin-fry documentation: https://alevin-fry.readthedocs.io/en/latest/
+
+----
+
+**Input**
+
+- **Collated permit list (directory)**, generated by **alevin-fry generate permit list and collate**.
+- **Transcript-to-gene map** (headerless, tab-separated): two columns (transcript, gene) for standard quantification, or three columns (transcript, gene, S/U) for USA-mode quantification.
+- **Small threshold**: cells with fewer than this many reads are resolved by a fast path that applies cr-like (winner-take-all) semantics regardless of the chosen resolution. Use value 0 to resolve every cell with the chosen resolution instead.
+
+----
+
+**Output**
+
+- **Quantification results (directory)**
+- Optional: **equivalence class counts files**, which can be used as input for **alevin-fry infer**. Included in the quantification results directory, if "Write equivalence class counts" (Advanced Options) is set to "Yes".
+- Optional: **quant.json**, which contains information about the quantification process, e.g. the UMI resolution method.
+- Optional: **featureDump.txt**, which contains cell-level information designed to be useful in post-quantification cell filtering.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
