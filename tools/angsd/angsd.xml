@@ -1,16 +1,21 @@
-<tool id="angsd" name="ANGSD" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>Extract Internal Counts for Contamination Analysis</description>
+<tool id="angsd" name="ANGSD Summaries" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Calculate statistics from BAM files</description>
     
     <macros>
         <import>macros.xml</import>
     </macros>
-
+	
     <expand macro="requirements"/>
 
+	<required_files>
+        <include path="print_x_contamination.py"/>
+        <include path="estError.R"/>
+    </required_files>
+
     <command detect_errors="exit_code"><![CDATA[
-        ## 1. Link BAM files with proper .bam extensions
+        ## Link BAM files with proper .bam extensions
         touch bam.filelist &&
-		#for $i, $bam in enumerate($input_bams):
+        #for $i, $bam in enumerate($input_bams):
             ln -s '$bam' 'sample_${i}.bam' &&
             #if $bam.metadata.bam_index:
                 ln -s '$bam.metadata.bam_index' 'sample_${i}.bam.bai' &&
@@ -19,48 +24,328 @@
             #end if
             echo 'sample_${i}.bam' >> bam.filelist &&
         #end for
-
-        ## 2. Run ANGSD
-		angsd -bam bam.filelist -out output -nThreads "\${GALAXY_SLOTS:-1}" -doCounts 1 -iCounts 1 -minMapQ $min_mapq -minQ $min_q -r '$region'
+        
+        #if str($summary_type.summary_type_selector) == 'error_est_out'
+            ln -f -s '$summary_type.ref' ref.fa &&
+            ln -f -s '$summary_type.anc' anc.fa &&
+            samtools faidx ref.fa &&
+            samtools faidx anc.fa &&
+        #elif str($summary_type.summary_type_selector) == 'mismatch'
+            ln -f -s '$summary_type.ref' ref.fa &&
+            samtools faidx ref.fa &&
+        #end if
+        
+        ## Essential command
+        angsd -bam bam.filelist -out output -nThreads "\${GALAXY_SLOTS:-1}"
+		
+        ## Flags for selected operation
+        #if $summary_type.summary_type_selector == 'contamination':
+            -doCounts 1
+			-iCounts 1
+            @BAM_PARAM@
+            @COUNTS_PARAM@ &&
+            
+            ln -s '$summary_type.hapmap_file' hapmap.gz &&
+            contamination -a output.icnts.gz -h hapmap.gz 2> 'contamination_report.out' &&
+            python3 '$__tool_directory__/print_x_contamination.py' 'contamination_report.out'
+        	
+        #elif $summary_type.summary_type_selector == 'error_est_poly':
+            -doCounts 1 -doError 1 -doMajorMinor 2
+            @BAM_PARAM@
+            @COUNTS_PARAM@
+            -minSites $summary_type.minSites
+            -minPhat $summary_type.minPhat
+            -eps $summary_type.eps
+            #if $summary_type.errors:
+                -errors '$summary_type.errors'
+            #end if
+        		
+        #elif $summary_type.summary_type_selector == 'error_est_out':
+            @BAM_PARAM@
+            -doAncError $summary_type.doAncError
+            -ref ref.fa
+            -anc anc.fa
+            && Rscript '$__tool_directory__/estError.R' file=output.ancError > output.estError.txt
+        		
+        #elif $summary_type.summary_type_selector == 'allele_counts':
+            -doCounts 1
+            @BAM_PARAM@
+            @COUNTS_PARAM@
+            #if $summary_type.minQfile:
+                -minQfile '$summary_type.minQfile'
+            #end if
+            -dumpCounts $summary_type.dumpCounts
+            #if $summary_type.doDepth:
+                -doDepth 1
+                -maxDepth $summary_type.maxDepth
+            #end if
+            #if $summary_type.doQsDist:
+                -doQsDist 1
+            #end if
+			
+        #elif $summary_type.summary_type_selector == 'mismatch':
+            -doMisMatch 1
+            @BAM_PARAM@
+            -ref ref.fa
+        #end if
     ]]></command>
 
     <inputs>
         <param name="input_bams" type="data" format="bam" multiple="true" label="Input BAM file(s)" help="Select one or more coordinate-sorted BAM files." />
-        <param argument="-minMapQ" name="min_mapq" type="integer" value="20" min="0" label="Minimum Mapping Quality" help="Discard reads with mapping quality below this threshold."/>
-        <param argument="-minQ" name="min_q" type="integer" value="20" min="0" label="Minimum Base Quality" help="Discard bases with quality below this threshold."/>
-        <param argument="-r" name="region" type="text" label="Region" help="Target region for analysis (specify as CHROM:START-END).">
-            <validator type="regex" message="Region format must be like 'chr' or 'chr:start-end'">^[\w\d\._:-]+$</validator>
-        </param>
+        
+        <conditional name="summary_type">
+            <param name="summary_type_selector" type="select" label="Summary Type" help="Select the type of summary to compute.">
+                <option value="contamination">Contamination</option>
+                <option value="error_est_poly">Error Estimation (Polymorphic sites)</option>
+                <option value="error_est_out">Error Estimation (Outgroup)</option>
+                <option value="allele_counts">Allele Counts</option>
+                <option value="mismatch">Mismatch</option>
+            </param>
+            <when value="contamination">
+                <expand macro="bam_parameters"/>
+                <expand macro="counts_parameters"/>
+                <param name="hapmap_file" type="data" format="gz" label="HapMap ChrX Reference" help="Provide the HapMapChrX.gz file required for contamination estimation." />
+                <param name="generate_json" type="boolean" checked="false" label="Generate JSON report" />
+            </when>
+            <when value="error_est_poly">
+                <expand macro="bam_parameters"/>
+                <expand macro="counts_parameters"/>
+                <param argument="-minSites" type="integer" value="10000" label="Minimum Sites" help="Minimum number of sites used in the analysis."/>
+                <param argument="-minPhat" type="float" value="0.005" label="Minimum Phat (MAF)" help="Only run error estimation on sites with MAF greater than this value."/>
+				<param argument="-eps" type="float" value="0.001" label="Epsilon" help="Guess of the error rate in the sample."/>
+				<param argument="-errors" optional="true" type="data" format="tabular,txt" label="Start guess of errors" help="File containing a start guess of the type specific errors." />
+            </when>
+            <when value="error_est_out">
+                <expand macro="bam_parameters"/>
+                <param argument="-doAncError" type="select" label="Sampling Strategy">
+                    <option value="1">1: Use all reads</option>
+                    <option value="2">2: Sample only one base per site</option>
+                    <option value="3">3: Use first read per site</option>
+                </param>
+                <param argument="-ref" type="data" format="fasta" label="Reference FASTA" help="FASTA file of an error-free individual."/>
+                <param argument="-anc" type="data" format="fasta"  label="Ancestral FASTA" help="FASTA file containing the outgroup."/>
+            </when>
+            <when value="allele_counts">
+                <expand macro="bam_parameters"/>
+                <expand macro="counts_parameters"/>
+				<param argument="-minQfile" optional="true" type="data" format="tabular" label="File with individual base quality score" help="Rows must match the number of individuals. Use 1 column, or 4 columns for specific A, C, G, T thresholds."/>
+                <param argument="-dumpCounts" type="select" label="Dump Counts">
+                    <option value="0">0: Do not dump counts</option>
+                    <option value="1">1: Total seqdepth for site</option>
+                    <option value="2">2: Seqdepth per sample</option>
+                    <option value="3">3: A,C,G,T sum all samples</option>
+                    <option value="4">4: A,C,G,T sum every sample</option>
+                </param>
+                <param argument="-doDepth" type="boolean" checked="false" label="Dump distribution of seqdepth (-doDepth 1)" />
+                <param argument="-maxDepth" optional="true" type="integer" value="100" label="Max Depth" help="Bin together high depths. Only used if doDepth is active." />
+                <param argument="-doQsDist" type="boolean" checked="false" label="Dump distribution of qscores (-doQsDist 1)" />
+            </when>
+            <when value="mismatch">
+                <expand macro="bam_parameters"/>
+                <param argument="-ref" type="data" format="fasta" label="Reference FASTA" help="FASTA file of an error-free individual."/>
+            </when>
+        </conditional>
     </inputs>
 
     <outputs>
-        <data name="output_icnts" format="gz" from_work_dir="output.icnts.gz" label="${tool.name} on ${on_string}: Internal Counts (icnts)" />
+        <data name="output_icnts" format="gz" from_work_dir="output.icnts.gz" label="${tool.name} on ${on_string}: Internal Counts">
+            <filter>summary_type['summary_type_selector'] == 'contamination'</filter>
+        </data>
+        <data name="output_contamination_txt" format="tabular" from_work_dir="nuclear_contamination.txt" label="${tool.name} on ${on_string}: Contamination Tabular">
+            <filter>summary_type['summary_type_selector'] == 'contamination'</filter>
+        </data>
+        <data name="output_contamination_json" format="json" from_work_dir="nuclear_contamination_mqc.json" label="${tool.name} on ${on_string}: Contamination JSON">
+            <filter>summary_type['summary_type_selector'] == 'contamination' and summary_type['generate_json']</filter>
+        </data>
+		
+        <data name="output_error_poly" format="tabular" from_work_dir="output.error.chunkunordered" label="${tool.name} on ${on_string}: Error Estimation from Polymorphic Sites">
+            <filter>summary_type['summary_type_selector'] == 'error_est_poly'</filter>
+        </data>
+        <data name="output_error_anc" format="tabular" from_work_dir="output.ancError" label="${tool.name} on ${on_string}: Outgroup Error Estimation">
+            <filter>summary_type['summary_type_selector'] == 'error_est_out'</filter>
+        </data>
+        <data name="output_error_anc_summary" format="txt" from_work_dir="output.estError.txt" label="${tool.name} on ${on_string}: Outgroup Error Summary">
+            <filter>summary_type['summary_type_selector'] == 'error_est_out'</filter>
+        </data>
+		
+        <data name="output_allele_pos" format="gz" from_work_dir="output.pos.gz" label="${tool.name} on ${on_string}: Allele Positions">
+            <filter>summary_type['summary_type_selector'] == 'allele_counts' and summary_type['dumpCounts'] != '0'</filter>
+        </data>
+        <data name="output_allele_counts" format="gz" from_work_dir="output.counts.gz" label="${tool.name} on ${on_string}: Allele Counts">
+            <filter>summary_type['summary_type_selector'] == 'allele_counts' and summary_type['dumpCounts'] in ['2','3','4']</filter>
+        </data>
+        <data name="output_allele_depthsample" format="tabular" from_work_dir="output.depthSample" label="${tool.name} on ${on_string}: Depth Sample">
+            <filter>summary_type['summary_type_selector'] == 'allele_counts' and summary_type['doDepth']</filter>
+        </data>
+        <data name="output_allele_depthglobal" format="tabular" from_work_dir="output.depthGlobal" label="${tool.name} on ${on_string}: Depth Global">
+            <filter>summary_type['summary_type_selector'] == 'allele_counts' and summary_type['doDepth']</filter>
+        </data>
+        <data name="output_allele_qs" format="tabular" from_work_dir="output.qs" label="${tool.name} on ${on_string}: Base Quality Distribution">
+            <filter>summary_type['summary_type_selector'] == 'allele_counts' and summary_type['doQsDist']</filter>
+        </data>
+		
+		<data name="output_mismatch" format="gz" from_work_dir="output.mismatch.gz" label="${tool.name} on ${on_string}: Mismatch Matrix">
+            <filter>summary_type['summary_type_selector'] == 'mismatch'</filter>
+        </data>
     </outputs>
 
     <tests>
-        <test expect_num_outputs="1">
-            <param name="input_bams" value="test.bam" ftype="bam" />
-            <param name="region" value="X:5000000-154900000" />
+        <test expect_num_outputs="3">
+            <param name="input_bams" value="test_chrX.bam" ftype="bam" />
+            <conditional name="summary_type">
+                <param name="summary_type_selector" value="contamination" />
+                <param name="r" value="X:5000000-154900000" />
+                <param name="hapmap_file" value="test_HapMapChrX.gz" ftype="gz" />
+                <param name="generate_json" value="true" />
+            </conditional>
             <output name="output_icnts" ftype="gz">
                 <assert_contents>
-                    <has_size size="309" delta="100"/>
+                    <has_size size="309" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_contamination_txt">
+                <assert_contents>
+                    <has_text text="Num_SNPs" />
+                    <has_text text="Num_SNPs: 0" negate="true" />
+                </assert_contents>
+            </output>
+            <output name="output_contamination_json">
+                <assert_contents>
+                    <has_text text="plot_type" /> 
+                </assert_contents>
+            </output>
+        </test>
+		
+        <test expect_num_outputs="1">
+            <param name="input_bams" value="test_chrX.bam" ftype="bam" />
+            <conditional name="summary_type">
+                <param name="summary_type_selector" value="error_est_poly" />
+                <param name="minMapQ" value="0" />
+                <param name="minQ" value="0" />
+                <param name="minSites" value="50" />
+                <param name="minPhat" value="0.0" />
+                <param name="eps" value="0.001" />
+            </conditional>
+            <output name="output_error_poly" ftype="tabular">
+                <assert_contents>
+                    <has_size size="145" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+		
+        <test expect_num_outputs="2">
+            <param name="input_bams" value="test_chr1.bam" ftype="bam" />
+            <conditional name="summary_type">
+                <param name="summary_type_selector" value="error_est_out" />
+                <param name="minMapQ" value="0" />
+                <param name="minQ" value="0" />
+                <param name="doAncError" value="1" />
+                <param name="ref" value="test_ref.fa" ftype="fasta" />
+                <param name="anc" value="test_anc.fa" ftype="fasta" />
+            </conditional>      
+            <output name="output_error_anc" ftype="tabular">
+                <assert_contents>
+                    <has_size size="252" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_error_anc_summary" ftype="txt">
+                <assert_contents>
+                    <has_size size="1053" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+		
+        <test expect_num_outputs="5">
+            <param name="input_bams" value="test_chrX.bam" ftype="bam" />
+            <conditional name="summary_type">
+                <param name="summary_type_selector" value="allele_counts" />
+                <param name="minMapQ" value="0" />
+                <param name="minQ" value="0" />
+                <param name="dumpCounts" value="2" />
+                <param name="doDepth" value="1" />
+                <param name="doQsDist" value="1" />
+            </conditional>      
+            <output name="output_allele_pos" ftype="gz">
+                <assert_contents>
+                    <has_size size="1683" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_allele_counts" ftype="gz">
+                <assert_contents>
+                    <has_size size="124" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_allele_depthsample" ftype="tabular">
+                <assert_contents>
+                    <has_size size="208" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_allele_depthglobal" ftype="tabular">
+                <assert_contents>
+                    <has_size size="208" delta="10"/>
+                </assert_contents>
+            </output>
+            <output name="output_allele_qs" ftype="tabular">
+                <assert_contents>
+                    <has_size size="168" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+		
+        <test expect_num_outputs="1">
+            <param name="input_bams" value="test_chr1.bam" ftype="bam" />
+            <conditional name="summary_type">
+                <param name="summary_type_selector" value="mismatch" />
+                <param name="r" value="1:" />
+                <param name="minMapQ" value="0" />
+                <param name="minQ" value="0" />
+                <param name="ref" value="test_ref.fa" ftype="fasta" />
+            </conditional>
+            <output name="output_mismatch" ftype="gz">
+                <assert_contents>
+                    <has_size size="201" delta="10"/>
                 </assert_contents>
             </output>
         </test>
     </tests>
 
     <help><![CDATA[
-ANGSD is a tool for analyzing DNA data, especially when the DNA quality is low, like ancient DNA.
+.. class:: warningmark
 
-Normal tools try to guess the exact DNA letters (like A or T). But if your data is poor or you don't have many reads, guessing can cause big mistakes. Instead of guessing, ANGSD uses math to calculate the chances of each letter.
+    **Contamination Warning:** 
+    This tool's contamination option ONLY works for biologically male (XY) samples.
+    If you run a female (XX) sample through this tool, it will see her natural two X chromosomes as "foreign DNA" and falsely report around 50% contamination.
+    Do not use the contamination option on female samples.
 
-This is a quick version of ANGSD wrapped to generate the internal counts (`.icnts.gz`) file required for the ANGSD X-Contamination tool.
+**What it does**
+This tool runs ANGSD to calculate various genomic summaries from BAM files.
 
-**Input Requirements:**
-* One or more coordinate-sorted and indexed BAM files.
+**How Each Analysis Works**
 
-**Output:**
-* **Internal Counts for Contamination (.icnts.gz):** This is a specific file used for the ANGSD X-Contamination tool.
+* **Contamination:** Estimates nuclear contamination on the X chromosome for male samples by comparing read counts against a HapMap reference.
+
+* **Error estimation:** Calculates sequencing error rates either using polymorphic sites or by comparing the sample against outgroup and reference FASTA files via an R script.
+
+* **Allele counts:** Scans the genome to count A, C, G, and T bases, producing frequency, position, and depth tables.
+
+* **Depth:** Measures sequencing depth distribution across the genome and per sample.
+
+* **Base quality:** Analyzes the distribution of base quality scores to help filter out unreliable data.
+
+* **Mismatch:** Compares reads against a reference FASTA file to calculate a mismatch substitution matrix.
+
+**Inputs**
+* **Input BAM file(s):** Coordinate-sorted BAM files to be analyzed.
+* **HapMap ChrX Reference (.gz):** Reference file required for the contamination option.
+* **Reference & Ancestral FASTA:** Genome sequence files required for outgroup error estimation and mismatch analysis.
+* **Start guess of errors:** Optional tabular/txt file with initial error estimates for polymorphic error analysis.
+* **Individual base quality score:** Optional tabular file for custom base quality thresholds.
+
+**Outputs**
+* **Contamination:** Internal counts binary file (`.icnts.gz`), nuclear contamination tabular report, and optional JSON report.
+* **Error Estimation:** Tabular error files, outgroup matrices (`.ancError`), and R-script summary text reports.
+* **Allele Counts:** Compressed allele position and count files (`.pos.gz`, `.counts.gz`), depth distribution tables (`.depthSample`, `.depthGlobal`), and quality score distributions (`.qs`).
+* **Mismatch:** Compressed mismatch matrix files (`.mismatch.gz`).
     ]]></help>
     
     <expand macro="citations"/>
