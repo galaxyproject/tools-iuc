@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,8 +34,12 @@ def _run_analyzer() -> Path:
     return path
 
 
-def _build_stats(events_path: Path, index_by_id: dict[str, dict]) -> dict[str, Any]:
+def _build_stats(events_path: Path, index_by_id: dict[str, dict], *, as_of: datetime | None = None) -> dict[str, Any]:
     events = json.loads(events_path.read_text(encoding="utf-8"))
+    period_end = (as_of or datetime.now(UTC)).astimezone(UTC)
+    period_start = period_end - timedelta(days=30)
+    recently_added: set[str] = set()
+    recently_updated: set[str] = set()
     by_month: Counter[str] = Counter()
     new_per_month: Counter[str] = Counter()
     update_per_month: Counter[str] = Counter()
@@ -61,6 +66,12 @@ def _build_stats(events_path: Path, index_by_id: dict[str, dict]) -> dict[str, A
         tid = ev.get("tool_id", "")
         d = ev.get("commit_date", "")
         if tid and d:
+            event_date = datetime.fromisoformat(d).astimezone(UTC)
+            if period_start <= event_date <= period_end:
+                if et == "new":
+                    recently_added.add(tid)
+                elif et == "update":
+                    recently_updated.add(tid)
             if tid not in first_seen or d < first_seen[tid]:
                 first_seen[tid] = d
             if tid not in last_seen or d > last_seen[tid]:
@@ -101,6 +112,12 @@ def _build_stats(events_path: Path, index_by_id: dict[str, dict]) -> dict[str, A
         "source": "incremental Git history index",
         "total_events": len(events),
         "total_tools": len(first_seen),
+        "last_30_days": {
+            "start": period_start.isoformat(),
+            "end": period_end.isoformat(),
+            "added": len(recently_added),
+            "updated": len(recently_updated),
+        },
         "by_month": [{"month": m, "count": by_month[m],
                        "new": new_per_month.get(m, 0), "updates": update_per_month.get(m, 0)} for m in months],
         "cumulative": cumulative,

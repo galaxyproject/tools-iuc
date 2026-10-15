@@ -35,13 +35,15 @@ def tool_state(reader: GitReader, sha: str, path: str) -> dict | None:
     if not identifier:
         return None
     dependencies: set[str] = set()
+    loaded: set[str] = set()
     tokens: dict[str, str] = {}
 
     def load(name: str) -> None:
-        if name in dependencies:
+        if name in loaded:
             return
-        dependencies.add(name)
+        loaded.add(name)
         text = reader.read(sha, name)
+        dependencies.update(reader.dependencies(sha, name))
         if text is None:
             return
         for imported in IMPORT_RE.findall(text):

@@ -250,6 +250,31 @@ class HistoryIndexTests(GitTestCase):
             self.assertEqual({event["version"] for event in index.events(tools)}, {"1.0", "2.0"})
             self.assert_matches_bootstrap(index, tools)
 
+    def test_linked_macro_target_updates_and_retargeting_are_incremental(self) -> None:
+        macro = self.repo / "tools/example/macros.xml"
+        macro.unlink()
+        macro.symlink_to("../../macros/version.xml")
+        self.write("macros/version.xml", '<macros><token name="@TOOL_VERSION@">1.0</token></macros>')
+        self.commit("Link shared version macro")
+        with closing(self.index()) as index:
+            index.update()
+            self.git("config", "user.name", "Macro Author")
+            self.write("macros/version.xml", '<macros><token name="@TOOL_VERSION@">2.0</token></macros>')
+            target_updated = self.commit("Only update symlink target")
+            index.update()
+            update = next(e for e in index.events(self.tools()) if e["version"] == "2.0")
+            self.assertEqual(update["commit_hash"], target_updated)
+            self.write("macros/other.xml", '<macros><token name="@TOOL_VERSION@">3.0</token></macros>')
+            macro.unlink()
+            macro.symlink_to("../../macros/other.xml")
+            retargeted = self.commit("Retarget shared macro")
+            index.update()
+            update = next(e for e in index.events(self.tools()) if e["version"] == "3.0")
+            self.assertEqual(update["commit_hash"], retargeted)
+            self.assert_matches_bootstrap(index)
+            with mock.patch("pipeline.history_index.GitReader", side_effect=AssertionError("historical files read")):
+                self.assertEqual(index.update(), 0)
+
     def test_private_email_as_author_name_is_not_persisted(self) -> None:
         self.git("config", "user.name", "private-name@example.invalid")
         self.git("config", "user.email", "private-name@example.invalid")

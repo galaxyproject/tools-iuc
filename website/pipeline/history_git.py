@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -90,11 +91,70 @@ class GitReader:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
         )
+        self._object = lru_cache(maxsize=8192)(self._read_object)
+        self._tree = lru_cache(maxsize=8192)(self._read_tree)
+        self.resolve = lru_cache(maxsize=8192)(self._resolve)
         self.read = lru_cache(maxsize=8192)(self._read)
 
     def _read(self, sha: str, path: str) -> str | None:
+        oid, _paths = self.resolve(sha, path)
+        obj = self._object(oid) if oid else None
+        return obj[1].decode("utf-8", errors="replace") if obj and obj[0] == "blob" else None
+
+    def dependencies(self, sha: str, path: str) -> tuple[str, ...]:
+        """Include both the link paths and their targets at this historical commit."""
+        return self.resolve(sha, path)[1]
+
+    def _resolve(self, sha: str, path: str) -> tuple[str | None, tuple[str, ...]]:
+        path = posixpath.normpath(path)
+        dependencies = {path}
+        visited: set[str] = set()
+        # Match normal filesystem limits while keeping broken/cyclic links finite.
+        for _ in range(41):
+            if path.startswith(("../", "/")) or path in visited:
+                break
+            visited.add(path)
+            tree = f"{sha}:"
+            parts = path.split("/")
+            for number, part in enumerate(parts):
+                entry = self._tree(tree).get(part)
+                if entry is None:
+                    return None, tuple(sorted(dependencies))
+                mode, oid = entry
+                if mode == "120000":
+                    link = "/".join(parts[: number + 1])
+                    dependencies.add(link)
+                    obj = self._object(oid)
+                    assert obj is not None
+                    target = obj[1].decode("utf-8", errors="replace")
+                    path = posixpath.normpath(posixpath.join(posixpath.dirname(link), target, *parts[number + 1 :]))
+                    dependencies.add(path)
+                    break
+                if number == len(parts) - 1:
+                    return (oid if mode in {"100644", "100755"} else None), tuple(sorted(dependencies))
+                tree = oid
+        return None, tuple(sorted(dependencies))
+
+    def _read_tree(self, spec: str) -> dict[str, tuple[str, str]]:
+        obj = self._object(spec)
+        if obj is None or obj[0] != "tree":
+            return {}
+        _kind, data, oid_size = obj
+        entries = {}
+        offset = 0
+        # Git tree entries are mode + space + name + NUL + the binary object ID.
+        while offset < len(data):
+            space = data.index(b" ", offset)
+            nul = data.index(b"\0", space)
+            end = nul + 1 + oid_size
+            name = data[space + 1 : nul].decode("utf-8", errors="replace")
+            entries[name] = (data[offset:space].decode("ascii"), data[nul + 1 : end].hex())
+            offset = end
+        return entries
+
+    def _read_object(self, spec: str) -> tuple[str, bytes, int] | None:
         assert self.process.stdin is not None and self.process.stdout is not None
-        self.process.stdin.write(f"{sha}:{path}\n".encode())
+        self.process.stdin.write(f"{spec}\n".encode())
         self.process.stdin.flush()
         header = self.process.stdout.readline().split()
         if not header:
@@ -105,7 +165,7 @@ class GitReader:
         data = self.process.stdout.read(size)
         if len(data) != size or self.process.stdout.read(1) != b"\n":
             raise RuntimeError("Incomplete git cat-file response")
-        return data.decode("utf-8", errors="replace")
+        return header[1].decode("ascii"), data, len(header[0]) // 2
 
     def close(self) -> None:
         assert self.process.stdin is not None and self.process.stdout is not None
@@ -113,3 +173,6 @@ class GitReader:
         self.process.stdout.close()
         self.process.wait()
         self.read.cache_clear()
+        self.resolve.cache_clear()
+        self._tree.cache_clear()
+        self._object.cache_clear()
