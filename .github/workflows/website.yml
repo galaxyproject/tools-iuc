@@ -9,6 +9,10 @@ on:
     paths:
       - "website/**"
       - ".github/workflows/website.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - ".github/workflows/website.yml"
   schedule:
     - cron: "17 3 * * *"  # daily at 03:17 UTC
   workflow_dispatch:
@@ -93,6 +97,34 @@ jobs:
         working-directory: website/astro
         run: npm ci
 
+      - name: Validate source
+        working-directory: website
+        run: bash check.sh
+
+      # This cache is independent of generated metadata and template changes.
+      - name: Restore history index
+        id: history-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: website/.history-cache/history.sqlite
+          key: iuc-history-v1-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            iuc-history-v1-${{ runner.os }}-${{ github.sha }}-
+            iuc-history-v1-${{ runner.os }}-
+
+      - name: Update history index
+        id: history-index
+        working-directory: website
+        run: uv run python -m pipeline.history_index
+
+      # Save the completed index even if a later website build fails.
+      - name: Save history index
+        if: steps.history-index.outputs.changed == 'true' && steps.history-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: website/.history-cache/history.sqlite
+          key: iuc-history-v1-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Extract data
         working-directory: website
         run: |
@@ -122,6 +154,14 @@ jobs:
       - name: Check internal links
         working-directory: website/astro
         run: npx astro preview --host 127.0.0.1 --port 4325 --strictPort & pid=$!; sleep 5; PORT=4325 npm run links:internal; status=$?; kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true; exit $status
+
+      - name: Install browser
+        working-directory: website/astro
+        run: npx playwright install --with-deps chromium
+
+      - name: Check browser search
+        working-directory: website/astro
+        run: npm run test:browser
 
       - name: Upload artifact
         if: env.DEPLOY_PAGES == 'true'

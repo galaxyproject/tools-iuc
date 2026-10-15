@@ -1,42 +1,47 @@
 # Repo-root justfile — proxies into website/justfile for convenience.
 # Requires `just` (https://github.com/casey/just) and `uv` (https://github.com/astral-sh/uv).
 
-# Show all available targets with descriptions
+# Show available commands
+[private]
 default:
     @just --list
 
-# One-time setup: install Python deps (incl. Galaxy from git) + Node deps
+# Install Python and Node dependencies
 website-setup:
     just -f website/justfile setup
 
-# Start the Astro dev server with hot reload (extracts tool data first)
+# Start the development server
 website-dev:
     just -f website/justfile dev
 
-# Full build: extract all data + build static site + Pagefind search index
+# Extract data and build the searchable site
 website-build:
     just -f website/justfile build
 
-# Extract all data into website/data/ (tools, ToolShed, stats, people, recent)
+# Refresh all website data
 website-extract:
     just -f website/justfile extract
 
-# Extract only tool metadata (fastest, no network except ToolShed)
+# Refresh tool metadata
 website-extract-tools:
     just -f website/justfile extract-tools
 
-# Full build then preview the site locally
+# Build and preview the site
 website-serve:
     just -f website/justfile serve
 
-# Lint (ruff) + typecheck (astro check)
+# Run unit tests, lint, and type checks
 website-check:
     just -f website/justfile check
 
-# Run website unit tests
+# Run Python and JavaScript unit tests
 website-test:
     just -f website/justfile test
 
-# Remove all generated data and build artifacts
+# Remove generated data and build files
 website-clean:
     just -f website/justfile clean
+
+# Refresh the incremental Git history index
+website-history:
+    just -f website/justfile history
