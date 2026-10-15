@@ -10,8 +10,19 @@
 @VAR_ACCESS_FOO@
 hsp.py
     --tree '$tree'
-    @HSP_PARAMS@
+#if str($trait_input.selector) == "default"
+    #set $_database = $trait_input.database.selector
+    @DATABASE_PARAM@
+    #if str($_database) == "SC"
+        --reference '$trait_input.database.reference'
+    #end if
+    --in_trait '$trait_input.database.in_trait'
+#else
+    --observed_trait_table '$trait_input.observed_trait_table'
+#end if
+    @HSP_METHOD_PARAMS@
     --output '$prediction_output'
+    $calculate_NSTI
     $check
     ## not implemented --chunk_size hoping that the default is carefully chosen
     ## otherwise one might need to compute a "good" value from the number of
@@ -19,69 +30,136 @@ hsp.py
     -p "\${GALAXY_SLOTS:-1}"
     ]]></command>
     <inputs>
-        <param argument="--tree" type="data" format="newick" label="Newick tree with study sequences placed amongst reference sequences" help="The full reference tree containing both study sequences (i.e. ASVs or OTUs) and reference sequences."/>
-        <expand macro="hsp_params" nsti_truevalue="--calculate_NSTI" nsti_checked="false" in_trait_arg="--in_trait" in_trait_multiple="false" in_trait_label_suff="">
-            <token name="add_default_traits">
-                <option value="16S">16S</option>
-                <option value="PHENO">PHENO</option>
-            </token>
-            <token name="custom_traits">
+        <param argument="--tree" type="data" format="newick" label="Newick tree with study sequences placed amongst reference sequences" help="The full reference tree containing both study sequences (i.e. ASVs or OTUs) and reference sequences. It has to be based on the same reference database that is selected below."/>
+        <conditional name="trait_input">
+            <param name="selector" type="select" label="Trait table" help="i.e. which gene families to predict">
+                <option value="default" selected="true">Default trait table</option>
+                <option value="custom">Customized trait table</option>
+            </param>
+            <when value="default">
+                <conditional name="database">
+                    <expand macro="database_selector" help="Has to match the reference that was used to place the study sequences into the tree"/>
+                    <when value="SC">
+                        <param argument="--reference" type="select" label="Domain" help="Has to match the reference that was used to place the study sequences into the tree">
+                            <option value="bac" selected="true">Bacteria</option>
+                            <option value="arc">Archaea</option>
+                        </param>
+                        <expand macro="hsp_traits_sc" in_trait_arg="--in_trait" in_trait_multiple="false" in_trait_label_suff="" in_traits_help="i.e. which gene families to predict">
+                            <option value="16S">16S rRNA gene copy number</option>
+                        </expand>
+                    </when>
+                    <when value="oldIMG">
+                        <expand macro="hsp_traits_oldimg"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="custom">
                 <param argument="--observed_trait_table" type="data" format="tabular" label="Customized trait table" help="Describes directly observed traits (e.g. sequenced genomes) in tab-delimited format. "/>
-            </token>
-            <!-- add the seed parameter here (for the emp_prob option) .. param absent in picrust2_pipeline -->
+            </when>
+        </conditional>
+        <expand macro="hsp_method_params">
+            <!-- the seed parameter (for the emp_prob option) is only available in hsp -->
             <param argument="--seed" type="integer" value="100" label="Seed to make output reproducible" help="is necessary for the emp_prob method"/>
         </expand>
+        <param argument="--calculate_NSTI" type="boolean" truevalue="--calculate_NSTI" falsevalue="" checked="false" label="Calculate NSTI and add to output file" help="And add to output file"/>
         <param argument="--check" type="boolean" truevalue="--check" falsevalue="" checked="false" label="Check input trait table before HSP"/>
     </inputs>
     <outputs>
         <data name="prediction_output" format="tabular"/>
     </outputs>
     <tests>
-    <test expect_num_outputs="1">
-        <param name="tree" ftype="newick" value="out_tree.zip"/>
-        <conditional name="trait_input">
-            <param name="selector" value="default"/>
-            <param name="in_trait" value="16S"/>
-        </conditional>
-        <param name="calculate_NSTI" value="false"/>
-        <param name="check" value="false"/>
-        <output name="prediction_output" ftype="tabular">
-            <assert_contents>
-                <has_text text="sequence"/>
-                <has_n_lines n="38"/>
-            </assert_contents>
-        </output>
-    </test>
-    <test expect_num_outputs="1">
-        <param name="tree" ftype="newick" value="out_tree.zip"/>
-        <conditional name="trait_input">
-            <param name="selector" value="custom"/>
-            <param name="observed_trait_table" value="known_traits.tsv.gz"/>
-        </conditional>
-        <param name="calculate_NSTI" value="false"/>
-        <param name="check" value="false"/>
-        <output name="prediction_output">
-            <assert_contents>
-                <has_text text="2040502012"/>
-                <has_n_lines n="20005"/>
-            </assert_contents>
-        </output>
-    </test>
-    <test expect_num_outputs="1">
-        <param name="tree" ftype="newick" value="out_tree.zip"/>
-        <conditional name="trait_input">
-            <param name="selector" value="default"/>
-            <param name="in_trait" value="16S"/>
-        </conditional>
-        <param name="calculate_NSTI" value="false"/>
-        <param name="check" value="false"/>
-        <output name="prediction_output">
-            <assert_contents>
-                <has_text text="sequence"/>
-                <has_n_lines n="38"/>
-            </assert_contents>
-        </output>
-    </test>
+        <!-- default (SC) database, bacterial reference -->
+        <test expect_num_outputs="1">
+            <param name="tree" ftype="newick" value="out_tree_bac.zip"/>
+            <conditional name="trait_input">
+                <param name="selector" value="default"/>
+                <conditional name="database">
+                    <param name="selector" value="SC"/>
+                    <param name="reference" value="bac"/>
+                    <param name="in_trait" value="16S"/>
+                </conditional>
+            </conditional>
+            <param name="calculate_NSTI" value="false"/>
+            <param name="check" value="false"/>
+            <output name="prediction_output" ftype="tabular">
+                <assert_contents>
+                    <has_text text="sequence"/>
+                    <has_n_lines n="6"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--reference 'bac'"/>
+                <has_text text="--database" negate="true"/>
+            </assert_command>
+        </test>
+        <!-- custom trait table, the database is irrelevant in that case -->
+        <test expect_num_outputs="1">
+            <param name="tree" ftype="newick" value="out_tree.zip"/>
+            <conditional name="trait_input">
+                <param name="selector" value="custom"/>
+                <param name="observed_trait_table" value="known_traits.tsv.gz"/>
+            </conditional>
+            <param name="calculate_NSTI" value="false"/>
+            <param name="check" value="false"/>
+            <output name="prediction_output">
+                <assert_contents>
+                    <has_text text="2040502012"/>
+                    <has_n_lines n="20005"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- legacy IMG database, which is the only one offering COG/TIGRFAM/PHENO -->
+        <test expect_num_outputs="1">
+            <param name="tree" ftype="newick" value="out_tree.zip"/>
+            <conditional name="trait_input">
+                <param name="selector" value="default"/>
+                <conditional name="database">
+                    <param name="selector" value="oldIMG"/>
+                    <param name="in_trait" value="16S"/>
+                </conditional>
+            </conditional>
+            <param name="calculate_NSTI" value="true"/>
+            <param name="check" value="false"/>
+            <output name="prediction_output">
+                <assert_contents>
+                    <has_text text="sequence"/>
+                    <has_text text="metadata_NSTI"/>
+                    <has_n_lines n="38"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--database oldIMG"/>
+                <has_text text="--reference" negate="true"/>
+            </assert_command>
+        </test>
+        <!-- emp_prob is the only method that uses the seed -->
+        <test expect_num_outputs="1">
+            <param name="tree" ftype="newick" value="out_tree.zip"/>
+            <conditional name="trait_input">
+                <param name="selector" value="default"/>
+                <conditional name="database">
+                    <param name="selector" value="oldIMG"/>
+                    <param name="in_trait" value="16S"/>
+                </conditional>
+            </conditional>
+            <conditional name="hsp_method_options">
+                <param name="hsp_method" value="emp_prob"/>
+                <param name="seed" value="100"/>
+            </conditional>
+            <param name="calculate_NSTI" value="false"/>
+            <param name="check" value="false"/>
+            <output name="prediction_output">
+                <assert_contents>
+                    <has_text text="sequence"/>
+                    <has_n_lines n="38"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--hsp_method 'emp_prob'"/>
+                <has_text text="--seed 100"/>
+                <has_text text="--edge_exponent" negate="true"/>
+            </assert_command>
+        </test>
     </tests>
     <help><![CDATA[
 @HELP_HEADER@
@@ -94,6 +172,12 @@ Note
 ====
 Run hidden-state prediction (hsp) to predict gene family abundances.
 
+@HELP_DATABASE@
+
+The selected database (and, for the SC database, the domain) has to match the
+reference that was used by the sequence placement step that produced the input
+tree. Both are ignored when a customized trait table is used.
+
 Input
 =====
 Newick tree with study sequences placed amongst reference sequences.
@@ -103,7 +187,5 @@ Output
 Tabular file containing predicted counts.
 
     ]]></help>
-    <citations>
-        <citation type="doi">10.1038/s41587-020-0548-6</citation>
-    </citations>
+    <expand macro="citations"/>
 </tool>
