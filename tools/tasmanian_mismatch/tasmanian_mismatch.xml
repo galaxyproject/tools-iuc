@@ -1,7 +1,7 @@
 <tool id="tasmanian_mismatch" name="Analysis of artifacts with Tasmanian" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="AGPL-3.0-or-later">
     <description>Quantify, visualize and summarize mismatches in deep sequencing data</description>
     <macros>
-        <token name="@TOOL_VERSION@">2.0.5</token>
+        <token name="@TOOL_VERSION@">2.1.0</token>
         <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">25.0</token>
         <xml name="sam_flags" tokens="name,label,help_text">
@@ -32,6 +32,10 @@
     </edam_operations>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">tasmanian-mismatch</requirement>
+        <!-- Remove once the bioconda recipe caps python below 3.15.
+             On Python 3.15 polars Series.unique() returns None, which crashes the
+             plot visualization script and leaves the HTML report empty. -->
+        <requirement type="package" version="3.14">python</requirement>
     </requirements>
     <version_command>echo @TOOL_VERSION@</version_command>
     <command detect_errors="exit_code"><![CDATA[
@@ -76,6 +80,15 @@ tasmanian-mismatch
     #if $advanced.discount_table
         --discount-table '$advanced.discount_table'
     #end if
+    #if $advanced.min_read_position
+        --min-read-position $advanced.min_read_position
+    #end if
+    #if $advanced.max_read_position
+        --max-read-position $advanced.max_read_position
+    #end if
+    #if $advanced.max_read_length
+        --max-read-length $advanced.max_read_length
+    #end if
     ## --plot derives the report name from --output-file, so write into the
     ## working directory and move the table afterwards (keeps tasmanian.html discoverable)
     --output-file tasmanian.tsv
@@ -104,6 +117,7 @@ tasmanian-mismatch
         <param argument="--bed-filter-mode" type="select" label="How to apply the BED regions" help="Only used when a BED file is provided">
             <option value="mask" selected="true">mask - skip only the aligned bases that overlap the BED regions</option>
             <option value="filter">filter - skip whole reads that overlap the BED regions</option>
+            <option value="include">include - keep only whole reads that overlap the BED regions</option>
         </param>
         <param argument="--position-mode" type="select" label="Position mode" help="Report mismatches by position along the fragment (insert) or along each read separately">
             <option value="insert" selected="true">insert - fragment position (default)</option>
@@ -121,6 +135,9 @@ tasmanian-mismatch
             <param argument="--methylation-mode" type="boolean" truevalue="--methylation-mode" falsevalue="" checked="false" label="Methylation mode" help="Treat C&gt;T and G&gt;A changes as C&gt;C and G&gt;G to avoid confounding by bisulfite conversion"/>
             <param argument="--min-fragment-length" type="integer" min="0" value="25" label="Minimum fragment length" help="Minimum estimated fragment length required for a read to be counted. Default=25"/>
             <param argument="--max-fragment-length" type="integer" min="1" value="10000" label="Maximum fragment length" help="Maximum estimated fragment length allowed for a read to be counted. Default=10000"/>
+            <param argument="--min-read-position" type="integer" min="1" optional="true" label="Minimum position to count" help="Lowest position (1-based, inclusive) on the axis chosen by Position mode that is included in the counts. Leave empty for no lower bound."/>
+            <param argument="--max-read-position" type="integer" min="1" optional="true" label="Maximum position to count" help="Highest position (1-based, inclusive) on the axis chosen by Position mode that is included in the counts. Leave empty for no upper bound."/>
+            <param argument="--max-read-length" type="integer" min="1" optional="true" label="Read length for the position axis" help="Leave empty to use the longest of the first 10,000 reads."/>
             <param argument="--discount-table" type="data" format="tabular" optional="true" label="Discount table" help="Optional variant_discounts.tsv produced by tasmanian-diagnostics, used to subtract likely genomic variants from the mismatch counts"/>
             <expand macro="sam_flags" name="required_flags" label="Require these SAM flags (-f)" help_text="Only reads that have all of the selected flags set are counted. Nothing selected means no requirement."/>
             <expand macro="sam_flags" name="filter_flags" label="Skip reads with any of these SAM flags (-F)" help_text="A read is skipped as soon as one of the selected flags is set."/>
@@ -228,6 +245,28 @@ tasmanian-mismatch
             </section>
             <output name="output_table" file="test2_flags_f64.tabular" ftype="tabular"/>
         </test>
+        <!-- Test 7: BED include mode with a restricted position range -->
+        <test expect_num_outputs="1">
+            <param name="bam_input" value="test2.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="small_region.fa" ftype="fasta"/>
+            </conditional>
+            <param name="bed_filename" value="test2.bed" ftype="bed"/>
+            <param name="bed_filter_mode" value="include"/>
+            <param name="position_mode" value="read"/>
+            <param name="plot" value="false"/>
+            <section name="advanced">
+                <param name="min_read_position" value="5"/>
+                <param name="max_read_position" value="50"/>
+                <param name="max_read_length" value="100"/>
+            </section>
+            <output name="output_table" file="test2_read_bedinclude.tabular" ftype="tabular">
+                <assert_contents>
+                    <has_text text="read_position"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 
@@ -286,6 +325,8 @@ the same table.
 
 * **mask** - only the aligned bases falling inside the BED intervals are skipped.
 * **filter** - any read overlapping a BED interval is discarded entirely.
+* **include** - only reads overlapping a BED interval are kept, e.g. to restrict whole-genome data
+  to an exome or panel in silico.
 
 .. class:: warningmark
 
@@ -311,6 +352,15 @@ which are added together and handed to the corresponding option of the tool:
 
 *Region size* controls how the indexed BAM is split into chunks for parallel processing. It changes
 speed and memory use only, never the reported counts.
+
+-----
+
+**Position range**
+
+*Minimum/Maximum position to count* restrict the counts to a window of the position axis selected
+by *Position mode* (1-based, inclusive), e.g. to ignore the first bases of each read.
+*Read length for the position axis* fixes the length of that axis; by default it is taken from the
+longest of the first 10,000 reads.
 
 -----
 
