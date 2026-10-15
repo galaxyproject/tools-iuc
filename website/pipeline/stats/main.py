@@ -2,12 +2,12 @@
 Galaxy Toolshed Deployment Analyzer for tools-iuc.
 
 Walks the entire git history of the tools-iuc repository along the
-origin/main first-parent chain, discovers every <tool id="..."> across
-all XML files in tools/, resolves version macros (TOOL_VERSION,
+HEAD first-parent chain, discovers every <tool id="..."> across
+all published tool roots, resolves version macros (TOOL_VERSION,
 VERSION_SUFFIX, WRAPPER_VERSION, etc.) at each commit, and classifies
 every version change as:
 
-  - new       — first appearance of a tool id on origin/main
+  - new       — first appearance of a tool id on HEAD
   - upstream  — the upstream tool version (TOOL_VERSION / VERSION) changed
   - wrapper   — the Galaxy wrapper revision (VERSION_SUFFIX / WRAPPER_VERSION) changed
   - version   — version changed via custom tokens not in our known lists
@@ -32,7 +32,7 @@ from .output import write_events_csv, write_events_json, write_summary
 
 def run(
     repo: str = ".",
-    tools_path: str = "tools",
+    tools_path: str | None = None,
     branch: str | None = None,
     output_dir: str = "./.stats",
     fmt: str = "both",
@@ -76,11 +76,11 @@ def main():
     )
     parser.add_argument(
         '--branch', default=None,
-        help='Git branch to analyze (default: auto-detect origin/main or master)',
+        help='Git branch to analyze (default: HEAD)',
     )
     parser.add_argument(
-        '--tools-path', default='tools',
-        help='Path to tools subdirectory within repo (default: tools)',
+        '--tools-path', default=None,
+        help='Path to tools subdirectory within repo (default: all website tool roots)',
     )
     parser.add_argument(
         '--output-dir', default='./.stats',

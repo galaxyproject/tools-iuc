@@ -62,7 +62,7 @@ class FrontendContractsTests(unittest.TestCase):
     def test_link_check_builds_pagefind_assets_before_preview(self) -> None:
         justfile = (ROOT / "justfile").read_text(encoding="utf-8")
 
-        self.assertIn("npx pagefind --site astro/dist", justfile)
+        self.assertIn("cd astro && npx pagefind --site dist", justfile)
         self.assertIn("cd astro && (npx astro preview", justfile)
 
     def test_fork_pages_deploy_does_not_use_protected_environment(self) -> None:
@@ -84,25 +84,29 @@ class FrontendContractsTests(unittest.TestCase):
         self.assertNotIn("Download generated data", workflow)
         self.assertNotIn("git push origin HEAD:gh-pages", workflow)
 
+    def test_history_cache_is_saved_before_website_extraction_and_uses_schema_version(self) -> None:
+        import yaml
+
+        from pipeline.history_index import SCHEMA
+
+        workflow = yaml.safe_load((ROOT.parent / ".github/workflows/website.yml").read_text())
+        steps = workflow["jobs"]["build"]["steps"]
+        positions = {step.get("name"): position for position, step in enumerate(steps)}
+        restore = steps[positions["Restore history index"]]
+        save = steps[positions["Save history index"]]
+        self.assertLess(positions["Restore history index"], positions["Update history index"])
+        self.assertLess(positions["Update history index"], positions["Save history index"])
+        self.assertLess(positions["Save history index"], positions["Extract data"])
+        self.assertEqual(restore["with"]["path"], "website/.history-cache/history.sqlite")
+        self.assertEqual(save["with"]["path"], restore["with"]["path"])
+        self.assertEqual(save["with"]["key"], restore["with"]["key"])
+        self.assertTrue(save["with"]["key"].startswith(f"iuc-history-v{SCHEMA}-"))
+        self.assertIn("steps.history-index.outputs.changed", save["if"])
+
     def test_contributor_tool_cards_render_edam_labels(self) -> None:
-        page = (ROOT / "astro" / "src" / "pages" / "contributors" / "[id].astro").read_text(encoding="utf-8")
-
-        self.assertIn("const edamLabel", page)
-        self.assertIn("{edamLabel(e)}", page)
-        self.assertNotIn('badge badge-slate">{e}</span>', page)
-
-    def test_tool_creator_badges_link_to_hall_of_fame_when_known(self) -> None:
-        page = (ROOT / "astro" / "src" / "pages" / "tools" / "[owner]" / "[repo]" / "[id].astro").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("contributorIdForCreator", page)
-        self.assertIn("organisationIdForCreator", page)
-        self.assertIn("contributorLinks.byGithub", page)
-        self.assertIn("contributorLinks.byOrcid", page)
-        self.assertIn("contributorLinks.byName", page)
-        self.assertIn('href={`${base}/contributors/${cid}/`}', page)
-        self.assertIn('href={`${base}/organisations/${oid}/`}', page)
+        cards = (ROOT / "astro" / "src" / "components" / "ToolCards.astro").read_text(encoding="utf-8")
+        self.assertIn("e.label || e.uri.split", cards)
+        self.assertNotIn('badge badge-slate">{e}</span>', cards)
 
     def test_pagefind_indexes_tool_metadata_not_full_help(self) -> None:
         page = (ROOT / "astro" / "src" / "pages" / "tools" / "[owner]" / "[repo]" / "[id].astro").read_text(

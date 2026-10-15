@@ -25,7 +25,8 @@ website/
     tool_repos.yaml    Other Galaxy tool repositories (front-page listing)
     iuc_members.yaml   Curated list of active IUC members (see below)
   pipeline/            Python data-extraction pipeline (code only)
-    stats/             Vendored git-history analyzer (from PR #8152)
+    history_index.py   Incremental history checkpoint (SQLite in CI cache)
+    stats/             Version classification and standalone history utilities
   astro/               Astro site (pages, components, layouts)
     src/lib/data.ts    YAML loaders + TypeScript types
   data/                Generated YAML (gitignored, rebuilt each run)
@@ -36,10 +37,11 @@ website/
 
 | Source | What | How |
 |--------|------|-----|
-| **Tool XML** (`tools/**/*.xml`) | Name, description, version, EDAM, requirements, inputs, outputs, help, creators | Parsed via Galaxy's `get_tool_source` + `source_store` populator |
+| **Tool XML** (all four tool roots) | Name, description, version, EDAM, requirements, inputs, outputs, help, creators | Parsed via Galaxy's `get_tool_source` + `source_store` populator |
 | **bio.tools EDAM** | EDAM topic/operation labels (human-readable) | [`research-software-ecosystem/content`](https://github.com/research-software-ecosystem/content) repo, read by Galaxy's `GitContentBiotoolsMetadataSource` |
-| **Git history** | Tool version events (new/update), classified as initial / wrapper / version / upstream | Vendored PR #8152 analyzer (`pipeline/stats/`) |
-| **Git authors** | Commit authors merged with `<creator>` entries | `git shortlog -sne` in `extract_people.py` |
+| **Publishing metadata** (`.shed.yml`) | Published owner/repository for each tool, including automatic repositories | Planemo configuration and file expansion |
+| **Git history** | Version events, original authors, changed paths and explicit renames | Incremental SQLite index (`pipeline/history_index.py`); one batched scan on bootstrap |
+| **Git contributors** | Tools contributed to, commit counts and commit/path evidence | Cached public author signals resolved through current GTN metadata and reviewed aliases |
 | **ToolShed API** | All 7,700+ repos for duplicate-check in request form | Daily `bioblend` pull → `data/toolshed_index.yaml` |
 | **Galaxy server APIs** | Which tools are installed on each public Galaxy server | `GET /api/tools?in_panel=false` per server → `data/tool_availability.yaml` |
 | **`<creator>` XML tags** | Structured person/org metadata (name, GitHub, ORCID) | Parsed by Galaxy's `ToolSource.parse_creators()` |
@@ -57,13 +59,11 @@ are discouraged — tools should use the standard `TOOL_VERSION` / `VERSION`
 macros so version changes are classified correctly. Over time, remaining custom
 tokens should be replaced.
 
-> **Note on tool counts:** The git-history analyzer discovers tools by
-> regex-scanning XML for `<tool id="...">` at each commit. Tools whose `id`
-> attribute uses macro tokens (e.g. `bcftools_@EXECUTABLE@`) have their real
-> ID derived from the XML filename. This brings the tracked count to ~1,600
-> (up from ~1,400 with the raw regex). The remaining gap vs. the 2,073 current
-> tools is due to merge-commit handling in the first-parent history walk —
-> some tools added via squash-merges may not appear in the name-status diff.
+The website and history analyzer share the tracked, published tool inventory
+under `tools/`, `tool_collections/`, `data_managers/`, and `suites/`. Test data,
+untracked XML, and tools excluded by their publishing rules are omitted.
+Current tool IDs are macro-expanded by Galaxy. The history walk analyzes `HEAD`,
+including first-parent merge diffs, additions, updates, and moves between roots.
 
 ## IUC members
 
@@ -146,13 +146,14 @@ append an entry with `name`, `url`, `description`, and optional `owner`.
 ## Pipeline stages
 
 ```
+history_index         → .history-cache/history.sqlite (independent CI cache)
 build_tool_conf       → tool_conf.xml (all tool XML paths)
-extract_tools         → data/tools/, data/tools_index.yaml
+extract_tools         → data/tools/ (snapshot: owner/repo/slug.yaml, index.yaml, metadata.yaml)
 extract_toolshed      → data/toolshed_index.yaml
 extract_tool_availability → data/tool_availability.yaml (which servers have each tool)
 extract_stats         → data/stats.yaml, data/recent.yaml
-extract_people        → data/contributors.yaml, data/organisations.yaml
-extract_releases      → data/releases.yaml
+extract_people        → data/contributors.yaml, data/organisations.yaml, data/creator_links.yaml, data/contributions.yaml
+extract_releases      → validates data/recent.yaml (written by extract_stats)
 ```
 
 ## Galaxy packages
@@ -171,9 +172,79 @@ Installed from upstream git via `pyproject.toml` (no manual checkout or
 - **generated data** — `website/data/` and `tool_source_store.sqlite` are
   generated artifacts. CI restores them from cache for scheduled rebuilds and
   validates freshness before reusing expensive outputs.
-- **stats history** — `data/stats/tool_events.json` is reused when its metadata
-  says it was generated for the current `HEAD`. Set `IUC_FORCE_EXTRACT_STATS=1`
-  to force a full history re-analysis.
-- **tool metadata** — `extract_tools` writes `data/tools_metadata.yaml` with a
-  signature over `tool_conf.xml`, tool XML files, and local `macros.xml` files.
+- **Git history** — `.history-cache/history.sqlite` is restored independently
+  with `actions/cache/restore`, updated, closed, and saved with
+  `actions/cache/save` before data extraction or Astro runs. Keys use the history
+  schema version, runner OS, commit SHA, and run ID/attempt; prefixes restore
+  the latest compatible checkpoint within GitHub's branch cache scope. Only
+  changed or rebuilt indexes are uploaded, so unchanged daily builds do not
+  duplicate the database. Unique save keys also allow a corrupt cache entry
+  to be replaced by a later valid snapshot without overwriting immutable keys. A later website
+  failure therefore does not discard a completed index update.
+- **Tool update dates** — read from the same index; metadata extraction does
+  not run a second full-history Git log.
+- **Stats** — `data/stats/tool_events.json` is exported from cached version
+  observations. Only newly encountered first-parent commits require historical
+  XML reads, using one `git cat-file` process. Re-exporting events, aggregating
+  statistics, or changing the published tool inventory requires no history scan.
+- **tool metadata** — `extract_tools` writes `data/tools/metadata.yaml` with a
+  conservative signature over every tracked XML and `.shed.yml` file in the
+  repository (including shared macros), `tool_conf.xml`, all pipeline Python
+  files and curated YAML, `pyproject.toml`, and `uv.lock`. `HEAD` is also included
+  because metadata contains git-derived commit dates. Additions, deletions, and
+  working-tree edits invalidate the whole snapshot; no import graph or per-tool
+  cache is maintained. Changes to unrelated XML/configuration can therefore
+  cause an extra rebuild. Generated data and bytecode do not enter the signature.
   Set `IUC_FORCE_EXTRACT_TOOLS=1` to force a full Galaxy parse.
+
+Tool extraction writes a fresh immutable generation in `data/.tool-snapshots/`
+and switches the `data/tools` symlink only after the entire extraction succeeds.
+The index and per-tool YAML therefore come from the same generation, and removed
+tools cannot survive in contributor metadata. The previous generation is retained
+for existing readers; older generations are removed on the next publication.
+Legacy flat output migrates on the next successful extraction.
+
+Contributor extraction reads only the published index and writes creator links
+keyed by source path and creator position. Astro renders those resolved IDs;
+identity matching and aliases live entirely in Python.
+
+Run `just website-check` (or `bash website/check.sh`) for the same Python tests,
+Ruff, JavaScript tests, and Astro type check that run in CI. After building the
+site and Pagefind index, run `cd website/astro && npm run test:browser` for browser
+search checks (`npx playwright install chromium` installs the browser).
+
+## Incremental contributor and version history
+
+The cache is a generated SQLite file, not a hosted database. Git remains the
+source of truth. The initial run scans author/path records once and records
+first-parent version observations. An unchanged `HEAD` skips history extraction;
+normal updates read only the commits since the checkpoint. For rebases and force
+pushes, the index reconciles reachable commit IDs, deactivates removed commits,
+and reads changes since the closest indexed ancestor. This also works when the
+runner no longer has the previous checkpoint's Git object. Updates and the
+checkpoint are committed in one transaction.
+
+GitHub may evict the cache. Missing, invalid, or incompatible database formats
+bootstrap again. Keep `fetch-depth: 0` in CI. The history schema (`SCHEMA` in
+`history_index.py`) and workflow cache-key version must be bumped together when
+the stored interpretation changes. `just -f website/justfile history-rebuild`
+explicitly rebuilds the index; ordinary `website-clean` retains it.
+
+Profiles distinguish explicit **Authored tools** credits from **Tools contributed
+to**. Contributions use historical wrapper IDs (so wrapper moves retain their
+contributors), actual imported macro paths, and support files in a tool's source
+directory, including scripts, tests, and documentation. Changes to `.shed.yml`
+are excluded from contributor commit counts, first-contribution dates, tool
+links, and evidence; mixed commits count only through their other changed files.
+This filter applies to cached facts without reindexing. Explicit shared-file
+renames are followed. Only currently published tools appear in the output. Merge
+commits do not double-credit edits already attributed to their original authors.
+Each contributor/tool association retains example commit hashes and changed paths
+in `data/contributions.yaml`.
+
+The cache stores public author names and GitHub handles; commit email fields are
+used transiently to recover GitHub noreply handles and then discarded. Email
+addresses embedded in author names are also removed. Identity aliases and GTN
+metadata are applied when generating profiles, so correcting an identity does
+not require another Git scan. Missing biographies remain missing; the site does
+not invent them.

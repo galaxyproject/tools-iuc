@@ -6,8 +6,8 @@ Sources (in order of authority):
      contains curated name, ORCID, bio, affiliations, location, socials.
   2. ``<creator>`` elements in tool XML (parsed by extract_tools) — structured
      metadata: name, GitHub URL, ORCID/handle identifier.
-  3. Git log over the tools-iuc history — all commit authors with name,
-     transient email for GitHub noreply handle extraction, and commit count.
+  3. The incremental history index — public author signals, commit counts,
+     touched tool IDs and paths. Identity aliases are applied at projection time.
 
 The GTN file is the source of truth for contributor metadata (bio, socials,
 affiliations, location).  We do NOT duplicate that data — instead we store
@@ -27,17 +27,20 @@ Matching (no guessing — only exact matches):
 Outputs:
   - data/contributors.yaml   (IUC-specific: tools, commits, member, gtn_handle)
   - data/organisations.yaml  (from <creator class="Organization">)
-  - data/members.yaml        (curated IUC members)
+  - data/contributions.yaml (commit/path evidence for contributed tools)
+  - data/creator_links.yaml  (resolved explicit creator credits)
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
+from contextlib import closing
 from typing import Any
 
-from .common import DATA_DIR, REPO_ROOT, WEBSITE_DIR, read_yaml, step, step_done, write_yaml
+from .common import DATA_DIR, WEBSITE_DIR, read_yaml, step, step_done, write_yaml
 from .fetch_gtn import fetch_gtn_people
+from .history_contributions import contributor_facts
+from .history_index import HistoryIndex
 
 # Curated aliases for contributors who changed public GitHub handles.
 # Maps old public handle signals to a canonical GitHub handle.
@@ -49,8 +52,6 @@ _ORCID_RE = re.compile(
 )
 # GitHub profile URL: https://github.com/<handle>
 _GITHUB_URL_RE = re.compile(r"https?://github\.com/([^/]+)/?$", re.I)
-# GitHub noreply email: <handle>@users.noreply.github.com or <id>+<handle>@...
-_GITHUB_NOREPLY_RE = re.compile(r"(?:\d+\+)?([^@]+)@users\.noreply\.github\.com", re.I)
 # Handle-like identifier: alphanumeric, dashes, underscores, short.
 _HANDLE_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -234,44 +235,22 @@ def _canonical_github(key: str, gh: str | None, name: str | None) -> str | None:
 
 
 
-def _git_authors() -> list[dict[str, Any]]:
-    """Return [{name, email, commits, first_commit}] from git log over tools/ history.
-
-    Uses a single ``git log`` call with a custom format, then aggregates by
-    (name, email). ``first_commit`` is the ISO date of the earliest commit.
-    """
-    result = subprocess.run(
-        ["git", "log", "--format=%cI|%ae|%an", "--date-order", "HEAD", "--", "tools/"],
-        cwd=str(REPO_ROOT), capture_output=True, text=True, check=True,
-    )
-    # date-order: reverse chronological, so the last entry for each author is
-    # their earliest commit.
-    agg: dict[tuple[str, str], dict[str, Any]] = {}
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split("|", 2)
-        if len(parts) != 3:
-            continue
-        date_str, email, name = parts
-        email = email.strip()
-        name = name.strip()
-        key = (name, email)
-        if key not in agg:
-            agg[key] = {"name": name, "email": email, "commits": 0, "first_commit": date_str}
-        agg[key]["commits"] += 1
-        # date-order outputs newest first, so keep updating first_commit —
-        # the last value seen for this author is their earliest.
-        agg[key]["first_commit"] = date_str
-    return list(agg.values())
+def _git_authors(tools: list[dict]) -> list[dict[str, Any]]:
+    with closing(HistoryIndex()) as index:
+        index.update()
+        return contributor_facts(index, tools)
 
 
 def extract_people() -> tuple[int, int]:
     step("Extracting contributors & organisations")
-    tools_dir = DATA_DIR / "tools"
-    if not tools_dir.exists():
-        raise SystemExit("Run extract_tools first (data/tools/ missing).")
+    tools_dir = (DATA_DIR / "tools").resolve()
+    tools = [
+        read_yaml(tools_dir / row["owner"] / row["repo"] / f"{row['slug']}.yaml")
+        for row in (read_yaml(tools_dir / "index.yaml") or [])
+    ]
+    creator_links: dict[str, list[dict[str, str] | None]] = {
+        tool["source_path"]: [None] * len(tool.get("creators") or []) for tool in tools
+    }
 
     # Load GTN as canonical source
     gtn_data = fetch_gtn_people()
@@ -305,6 +284,7 @@ def extract_people() -> tuple[int, int]:
                 "orcid": None,
                 "url": None,
                 "tools": [],
+                "contributed_tools": [],
                 "commits": 0,
                 "first_commit": None,
                 "is_member": False,
@@ -316,12 +296,9 @@ def extract_people() -> tuple[int, int]:
 
     # Source 1: <creator> elements (Persons only)
     step("  Parsing <creator> tags")
-    for yml in sorted(tools_dir.glob("**/*.yaml")):
-        tool = read_yaml(yml)
-        if not tool:
-            continue
+    for tool in tools:
         tid = tool.get("id")
-        for c in tool.get("creators", []) or []:
+        for creator_index, c in enumerate(tool.get("creators", []) or []):
             cls = c.get("class", "Person")
             if cls == "Organization":
                 continue  # handled separately below
@@ -347,6 +324,7 @@ def extract_people() -> tuple[int, int]:
                 continue
             key = _merge_local_key(key, gtn_handle, local_orcid_keys, orcid=orcid)
 
+            creator_links[tool["source_path"]][creator_index] = {"kind": "contributor", "id": key}
             entry = _get_contrib(key)
             if gtn_handle:
                 gtn_entry = gtn_contribs.get(gtn_handle, {})
@@ -364,17 +342,12 @@ def extract_people() -> tuple[int, int]:
 
     # Source 2: git commit authors (with commit counts + first-commit dates)
     step("  Merging git commit authors")
-    for author in _git_authors():
+    contributions: dict[str, dict[str, dict[str, set[str]]]] = {}
+    for author in _git_authors(tools):
         name = author["name"]
-        email = author["email"]
-        commits = author["commits"]
+        gh = author["github"]
+        commits = len(author["commit_ids"])
         first_commit = author.get("first_commit")
-
-        # Extract GitHub handle from noreply email
-        gh = None
-        m = _GITHUB_NOREPLY_RE.match(email)
-        if m:
-            gh = m.group(1)
 
         key, gtn_handle = _resolve_key(gtn_maps, alias_gh, alias_name, gh=gh, name=name)
         if not key:
@@ -396,6 +369,11 @@ def extract_people() -> tuple[int, int]:
             if not entry["github"]:
                 entry["github"] = _canonical_github(key, gh, name)
 
+        evidence = contributions.setdefault(key, {})
+        for path, facts in author["contributions"].items():
+            combined = evidence.setdefault(path, {"commits": set(), "paths": set()})
+            combined["commits"].update(facts["commits"])
+            combined["paths"].update(facts["paths"])
         entry["commits"] += commits
         if first_commit:
             existing = entry.get("first_commit")
@@ -404,16 +382,14 @@ def extract_people() -> tuple[int, int]:
 
     # Source 3: Organisations from <creator class="Organization">
     orgs: dict[str, dict[str, Any]] = {}
-    for yml in sorted(tools_dir.glob("**/*.yaml")):
-        tool = read_yaml(yml)
-        if not tool:
-            continue
+    for tool in tools:
         tid = tool.get("id")
-        for c in tool.get("creators", []) or []:
+        for creator_index, c in enumerate(tool.get("creators", []) or []):
             if c.get("class") != "Organization":
                 continue
             name = c.get("name") or "Unknown Organization"
             key = _name_slug(name)
+            creator_links[tool["source_path"]][creator_index] = {"kind": "organisation", "id": key}
             if key not in orgs:
                 orgs[key] = {
                     "id": key,
@@ -435,6 +411,8 @@ def extract_people() -> tuple[int, int]:
         c["is_member"] = gh in member_githubs and gh not in alumni_githubs
         c["is_alumni"] = gh in alumni_githubs
         c["tool_count"] = len(c["tools"])
+        c["contributed_tools"] = sorted(contributions.get(key, {}))
+        c["contributed_tool_count"] = len(c["contributed_tools"])
         contrib_list.append(c)
 
     org_list = []
@@ -442,6 +420,12 @@ def extract_people() -> tuple[int, int]:
         o["tool_count"] = len(o["tools"])
         org_list.append(o)
 
+    write_yaml(DATA_DIR / "contributions.yaml", {
+        key: {path: {"commits": sorted(facts["commits"]), "paths": sorted(facts["paths"])}
+              for path, facts in tools.items()}
+        for key, tools in contributions.items()
+    })
+    write_yaml(DATA_DIR / "creator_links.yaml", creator_links)
     write_yaml(DATA_DIR / "contributors.yaml", contrib_list)
     write_yaml(DATA_DIR / "organisations.yaml", org_list)
     n_members = sum(1 for c in contrib_list if c["is_member"])

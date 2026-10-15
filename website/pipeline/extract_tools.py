@@ -13,7 +13,7 @@ We do NOT write a new XML parser. Flow:
   4. We re-parse a few detail-page-only fields (creators, inputs, outputs,
      rendered help) off the ``ToolSource`` and emit:
        - data/tools/<owner>/<repo>/<id>.yaml   (full per-tool metadata)
-       - data/tools_index.yaml                 (slim aggregate)
+       - data/tools/index.yaml                 (slim aggregate)
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import html
 import re
 import warnings
 import xml.etree.ElementTree as ET
+from contextlib import closing
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -46,21 +47,22 @@ from .common import (  # noqa: E402
     DATA_DIR,
     REPO_ROOT,
     WEBSITE_DIR,
-    ensure_data_dir,
     env_bool,
-    git_last_commit_dates_batch,
+    git_head_commit,
+    git_tracked_files,
     md5_files,
-    owner_repo_from_shed_yml,
     progress,
     read_yaml,
     step,
     step_done,
     write_yaml,
 )
+from .history_index import HistoryIndex  # noqa: E402
+from .repositories import repository_for_tool  # noqa: E402
 from .rse_content import build_edam_label_index, ensure_content_directory  # noqa: E402
+from .tool_snapshot import load_tool_index, tool_snapshot  # noqa: E402
 
 STORE_URL = f"sqlite:///{(WEBSITE_DIR / 'tool_source_store.sqlite').as_posix()}"
-TOOLS_METADATA_PATH = DATA_DIR / "tools_metadata.yaml"
 
 # Populated once in extract_tools(); maps biotoolsID → {edam_id: label}.
 # Used by _entry_to_full() to add human-readable labels to EDAM terms.
@@ -367,7 +369,7 @@ def _detail_fields(ts) -> dict[str, Any]:
     }
 
 
-def _entry_to_full(entry: ToolIndexEntry, tool_dir: Path, ts) -> dict[str, Any]:
+def _entry_to_full(entry: ToolIndexEntry, tool_dir: Path, ts, repository: tuple[str, str]) -> dict[str, Any]:
     """Combine a ToolIndexEntry + detail fields into the per-tool YAML dict."""
     detail = _detail_fields(ts)
     src_abs = entry.source_path or ""
@@ -375,7 +377,7 @@ def _entry_to_full(entry: ToolIndexEntry, tool_dir: Path, ts) -> dict[str, Any]:
         rel_path = str(Path(src_abs).resolve().relative_to(REPO_ROOT.resolve()))
     except ValueError:
         rel_path = src_abs
-    owner, repo = owner_repo_from_shed_yml(tool_dir)
+    owner, repo = repository
     # biotools / doi from xrefs
     biotools = None
     doi = None
@@ -424,6 +426,11 @@ def _entry_to_full(entry: ToolIndexEntry, tool_dir: Path, ts) -> dict[str, Any]:
         "panel_section_id": entry.panel_section_id,
         "panel_section_name": entry.panel_section_name,
         "source_path": rel_path,
+        "macro_paths": [
+            str(Path(path).resolve().relative_to(REPO_ROOT.resolve()))
+            for path in (getattr(ts, "macro_paths", []) or [])
+            if Path(path).resolve().is_relative_to(REPO_ROOT.resolve())
+        ],
         "owner": owner,
         "repo": repo,
         "tool_dir": tool_dir.relative_to(REPO_ROOT).as_posix() if tool_dir.is_relative_to(REPO_ROOT) else str(tool_dir),
@@ -483,49 +490,33 @@ def _iter_conf_tools(conf_path: Path):
             yield Path(p), None, None
 
 
-def _tool_dependency_paths(tool_path: Path) -> list[Path]:
-    """Small dependency set used for website extraction cache invalidation."""
-    paths = [tool_path]
-    macros = tool_path.parent / "macros.xml"
-    if macros.exists():
-        paths.append(macros)
-    return paths
-
-
-def _tool_dependency_hash(tool_path: Path) -> str:
-    return md5_files(_tool_dependency_paths(tool_path))
-
-
-def _tool_yaml_cache_fresh(path: Path, dependency_hash: str) -> bool:
-    if not path.exists():
-        return False
-    try:
-        cached = read_yaml(path) or {}
-    except Exception:
-        return False
-    return cached.get("source_dependency_hash") == dependency_hash
-
-
 def _tools_manifest_fresh(signature: str) -> bool:
     if env_bool("IUC_FORCE_EXTRACT_TOOLS"):
         return False
-    if not TOOLS_METADATA_PATH.exists() or not (DATA_DIR / "tools_index.yaml").exists():
+    metadata_path = DATA_DIR / "tools" / "metadata.yaml"
+    if not metadata_path.exists() or not (DATA_DIR / "tools" / "index.yaml").exists():
         return False
     try:
-        metadata = read_yaml(TOOLS_METADATA_PATH) or {}
+        metadata = read_yaml(metadata_path) or {}
     except Exception:
         return False
     return metadata.get("tool_tree_signature") == signature
 
 
 def _tool_tree_signature(conf_path: Path, conf_tools: list[tuple[Path, str | None, str | None]]) -> str:
-    paths = [conf_path]
-    for fpath, _sid, _sname in conf_tools:
-        if not fpath.is_absolute():
-            fpath = REPO_ROOT / fpath
-        if fpath.exists():
-            paths.extend(_tool_dependency_paths(fpath))
-    return md5_files(paths)
+    """Hash the complete source set, accepting extra rebuilds over missed dependencies."""
+    paths = {conf_path, WEBSITE_DIR / "pyproject.toml", WEBSITE_DIR / "uv.lock"}
+    paths.update(
+        path for path in git_tracked_files(REPO_ROOT, ".")
+        if path.suffix == ".xml" or path.name == ".shed.yml"
+    )
+    # Include working-tree pipeline/config files, including newly added modules.
+    paths.update((WEBSITE_DIR / "pipeline").rglob("*.py"))
+    paths.update(path for path in (WEBSITE_DIR / "config").rglob("*") if path.suffix in {".yaml", ".yml"})
+    paths.update(path if path.is_absolute() else REPO_ROOT / path for path, _sid, _name in conf_tools)
+    digest = md5_files([path for path in paths if path.is_file()])
+    # The output contains git-derived commit dates as well as file metadata.
+    return f"{git_head_commit(REPO_ROOT)}:{digest}"
 
 
 def extract_tools(conf_path: Path | None = None) -> tuple[int, int]:
@@ -540,7 +531,7 @@ def extract_tools(conf_path: Path | None = None) -> tuple[int, int]:
 
     signature = _tool_tree_signature(conf_path, conf_tools)
     if _tools_manifest_fresh(signature):
-        cached = read_yaml(DATA_DIR / "tools_index.yaml") or []
+        cached = load_tool_index(DATA_DIR)
         step("Building tool source store (cached)")
         step_done("Building tool source store (cached)", f"reusing {len(cached)} tools")
         return len(cached), 0
@@ -549,7 +540,6 @@ def extract_tools(conf_path: Path | None = None) -> tuple[int, int]:
     store = SqlAlchemyToolSourceStore(url=STORE_URL, read_only=False)
     index = ToolIndex()
 
-    tools_out = ensure_data_dir("tools")
 
     # Pre-scan tool XMLs for bio.tools xrefs, then add legacy biotools
     # mappings from Galaxy's curated TSV (some tools have no <xref> tag but
@@ -587,81 +577,86 @@ def extract_tools(conf_path: Path | None = None) -> tuple[int, int]:
 
     n = 0
     n_errors = 0
-    seen: set[str] = set()
+    seen: set[tuple[str, str, str]] = set()
     slug_keys: dict[tuple[str, str, str], str] = {}
     index_rows: list[dict[str, Any]] = []
 
-    # Batch-fetch last commit dates for all tool files (one git log call
-    # instead of 2000+ individual subprocess calls).
-    step("  Batch-fetching git commit dates")
+    step("  Reading indexed commit dates")
     global _COMMIT_DATES
-    _COMMIT_DATES = git_last_commit_dates_batch(REPO_ROOT, "tools/")
-    step_done("  Batch-fetching git commit dates", f"{len(_COMMIT_DATES)} files")
+    with closing(HistoryIndex()) as history:
+        history.update()
+        _COMMIT_DATES = history.last_commit_dates()
+    step_done("  Reading indexed commit dates", f"{len(_COMMIT_DATES)} files")
 
-    for i, (fpath, sid, sname) in enumerate(conf_tools, 1):
-        if not fpath.is_absolute():
-            fpath = REPO_ROOT / fpath
-        if not fpath.exists():
-            continue
-        try:
-            ts = get_tool_source(config_file=str(fpath))
-            tool_id = ts.parse_id()
-            if not tool_id or tool_id in seen:
+    with closing(store), tool_snapshot(DATA_DIR) as tools_out:
+        for i, (fpath, sid, sname) in enumerate(conf_tools, 1):
+            if not fpath.is_absolute():
+                fpath = REPO_ROOT / fpath
+            if not fpath.exists():
                 continue
-            expanded = ts.to_string()
-            file_hash = md5_hash_file(str(fpath))
-            stored = StoredToolSource(
-                hash=compute_hash(expanded),
-                tool_source_class=type(ts).__name__,
-                raw_source=expanded,
-                tool_id=tool_id,
-                tool_version=ts.parse_version(),
-                tool_dir=str(fpath.parent),
-                source_path=str(fpath),
-                stored_at=datetime.datetime.now(datetime.UTC),
-                metadata={"file_hash": file_hash},
-            )
-            store.store(stored)
-            owner, repo = owner_repo_from_shed_yml(fpath.parent)
-            disc = DiscoveredTool(
-                path=str(fpath), tool_conf=None, tool_path=str(fpath), guid=None,
-                is_shed_tool=False, tool_shed=None, repository_name=repo,
-                repository_owner=owner, installed_changeset_revision=None,
-                data_manager_id=None, hidden=False, labels=[], section_id=sid,
-                section_name=sname, in_panel=True,
-            )
-            entry = build_index_entry_from_source(disc, stored, ts, biotools_source)
-            if entry is None:
+            try:
+                ts = get_tool_source(config_file=str(fpath))
+                tool_id = ts.parse_id()
+                repository = repository_for_tool(fpath)
+                if repository is None:
+                    continue
+                owner, repo = repository
+                tool_key = (owner, repo, tool_id)
+                if not tool_id or tool_key in seen:
+                    continue
+                expanded = ts.to_string()
+                file_hash = md5_hash_file(str(fpath))
+                stored = StoredToolSource(
+                    hash=compute_hash(expanded),
+                    tool_source_class=type(ts).__name__,
+                    raw_source=expanded,
+                    tool_id=tool_id,
+                    tool_version=ts.parse_version(),
+                    tool_dir=str(fpath.parent),
+                    source_path=str(fpath),
+                    stored_at=datetime.datetime.now(datetime.UTC),
+                    metadata={"file_hash": file_hash},
+                )
+                store.store(stored)
+                disc = DiscoveredTool(
+                    path=str(fpath), tool_conf=None, tool_path=str(fpath), guid=None,
+                    is_shed_tool=False, tool_shed=None, repository_name=repo,
+                    repository_owner=owner, installed_changeset_revision=None,
+                    data_manager_id=None, hidden=False, labels=[], section_id=sid,
+                    section_name=sname, in_panel=True,
+                )
+                entry = build_index_entry_from_source(disc, stored, ts, biotools_source)
+                if entry is None:
+                    n_errors += 1
+                    continue
+                index.add_entry(entry)
+                seen.add(tool_key)
+                full = _entry_to_full(entry, fpath.parent, ts, (owner, repo))
+                slug = _check_slug_collision(slug_keys, owner, repo, tool_id)
+                full["slug"] = slug
+                write_yaml(tools_out / owner / repo / f"{slug}.yaml", full)
+                index_rows.append(_slim(full))
+                n += 1
+            except Exception as e:
                 n_errors += 1
+                print(f"  ERROR parsing {fpath}: {e}", flush=True)
                 continue
-            index.add_entry(entry)
-            seen.add(tool_id)
-            full = _entry_to_full(entry, fpath.parent, ts)
-            slug = _check_slug_collision(slug_keys, owner, repo, tool_id)
-            full["slug"] = slug
-            full["source_dependency_hash"] = _tool_dependency_hash(fpath)
-            write_yaml(tools_out / owner / repo / f"{slug}.yaml", full)
-            index_rows.append(_slim(full))
-            n += 1
-        except Exception as e:
-            n_errors += 1
-            print(f"  ERROR parsing {fpath}: {e}", flush=True)
-            continue
-        progress(i, total, every=200, label="entries")
+            progress(i, total, every=200, label="entries")
 
-    store.store_index(index)
-    store.close()
-    index_rows.sort(key=lambda r: (r["owner"], r["repo"], r["id"]))
-    write_yaml(DATA_DIR / "tools_index.yaml", index_rows)
-    write_yaml(
-        TOOLS_METADATA_PATH,
-        {
-            "tool_tree_signature": signature,
-            "tool_count": n,
-            "error_count": n_errors,
-            "extracted_at": datetime.datetime.now(datetime.UTC).isoformat(),
-        },
-    )
+        if n_errors:
+            raise RuntimeError(f"Tool extraction failed for {n_errors} entries; keeping the previous snapshot")
+        store.store_index(index)
+        index_rows.sort(key=lambda r: (r["owner"], r["repo"], r["id"]))
+        write_yaml(tools_out / "index.yaml", index_rows)
+        write_yaml(
+            tools_out / "metadata.yaml",
+            {
+                "tool_tree_signature": signature,
+                "tool_count": n,
+                "error_count": n_errors,
+                "extracted_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            },
+        )
     step_done("Building tool source store", f"{n} tools, {n_errors} errors")
     return n, n_errors
 
@@ -670,7 +665,7 @@ def main() -> None:
     step("Extracting tool metadata")
     n, errs = extract_tools()
     step_done("Extracting tool metadata", f"{n} tools, {errs} errors")
-    print(f"  → {DATA_DIR / 'tools_index.yaml'}", flush=True)
+    print(f"  → {DATA_DIR / 'tools' / 'index.yaml'}", flush=True)
 
 
 if __name__ == "__main__":

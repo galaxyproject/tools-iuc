@@ -3,11 +3,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 import sys
-from typing import Optional
+from typing import NamedTuple
 
 from git import Repo
-from git.exc import GitCommandError
 
+from ..inventory import TOOL_ROOTS
 from .data_model import ToolInfo, ToolEvent
 from .version_resolver import (
     find_xml_files_for_tool_id,
@@ -16,34 +16,24 @@ from .version_resolver import (
 )
 
 
-StatusLine = tuple[str, str, Optional[str]]
-CommitStatus = tuple[str, int, str, list[StatusLine]]
+class FileChange(NamedTuple):
+    status: str
+    path: str
+    old_path: str | None = None
 
 
-def _get_main_branch(repo_path: str) -> str:
-    repo = Repo(repo_path)
-    for candidate in ['origin/main', 'origin/master', 'main', 'master']:
-        try:
-            repo.git.rev_parse('--verify', candidate)
-            return candidate
-        except GitCommandError:
-            continue
-    raise RuntimeError('No main/master branch found')
+CommitStatus = tuple[str, int, str, list[FileChange]]
 
 
-def _dir_from_path(path: str, tools_path: str = 'tools') -> str | None:
-    """Return the tool directory for a path like tools/dir/file.xml."""
-    prefix = tools_path + '/'
-    if not path.startswith(prefix):
+def _dir_from_path(path: str, tools_path: str | None = None) -> str | None:
+    roots = (tools_path,) if tools_path else TOOL_ROOTS
+    if not any(path.startswith(root + '/') for root in roots):
         return None
-    rel = path[len(prefix):]
-    if '/' not in rel:
-        return None
-    return rel.rsplit('/', 1)[0]
+    return path.rsplit('/', 1)[0]
 
 
 def get_commit_data(
-    repo_path: str, branch: str, tools_path: str = 'tools'
+    repo_path: str, branch: str, tools_path: str | None = None
 ) -> list[CommitStatus]:
     """Return commit hash, timestamp, message, and name-status lines."""
     repo = Repo(repo_path)
@@ -55,8 +45,9 @@ def get_commit_data(
         branch,
         f'--format={log_format}',
         '--name-status',
+        '--diff-merges=first-parent',
         '--',
-        tools_path,
+        *((tools_path,) if tools_path else TOOL_ROOTS),
     ]
     _, raw, _ = repo.git.execute(
         ['git'] + args,
@@ -67,7 +58,7 @@ def get_commit_data(
     current_hash: str | None = None
     current_ts: int = 0
     current_msg: str = ''
-    current_statuses: list[StatusLine] = []
+    current_statuses: list[FileChange] = []
 
     for line in raw.splitlines():
         line = line.strip()
@@ -90,9 +81,10 @@ def get_commit_data(
         if len(fields) < 2:
             continue
         status = fields[0]
-        old_path = fields[1]
-        new_path = fields[2] if len(fields) > 2 else None
-        current_statuses.append((status, old_path, new_path))
+        if status.startswith(("R", "C")):
+            current_statuses.append(FileChange(status, fields[2], fields[1]))
+        else:
+            current_statuses.append(FileChange(status, fields[1]))
 
     if current_hash is not None:
         results.append(
@@ -133,7 +125,7 @@ def _build_location_history(
     repo_path: str,
     commit_data: list[CommitStatus],
     tracked_tool_ids: set[str],
-    tools_path: str = 'tools',
+    tools_path: str | None = None,
     verbose: bool = False,
 ) -> dict[str, dict[str, tuple[str, str]]]:
     """Map commit hash -> {tool_id -> (directory, xml_file)}.
@@ -142,52 +134,23 @@ def _build_location_history(
     moves. Only locations for tool ids discovered in the current tree are
     retained.
     """
-    prefix = tools_path + '/'
     location_history: dict[str, dict[str, tuple[str, str]]] = {}
     current_map: dict[str, tuple[str, str]] = {}
 
-    for seq, (chash, cts, cmsg, statuses) in enumerate(commit_data):
-        for status, old_path, new_path in statuses:
-            paths_to_add: list[str] = []
-            paths_to_remove: list[str] = []
-
-            if status == 'A':
-                if new_path:
-                    paths_to_add.append(new_path)
-            elif status == 'D':
-                if old_path:
-                    paths_to_remove.append(old_path)
-            elif status.startswith('R'):
-                if old_path:
-                    paths_to_remove.append(old_path)
-                if new_path:
-                    paths_to_add.append(new_path)
-            elif status == 'M':
-                if old_path:
-                    paths_to_add.append(old_path)
-            else:
+    for chash, _cts, _cmsg, changes in commit_data:
+        for change in changes:
+            if change.status == 'D' or change.status.startswith('R'):
+                removed = change.old_path or change.path
+                current_map = {
+                    tid: location for tid, location in current_map.items()
+                    if '/'.join(location) != removed
+                }
+            directory = _dir_from_path(change.path, tools_path)
+            if change.status == 'D' or directory is None or not change.path.endswith('.xml'):
                 continue
-
-            for path in paths_to_remove:
-                if not path.startswith(prefix) or not path.endswith('.xml'):
-                    continue
-                rel = path[len(prefix):]
-                for tid, (d, f) in list(current_map.items()):
-                    if f'{d}/{f}' == rel:
-                        del current_map[tid]
-                        break
-
-            for path in paths_to_add:
-                if not path.startswith(prefix) or not path.endswith('.xml'):
-                    continue
-                tool_id = _extract_tool_id_at_commit(repo_path, chash, path)
-                if tool_id is None or tool_id not in tracked_tool_ids:
-                    continue
-                rel = path[len(prefix):]
-                if '/' not in rel:
-                    continue
-                dir_name, filename = rel.rsplit('/', 1)
-                current_map[tool_id] = (dir_name, filename)
+            tool_id = _extract_tool_id_at_commit(repo_path, chash, change.path)
+            if tool_id in tracked_tool_ids:
+                current_map[tool_id] = (directory, Path(change.path).name)
 
         location_history[chash] = current_map.copy()
 
@@ -281,12 +244,12 @@ def analyze_tools(
     repo_path: str,
     tools: list[ToolInfo],
     branch: str | None = None,
-    tools_path: str = 'tools',
+    tools_path: str | None = None,
     verbose: bool = False,
     workers: int = 1,
 ) -> list[ToolEvent]:
     if branch is None:
-        branch = _get_main_branch(repo_path)
+        branch = 'HEAD'
 
     if verbose:
         print(f'Using branch: {branch}', file=sys.stderr)
@@ -296,7 +259,7 @@ def analyze_tools(
 
     if verbose:
         print(
-            f'Found {len(commit_data)} commits touching {tools_path}/ on '
+            f'Found {len(commit_data)} commits touching {tools_path or TOOL_ROOTS} on '
             f'{branch}',
             file=sys.stderr,
         )
@@ -310,15 +273,16 @@ def analyze_tools(
 
     for seq, (chash, cts, cmsg, statuses) in enumerate(commit_data):
         touched_dirs: set[str] = set()
-        for status, old_path, new_path in statuses:
-            for path in (old_path, new_path):
+        for change in statuses:
+            for path in (change.path, change.old_path):
                 if path is None:
                     continue
                 d = _dir_from_path(path, tools_path)
                 if d is not None:
                     touched_dirs.add(d)
         for tool in tools:
-            if tool.directory in touched_dirs:
+            location = location_history[chash].get(tool.tool_id)
+            if location and location[0] in touched_dirs:
                 tool_commits[tool.tool_id].append((chash, cts, cmsg, seq))
 
     events: list[ToolEvent] = []

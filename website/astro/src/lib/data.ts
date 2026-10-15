@@ -1,6 +1,6 @@
 // Central data-loading helpers. All YAML under ../data (generated) and
 // ../config (curated) is read at build time.
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import YAML from 'yaml';
 
@@ -61,6 +61,7 @@ export interface ToolFull extends ToolIndexEntry {
   panel_section_id: string | null;
   panel_section_name: string | null;
   source_path: string;
+  macro_paths: string[];
   tool_dir: string;
   test_count: number;
   requirements: any[];
@@ -77,8 +78,12 @@ export interface ToolFull extends ToolIndexEntry {
   outputs: any[];
   tags: string[];
   updated: string;
-  source_dependency_hash?: string;
   extracted_at?: string;
+}
+
+export interface CreatorLink {
+  kind: 'contributor' | 'organisation';
+  id: string;
 }
 
 export interface Contributor {
@@ -88,6 +93,8 @@ export interface Contributor {
   orcid: string | null;
   url: string | null;
   tools: string[];
+  contributed_tools: string[];
+  contributed_tool_count: number;
   is_member: boolean;
   is_alumni: boolean;
   tool_count: number;
@@ -148,6 +155,7 @@ export interface ServerConfig {
     planemo: string;
     galaxy_language_server: string;
     gtn_tool_training: string;
+    tool_dev_sig: string;
     iwc: string;
     chat: string;
   };
@@ -240,6 +248,17 @@ export function runOnUrl(server: { url: string }, owner: string, repo: string, i
 
 // Read a per-tool YAML file by owner/repo/id.
 export function loadTool(owner: string, repo: string, slug: string): ToolFull {
-  const raw = readFileSync(join(DATA_DIR, 'tools', owner, repo, `${slug}.yaml`), 'utf-8');
+  const raw = readFileSync(join(toolDataDir(), owner, repo, `${slug}.yaml`), 'utf-8');
   return YAML.parse(raw) as ToolFull;
+}
+
+// Resolve once so every page in this build reads the same published snapshot.
+let snapshotDir: string | undefined;
+function toolDataDir(): string {
+  return snapshotDir ??= realpathSync(join(DATA_DIR, 'tools'));
+}
+
+let toolIndex: ToolIndexEntry[] | undefined;
+export function loadToolIndex(): ToolIndexEntry[] {
+  return toolIndex ??= YAML.parse(readFileSync(join(toolDataDir(), 'index.yaml'), 'utf-8')) as ToolIndexEntry[];
 }

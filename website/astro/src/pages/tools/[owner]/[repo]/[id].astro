@@ -1,72 +1,24 @@
 ---
 import Base from '../../../../layouts/Base.astro';
-import { loadYaml, loadTool, siteConfig, toolShedUrl, runOnUrl, isToolInstalled, type ToolIndexEntry, type Contributor } from '../../../../lib/data';
+import { loadYaml, loadToolIndex, loadTool, siteConfig, toolShedUrl, runOnUrl, isToolInstalled, type ToolIndexEntry, type CreatorLink } from '../../../../lib/data';
 
-const normalizeName = (name: string | null | undefined) => (name || '')
-  .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, ' ')
-  .trim();
-const normalizeUrl = (url: string | null | undefined) => (url || '').replace(/\/+$/, '').toLowerCase();
-const normalizeOrcid = (orcid: string | null | undefined) => (orcid || '').replace(/^https?:\/\/orcid\.org\//, '');
-const githubHandle = (url: string | null | undefined) => {
-  const match = (url || '').match(/^https?:\/\/(?:www\.)?github\.com\/([^/?#]+)/i);
-  return match?.[1] ?? null;
-};
-
-// getStaticPaths builds one page per tool.
 export function getStaticPaths() {
-  const addUnique = (lookup: Record<string, string | null>, key: string, id: string) => {
-    if (!key) return;
-    lookup[key] = lookup[key] && lookup[key] !== id ? null : id;
-  };
-  const normalizeStaticName = (name: string | null | undefined) => (name || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-  const normalizeStaticUrl = (url: string | null | undefined) => (url || '').replace(/\/+$/, '').toLowerCase();
-  const normalizeStaticOrcid = (orcid: string | null | undefined) => (orcid || '').replace(/^https?:\/\/orcid\.org\//, '');
-
-  const tools = loadYaml<ToolIndexEntry[]>('tools_index.yaml');
-  // Build creator → Hall of Fame lookups once (not per-page)
-  const allContributors = loadYaml<Contributor[]>('contributors.yaml');
-  const organisations = loadYaml<any[]>('organisations.yaml');
-  const contributorLinks = {
-    byGithub: {} as Record<string, string | null>,
-    byName: {} as Record<string, string | null>,
-    byOrcid: {} as Record<string, string | null>,
-    byUrl: {} as Record<string, string | null>,
-    orgByName: {} as Record<string, string | null>,
-    orgByUrl: {} as Record<string, string | null>,
-  };
-  for (const c of allContributors) {
-    addUnique(contributorLinks.byGithub, c.github?.toLowerCase() || '', c.id);
-    addUnique(contributorLinks.byName, normalizeStaticName(c.name), c.id);
-    addUnique(contributorLinks.byOrcid, normalizeStaticOrcid(c.orcid), c.id);
-    addUnique(contributorLinks.byUrl, normalizeStaticUrl(c.url), c.id);
-    if (c.github) addUnique(contributorLinks.byUrl, `https://github.com/${c.github.toLowerCase()}`, c.id);
-  }
-  for (const o of organisations) {
-    addUnique(contributorLinks.orgByName, normalizeStaticName(o.name), o.id);
-    addUnique(contributorLinks.orgByUrl, normalizeStaticUrl(o.url), o.id);
-  }
-  return tools.map(t => ({
-    params: { owner: t.owner, repo: t.repo, id: t.slug },
-    props: { slim: t, contributorLinks },
-  }));
+  const tools = loadToolIndex();
+  const links = loadYaml<Record<string, (CreatorLink | null)[]>>('creator_links.yaml');
+  return tools.map(t => {
+    const creatorLinks = links[t.path];
+    if (!creatorLinks) throw new Error(`Missing creator links for ${t.path}; run extract_people first`);
+    return {
+      params: { owner: t.owner, repo: t.repo, id: t.slug },
+      props: { slim: t, creatorLinks },
+    };
+  });
 }
 
-const { slim, contributorLinks } = Astro.props as { slim: ToolIndexEntry; contributorLinks: {
-  byGithub: Record<string, string | null>;
-  byName: Record<string, string | null>;
-  byOrcid: Record<string, string | null>;
-  byUrl: Record<string, string | null>;
-  orgByName: Record<string, string | null>;
-  orgByUrl: Record<string, string | null>;
-} };
+const { slim, creatorLinks } = Astro.props as {
+  slim: ToolIndexEntry;
+  creatorLinks: (CreatorLink | null)[];
+};
 const tool = loadTool(slim.owner, slim.repo, slim.slug);
 
 const base = import.meta.env.BASE_URL;
@@ -78,23 +30,6 @@ const hasEdam = (tool.edam_operations?.length || 0) > 0 || (tool.edam_topics?.le
 const edamTopicLabel = (e: any) => e.label || e.uri.split('/').pop() || e.uri;
 const edamOpLabel = (e: any) => e.label || e.uri.split('/').pop() || e.uri;
 const creatorName = (c: any) => [c.givenName, c.familyName].filter(Boolean).join(' ') || c.name || 'Unknown';
-const contributorIdForCreator = (c: any) => {
-  const name = creatorName(c);
-  const gh = githubHandle(c.url);
-  return (
-    (gh ? contributorLinks.byGithub[gh.toLowerCase()] : null) ||
-    contributorLinks.byOrcid[normalizeOrcid(c.orcid || c.identifier)] ||
-    contributorLinks.byUrl[normalizeUrl(c.url)] ||
-    contributorLinks.byName[normalizeName(name)] ||
-    null
-  );
-};
-const organisationIdForCreator = (c: any) => (
-  contributorLinks.orgByUrl[normalizeUrl(c.url)] ||
-  contributorLinks.orgByName[normalizeName(creatorName(c))] ||
-  null
-);
-
 // schema.org JSON-LD
 const creators = (tool.creators || []).map(c => {
   const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || c.name || '';
@@ -273,14 +208,11 @@ const installedServers = siteConfig.servers
       <h2 class="text-lg font-semibold">Creators</h2>
       <p class="mt-1 text-sm text-slate-500">People and organisations annotated as creators in the tool metadata.</p>
       <div class="mt-2 flex flex-wrap gap-2">
-        {tool.creators.map(c => {
+        {tool.creators.map((c, index) => {
           const name = creatorName(c);
-          const oid = c.class === 'Organization' ? organisationIdForCreator(c) : null;
-          const cid = c.class === 'Organization' ? null : contributorIdForCreator(c);
-          return oid
-            ? <a class="badge badge-blue no-underline" href={`${base}/organisations/${oid}/`}>{name}</a>
-            : cid
-              ? <a class="badge badge-blue no-underline" href={`${base}/contributors/${cid}/`}>{name}</a>
+          const link = creatorLinks[index];
+          return link
+            ? <a class="badge badge-blue no-underline" href={`${base}/${link.kind === 'organisation' ? 'organisations' : 'contributors'}/${link.id}/`}>{name}</a>
             : c.url
               ? <a class="badge badge-slate no-underline" href={c.url}>{name}</a>
               : <span class="badge badge-slate">{name}</span>;

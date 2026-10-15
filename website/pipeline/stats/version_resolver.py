@@ -78,12 +78,12 @@ def _get_dir_xml_files(
     commit_hash: str,
     tool_dir: str,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Return a mapping of tool_id -> XML filenames in tools/{tool_dir}.
+    """Return a mapping of tool_id -> XML filenames in {tool_dir}.
 
     Results are cached per (commit_hash, tool_dir) because many tools share
     the same directory. The cache is bounded to 4096 entries.
     """
-    prefix = f'tools/{tool_dir}'
+    prefix = tool_dir
     mapping: dict[str, list[str]] = {}
     try:
         output = _repo(repo_path).git.ls_tree(
@@ -118,7 +118,7 @@ def find_xml_files_for_tool_id(
     tool_dir: str,
     tool_id: str,
 ) -> list[str]:
-    """Return XML filenames in tools/{tool_dir} at commit that define tool_id."""
+    """Return XML filenames in {tool_dir} at commit that define tool_id."""
     mapping = _get_dir_xml_files(repo_path, commit_hash, tool_dir)
     for tid, files in mapping:
         if tid == tool_id:
@@ -140,11 +140,11 @@ def _collect_macros(
         if content is not None:
             macros.update(_parse_macros(content))
 
-    load(f'tools/{tool_dir}/macros.xml')
+    load(f'{tool_dir}/macros.xml')
 
     for xml_name in sorted(xml_files):
         xml_content = _read_at_commit(
-            repo_path, commit_hash, f'tools/{tool_dir}/{xml_name}'
+            repo_path, commit_hash, f'{tool_dir}/{xml_name}'
         )
         if xml_content is None:
             continue
@@ -156,7 +156,7 @@ def _collect_macros(
             if imported == 'macros.xml':
                 continue
             if imported.endswith('.xml'):
-                load(f'tools/{tool_dir}/{imported}')
+                load(f'{tool_dir}/{imported}')
 
     shared = _read_at_commit(
         repo_path, commit_hash, 'macros/read_group_macros.xml'
@@ -177,7 +177,7 @@ def resolve_version(
 
     for xml_name in sorted(xml_files):
         xml_content = _read_at_commit(
-            repo_path, commit_hash, f'tools/{tool_dir}/{xml_name}'
+            repo_path, commit_hash, f'{tool_dir}/{xml_name}'
         )
         if xml_content is None:
             continue

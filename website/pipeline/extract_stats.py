@@ -1,16 +1,8 @@
-"""Compute statistics + recent additions/updates.
+"""Export incremental version observations and aggregate statistics/recent tools.
 
-Vendors the git-history analyzer from PR #8152 (``pipeline/stats/``) — that PR
-will not be merged; this website replaces it. The analyzer walks the full git
-history of tools-iuc, resolves version macros at each commit, and classifies
-every version change as new / upstream / wrapper / version, emitting
-``data/stats/tool_events.json``. We transform that into ``data/stats.yaml`` for
-the Vega-Lite charts and ``data/recent.yaml`` for the homepage.
-
-Outputs:
-  - data/stats/tool_events.json   (raw events, from the vendored analyzer)
-  - data/stats.yaml               (aggregated monthly/cumulative/top-updated)
-  - data/recent.yaml              (last N added + updated tool dirs)
+The history index persists version observations in the dedicated CI cache.
+Only newly indexed commits require historical Git file reads. Aggregation can
+be repeated against current tool metadata without scanning history again.
 """
 
 from __future__ import annotations
@@ -20,67 +12,25 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from .common import DATA_DIR, REPO_ROOT, env_bool, git_head_commit, read_yaml, step, step_done, write_yaml
+from .common import DATA_DIR, step, step_done, write_yaml
+from .tool_snapshot import load_tool_index
 
 RECENT_N = 5
 
 
-def _stats_metadata_path() -> Path:
-    return DATA_DIR / "stats" / "metadata.yaml"
-
-
-def _cached_events_path() -> Path | None:
-    """Return cached tool_events.json when it was generated for the current commit."""
-    if env_bool("IUC_FORCE_EXTRACT_STATS"):
-        return None
-    events_path = DATA_DIR / "stats" / "tool_events.json"
-    metadata_path = _stats_metadata_path()
-    if not events_path.exists() or not metadata_path.exists():
-        return None
-    metadata = read_yaml(metadata_path) or {}
-    current_commit = git_head_commit(REPO_ROOT)
-    if current_commit and metadata.get("git_commit") == current_commit:
-        return events_path
-    return None
-
-
 def _run_analyzer() -> Path:
-    """Run the vendored #8152 analyzer over the repo history."""
-    cached = _cached_events_path()
-    if cached is not None:
-        step("Analyzing git history (cached)")
-        step_done("Analyzing git history (cached)", "reusing events for current HEAD")
-        return cached
+    """Export cached observations; only new commits need Git file inspection."""
+    from contextlib import closing
 
-    step("Analyzing git history (vendored #8152 analyzer)")
-    from .stats.main import run  # imported lazily (gitpython dep)
+    from .history_index import HistoryIndex
 
-    stats_dir = DATA_DIR / "stats"
-    stats_dir.mkdir(parents=True, exist_ok=True)
-    import os
-    workers = max(1, (os.cpu_count() or 2) - 1)
-    events = run(
-        repo=str(REPO_ROOT),
-        tools_path="tools",
-        output_dir=str(stats_dir),
-        fmt="json",
-        verbose=False,
-        workers=workers,
-        skip_plots=True,
-    )
-    # Clean up CSV if it exists from a previous run (we only need JSON)
-    csv = stats_dir / "tool_events.csv"
-    if csv.exists():
-        csv.unlink()
-    write_yaml(
-        _stats_metadata_path(),
-        {
-            "git_commit": git_head_commit(REPO_ROOT),
-            "event_count": len(events),
-        },
-    )
-    step_done("Analyzing git history")
-    return stats_dir / "tool_events.json"
+    with closing(HistoryIndex()) as index:
+        index.update()
+        events = index.events(load_tool_index(DATA_DIR))
+    path = DATA_DIR / "stats" / "tool_events.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(events), encoding="utf-8")
+    return path
 
 
 def _build_stats(events_path: Path, index_by_id: dict[str, dict]) -> dict[str, Any]:
@@ -148,7 +98,7 @@ def _build_stats(events_path: Path, index_by_id: dict[str, dict]) -> dict[str, A
         for d, c in dir_update_counts.most_common(15)
     ]
     return {
-        "source": "pipeline/stats (vendored from #8152)",
+        "source": "incremental Git history index",
         "total_events": len(events),
         "total_tools": len(first_seen),
         "by_month": [{"month": m, "count": by_month[m],
@@ -197,8 +147,7 @@ def _recent_from_events(index_by_path: dict[str, dict], index_by_id: dict[str, d
 
 def extract_stats() -> dict[str, Any]:
     step("Aggregating statistics")
-    index_path = DATA_DIR / "tools_index.yaml"
-    index = read_yaml(index_path) if index_path.exists() else []
+    index = load_tool_index(DATA_DIR)
     index_by_id = {r["id"]: r for r in (index or [])}
     index_by_path = {r["path"]: r for r in (index or [])}
 
