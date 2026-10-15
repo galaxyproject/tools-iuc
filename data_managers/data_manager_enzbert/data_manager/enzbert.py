@@ -8,7 +8,7 @@ import sys
 import urllib.request
 import zipfile
 
-URL = "https://zenodo.org/records/10041121/files/data.zip?download=1" 
+URL = "https://zenodo.org/records/10041121/files/data.zip?download=1"
 
 
 def sha256_of(path, chunk_size=1024 * 1024):
@@ -63,7 +63,7 @@ def main():
                 },
                 {
                     "value": "EnzBert_ECPred40",
-                    "name": "Enzbert_ECPred40" ,
+                    "name": "Enzbert_ECPred40",
                     "path": output_dir,
                     "checksum": checksum,
                 },
@@ -77,3 +77,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
