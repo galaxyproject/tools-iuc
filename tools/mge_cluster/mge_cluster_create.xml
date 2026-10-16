@@ -1,0 +1,325 @@
+<tool id="mge_cluster_create" name="mge-cluster create" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>cluster mobile genetic elements and build a reusable model</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">mge-cluster</xref>
+    </xrefs>
+    <expand macro="requirements"/>
+    <version_command>mge_cluster --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+mkdir -p staged results &&
+: > mge_input.txt &&
+#set $seen_names = []
+#for $input in $input_source.fasta_files
+    #if str($input_source.source) == "collection"
+        #set $label = str($input.element_identifier)
+    #else
+        #set $label = str($input.name)
+    #end if
+    #set $name = re.sub(r'\.(fasta|fna|fa|fas|fsa|mfa)(\.gz)?$', '', $label, flags=re.IGNORECASE)
+    #set $name = re.sub(r'[^\w\-]', '_', $name)
+    #if $name in $seen_names
+        echo "Input names become ambiguous after filename normalization: '$name'" >&2 &&
+        exit 1 &&
+    #end if
+    #silent $seen_names.append($name)
+    #set $stage_path = "staged/%s.fasta" % $name
+    #if $input.is_of_type("fasta.gz")
+        gzip -dc '$input' > '$stage_path' &&
+    #else
+        ln -s '$input' '$stage_path' &&
+    #end if
+    printf '%s\n' "\$PWD/$stage_path" >> mge_input.txt &&
+#end for
+sample_count=\$(wc -l < mge_input.txt) &&
+if [ "\$sample_count" -lt 2 ]; then
+    echo "At least 2 input samples are required to create an mge-cluster model." >&2;
+    exit 1;
+fi &&
+if [ '$advanced.min_cluster' -gt "\$sample_count" ]; then
+    echo "Minimum cluster size ($advanced.min_cluster) cannot exceed the number of input samples (\$sample_count)." >&2;
+    echo 'Reduce "Minimum cluster size" and run the tool again.' >&2;
+    exit 1;
+fi &&
+mge_cluster
+    --create
+    --input mge_input.txt
+    --outdir results
+    --prefix mge_cluster
+    --kmer '$advanced.kmer'
+    --min_cluster '$advanced.min_cluster'
+    --variance '$advanced.variance'
+    --perplexity '$advanced.perplexity'
+#if $advanced.exaggeration
+    --exaggeration '$advanced.exaggeration'
+#end if
+    --threads "\${GALAXY_SLOTS:-1}"
+    ]]></command>
+    <inputs>
+        <conditional name="input_source">
+            <param name="source" type="select" label="Input source">
+                <option value="collection" selected="true">FASTA list collection</option>
+                <option value="datasets">Multiple FASTA datasets</option>
+            </param>
+            <when value="collection">
+                <param name="fasta_files" type="data_collection" collection_type="list" format="fasta,fasta.gz" label="FASTA collection" help="Each collection element should contain one plasmid or other mobile genetic element. The collection element identifier is used as the sample name."/>
+            </when>
+            <when value="datasets">
+                <param name="fasta_files" type="data" format="fasta,fasta.gz" multiple="true" label="FASTA datasets" help="Each dataset should contain one plasmid or other mobile genetic element. The Galaxy dataset name is used as the sample name."/>
+            </when>
+        </conditional>
+        <param name="save_model_files" type="boolean" checked="false" label="Save model files" help="Return the unitig FASTA, embedding model, and cluster model needed to apply this model to new sequences with mge-cluster."/>
+        <param name="save_intermediate_files" type="boolean" checked="false" label="Save intermediate files" help="Return variance-filtered unitigs, raw and sorted unitig presence/absence matrices, and training-sample embedding sanity-check coordinates."/>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param argument="--kmer" type="integer" value="31" min="1" max="31" label="K-mer size" help="K-mer size used to build and query the Bifrost unitig graph. The packaged Bifrost build supports values up to 31."/>
+            <param argument="--min_cluster" type="integer" value="10" min="2" label="Minimum cluster size" help="Minimum number of samples used by HDBSCAN when forming clusters. This value must not exceed the number of input samples. For small datasets, reduce it accordingly."/>
+            <param argument="--variance" type="float" value="0.01" min="0" label="Unitig variance threshold" help="Discard unitig presence/absence features with variance below this threshold. The features are binary, so their variance cannot exceed 0.25; high thresholds can remove most or all unitigs."/>
+            <param argument="--perplexity" type="integer" value="30" min="1" label="Perplexity" help="Perplexity used by openTSNE. It controls the effective neighborhood size considered when constructing the embedding."/>
+            <param argument="--exaggeration" type="integer" optional="true" min="1" label="Exaggeration" help="Optional openTSNE exaggeration factor. Leave empty to use the upstream default behavior."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="results" format="csv" from_work_dir="results/mge_cluster_results.csv" label="${tool.name} on ${on_string}: clustering results"/>
+        <data name="unitigs_model" format="fasta" from_work_dir="results/mge_cluster_unitigs.fasta" label="${tool.name} on ${on_string}: model unitigs">
+            <filter>save_model_files</filter>
+        </data>
+        <data name="embedding_model" format="binary" from_work_dir="results/mge_cluster_embedding.pbz2" label="${tool.name} on ${on_string}: embedding model">
+            <filter>save_model_files</filter>
+        </data>
+        <data name="clusters_model" format="binary" from_work_dir="results/mge_cluster_clusters.pbz2" label="${tool.name} on ${on_string}: cluster model">
+            <filter>save_model_files</filter>
+        </data>
+        <data name="sanity_check" format="csv" from_work_dir="results/mge_cluster_sanity_check.csv" label="${tool.name} on ${on_string}: training-sample embedding sanity check">
+            <filter>save_intermediate_files</filter>
+        </data>
+        <data name="unitigs_table" format="csv" from_work_dir="results/mge_cluster_unitigs.csv" label="${tool.name} on ${on_string}: unitigs retained after variance filtering">
+            <filter>save_intermediate_files</filter>
+        </data>
+        <data name="unitig_matrix" format="tabular" from_work_dir="results/mge_cluster.rtab" label="${tool.name} on ${on_string}: unitig presence/absence matrix">
+            <filter>save_intermediate_files</filter>
+        </data>
+        <data name="sorted_unitig_matrix" format="tabular" from_work_dir="results/sorted_mge_cluster.rtab" label="${tool.name} on ${on_string}: sorted unitig presence/absence matrix">
+            <filter>save_intermediate_files</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- List collection, including compressed FASTA input -->
+        <test expect_num_outputs="1">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="plasmid_alpha" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="plasmid_alpha_2" value="plasmid_alpha_2.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta" value="plasmid_beta.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta_2" value="plasmid_beta_2.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma" value="plasmid_gamma.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma_2.fasta.gz" value="plasmid_gamma_2.fasta.gz" ftype="fasta.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <section name="advanced">
+                <param name="min_cluster" value="2"/>
+                <param name="perplexity" value="1"/>
+            </section>
+            <output name="results">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_text text="Sample_Name"/>
+                    <has_text text="plasmid_alpha"/>
+                    <has_text text="plasmid_beta"/>
+                    <has_text text="plasmid_gamma"/>
+                    <has_line_matching expression=".*,plasmid_gamma_2$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Multiple individual datasets and all optional outputs -->
+        <test expect_num_outputs="8">
+            <conditional name="input_source">
+                <param name="source" value="datasets"/>
+                <param name="fasta_files" value="plasmid_alpha.fasta,plasmid_alpha_2.fasta,plasmid_beta.fasta,plasmid_beta_2.fasta,plasmid_gamma.fasta,plasmid_gamma_2.fasta" ftype="fasta"/>
+            </conditional>
+            <param name="save_model_files" value="true"/>
+            <param name="save_intermediate_files" value="true"/>
+            <section name="advanced">
+                <param name="min_cluster" value="2"/>
+                <param name="perplexity" value="1"/>
+            </section>
+            <output name="results">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_text text="Sample_Name"/>
+                </assert_contents>
+            </output>
+            <output name="unitigs_model">
+                <assert_contents>
+                    <has_size min="1"/>
+                </assert_contents>
+            </output>
+            <output name="embedding_model">
+                <assert_contents>
+                    <has_size min="1"/>
+                </assert_contents>
+            </output>
+            <output name="clusters_model">
+                <assert_contents>
+                    <has_size min="1"/>
+                </assert_contents>
+            </output>
+            <output name="sanity_check">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                </assert_contents>
+            </output>
+            <output name="unitigs_table">
+                <assert_contents>
+                    <has_n_lines n="299"/>
+                    <has_text text="Unitig_sequence"/>
+                </assert_contents>
+            </output>
+            <output name="unitig_matrix">
+                <assert_contents>
+                    <has_n_lines n="299"/>
+                    <has_text text="Unitig_sequence"/>
+                </assert_contents>
+            </output>
+            <output name="sorted_unitig_matrix">
+                <assert_contents>
+                    <has_text text="Unitig_sequence"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Exercise all exposed advanced parameters -->
+        <test expect_num_outputs="5">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="plasmid_alpha" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="plasmid_alpha_2" value="plasmid_alpha_2.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta" value="plasmid_beta.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta_2" value="plasmid_beta_2.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma" value="plasmid_gamma.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma_2" value="plasmid_gamma_2.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="save_intermediate_files" value="true"/>
+            <section name="advanced">
+                <param name="kmer" value="21"/>
+                <param name="min_cluster" value="2"/>
+                <param name="variance" value="0"/>
+                <param name="perplexity" value="1"/>
+                <param name="exaggeration" value="2"/>
+            </section>
+            <output name="results">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_text text="Membership_Probability"/>
+                </assert_contents>
+            </output>
+            <output name="unitigs_table">
+                <assert_contents>
+                    <has_n_lines n="201"/>
+                    <has_text text="Unitig_sequence"/>
+                </assert_contents>
+            </output>
+            <output name="unitig_matrix">
+                <assert_contents>
+                    <has_n_lines n="301"/>
+                    <has_text text="Unitig_sequence"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- At least two input samples are required -->
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="plasmid_alpha" value="plasmid_alpha.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <assert_stderr>
+                <has_text text="At least 2 input samples are required to create an mge-cluster model."/>
+            </assert_stderr>
+        </test>
+        <!-- Minimum cluster size cannot exceed the number of input samples -->
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="plasmid_alpha" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="plasmid_alpha_2" value="plasmid_alpha_2.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta" value="plasmid_beta.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta_2" value="plasmid_beta_2.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma" value="plasmid_gamma.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma_2" value="plasmid_gamma_2.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <section name="advanced">
+                <param name="min_cluster" value="7"/>
+            </section>
+            <assert_stderr>
+                <has_text text="Minimum cluster size (7) cannot exceed the number of input samples (6)."/>
+            </assert_stderr>
+        </test>
+        <!-- Normalized sample names must remain unique -->
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="sample A" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="sample@A" value="plasmid_beta.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Input names become ambiguous after filename normalization"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+mge-cluster groups mobile genetic elements using unitig presence/absence profiles,
+openTSNE dimensionality reduction, and HDBSCAN clustering. This tool clusters mobile genetic element sequences and creates a reusable
+mge-cluster model.
+
+**Input**
+
+Provide at least two plasmids or other mobile genetic elements, with one sequence
+per FASTA dataset. Inputs can be supplied as a Galaxy list collection or as multiple
+datasets. Both uncompressed and gzip-compressed FASTA are accepted.
+
+Collection element identifiers or Galaxy dataset names are used as sample names.
+Names that become identical after filename normalization are rejected.
+
+The default minimum cluster size is 10. For fewer than 10 input samples, reduce
+**Minimum cluster size** under Advanced options.
+
+**Outputs**
+
+The clustering results CSV is always returned and contains two-dimensional embedding
+coordinates, cluster assignment, membership probability, and sample name.
+
+The model files can optionally be retained for later use with mge-cluster: the unitig
+FASTA, embedding model, and cluster model.
+
+Intermediate files can also be retained for inspection: variance-filtered unitigs,
+the raw and sorted unitig presence/absence matrices, and training-sample embedding
+coordinates used as an openTSNE sanity check.
+    ]]></help>
+    <expand macro="citations"/>
+    <creator>
+        <person givenName="Casper" familyName="Westergaard" url="https://github.com/CWestergaard"/>
+    </creator>
+</tool>
