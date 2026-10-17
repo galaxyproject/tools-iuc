@@ -1,0 +1,120 @@
+<tool id="disassembler_harvest" name="disassembler harvest" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>merge kmindex query shards into per-target candidate accessions</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        ## harvest reads *.json non-recursively from one directory. Shards are staged
+        ## under their position in the collection so unusual element identifiers can
+        ## neither collide nor escape the directory.
+        mkdir shards &&
+        #for $i, $shard in enumerate($shards):
+            ln -s '$shard' 'shards/${i}.json' &&
+        #end for
+        disassembler harvest
+            --shards-dir shards
+            --out-dir candidates &&
+
+        ## Moved out so the per-target accession collection does not pick up the union.
+        mv candidates/UNION.accessions.txt union.accessions.txt &&
+        mv candidates/summary.json summary.json
+    ]]></command>
+    <inputs>
+        <param name="shards" type="data_collection" collection_type="list" format="json" label="kmindex query results" help="The JSON output collection of the kmindex query tool, one dataset per index shard."/>
+    </inputs>
+    <outputs>
+        <collection name="accessions" type="list" label="${tool.name} on ${on_string}: candidate accessions">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.accessions\.txt$" directory="candidates" format="txt"/>
+        </collection>
+        <collection name="scores" type="list" label="${tool.name} on ${on_string}: scores">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.scores\.json$" directory="candidates" format="json"/>
+        </collection>
+        <data name="union" format="txt" from_work_dir="union.accessions.txt" label="${tool.name} on ${on_string}: all candidate accessions"/>
+        <data name="summary" format="json" from_work_dir="summary.json" label="${tool.name} on ${on_string}: summary"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <param name="shards">
+                <collection type="list">
+                    <element name="shard_1" value="kmindex_shard_1.json"/>
+                    <element name="shard_2" value="kmindex_shard_2.json"/>
+                    <element name="shard_empty" value="kmindex_shard_empty.json"/>
+                </collection>
+            </param>
+            <output_collection name="accessions" type="list" count="2">
+                <element name="hiv1_pol">
+                    <assert_contents>
+                        <!-- Highest score first; DRR000253 scored 0.0 and is dropped. -->
+                        <has_text_matching expression="^SRR8209082\nSRR0000001\nDRR000252\n$"/>
+                    </assert_contents>
+                </element>
+                <element name="pfcrt">
+                    <assert_contents>
+                        <has_text_matching expression="^ERR2028820\nERR0000002\n$"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="scores" type="list" count="2">
+                <element name="hiv1_pol" file="hiv1_pol.scores.json" ftype="json"/>
+                <element name="pfcrt" file="pfcrt.scores.json" ftype="json"/>
+            </output_collection>
+            <output name="union">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_line line="SRR8209082"/>
+                    <has_line line="ERR0000002"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="max_score" value="0.97"/>
+                    <has_text text="_union"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+@HELP_SUITE@
+
+-----
+
+What it does
+************
+
+Merges the per-shard results of a kmindex query against the Logan planetary index into one ranked
+candidate list per target. A target is one record of the kmindex query FASTA (typically one gene).
+
+For every accession the highest containment score across all shards is kept. Accessions are ranked
+by that score, highest first. Accessions that scored 0 are dropped. The phiX174 Illumina spike-in
+is excluded by target name.
+
+-----
+
+Input
+*****
+
+The JSON output collection of the **kmindex query** tool, one dataset per index shard. Empty shards
+(no hits) are normal and are counted, not treated as errors. The tool fails if every shard is
+unreadable.
+
+-----
+
+Outputs
+*******
+
+- **Candidate accessions**: a collection with one list of SRA run accessions per target, one
+  accession per line, ranked by score. This is the input for **disassembler walker**.
+- **Scores**: a collection with one JSON object per target mapping each accession to its
+  containment score. This is the input for **disassembler stratify**.
+- **All candidate accessions**: the sorted union of every target's list.
+- **Summary**: per-target candidate counts and maximum scores, plus the size of the union.
+
+    ]]></help>
+    <expand macro="citations">
+        <citation type="doi">10.1038/s43588-024-00596-6</citation>
+        <citation type="doi">10.1101/2024.07.30.605881</citation>
+    </expand>
+</tool>

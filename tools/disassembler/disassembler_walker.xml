@@ -1,0 +1,306 @@
+<tool id="disassembler_walker" name="disassembler walker" version="@WALKER_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>reconstruct coding haplotypes from Logan unitigs</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="walker_requirements"/>
+    <version_command>logan-walker --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        ## Worst-case resident memory is (4 queued + fetch workers + compute workers)
+        ## compressed payloads of up to --max-size-mb each. Compute workers follow the
+        ## job's slots; fetch workers are trimmed so that bound fits in GALAXY_MEMORY_MB
+        ## when the job runner sets it.
+        workers=\${GALAXY_SLOTS:-1} &&
+        fetch_workers=\$workers &&
+        if [ -n "\${GALAXY_MEMORY_MB:-}" ]; then
+            fit=\$(( GALAXY_MEMORY_MB / $max_size_mb - 4 - workers ));
+            if [ "\$fit" -lt "\$fetch_workers" ]; then fetch_workers=\$fit; fi;
+            if [ "\$fetch_workers" -lt 1 ]; then fetch_workers=1; fi;
+        fi &&
+
+        ## The walker names the reference after its file stem (summary file, multi-anchor
+        ## haplotype tags), so it is linked under the dataset name instead of Galaxy's
+        ## dataset_<uuid>.dat.
+        #import re
+        #set $reference_name = re.sub(r'\.(fasta|fas|fa|fna)$', '', re.sub(r'[^\w.\-]', '_', str($query.element_identifier)))
+        ln -s '$query' '${reference_name}.fasta' &&
+
+        logan-walker
+            #if $input.mode == 'accession':
+                --accession '$input.accession'
+            #else:
+                --accession-list '$input.accession_list'
+            #end if
+            --query '${reference_name}.fasta'
+            --out-dir walker_out
+            --out-fasta reconstructed.fasta
+            ## The default, /dev/shm/logan-walker, is shared by every job on the node
+            ## and is only 64 MB inside a default Docker container.
+            --scratch-dir walker_scratch
+            --workers \$workers
+            --fetch-workers \$fetch_workers
+            --max-size-mb $max_size_mb
+            --min-cov $min_cov
+            --prune-frac $prune_frac
+            $prefer_majority
+            $allow_empty
+            --k $anchoring.k
+            --hops $anchoring.hops
+            --min-shared-kmers $anchoring.min_shared_kmers
+            --primary-metric $anchoring.primary_metric
+            --min-abund $variants.min_abund
+            --min-vaf $variants.min_vaf
+            --min-abund-frac $variants.min_abund_frac
+            --alt-max-detour $variants.alt_max_detour
+            --max-alt-indel $variants.max_alt_indel
+            $variants.no_indel_alts
+            $variants.allow_frameshift_alts
+            $output_options.emit_alts
+            $output_options.emit_vcf
+            $output_options.emit_snv_table &&
+
+        ## The summary is named after the reference file.
+        mv walker_out/*_walker_summary.json walker_summary.json
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="mode" type="select" label="Accessions to reconstruct">
+                <option value="list" selected="true">A list of accessions (dataset)</option>
+                <option value="accession">A single accession</option>
+            </param>
+            <when value="list">
+                <param argument="--accession-list" type="data" format="txt" label="Accession list" help="One SRA run accession per line, for example an output of disassembler harvest or stratify. Running the tool over a collection of lists spreads the accessions across jobs (see the help below)."/>
+            </when>
+            <when value="accession">
+                <param argument="--accession" type="text" value="" label="SRA run accession" help="For example SRR8209082.">
+                    <validator type="empty_field"/>
+                    <validator type="regex" message="Letters, digits, underscores and hyphens only">^[A-Za-z0-9_-]+$</validator>
+                </param>
+            </when>
+        </conditional>
+        <param argument="--query" type="data" format="fasta" label="Reference CDS" help="In-frame coding sequence of the target gene. A FASTA with more than one record switches on multi-anchor mode: every record contributes anchors, and each accession's primary haplotype comes from the reference that aligns best."/>
+        <param argument="--max-size-mb" type="integer" value="1024" min="1" label="Maximum compressed unitig size per accession (MB)" help="Accessions whose compressed Logan unitig file is larger than this are skipped. This bounds download volume and memory."/>
+        <param argument="--min-cov" type="float" value="0.85" min="0" max="1" label="Minimum reference coverage" help="Fraction of the reference a reconstruction must cover to be reported."/>
+        <param argument="--prune-frac" type="float" value="0.01" min="0" max="0.99" label="Pruning depth fraction" help="Unitigs below this fraction of the gene's depth are dropped and the path is realigned, which removes the aligner's pull toward the reference. 0 disables pruning."/>
+        <param argument="--prefer-majority" type="boolean" truevalue="--prefer-majority" falsevalue="--no-prefer-majority" checked="true" label="Prefer the majority allele" help="At two-allele sites, put the more abundant allele on the primary haplotype. When off, the primary keeps the allele that matches the reference."/>
+        <param argument="--allow-empty" type="boolean" truevalue="--allow-empty" falsevalue="" checked="false" label="Succeed even if nothing is reconstructed" help="By default the job fails when no accession reconstructs, so an empty result is not mistaken for a good one. Turn this on when an empty result is acceptable, for example when running over many single-accession lists."/>
+        <section name="anchoring" title="Anchoring and subgraph extraction" expanded="false">
+            <param argument="--k" type="integer" value="21" min="1" max="32" label="Anchor k-mer size"/>
+            <param argument="--hops" type="integer" value="5" min="0" label="Hop radius for subgraph expansion" help="How far from the anchored unitigs the local graph is grown."/>
+            <param argument="--min-shared-kmers" type="integer" value="3" min="1" max="5" label="Minimum shared k-mers for an anchor" help="k-mers a unitig must share with the reference to anchor the subgraph."/>
+            <param argument="--primary-metric" type="select" label="Primary haplotype selection (multi-anchor mode)" help="How the winning reference is chosen when the reference FASTA has more than one record. Ignored for a single reference.">
+                <option value="cov" selected="true">Reference coverage (cov)</option>
+                <option value="pident">Percent identity (pident)</option>
+                <option value="cov_x_pident">Coverage times identity (cov_x_pident)</option>
+            </param>
+        </section>
+        <section name="variants" title="Intra-host variants" expanded="false">
+            <param argument="--min-abund" type="float" value="5.0" min="0" label="Minimum k-mer abundance for a variant" help="Minimum ka:f (mean k-mer abundance) of an alternative branch."/>
+            <param argument="--min-vaf" type="float" value="0.10" min="0" max="1" label="Minimum variant allele frequency"/>
+            <param argument="--min-abund-frac" type="float" value="0.0" min="0" max="0.99" label="Minimum abundance as a fraction of gene depth" help="Raises the abundance floor to this fraction of the median ka:f on the walked path. 0 disables it."/>
+            <param argument="--alt-max-detour" type="integer" value="100" min="0" label="Maximum detour length (unitigs)" help="How many unitigs an alternative allele may traverse before it must rejoin the main route."/>
+            <param argument="--no-indel-alts" type="boolean" truevalue="--no-indel-alts" falsevalue="" checked="false" label="Substitution alleles only" help="Refuse any alternative allele that changes the sequence length."/>
+            <param argument="--allow-frameshift-alts" type="boolean" truevalue="--allow-frameshift-alts" falsevalue="" checked="false" label="Allow frameshifting indel alleles" help="Also accept indel alleles whose length change is not a multiple of 3. These shift the reading frame."/>
+            <param argument="--max-alt-indel" type="integer" value="30" min="0" label="Largest indel allele (nt)" help="Larger length changes are treated as a rerouting, not an indel allele."/>
+        </section>
+        <section name="output_options" title="Optional outputs" expanded="true">
+            <param argument="--emit-alts" type="boolean" truevalue="--emit-alts" falsevalue="--no-emit-alts" checked="true" label="Output alternative haplotypes"/>
+            <param argument="--emit-vcf" type="boolean" truevalue="--emit-vcf" falsevalue="--no-emit-vcf" checked="false" label="Output intra-host SNVs as VCF" help="One VCF per accession that has at least one recovered SNV, in reference coordinates."/>
+            <param argument="--emit-snv-table" type="boolean" truevalue="--emit-snv-table" falsevalue="--no-emit-snv-table" checked="false" label="Output an intra-host SNV table" help="One long table of every intra-host SNV across the run, one row per accession, site and allele."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="reconstructed" format="fasta" from_work_dir="reconstructed.fasta" label="${tool.name} on ${on_string}: reconstructed haplotypes"/>
+        <data name="alt_haplotypes" format="fasta" from_work_dir="walker_out/alt_haplotypes.fasta" label="${tool.name} on ${on_string}: alternative haplotypes">
+            <filter>output_options['emit_alts']</filter>
+        </data>
+        <collection name="vcfs" type="list" label="${tool.name} on ${on_string}: intra-host SNVs (VCF)">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.vcf$" directory="walker_out" format="vcf"/>
+            <filter>output_options['emit_vcf']</filter>
+        </collection>
+        <data name="snv_table" format="tabular" from_work_dir="walker_out/snvs.tsv" label="${tool.name} on ${on_string}: intra-host SNV table">
+            <filter>output_options['emit_snv_table']</filter>
+        </data>
+        <data name="bubbles" format="json" from_work_dir="walker_out/bubbles.json" label="${tool.name} on ${on_string}: bubbles"/>
+        <data name="summary" format="json" from_work_dir="walker_summary.json" label="${tool.name} on ${on_string}: summary"/>
+    </outputs>
+    <tests>
+        <!-- These tests stream Logan unitigs from the public S3 bucket. SRR8209082 is 1.8 MB
+             compressed. SRR0000001 has no Logan unitigs and fails at the fetch (HTTP 404). -->
+        <test expect_num_outputs="4">
+            <conditional name="input">
+                <param name="mode" value="accession"/>
+                <param name="accession" value="SRR8209082"/>
+            </conditional>
+            <param name="query" value="hiv1_pol.fasta"/>
+            <output name="reconstructed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_line_matching expression="^>SRR8209082_primary cov=0\.99\d* .*"/>
+                    <has_text text="ATGAATTTGCCAGGAAGATGGAAACC"/>
+                </assert_contents>
+            </output>
+            <output name="alt_haplotypes">
+                <assert_contents>
+                    <has_text text=">SRR8209082_alt"/>
+                </assert_contents>
+            </output>
+            <output name="bubbles">
+                <assert_contents>
+                    <has_text text="SRR8209082"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="success" value="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="5">
+            <conditional name="input">
+                <param name="mode" value="list"/>
+                <param name="accession_list" value="walker_accessions.txt"/>
+            </conditional>
+            <param name="query" value="hiv1_pol.fasta"/>
+            <section name="output_options">
+                <param name="emit_alts" value="false"/>
+                <param name="emit_vcf" value="true"/>
+                <param name="emit_snv_table" value="true"/>
+            </section>
+            <output name="reconstructed">
+                <assert_contents>
+                    <has_line_matching expression="^>SRR8209082_primary .*"/>
+                </assert_contents>
+            </output>
+            <output_collection name="vcfs" type="list" count="1">
+                <element name="SRR8209082" ftype="vcf">
+                    <assert_contents>
+                        <has_line_matching expression="^##fileformat=VCF.*"/>
+                        <has_text text="hiv1_pol"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="snv_table">
+                <assert_contents>
+                    <has_text text="SRR8209082"/>
+                </assert_contents>
+            </output>
+            <output name="bubbles">
+                <assert_contents>
+                    <has_text text="SRR8209082"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="success" value="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <!-- Nothing reconstructs, but the job is allowed to succeed. -->
+            <conditional name="input">
+                <param name="mode" value="accession"/>
+                <param name="accession" value="SRR0000001"/>
+            </conditional>
+            <param name="query" value="hiv1_pol.fasta"/>
+            <param name="allow_empty" value="true"/>
+            <section name="output_options">
+                <param name="emit_alts" value="false"/>
+            </section>
+            <output name="reconstructed">
+                <assert_contents>
+                    <has_size value="0"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="success" value="0"/>
+                    <has_text text="HTTP 404"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <!-- Same run without the escape hatch fails the job. -->
+            <conditional name="input">
+                <param name="mode" value="accession"/>
+                <param name="accession" value="SRR0000001"/>
+            </conditional>
+            <param name="query" value="hiv1_pol.fasta"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+@HELP_SUITE@
+
+-----
+
+What it does
+************
+
+Reconstructs the coding haplotype of a target gene in each SRA run, directly from that run's
+`Logan <https://github.com/IndexThePlanet/Logan>`_ unitigs. For every accession the walker:
+
+1. streams the run's compressed unitigs from the public Logan S3 bucket,
+2. anchors unitigs to the reference CDS with shared k-mers and grows a local subgraph around them,
+3. aligns the reference to that subgraph with GraphAligner and walks the best path,
+4. prunes low-depth unitigs and realigns, removing the aligner's pull toward the reference,
+5. recovers intra-host alternative alleles at forks along the walked path.
+
+The result is one primary haplotype per accession in reference coordinates, plus optional
+alternative haplotypes and intra-host SNV calls.
+
+The walker downloads data during the job, so the Galaxy server needs outbound network access to
+``logan-pub.s3.amazonaws.com``.
+
+-----
+
+Inputs
+******
+
+- **Accessions**: either a single SRA run accession, or a dataset with one accession per line
+  (for example from **disassembler harvest** or **disassembler stratify**).
+- **Reference CDS**: the in-frame coding sequence of the target gene. More than one record switches
+  on multi-anchor mode.
+
+-----
+
+Spreading accessions across jobs
+********************************
+
+The tool accepts an accession list, so the same tool supports three ways of running a cohort:
+
+- **One job for the whole list.** Simplest, but one job holds the whole cohort.
+- **One job per accession.** Split the list with **Split file** (one line per file) and run the
+  walker over the resulting collection. Each accession gets its own job, retry and provenance.
+  This stops scaling at roughly 10,000 accessions, where scheduler overhead dominates.
+- **One job per shard.** Split the list into files of N lines and run over that collection. This
+  scales past 100,000 accessions.
+
+When running one job per accession, consider **Succeed even if nothing is reconstructed**, or
+filter failed datasets before collapsing the reconstructions into one FASTA for
+**disassembler msa**.
+
+-----
+
+Outputs
+*******
+
+- **Reconstructed haplotypes**: one primary haplotype per accession that reconstructed. Headers
+  carry coverage, identity, subgraph size and depth.
+- **Alternative haplotypes** (optional): intra-host alternative haplotypes.
+- **Intra-host SNVs (VCF)** (optional): a collection with one VCF per accession that has at least
+  one recovered SNV.
+- **Intra-host SNV table** (optional): every intra-host SNV in one long table, one row per
+  accession, site and allele. This is the output that scales to large cohorts.
+- **Bubbles**: the fork structure found along each walked path.
+- **Summary**: per-accession status, timings and errors.
+
+Threads and memory are set from the job's resources. GraphAligner always runs single-threaded,
+because its output is not reproducible with more than one thread.
+
+    ]]></help>
+    <expand macro="citations">
+        <citation type="doi">10.1101/2024.07.30.605881</citation>
+        <citation type="doi">10.1186/s13059-020-02157-2</citation>
+    </expand>
+</tool>

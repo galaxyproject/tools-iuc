@@ -1,0 +1,117 @@
+<tool id="disassembler_sieve" name="disassembler sieve" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>thin near-duplicate haplotypes with a k-mer diversity sieve</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        disassembler sieve
+            --input '$input'
+            --output promoted.fasta
+            #if $length_gate.source == 'reference':
+                --ref '$length_gate.reference'
+            #else:
+                --min-len $length_gate.min_len
+            #end if
+            --threshold $threshold
+            --sketch $sketch
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="fasta" label="Haplotypes to thin" help="For example the reconstructed haplotypes of many accessions, collapsed into one FASTA."/>
+        <conditional name="length_gate">
+            <param name="source" type="select" label="Minimum sequence length" help="Shorter sequences are rejected before sketching.">
+                <option value="reference" selected="true">95% of the reference CDS length</option>
+                <option value="manual">Set explicitly</option>
+            </param>
+            <when value="reference">
+                <expand macro="reference_input"/>
+            </when>
+            <when value="manual">
+                <param argument="--min-len" type="integer" value="1" min="1" label="Minimum sequence length (nt)"/>
+            </when>
+        </conditional>
+        <param argument="--threshold" type="float" value="0.005" min="0" max="1" label="Promotion threshold (tau)" help="A sequence is kept only if its estimated novelty against what is already kept exceeds this. The default suits gene-scale cohorts; the sieve's own archive-scale default of 0.15 collapses a gene cohort to almost nothing."/>
+        <param argument="--sketch" type="integer" value="256" min="1" label="MinHash sketch size" help="Novelty finer than 1/sketch size cannot be resolved."/>
+    </inputs>
+    <outputs>
+        <data name="promoted" format="fasta" from_work_dir="promoted.fasta" label="${tool.name} on ${on_string}: thinned haplotypes"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="hiv1_pol_reconstructed.fasta"/>
+            <conditional name="length_gate">
+                <param name="source" value="reference"/>
+                <param name="reference" value="hiv1_pol.fasta"/>
+            </conditional>
+            <output name="promoted">
+                <assert_contents>
+                    <has_n_lines n="56"/>
+                    <has_line_matching expression="^>SRR8209082_primary .*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- The archive-scale threshold collapses the cohort much further. -->
+            <param name="input" value="hiv1_pol_reconstructed.fasta"/>
+            <conditional name="length_gate">
+                <param name="source" value="manual"/>
+                <param name="min_len" value="2600"/>
+            </conditional>
+            <param name="threshold" value="0.15"/>
+            <param name="sketch" value="64"/>
+            <output name="promoted">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <!-- Every sequence is shorter than the length gate, so nothing is promoted. -->
+            <param name="input" value="hiv1_pol_reconstructed.fasta"/>
+            <conditional name="length_gate">
+                <param name="source" value="manual"/>
+                <param name="min_len" value="100000"/>
+            </conditional>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+@HELP_SUITE@
+
+-----
+
+What it does
+************
+
+Thins a large cohort of near-identical haplotypes before alignment and tree building, which scale
+quadratically with the number of sequences. Each sequence is sketched with MinHash and kept only if
+it is sufficiently novel compared with the sequences already kept, so the output preserves the
+cohort's lineage diversity with far fewer sequences.
+
+This is a lineage-level reducer. It is meant for large cross-accession cohorts. It does not
+preserve intra-host variation; use the walker's VCF or SNV table outputs for that.
+
+The sieve is `kmer-diversity-sieve <https://github.com/stevenweaver/kmer-diversity-sieve>`_.
+This tool runs it with defaults calibrated for single genes.
+
+-----
+
+Parameters
+**********
+
+    ==========================  ===============  ==========================================
+    **Parameter**               **Default**      **Description**
+    --------------------------  ---------------  ------------------------------------------
+    Minimum sequence length     95% of the       Reconstructions are often a few bases
+                                reference CDS    shorter than the reference, hence the 5%
+                                                 margin
+    Promotion threshold (tau)   0.005            Lower keeps more sequences
+    MinHash sketch size         256              Larger resolves finer differences
+    ==========================  ===============  ==========================================
+
+The tool fails if no sequence is kept. Lower the threshold or the minimum length in that case.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
