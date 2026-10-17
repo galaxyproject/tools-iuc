@@ -1,0 +1,331 @@
+<tool id="ballgown" name="Ballgown" version="2.2.0" workflow_compatible="true">
+    <description>Flexible, isoform-level differential expression analysis</description>
+    <requirements>
+        <requirement type="package" version="2.2.0">bioconductor-ballgown</requirement>
+        <requirement type="package" version="0.5.0">r-dplyr</requirement>
+        <requirement type="package" version="1.3.2">r-optparse</requirement>
+    </requirements>
+    <command detect_errors="aggressive"><![CDATA[
+##------------------------------------------------------------------------------------
+## This function reads the input file with the mapping between samples and files
+## E.g. of result:
+## mapping = {
+##     "e2t.ctab"   : "sample1",
+##     "other.ctab" : "sample2",
+##     "i2t.ctab"   : "sample1",
+##     "t_data.ctab": "sample1"
+##      ...
+## }
+##------------------------------------------------------------------------------------
+#def read_sample_mapping_file(sample_mapping_file):
+    #try
+        #set mapping = {}
+        #set file = open($sample_mapping_file.dataset.dataset.get_file_name(),'r')
+        #for $line in $file:
+            #set content= $line.strip().split('\t')
+            #for $map in $content:
+                #set mapping[$map]= $content[0]
+            #end for
+        #end for
+        #return $mapping
+    #except
+        #return None
+    #end try
+#end def
+
+##------------------------------------------------------------------------------------
+## This function returns the name of the sample associated to a given file
+##------------------------------------------------------------------------------------
+#def get_sample_name($dataset, $sample_mapping):
+    ##If the file with samples mapping was provided
+    #if $sample_mapping != None:
+        #return $sample_mapping.get($dataset.name, None)
+    ##Otherwise with extract the sample name from the filename
+    #else:
+        #return str($dataset.element_identifier)
+    #end if
+#end def
+
+##------------------------------------------------------------------------------------
+## This function reads a dataset or list of datasets and sets the corresponding value
+## in the $result variable
+## e.g. of result
+##'sample1' : {
+##         'e_data': '/export/galaxy-central/database/files/000/dataset_13.dat'
+##         'i_data': '/export/galaxy-central/database/files/000/dataset_10.dat',
+##         't_data': '/export/galaxy-central/database/files/000/dataset_12.dat',
+##         'e2t': '/export/galaxy-central/database/files/000/dataset_9.dat',
+##         'i2t': '/export/galaxy-central/database/files/000/dataset_11.dat'
+##      },
+##------------------------------------------------------------------------------------
+#def read_input_files($param_name, $param_value, $result, $sample_mapping, $create_if_empty):
+    ## If input is a data collection
+    #if isinstance($param_value, list):
+        ## For each dataset
+        #for $dataset in $param_value:
+            ## Get the sample name
+            #set sample_name = $get_sample_name($dataset, $sample_mapping)
+            ## Check if sample is already registered
+            #if not($result.has_key($sample_name)):
+                #if ($create_if_empty == True):
+                    #set result[$sample_name] = {}
+                #else:
+                    #raise ValueError("Error in input. Please check that input contains all the required files for sample " + $sample_name)
+                #end if
+            #end if
+            ## Register the file to the sample
+            #set result[$sample_name][$param_name] = str($dataset.dataset.dataset.get_file_name())
+        #end for
+    #else:
+        #if not($result.has_key("sample_1")):
+            #set result["sample_1"] = {}
+        #end if
+        #set result["sample_1"][$param_name] = str($param_name.dataset.dataset.get_file_name())
+    #end if
+    #return $result
+#end def
+
+##------------------------------------------------------------------------------------
+## Main body of the tool
+##------------------------------------------------------------------------------------
+## Set the params for the next R script
+#set result={}
+#set sample_mapping=None
+
+## If the samples mapping file was provided, parse the content
+#if $samples_names != None and not(isinstance($samples_names, list) and (None in $samples_names)):
+    #set sample_mapping = $read_sample_mapping_file($samples_names)
+#end if
+
+## READ THE CONTENT FOR e_data AND STORE THE FILES
+## INDEXED BY THEIR SAMPLE NAME
+## e.g. 'HBR_Rep1' : {
+##         'e_data': '/export/galaxy-central/database/files/000/dataset_13.dat'
+##         'i_data': '/export/galaxy-central/database/files/000/dataset_10.dat',
+##         't_data': '/export/galaxy-central/database/files/000/dataset_12.dat',
+##         'e2t': '/export/galaxy-central/database/files/000/dataset_9.dat',
+##         'i2t': '/export/galaxy-central/database/files/000/dataset_11.dat'
+##      },
+##      'HBR_Rep2' : {...}
+#set $result = $read_input_files("e_data.ctab", $e_data, $result, $sample_mapping, True)
+#set $result = $read_input_files("i_data.ctab", $i_data, $result, $sample_mapping, False)
+#set $result = $read_input_files("t_data.ctab", $t_data, $result, $sample_mapping, False)
+#set $result = $read_input_files("e2t.ctab", $e2t, $result, $sample_mapping, False)
+#set $result = $read_input_files("i2t.ctab", $i2t, $result, $sample_mapping, False)
+
+## For each input sample, create a directory and link the input files for ballgown
+#import os
+#set n_sample = 1
+#for $key, $value in $result.iteritems():
+    #if str($file_format.format) == 'tsv':
+        #set dir_name = str($toutput.files_path) + '/' + $key + '/'
+    #else:
+        #set dir_name = str($output.files_path) + '/' + $key + '/'
+    #end if
+    $os.makedirs($dir_name)
+    #for $file_name, $file_path in $value.iteritems():
+        $os.symlink($file_path, $dir_name + $file_name)
+    #end for
+    #set n_sample = $n_sample + 1
+#end for
+
+## Run the R script with the location of the linked files and the name for outpot file
+
+Rscript '$__tool_directory__/ballgown.R' --texpression $trexpression --phendat '$phendata' --bgout '$bgo' -f '$file_format.format'
+#if str($file_format.format) == 'tsv':
+    --tsvoutputtranscript $toutputtranscript
+    --tsvoutputgenes $toutput
+    --directory $toutput.files_path
+#else:
+    --outputtranscript $output
+    --outputgenes $outputgn
+    --directory $output.files_path
+#end if
+    ]]></command>
+    <inputs>
+        <param name="e_data" type="data_collection" collection_type="list" format="tabular" label="Exon-level expression measurements"
+            help="One row per exon. See below for more details."/>
+        <param name="i_data" type="data_collection" collection_type="list" format="tabular"
+            label="Intron- (i.e., junction-) level expression measurements"
+            help="One row per intron. See below for more details."/>
+        <param name="t_data" type="data_collection" collection_type="list" format="tabular"
+            label="Transcript-level expression measurements" help="One row per transcript. See below for more details."/>
+        <param name="e2t" type="data_collection" collection_type="list" format="tabular"
+            label="Exons-transcripts mapping"
+            help="Table with two columns, e_id and t_id, denoting which exons belong to which transcripts. See below for more details."/>
+        <param name="i2t" type="data_collection" collection_type="list" format="tabular"
+            label="Introns-transcripts mapping"
+            help="Table with two columns, i_id and t_id, denoting which introns belong to which transcripts. See below for more details."/>
+        <param name="samples_names" type="data" optional="true" multiple="false" format="tabular"
+            label="File names for samples"
+            help="Optional. Use in case that the names for the analysed samples cannot be extracted from the filenames."/>
+        <param argument="--phendat" name="phendata" type="data" format="csv" label="phenotype data" />
+        <param argument="--texpression" name="trexpression" type="float" value="0.5" label="minimal transcript expression to appear in the results"/>
+        <conditional name="file_format">
+            <param argument='--format' type="select" label="Output format">
+                <option value="tsv" selected="true">tsv</option>
+                <option value="csv">csv</option>
+            </param>
+            <when value="tsv"/>
+            <when value="csv"/>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="bgo" format="rdata" from_work_dir="ballgown_object.rda" label="${tool.name} on ${on_string}: ballgown_object_R_data_file"/>
+        <data name="output" format="csv" from_work_dir="output_transcript.csv" label="${tool.name} on ${on_string}: transcripts_expression_tabular">
+            <filter>file_format['format']=="csv"</filter>
+        </data>
+        <data name="outputgn" format="csv" from_work_dir="output_genes.csv" label="${tool.name} on ${on_string}: genes_expression_tabular">
+            <filter>file_format['format']=="csv"</filter>
+        </data>
+        <data name="toutputtranscript" format="tabular" from_work_dir="output_transcript.tsv" label="${tool.name} on ${on_string}: transcripts_expression_tabular">
+            <filter>file_format['format']=="tsv"</filter>
+        </data>
+        <data name="toutput" format="tabular" from_work_dir="output_genes.tsv" label="${tool.name} on ${on_string}: genes_expression_tabular">
+            <filter>file_format['format']=="tsv"</filter>
+        </data>
+    </outputs>
+    <tests>
+    <test>
+      <param name="e_data">
+        <collection type="list">
+          <element name="HBR_Rep1" value="HBR_Rep1/e_data.ctab"/>
+          <element name="HBR_Rep2" value="HBR_Rep2/e_data.ctab"/>
+          <element name="HBR_Rep3" value="HBR_Rep3/e_data.ctab"/>
+          <element name="UHR_Rep1" value="UHR_Rep1/e_data.ctab"/>
+          <element name="UHR_Rep2" value="UHR_Rep2/e_data.ctab"/>
+          <element name="UHR_Rep3" value="UHR_Rep3/e_data.ctab"/>
+        </collection>
+      </param>
+      <param name="i_data">
+        <collection type="list">
+          <element name="HBR_Rep1" value="HBR_Rep1/i_data.ctab"/>
+          <element name="HBR_Rep2" value="HBR_Rep2/i_data.ctab"/>
+          <element name="HBR_Rep3" value="HBR_Rep3/i_data.ctab"/>
+          <element name="UHR_Rep1" value="UHR_Rep1/i_data.ctab"/>
+          <element name="UHR_Rep2" value="UHR_Rep2/i_data.ctab"/>
+          <element name="UHR_Rep3" value="UHR_Rep3/i_data.ctab"/>
+        </collection>
+      </param>
+      <param name="t_data">
+        <collection type="list">
+          <element name="HBR_Rep1" value="HBR_Rep1/t_data.ctab"/>
+          <element name="HBR_Rep2" value="HBR_Rep2/t_data.ctab"/>
+          <element name="HBR_Rep3" value="HBR_Rep3/t_data.ctab"/>
+          <element name="UHR_Rep1" value="UHR_Rep1/t_data.ctab"/>
+          <element name="UHR_Rep2" value="UHR_Rep2/t_data.ctab"/>
+          <element name="UHR_Rep3" value="UHR_Rep3/t_data.ctab"/>
+        </collection>
+      </param>
+      <param name="e2t">
+        <collection type="list">
+          <element name="HBR_Rep1" value="HBR_Rep1/e2t.ctab"/>
+          <element name="HBR_Rep2" value="HBR_Rep2/e2t.ctab"/>
+          <element name="HBR_Rep3" value="HBR_Rep3/e2t.ctab"/>
+          <element name="UHR_Rep1" value="UHR_Rep1/e2t.ctab"/>
+          <element name="UHR_Rep2" value="UHR_Rep2/e2t.ctab"/>
+          <element name="UHR_Rep3" value="UHR_Rep3/e2t.ctab"/>
+        </collection>
+      </param>
+      <param name="i2t">
+        <collection type="list">
+          <element name="HBR_Rep1" value="HBR_Rep1/i2t.ctab"/>
+          <element name="HBR_Rep2" value="HBR_Rep2/i2t.ctab"/>
+          <element name="HBR_Rep3" value="HBR_Rep3/i2t.ctab"/>
+          <element name="UHR_Rep1" value="UHR_Rep1/i2t.ctab"/>
+          <element name="UHR_Rep2" value="UHR_Rep2/i2t.ctab"/>
+          <element name="UHR_Rep3" value="UHR_Rep3/i2t.ctab"/>
+        </collection>
+      </param>
+        <param name="phendata" value="phendata.csv"/>
+        <output name="outputgn" file="genes_expression_tabular.csv"/>
+        <output name="output" file="transcripts_expression_tabular.csv"/>
+        <output name="bgo" file="ballgown_object_R_data_file.rda"/>
+    </test>
+    </tests>
+    <help><![CDATA[
+=======================
+Ballgown
+=======================
+-----------------------
+**What it does**
+-----------------------
+
+Ballgown is a software package designed to facilitate flexible differential expression analysis of RNA-seq data.
+The Ballgown package provides functions to organize, visualize, and analyze the expression measurements for your transcriptome assembly.
+
+----
+
+-----------------------
+**How to use**
+-----------------------
+The input for this tools consists on 5 files for each sample in your experiment:
+
+- **e_data**: exon-level expression measurements. Tab file or collection of tab files. One row per exon. Columns are e_id (numeric exon id), chr, strand, start, end (genomic location of the exon), and the following expression measurements for each sample:
+          * rcount: reads overlapping the exon
+          * ucount: uniquely mapped reads overlapping the exon
+          * mrcount: multi-map-corrected number of reads overlapping the exon
+          * cov average per-base read coverage
+          * cov_sd: standard deviation of per-base read coverage
+          * mcov: multi-map-corrected average per-base read coverage
+          * mcov_sd: standard deviation of multi-map-corrected per-base coverage
+- **i_data**: intron- (i.e., junction-) level expression measurements. Tab file or collection of tab files. One row per intron. Columns are i_id (numeric intron id), chr, strand, start, end (genomic location of the intron), and the following expression measurements for each sample:
+          * rcount: number of reads supporting the intron
+          * ucount: number of uniquely mapped reads supporting the intron
+          * mrcount: multi-map-corrected number of reads supporting the intron
+- **t_data**: transcript-level expression measurements. Tab file or collection of tab files. One row per transcript. Columns are:
+          * t_id: numeric transcript id
+          * chr, strand, start, end: genomic location of the transcript
+          * t_name: Cufflinks-generated transcript id
+          * num_exons: number of exons comprising the transcript
+          * length: transcript length, including both exons and introns
+          * gene_id: gene the transcript belongs to
+          * gene_name: HUGO gene name for the transcript, if known
+          * cov: per-base coverage for the transcript (available for each sample)
+          * FPKM: Cufflinks-estimated FPKM for the transcript (available for each sample)
+- **e2t**: Tab file or collection of tab files. Table with two columns, e_id and t_id, denoting which exons belong to which transcripts. These ids match the ids in the e_data and t_data tables.
+- **i2t**: Tab file or collection of tab files. Table with two columns, i_id and t_id, denoting which introns belong to which transcripts. These ids match the ids in the i_data and t_data tables.
+- samples_names: (optional) Tab file. Table with five columns, one row per sample. Defines which files from the input belong to each sample in the experiment.
+
+.. class:: infomark
+
+'''TIP''' *Note* Here's an example of a good phenotype data file for your experiment.
+
++--------------+-------------------------+-------------------------+---+
+|ids           |experimental variable 1  |experimental variable 2  |...|
++==============+=========================+=========================+===+
+|sample 1      |value 1                  |value 2                  |...|
++--------------+-------------------------+-------------------------+---+
+|sample 2      |value 2                  |value 1                  |...|
++--------------+-------------------------+-------------------------+---+
+|sample 3      |value 1                  |value 2                  |...|
++--------------+-------------------------+-------------------------+---+
+|sample 4      |value 2                  |value 1                  |...|
++--------------+-------------------------+-------------------------+---+
+|...           |value 1                  |value 2                  |...|
++--------------+-------------------------+-------------------------+---+
+
+
+.. class:: infomark
+
+*Note* The minimal transcript expression is a number used to filter the transcripts that
+are less or not expressed in our samples when compared to the genome
+
+-----------------------
+**Outputs**
+-----------------------
+
+This tool has 3 outputs:
+
+- **transcripts expression** : this is a csv file containing all the transcripts that are expressed above the transcripts expression value
+- **genes expression** : this is a csv file containing all the genes that are expressed above the transcripts expression value
+- **Ballgown object** : this is the ballgown object created during the process. This file can be re-used later for further analysis in a R console.
+
+----
+
+**Authors**: Théo Collard [SLU Global Bioinformatics Centre], Rafael Hernández de Diego [SLU Global Bioinformatics Centre], and Tomas Klingström [SLU Global Bioinformatics Centre]
+    ]]></help>
+    <citations>
+        <citation type="doi">doi:10.1038/nprot.2016.095</citation>
+    </citations>
+</tool>
