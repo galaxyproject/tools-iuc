@@ -4,30 +4,96 @@
         <import>macro.xml</import>
     </macros>
     <expand macro="requirements"/>
-    <command detect_errors="exit_code">
-      <![CDATA[
-        python '$__tool_directory__/plasmidfinder_fetch_database.py'
-        --db_version '$database_select'
-        '$output_file'
-      ]]></command>
+    <command detect_errors="exit_code"><![CDATA[
+database_dir='${output_file.extra_files_path}/plasmidfinder-db' &&
+git clone
+#if str($database_select) == '2.2'
+    --branch 'plasmidfinder-3.0.3'
+#elif str($database_select) != 'latest'
+    --branch '$database_select'
+#end if
+    'https://bitbucket.org/genomicepidemiology/plasmidfinder_db.git' "\${database_dir}" &&
+database_commit=\$(git -C "\${database_dir}" rev-parse --short=7 HEAD) &&
+database_date=\$(TZ=UTC git -C "\${database_dir}" log -1 --format=%cd --date=format-local:%Y_%m_%d) &&
+database_id="plasmidfinder_\${database_commit}_\${database_date}" &&
+
+awk -F '\t' '!/^[[:space:]]*(#|$)/ && !seen[\$1]++ {print \$1}' "\${database_dir}/config" > database_prefixes.txt &&
+
+if [ ! -s database_prefixes.txt ]; then
+    echo 'No databases found in the database configuration' >&2;
+    exit 1;
+fi &&
+while IFS= read -r database_prefix; do
+    kma index -i "\${database_dir}/\${database_prefix}.fsa" -o "\${database_dir}/\${database_prefix}" || exit \$?;
+done < database_prefixes.txt &&
+
+installed_database=\$(awk -F '\t' -v database_id="\${database_id}" '\$1 == database_id {print \$2; exit}' '$installed_databases') &&
+if [ -n "\${installed_database}" ]; then
+    mkdir -p "\${installed_database}" &&
+    cp -R "\${database_dir}/." "\${installed_database}/" &&
+    echo "Reinstalled database \${database_id}; keeping the existing database entry." >&2 &&
+    printf '%s\n' '{"data_tables": {"plasmidfinder_database": []}}' > dm.json;
+else
+if [ -f "\${database_dir}/VERSION" ]; then
+    database_version=\$(cat "\${database_dir}/VERSION");
+elif [ -f "\${database_dir}/VERSION.txt" ]; then
+    database_version=\$(cat "\${database_dir}/VERSION.txt");
+else
+    database_version='$database_select';
+fi &&
+## Fill metadata placeholders after the selected database has been checked out.
+sed
+    -e "s/@DATABASE_COMMIT@/\${database_commit}/g"
+    -e "s/@DATABASE_DATE@/\${database_date}/g"
+    -e "s/@DATABASE_VERSION@/\${database_version}/g"
+    '$data_manager_json' > dm.json;
+fi
+    ]]></command>
+    <configfiles>
+        <configfile name="data_manager_json"><![CDATA[#slurp
+{
+  "data_tables": {
+    "plasmidfinder_database": [
+      {
+        "date": "@DATABASE_DATE@",
+        "name": "@DATABASE_VERSION@_@DATABASE_DATE@_@DATABASE_COMMIT@",
+        "path": "plasmidfinder-db",
+        "value": "plasmidfinder_@DATABASE_COMMIT@_@DATABASE_DATE@"
+      }
+    ]
+  }
+}
+]]></configfile>
+        <configfile name="installed_databases"><![CDATA[#slurp
+#for $row in $__app__.tool_data_tables['plasmidfinder_database'].get_fields()
+${row[0]}	${row[3]}
+#end for
+]]></configfile>
+    </configfiles>
     <inputs>
         <param name="database_select" type="select" label="Database version" help="Choose a database version to download (default latest version)">
             <option value="latest" selected="true">Latest available version</option>
+            <option value="2.2">V2.2_2025-11-27</option>
             <option value="2.1">V2.1_2019-08-28</option>
         </param>
     </inputs>
     <outputs>
-        <data name="output_file" format="data_manager_json"/>
+        <data name="output_file" format="data_manager_json" from_work_dir="dm.json"/>
     </outputs>
     <tests>
-        <!-- Test_2 DB 2.1 -->
         <test expect_num_outputs="1">
            <param name="database_select" value="2.1"/>
-           <output name="output_file" value="plasmidfinder_test_data_manager_2.1.json">
-               <assert_contents>
-                   <has_text text="2019_08_28"/>
-               </assert_contents>
-           </output>
+           <output name="output_file" value="plasmidfinder_test_data_manager_2.1.json"/>
+           <assert_stderr>
+               <has_text text="# Template database created." n="9"/>
+           </assert_stderr>
+        </test>
+        <test expect_num_outputs="1">
+           <param name="database_select" value="2.2"/>
+           <output name="output_file" value="plasmidfinder_test_data_manager_2.2.0.json"/>
+           <assert_stderr>
+               <has_text text="# Template database created." n="9"/>
+           </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
