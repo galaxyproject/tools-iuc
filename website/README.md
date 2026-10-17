@@ -33,6 +33,16 @@ website/
   pyproject.toml       Pipeline deps — Galaxy installed from upstream git
 ```
 
+## Website theme
+
+The site imports `@galaxyproject/brand-tokens/theme.css` after Tailwind in
+`astro/src/styles/global.css`, sharing Galaxy's palette and font stack with the
+Galaxy Hub and IWC. Use the package's `galaxy-primary` and `bay-of-many-*`
+utilities for brand colors; links and buttons use the darker shades for text
+contrast. Statistics charts read the same colors through CSS custom properties.
+Update the package and npm lockfile to adopt future palette releases instead of
+copying color values into the website.
+
 ## Data sources
 
 | Source | What | How |
