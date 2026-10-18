@@ -6,8 +6,8 @@ from importlib.metadata import version
 
 import anndata
 import numpy as np
-from scipy import sparse
 import tissue.main
+from scipy import sparse
 
 __version__ = "1.0.1"
 PREDICTED = "spage_predicted_expression"
