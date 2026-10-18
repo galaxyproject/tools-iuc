@@ -1,0 +1,219 @@
+<tool id="foldmason_easy_msa" name="FoldMason" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>align protein structures or sequences using structural information</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <version_command>foldmason version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#import re
+#if str($source.mode) == 'structures'
+    #set $structures = $source.structures
+    @LINK_STRUCTURES@
+#else
+    #set $sequence_ext = 'fasta.gz' if $source.sequences.is_of_type('fasta.gz') else 'fasta'
+    ln -s '$source.sequences' 'sequences.$sequence_ext' &&
+#end if
+foldmason easy-msa
+#if str($source.mode) == 'structures'
+    structures/*
+    result tmp
+    --report-mode $source.report_mode
+#else
+    'sequences.$sequence_ext'
+    result tmp
+    --prostt5-model '$source.model.fields.path'
+    --report-mode 0
+    --gpu 0
+#end if
+    --threads "\${GALAXY_SLOTS:-1}"
+    $alignment.fast
+    $alignment.precluster
+    --refine-iters $alignment.refine_iters
+    --refine-seed $alignment.refine_seed
+    --pair-threshold $alignment.pair_threshold
+#if $alignment.guide_tree
+    --guide-tree '$alignment.guide_tree'
+#end if
+    > '$log'
+    ]]></command>
+    <inputs>
+        <conditional name="source">
+            <param name="mode" type="select" label="Input type">
+                <option value="structures" selected="true">Protein structures</option>
+                <option value="sequences">Protein sequences (ProstT5)</option>
+            </param>
+            <when value="structures">
+                <expand macro="structures"/>
+                <param argument="--report-mode" type="select" label="Structural alignment report">
+                    <option value="0" selected="true">No report</option>
+                    <option value="1">Interactive HTML report with LDDT scores</option>
+                    <option value="2">JSON report with LDDT scores</option>
+                </param>
+            </when>
+            <when value="sequences">
+                <param name="sequences" type="data" format="fasta,fasta.gz" label="Protein sequences" help="Provide at least two amino acid sequences. ProstT5 predicts 3Di structural tokens, rather than atomic coordinates."/>
+                <param name="model" argument="--prostt5-model" type="select" label="ProstT5 model" help="Select Foldseek-compatible GGUF weights installed by your Galaxy administrator. Requires a FoldMason package built with ProstT5 support.">
+                    <options from_data_table="huggingface">
+                        <filter type="static_value" column="pipeline_tag" value="translation"/>
+                        <filter type="static_value" column="domain" value="biology"/>
+                        <filter type="static_value" column="free_tag" value="foldmason-prostt5"/>
+                        <filter type="static_value" column="version" value="gguf-f16-2025-02-26"/>
+                    </options>
+                    <validator type="no_options" message="No compatible ProstT5 GGUF model is installed. Contact your Galaxy administrator."/>
+                </param>
+            </when>
+        </conditional>
+        <section name="alignment" title="Alignment options" expanded="false">
+            <param argument="--fast" type="boolean" truevalue="--fast 1" falsevalue="--fast 0" checked="false" label="Use fast alignment" help="Disable residue neighbourhood similarity scoring. Sequence input automatically uses fast mode because atomic coordinates are unavailable."/>
+            <param argument="--precluster" type="boolean" truevalue="--precluster 1" falsevalue="--precluster 0" checked="false" label="Precluster inputs" help="Reduce alignment time for large input sets."/>
+            <param argument="--refine-iters" type="integer" min="0" value="0" label="Refinement iterations"/>
+            <param argument="--refine-seed" type="integer" min="0" value="0" label="Refinement random seed" help="Use a fixed seed for reproducible refinement."/>
+            <expand macro="pair_threshold"/>
+            <param argument="--guide-tree" type="data" format="newick" optional="true" label="Guide tree" help="Optional Newick tree with leaf names matching the input identifiers."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="aa_alignment" format="fasta" from_work_dir="result_aa.fa" label="${tool.name} on ${on_string}: amino acid alignment"/>
+        <data name="structural_alignment" format="fasta" from_work_dir="result_3di.fa" label="${tool.name} on ${on_string}: 3Di alignment"/>
+        <data name="tree" format="newick" from_work_dir="result.nw" label="${tool.name} on ${on_string}: guide tree"/>
+        <data name="html_report" format="html" from_work_dir="result.html" label="${tool.name} on ${on_string}: structural alignment HTML report">
+            <filter>source['mode'] == 'structures' and source['report_mode'] == '1'</filter>
+        </data>
+        <data name="json_report" format="json" from_work_dir="result.json" label="${tool.name} on ${on_string}: structural alignment JSON report">
+            <filter>source['mode'] == 'structures' and source['report_mode'] == '2'</filter>
+        </data>
+        <data name="log" format="txt" label="${tool.name} on ${on_string}: log and LDDT score"/>
+    </outputs>
+    <tests>
+        <!-- Inputs and expected amino acid alignment are unchanged from upstream
+             4-dd3c235/regression/data. Match upstream run_easymsa.sh and run_structuremsa.sh. -->
+        <test expect_num_outputs="5">
+            <conditional name="source">
+                <param name="mode" value="structures"/>
+                <param name="structures" value="d1b0ba_,d1naza_,d1q1fa_,d1urva_,d2w72b_" ftype="pdb"/>
+                <param name="report_mode" value="1"/>
+            </conditional>
+            <output name="aa_alignment" file="upstream_msa.fasta"/>
+            <output name="structural_alignment" file="default_3di.fasta"/>
+            <output name="tree" file="default.nw"/>
+            <output name="html_report">
+                <assert_contents>
+                    <has_text text="d1b0ba_"/>
+                    <has_text text="d2w72b_"/>
+                </assert_contents>
+            </output>
+            <output name="log">
+                <assert_contents>
+                    <has_line_matching expression="Average MSA LDDT:\s+0\.801621"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="source">
+                <param name="mode" value="structures"/>
+                <param name="structures" value="d1b0ba_,d1naza_,d1q1fa_,d1urva_,d2w72b_" ftype="pdb"/>
+            </conditional>
+            <section name="alignment">
+                <param name="fast" value="true"/>
+            </section>
+            <output name="aa_alignment" file="fast_aa.fasta"/>
+            <output name="structural_alignment" file="fast_3di.fasta"/>
+            <output name="tree" file="fast.nw"/>
+        </test>
+        <test expect_num_outputs="5">
+            <conditional name="source">
+                <param name="mode" value="structures"/>
+                <param name="structures" value="d1b0ba_,d1naza_,d1q1fa_,d1urva_,d2w72b_" ftype="pdb"/>
+                <param name="report_mode" value="2"/>
+            </conditional>
+            <section name="alignment">
+                <param name="refine_iters" value="2"/>
+            </section>
+            <output name="aa_alignment" file="refined_aa.fasta"/>
+            <output name="structural_alignment" file="refined_3di.fasta"/>
+            <output name="json_report">
+                <assert_contents>
+                    <has_text text="d1b0ba_"/>
+                    <has_text text="d2w72b_"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="source">
+                <param name="mode" value="structures"/>
+                <!-- Decompress on upload: Galaxy PDB metadata extraction requires plain text. -->
+                <param name="structures" value="d1b0ba_.pdb.gz,d1naza_.pdb.gz" ftype="pdb"/>
+            </conditional>
+            <output name="aa_alignment" file="compressed_aa.fasta"/>
+            <output name="structural_alignment" file="compressed_3di.fasta"/>
+        </test>
+        <!-- FASTA sequences are the upstream regression alignment with gaps removed.
+             These test model-table selection and the missing-model error, not inference.
+             The published build lacks ProstT5; the enabled build reports missing weights. -->
+        <test expect_failure="true">
+            <conditional name="source">
+                <param name="mode" value="sequences"/>
+                <param name="sequences" value="upstream_sequences.fasta" ftype="fasta"/>
+                <param name="model" value="missing-prostt5-test"/>
+            </conditional>
+            <assert_command>
+                <has_text text="--prostt5-model"/>
+                <has_text text="missing-prostt5-weights"/>
+            </assert_command>
+            <assert_stderr>
+                <has_line_matching expression=".*(Could not find ProstT5 model weights|compiled without ProstT5 support).*"/>
+            </assert_stderr>
+        </test>
+        <test expect_failure="true">
+            <conditional name="source">
+                <param name="mode" value="sequences"/>
+                <param name="sequences" value="upstream_sequences.fasta.gz" ftype="fasta.gz"/>
+                <param name="model" value="missing-prostt5-test"/>
+            </conditional>
+            <assert_command>
+                <has_text text="--prostt5-model"/>
+                <has_text text="missing-prostt5-weights"/>
+            </assert_command>
+            <assert_stderr>
+                <has_line_matching expression=".*(Could not find ProstT5 model weights|compiled without ProstT5 support).*"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+FoldMason builds multiple protein alignments using amino acid sequences and the
+3Di structural alphabet. Supply PDB/mmCIF structures, or protein sequences to
+predict 3Di tokens with ProstT5 on the CPU.
+
+**Inputs**
+
+For structures, select at least two datasets or a collection. Dataset names
+become alignment identifiers after removing PDB/mmCIF extensions and replacing
+special characters with underscores; use unique names. Each structure chain
+may produce a separate sequence.
+
+For sequence input, supply a protein FASTA containing at least two sequences
+and select an installed ProstT5 model. This requires a FoldMason build with
+ProstT5 enabled and compatible ``prostt5-f16.gguf`` weights. Your administrator
+registers these in the shared Hugging Face data table. The original Hugging
+Face Transformers weights cannot be used directly.
+
+**Outputs**
+
+The tool returns amino acid and 3Di alignments in FASTA format, a Newick guide
+tree, and a log. Structure inputs can additionally produce an interactive HTML
+or JSON report with LDDT scores. Sequence inputs lack atomic coordinates, so
+FoldMason uses fast alignment and cannot produce coordinate-based LDDT reports.
+
+**Options**
+
+Fast mode disables neighbourhood scoring. Preclustering can speed up large
+alignments. Refinement iterations improve the initial alignment; the random
+seed makes repeated refinement runs reproducible. An optional guide tree must
+use the same identifiers as the inputs.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
