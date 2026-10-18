@@ -9,15 +9,33 @@
     <expand macro="requirements"/>
     <version_command>rsem-calculate-expression --version</version_command>
     <command detect_errors="aggressive"><![CDATA[
+#if str($reference.source) == 'genome':
+    #if str($reference.genome.source) == 'cached':
+        #set $reference_fasta = str($reference.genome.index.fields.path)
+    #else:
+        #set $reference_fasta = str($reference.genome.fasta)
+    #end if
+    ln -s '$reference.gtf' annotation.gtf &&
+#else:
+    #set $reference_fasta = str($reference.fasta)
+    #if $reference.transcript_to_gene_map:
+        ln -s '$reference.transcript_to_gene_map' gene_map.tsv &&
+    #end if
+#end if
+ln -s '$reference_fasta' reference_input.fa &&
+ln -s '$alignments' input.bam &&
 mkdir reference &&
 rsem-prepare-reference
     #if str($reference.source) == 'genome':
-        --gtf '$reference.gtf'
+        --gtf annotation.gtf
     #elif $reference.transcript_to_gene_map:
-        --transcript-to-gene-map '$reference.transcript_to_gene_map'
+        --transcript-to-gene-map gene_map.tsv
     #end if
-    '$reference.fasta' reference/rsem > rsem.log &&
-rsem-sam-validator '$alignments' > validation.log &&
+    reference_input.fa reference/rsem > rsem.log &&
+convert-sam-for-rsem
+    --num-threads \${GALAXY_SLOTS:-1}
+    --memory-per-thread \${GALAXY_MEMORY_MB_PER_SLOT:-1024}M
+    input.bam input_for_rsem > validation.log &&
 cat validation.log >> rsem.log &&
 ## RSEM 1.3.3's validator also returns zero for invalid input.
 if ! grep -qFx 'The input file is valid!' validation.log; then
@@ -39,18 +57,37 @@ rsem-calculate-expression
     $advanced.append_names
     #if str($output_bam) == 'false':
         --no-bam-output
+    #else:
+        --sort-bam-by-coordinate
+        --sort-bam-memory-per-thread \${GALAXY_MEMORY_MB_PER_SLOT:-1024}M
     #end if
-    '$alignments' reference/rsem rsem_out >> rsem.log
+    input_for_rsem.bam reference/rsem rsem_out >> rsem.log
     ]]></command>
     <inputs>
-        <param argument="--alignments" type="data" format="sam,bam,unsorted.bam,qname_sorted.bam" label="Transcriptome alignments" help="Use transcript coordinates, for example STAR's Aligned.toTranscriptome.out.bam. Alignments for each read must be grouped together, with paired mates adjacent. Genomic alignments are unsuitable."/>
+        <param argument="--alignments" type="data" format="bam" label="Transcriptome alignments" help="Use transcript coordinates, for example STAR's Aligned.toTranscriptome.out.bam. The tool groups alignments by read and places paired mates together before estimation."/>
         <conditional name="reference">
             <param name="source" type="select" label="Reference sequences">
                 <option value="genome" selected="true">Genome FASTA and GTF annotation</option>
                 <option value="transcripts">Transcript FASTA</option>
             </param>
             <when value="genome">
-                <param name="fasta" type="data" format="fasta" label="Reference genome" help="Use the same genome assembly that was used for alignment."/>
+                <conditional name="genome">
+                    <param name="source" type="select" label="Genome source">
+                        <option value="cached" selected="true">Use a built-in genome</option>
+                        <option value="history">Use a genome from history</option>
+                    </param>
+                    <when value="cached">
+                        <param name="index" type="select" label="Reference genome" help="Select the same genome assembly that was used for alignment.">
+                            <options from_data_table="all_fasta">
+                                <filter type="sort_by" column="2"/>
+                                <validator type="no_options" message="No built-in genomes are available. Select a genome from history instead."/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="fasta" type="data" format="fasta" label="Reference genome" help="Use the same genome assembly that was used for alignment."/>
+                    </when>
+                </conditional>
                 <param argument="--gtf" type="data" format="gtf" label="Gene annotation" help="Use the same annotation and transcript identifiers that were used to produce the transcriptome alignments."/>
             </when>
             <when value="transcripts">
@@ -79,37 +116,65 @@ rsem-calculate-expression
             <param argument="--estimate-rspd" type="boolean" truevalue="--estimate-rspd" falsevalue="" checked="false" label="Estimate the read start position distribution" help="The default assumes a uniform distribution of read start positions."/>
             <param argument="--append-names" type="boolean" truevalue="--append-names" falsevalue="" checked="false" label="Append gene and transcript names to identifiers" help="Names are appended when present in the GTF annotation."/>
         </section>
-        <param name="output_bam" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output posterior-weighted transcriptome BAM" help="Includes alignments annotated with posterior probabilities. This output remains unsorted and uses transcript coordinates."/>
+        <param name="output_bam" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output posterior-weighted transcriptome BAM" help="Includes alignments annotated with posterior probabilities. The output is coordinate-sorted and uses transcript coordinates."/>
+        <param name="output_log" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output log" help="Retain the detailed reference preparation, read preparation, and expression estimation log."/>
     </inputs>
     <outputs>
-        <data name="genes_results" format="tabular" from_work_dir="rsem_out.genes.results" label="${tool.name} on ${on_string}: gene estimates"/>
-        <data name="isoforms_results" format="tabular" from_work_dir="rsem_out.isoforms.results" label="${tool.name} on ${on_string}: isoform estimates"/>
-        <data name="log" format="txt" from_work_dir="rsem.log" label="${tool.name} on ${on_string}: log"/>
-        <data name="transcript_bam" format="unsorted.bam" from_work_dir="rsem_out.transcript.bam" label="${tool.name} on ${on_string}: posterior-weighted transcriptome BAM">
+        <data name="genes_results" format="tabular" from_work_dir="rsem_out.genes.results" label="${tool.name} on ${on_string}: gene estimates">
+            <actions>
+                <action name="columns" type="metadata" default="7"/>
+                <action name="column_names" type="metadata" default="gene_id,transcript_id(s),length,effective_length,expected_count,TPM,FPKM"/>
+                <action name="column_types" type="metadata" default="str,str,float,float,float,float,float"/>
+            </actions>
+        </data>
+        <data name="isoforms_results" format="tabular" from_work_dir="rsem_out.isoforms.results" label="${tool.name} on ${on_string}: isoform estimates">
+            <actions>
+                <action name="columns" type="metadata" default="8"/>
+                <action name="column_names" type="metadata" default="transcript_id,gene_id,length,effective_length,expected_count,TPM,FPKM,IsoPct"/>
+                <action name="column_types" type="metadata" default="str,str,int,float,float,float,float,float"/>
+            </actions>
+        </data>
+        <data name="log" format="txt" from_work_dir="rsem.log" label="${tool.name} on ${on_string}: log">
+            <filter>output_log</filter>
+        </data>
+        <data name="transcript_bam" format="bam" from_work_dir="rsem_out.transcript.sorted.bam" label="${tool.name} on ${on_string}: posterior-weighted transcriptome BAM">
             <filter>output_bam</filter>
         </data>
     </outputs>
     <tests>
-        <!-- Genome/GTF reference, paired BAM, unstranded estimates. -->
+        <!-- Coordinate-sorted paired BAM, genome from history, and optional log. -->
         <test expect_num_outputs="3">
-            <param name="alignments" value="paired.bam" ftype="unsorted.bam"/>
+            <param name="alignments" value="paired.bam"/>
             <conditional name="reference">
                 <param name="source" value="genome"/>
-                <param name="fasta" value="genome.fa"/>
+                <conditional name="genome">
+                    <param name="source" value="history"/>
+                    <param name="fasta" value="genome.fa"/>
+                </conditional>
                 <param name="gtf" value="genes.gtf"/>
             </conditional>
-            <output name="genes_results" file="paired.genes.results"/>
-            <output name="isoforms_results" file="paired.isoforms.results"/>
+            <param name="output_log" value="true"/>
+            <output name="genes_results" file="paired.genes.results">
+                <metadata name="columns" value="7"/>
+                <metadata name="column_names" value="gene_id,transcript_id(s),length,effective_length,expected_count,TPM,FPKM"/>
+                <metadata name="column_types" value="str,str,float,float,float,float,float"/>
+            </output>
+            <output name="isoforms_results" file="paired.isoforms.results">
+                <metadata name="columns" value="8"/>
+                <metadata name="column_names" value="transcript_id,gene_id,length,effective_length,expected_count,TPM,FPKM,IsoPct"/>
+                <metadata name="column_types" value="str,str,int,float,float,float,float,float"/>
+            </output>
             <output name="log">
                 <assert_contents>
-                    <has_text text="valid"/>
+                    <has_text text="Conversion is completed"/>
+                    <has_text text="The input file is valid!"/>
                     <has_text text="rsem-run-em"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Transcript reference, explicit gene map, single-end SAM and optional BAM. -->
-        <test expect_num_outputs="4">
-            <param name="alignments" value="single.sam"/>
+        <!-- Single-end BAM, transcript gene map, and full posterior-BAM comparison. -->
+        <test expect_num_outputs="3">
+            <param name="alignments" value="single.bam"/>
             <conditional name="reference">
                 <param name="source" value="transcripts"/>
                 <param name="fasta" value="transcripts.fa"/>
@@ -126,23 +191,19 @@ rsem-calculate-expression
             <param name="output_bam" value="true"/>
             <output name="genes_results" file="single.genes.results"/>
             <output name="isoforms_results" file="single.isoforms.results"/>
-            <output name="transcript_bam" ftype="unsorted.bam">
-                <assert_contents>
-                    <has_size min="500"/>
-                </assert_contents>
+            <output name="transcript_bam" file="single.transcript.bam" ftype="bam">
+                <metadata name="sort_order" value="coordinate"/>
             </output>
-            <assert_command>
-                <has_text text="--estimate-rspd"/>
-                <has_text text="--fragment-length-mean 150"/>
-                <has_text text="--transcript-to-gene-map"/>
-            </assert_command>
         </test>
         <!-- Reverse-stranded paired reads and names from the GTF. -->
-        <test expect_num_outputs="3">
-            <param name="alignments" value="reverse.bam" ftype="unsorted.bam"/>
+        <test expect_num_outputs="2">
+            <param name="alignments" value="reverse.bam"/>
             <conditional name="reference">
                 <param name="source" value="genome"/>
-                <param name="fasta" value="genome.fa"/>
+                <conditional name="genome">
+                    <param name="source" value="history"/>
+                    <param name="fasta" value="genome.fa"/>
+                </conditional>
                 <param name="gtf" value="genes.gtf"/>
             </conditional>
             <param name="strandedness" value="reverse"/>
@@ -153,8 +214,8 @@ rsem-calculate-expression
             <output name="isoforms_results" file="reverse.isoforms.results"/>
         </test>
         <!-- Without a gene map, each transcript is its own gene. -->
-        <test expect_num_outputs="3">
-            <param name="alignments" value="single.sam"/>
+        <test expect_num_outputs="2">
+            <param name="alignments" value="single.bam"/>
             <conditional name="reference">
                 <param name="source" value="transcripts"/>
                 <param name="fasta" value="transcripts.fa"/>
@@ -181,10 +242,13 @@ rsem-calculate-expression
         </test>
         <!-- Genomic coordinates cannot be used as transcript coordinates. -->
         <test expect_failure="true">
-            <param name="alignments" value="genomic.sam"/>
+            <param name="alignments" value="genomic.bam"/>
             <conditional name="reference">
                 <param name="source" value="genome"/>
-                <param name="fasta" value="genome.fa"/>
+                <conditional name="genome">
+                    <param name="source" value="history"/>
+                    <param name="fasta" value="genome.fa"/>
+                </conditional>
                 <param name="gtf" value="genes.gtf"/>
             </conditional>
             <conditional name="library">
@@ -194,9 +258,9 @@ rsem-calculate-expression
                 <has_text text="RSEM can not recognize reference sequence name chr1"/>
             </assert_stderr>
         </test>
-        <!-- The upstream validator returns zero even when reads are not grouped. -->
+        <!-- The upstream validator returns zero even for an unsupported insertion. -->
         <test expect_failure="true">
-            <param name="alignments" value="ungrouped.sam"/>
+            <param name="alignments" value="invalid.bam"/>
             <conditional name="reference">
                 <param name="source" value="transcripts"/>
                 <param name="fasta" value="transcripts.fa"/>
@@ -205,25 +269,38 @@ rsem-calculate-expression
                 <param name="layout" value="single"/>
             </conditional>
             <assert_stderr>
-                <has_text text="not grouped together"/>
                 <has_text text="The input file is not valid!"/>
             </assert_stderr>
+        </test>
+        <!-- The built-in all_fasta reference gives the same estimates as history. -->
+        <test expect_num_outputs="2">
+            <param name="alignments" value="paired.bam"/>
+            <conditional name="reference">
+                <param name="source" value="genome"/>
+                <conditional name="genome">
+                    <param name="source" value="cached"/>
+                    <param name="index" value="rsem_test_genome"/>
+                </conditional>
+                <param name="gtf" value="genes.gtf"/>
+            </conditional>
+            <output name="genes_results" file="paired.genes.results"/>
+            <output name="isoforms_results" file="paired.isoforms.results"/>
         </test>
     </tests>
     <help format="markdown"><![CDATA[
 RSEM estimates expression for genes and their transcript isoforms. A read can match a sequence shared by several isoforms. RSEM estimates each isoform's contribution to the observed reads and assigns ambiguous reads proportionally, producing counts that can include fractions.
 
-Analyze each sequencing library separately to preserve biological replicates for subsequent comparisons. Supply aligned reads and their matching reference sequences. The tool prepares the RSEM reference and calculates expression estimates.
+Analyze each sequencing library separately to preserve biological replicates for subsequent comparisons. Supply aligned reads and their matching reference sequences. The tool prepares the reference, arranges the reads for RSEM, and calculates expression estimates.
 
 -----
 
 **Transcriptome alignments**
 
-Select one sample's transcript alignments in SAM or BAM format. These records give each read's position within a transcript. With STAR, select **Aligned.toTranscriptome.out.bam**, generated with the **TranscriptomeSAM** quantification option. Genomic BAM files use chromosome coordinates and are unsuitable for this analysis.
+Select one sample's transcript alignments in BAM format. These records give each read's position within a transcript. With STAR, select **Aligned.toTranscriptome.out.bam**, generated with the **TranscriptomeSAM** quantification option. Genomic BAM files use chromosome coordinates and are unsuitable for this analysis.
 
-Keep alternative alignments for reads that match several transcripts. RSEM needs these alternatives, read sequences, and base-quality scores to estimate expression. Group all alignments of each read together, with the two mates of each paired-end alignment adjacent. Alignments must satisfy RSEM's requirements, including the absence of insertions and deletions.
+Keep alternative alignments for reads that match several transcripts. RSEM needs these alternatives, read sequences, and base-quality scores to estimate expression. The tool groups alignments by read, places paired mates together, and validates the prepared BAM before calculating expression. You can supply a coordinate-sorted BAM directly.
 
-The tool validates alignment structure before calculating expression. If it reports ungrouped reads or separated mates, RSEM's `convert-sam-for-rsem` utility can correct the record order. If it reports an unrecognized reference sequence, check the reference files and confirm that the alignments use transcript coordinates.
+Alignments must satisfy RSEM's requirements, including the absence of insertions and deletions. If the tool reports an unrecognized reference sequence, check the reference files and confirm that the alignments use transcript coordinates.
 
 -----
 
@@ -236,9 +313,18 @@ Choose the source of the transcript sequences:
 
 Both choices require matching transcript identifiers, sequences, and lengths. Keep version suffixes in identifiers consistent. For a genome-based analysis, use the same assembly and annotation release for alignment and quantification.
 
+**Genome source**
+
+For **Genome FASTA and GTF annotation**, choose where to obtain the genome:
+
+- **Use a built-in genome**, the default, selects a genome provided by the Galaxy server.
+- **Use a genome from history** selects a FASTA dataset you have uploaded or obtained in your history. Use this option when the required assembly is unavailable in the built-in list.
+
+Both options require a matching GTF annotation from your history.
+
 **Reference genome**
 
-For **Genome FASTA and GTF annotation**, select the genome FASTA used for alignment. It contains chromosome or contig sequences from that assembly. Sequence names must match the GTF exactly—for example, `chr1` and `1` are different names. RSEM extracts transcript sequences using the annotated exon coordinates.
+Select the assembly used for alignment, either from the built-in list or as a FASTA dataset from your history. It contains chromosome or contig sequences from that assembly. Sequence names must match the GTF exactly—for example, `chr1` and `1` are different names. RSEM extracts transcript sequences using the annotated exon coordinates.
 
 **Gene annotation**
 
@@ -246,7 +332,7 @@ For **Genome FASTA and GTF annotation**, select the GTF used for alignment. Its 
 
 **Reference transcripts**
 
-For **Transcript FASTA**, select the spliced transcript sequences used for alignment. These sequences have their introns removed. Each FASTA identifier becomes a transcript identifier and must match the corresponding reference name in the SAM or BAM, including any version suffix. The sequences and lengths must also match.
+For **Transcript FASTA**, select the spliced transcript sequences used for alignment. These sequences have their introns removed. Each FASTA identifier becomes a transcript identifier and must match the corresponding reference name in the BAM, including any version suffix. The sequences and lengths must also match.
 
 **Transcript-to-gene map**
 
@@ -327,9 +413,13 @@ The default, **No**, preserves the original identifiers. Keep this choice when d
 
 Select **Yes** to retain a BAM file with RSEM's estimated probability for each alignment. A read matching several transcripts can have several alignments, each with its own probability. RSEM records this probability in the `ZW` tag—an additional field attached to the alignment.
 
-Use this file to inspect assignments of ambiguous reads or as input to tools that use alignment probabilities. Saving it requires additional storage. Either choice produces the same expression estimates. The BAM is unsorted and uses transcript coordinates. Supply the matching transcript reference when viewing it.
+Use this file to inspect assignments of ambiguous reads or as input to tools that use alignment probabilities. Saving it requires additional storage. Either choice produces the same expression estimates. The BAM is coordinate-sorted and uses transcript coordinates. Supply the matching transcript reference when viewing it.
 
-The default, **No**, produces the expression tables and log without retaining this BAM.
+The default is **No**, which omits this BAM.
+
+**Output log**
+
+Select **Yes** to retain the detailed log of reference preparation, read preparation, alignment validation, and expression estimation. Use it to inspect the commands and progress recorded during an analysis. The default is **No**. The expression tables are produced with either choice.
 
 -----
 
@@ -337,7 +427,7 @@ The default, **No**, produces the expression tables and log without retaining th
 
 - **Gene estimates** combine transcript estimates according to the GTF or gene map. Without these gene relationships, each transcript becomes a separate gene entry.
 - **Isoform estimates** give expression estimates for individual transcripts. The `IsoPct` column gives each transcript's percentage of its parent gene's expression.
-- **Log** records reference preparation, alignment validation, and expression estimation. Read it when a run fails or gives unexpected results.
+- **Log** records reference preparation, read preparation, alignment validation, and expression estimation when you request it.
 - **Posterior-weighted transcriptome BAM** contains alignment probabilities when you request that output.
 
 Both expression tables report **expected counts**, **TPM**, and **FPKM**. Expected counts estimate the number of fragments assigned to a gene or transcript, with one paired-end read pair representing one fragment. Ambiguous reads contribute fractional counts according to their estimated probabilities. Filtering and the model's background component can reduce the total below the number of aligned fragments.
@@ -349,7 +439,7 @@ Both expression tables report **expected counts**, **TPM**, and **FPKM**. Expect
 **Example: paired-end STAR data from a reverse-stranded library**
 
 1. Select STAR's **Aligned.toTranscriptome.out.bam** for the sample.
-2. Choose **Genome FASTA and GTF annotation**, and select the genome and annotation used for that STAR analysis.
+2. Choose **Genome FASTA and GTF annotation**. Select the matching built-in genome or genome FASTA from history, and the GTF used for that STAR analysis.
 3. Set **Library layout** to **Paired-end**.
 4. Confirm that the library protocol is reverse-stranded, then set **Library strandedness** to **Reverse**.
 5. Use the estimation settings specified by your analysis method. Keep **Append gene and transcript names to identifiers** at **No** if downstream tools expect the original identifiers.
