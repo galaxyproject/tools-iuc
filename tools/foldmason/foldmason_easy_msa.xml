@@ -12,8 +12,7 @@
     #set $structures = $source.structures
     @LINK_STRUCTURES@
 #else
-    #set $sequence_ext = 'fasta.gz' if $source.sequences.is_of_type('fasta.gz') else 'fasta'
-    ln -s '$source.sequences' 'sequences.$sequence_ext' &&
+    ln -s '$source.sequences' 'sequences.${source.sequences.file_ext}' &&
 #end if
 foldmason easy-msa
 #if str($source.mode) == 'structures'
@@ -21,11 +20,11 @@ foldmason easy-msa
     result tmp
     --report-mode $source.report_mode
 #else
-    'sequences.$sequence_ext'
+    'sequences.${source.sequences.file_ext}'
     result tmp
     --prostt5-model '$source.model.fields.path'
     --report-mode 0
-    --gpu 0
+    --gpu "\${GALAXY_FOLDMASON_GPU:-0}"
 #end if
     --threads "\${GALAXY_SLOTS:-1}"
     $alignment.fast
@@ -69,7 +68,7 @@ foldmason easy-msa
             <param argument="--fast" type="boolean" truevalue="--fast 1" falsevalue="--fast 0" checked="false" label="Use fast alignment" help="Disable residue neighbourhood similarity scoring. Sequence input automatically uses fast mode because atomic coordinates are unavailable."/>
             <param argument="--precluster" type="boolean" truevalue="--precluster 1" falsevalue="--precluster 0" checked="false" label="Precluster inputs" help="Reduce alignment time for large input sets."/>
             <param argument="--refine-iters" type="integer" min="0" value="0" label="Refinement iterations"/>
-            <param argument="--refine-seed" type="integer" min="0" value="0" label="Refinement random seed" help="Use a fixed seed for reproducible refinement."/>
+            <param argument="--refine-seed" type="integer" min="-1" value="-1" label="Refinement random seed" help="Use -1 for a random seed, or a non-negative integer for reproducible refinement."/>
             <expand macro="pair_threshold"/>
             <param argument="--guide-tree" type="data" format="newick" optional="true" label="Guide tree" help="Optional Newick tree with leaf names matching the input identifiers."/>
         </section>
@@ -95,6 +94,9 @@ foldmason easy-msa
                 <param name="structures" value="d1b0ba_,d1naza_,d1q1fa_,d1urva_,d2w72b_" ftype="pdb"/>
                 <param name="report_mode" value="1"/>
             </conditional>
+            <assert_command>
+                <has_text text="--refine-seed -1"/>
+            </assert_command>
             <output name="aa_alignment" file="upstream_msa.fasta"/>
             <output name="structural_alignment" file="default_3di.fasta"/>
             <output name="tree" file="default.nw"/>
@@ -130,6 +132,7 @@ foldmason easy-msa
             </conditional>
             <section name="alignment">
                 <param name="refine_iters" value="2"/>
+                <param name="refine_seed" value="0"/>
             </section>
             <output name="aa_alignment" file="refined_aa.fasta"/>
             <output name="structural_alignment" file="refined_3di.fasta"/>
@@ -149,6 +152,21 @@ foldmason easy-msa
             <output name="aa_alignment" file="compressed_aa.fasta"/>
             <output name="structural_alignment" file="compressed_3di.fasta"/>
         </test>
+        <!-- Distinct collection names can collide after sanitization and extension removal. -->
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="source">
+                <param name="mode" value="structures"/>
+                <param name="structures">
+                    <collection type="list">
+                        <element name="same name.pdb" value="d1b0ba_" ftype="pdb"/>
+                        <element name="same_name.cif" value="d1naza_" ftype="pdb"/>
+                    </collection>
+                </param>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Duplicate structure identifier: same_name"/>
+            </assert_stderr>
+        </test>
         <!-- FASTA sequences are the upstream regression alignment with gaps removed.
              These test model-table selection and the missing-model error, not inference.
              The published build lacks ProstT5; the enabled build reports missing weights. -->
@@ -160,7 +178,9 @@ foldmason easy-msa
             </conditional>
             <assert_command>
                 <has_text text="--prostt5-model"/>
+                <has_text text="sequences.fasta"/>
                 <has_text text="missing-prostt5-weights"/>
+                <has_text text="--gpu &quot;${GALAXY_FOLDMASON_GPU:-0}&quot;"/>
             </assert_command>
             <assert_stderr>
                 <has_line_matching expression=".*(Could not find ProstT5 model weights|compiled without ProstT5 support).*"/>
@@ -174,7 +194,9 @@ foldmason easy-msa
             </conditional>
             <assert_command>
                 <has_text text="--prostt5-model"/>
+                <has_text text="sequences.fasta.gz"/>
                 <has_text text="missing-prostt5-weights"/>
+                <has_text text="--gpu &quot;${GALAXY_FOLDMASON_GPU:-0}&quot;"/>
             </assert_command>
             <assert_stderr>
                 <has_line_matching expression=".*(Could not find ProstT5 model weights|compiled without ProstT5 support).*"/>
@@ -186,7 +208,8 @@ foldmason easy-msa
 
 FoldMason builds multiple protein alignments using amino acid sequences and the
 3Di structural alphabet. Supply PDB/mmCIF structures, or protein sequences to
-predict 3Di tokens with ProstT5 on the CPU.
+predict 3Di tokens with ProstT5. Sequence inference uses the CPU by default;
+your administrator can enable GPU acceleration on a suitable job destination.
 
 **Inputs**
 
@@ -212,8 +235,9 @@ FoldMason uses fast alignment and cannot produce coordinate-based LDDT reports.
 
 Fast mode disables neighbourhood scoring. Preclustering can speed up large
 alignments. Refinement iterations improve the initial alignment; the random
-seed makes repeated refinement runs reproducible. An optional guide tree must
-use the same identifiers as the inputs.
+seed defaults to -1 (random). Set a non-negative seed to make refinement
+runs reproducible. An optional guide tree must use the same identifiers as
+the inputs.
     ]]></help>
     <expand macro="citations"/>
 </tool>
