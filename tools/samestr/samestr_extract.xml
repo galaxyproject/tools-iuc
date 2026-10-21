@@ -1,0 +1,148 @@
+<tool id="samestr_extract" name="SameStr Extract" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>MetaPhlAn or mOTUS marker sequences from reference genomes using BLASTN</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    ## The command line tool turns input file names into sample names carried along during
+    ## the entire samestr analysis workflow.
+    ## We either rely on users naming inputs more or less correctly, in which case we still try to prevent
+    ## common problems like using characters that aren't compatible with samestr sample names or
+    ## keeping a redundant file suffix in the input name.
+    #import re
+    #set $ref_suffix = '.' + $reference_genomes[0].ext
+    #for $reference in $reference_genomes:
+        #set $ref_basename = re.sub('[^\w\-\.]', '_', $reference.element_identifier.split($ref_suffix)[0])
+        ln -s '$reference' '${ref_basename}${ref_suffix}' &&
+    #end for
+
+    samestr extract
+    --input-files
+    #for $reference in $reference_genomes:
+        '${ref_basename}${ref_suffix}'
+    #end for
+    --clade '$clade'
+    --marker-dir '$database.fields.path'
+    --aln-program '$alignment.alignment_program'
+    --marker-trunc-len $alignment.truncate_marker
+    $alignment.save_marker_aln
+    ]]></command>
+    <inputs>
+        <param name="reference_genomes" type="data" format="fasta,fasta.gz" multiple="true" label="Reference genomes" help="Note: You can provide the genomes in uncompressed fasta or compressed fasta.gz format, but you must not mix compressed and uncompressed inputs."/>
+        <param name="database" type="select" label="SameStr database" help="SameStr database built from MetaPhlAn or mOTUS markers">
+            <options from_data_table="samestr_db">
+                <filter type="sort_by" column="2" />
+                <filter type="static_value" column="4" value="1" />
+            </options>
+        </param>
+        <param argument="--clade" type="text" label="Clade to align genomes against" help="The name must correspond exactly to that of a taxonomic clade in the selected database [e.g. t__SGB10068 for MetaPhlAn]">
+            <validator type="empty_field" message="Please enter a clade name."/>
+        </param>
+        <section name="alignment" title="Alignment Parameters">
+            <param name="alignment_program" type="select" label="Alignment program" help="Program to use for alignment of marker sequences.">
+                <option value="muscle" selected="true">MUSCLE</option>
+                <option value="mafft">MAFFT</option>
+            </param>
+            <param argument="--truncate-marker" type="integer" value="0" min="0" label="Marker truncation length" help="Number of Nucleotides to be cut from each side of a marker"/>
+            <param argument="--save-marker-aln" type="boolean" truevalue="--save-marker-aln" falsevalue="" label="Save alignment files" help="Keep alignment files for individual markers." />
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="npz_files" type="list" label="${tool.name} on ${on_string}: per-genome SNV profiles">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.npz$" directory="out_extract" format="npz"/>
+        </collection>
+        <data name="msa_file" format="fasta.gz" from_work_dir="out_extract/*.msa.fa" label="${tool.name} on ${on_string}: Alignment of genomes across clade markers"/>
+        <collection name="marker_alignments" type="list" label="${tool.name} on ${on_string}: per-marker genome alignments">
+            <filter>alignment['save_marker_aln']</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.marker_aligned\.fasta$" directory="out_extract" format="fasta"/>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="reference_genomes" value="PAS50.fasta.gz" ftype="fasta.gz"/>
+            <param name="clade" value="t__Propionibacterium_phage_PAS50"/>
+            <param name="database" value="mpa_test-db-without-one-marker"/>
+            <section name="alignment">
+                <param name="alignment_program" value="muscle"/>
+                <param name="truncate_marker" value="0"/>
+            </section>
+            <output_collection name="npz_files" type="list" count="1">
+                <element name="t__Propionibacterium_phage_PAS50.PAS50" ftype="npz">
+                    <assert_contents>
+                        <has_size value="500" delta="500"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="msa_file" ftype="fasta.gz" decompress="true">
+                <assert_contents>
+                    <has_text text=">PAS50" />
+                    <has_text text=">t__Propionibacterium_phage_PAS50.markers" />
+                    <has_size min="100" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="reference_genomes" value="PAS50.fasta" ftype="fasta"/>
+            <param name="clade" value="t__Propionibacterium_phage_PAS50"/>
+            <param name="database" value="mpa_test-db-without-one-marker"/>
+            <section name="alignment">
+                <param name="alignment_program" value="mafft"/>
+                <param name="truncate_marker" value="0"/>
+                <param name="save_marker_aln" value="true"/>
+            </section>
+            <output_collection name="npz_files" type="list" count="1">
+                <element name="t__Propionibacterium_phage_PAS50.PAS50" ftype="npz">
+                    <assert_contents>
+                        <has_size value="500" delta="500"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="marker_alignments" type="list" count="1"/>
+            <output name="msa_file" ftype="fasta.gz" decompress="true">
+                <assert_contents>
+                    <has_text text=">PAS50" />
+                    <has_text text=">t__Propionibacterium_phage_PAS50.markers" />
+                    <has_size min="100" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+@SAMESTR_INTRO@
+
+SameStr Extract
+...............
+
+SameStr Extract obtains MetaPhlAn or mOTUS marker sequences from reference genomes using BLASTN. It extracts clade-specific marker
+sequences for strain-level analysis. The resulting variant profiles can be used in downstream SameStr workflow steps.
+
+**Input Requirements**
+
+Samestr Extract can process multiple reference genomes simultaneously. For each analysis, the following inputs must be provided:
+
+- One or more reference genome sequences containing complete bacterial genomes
+- A SameStr database generated from a MetaPhlAn or mOTUS clade marker database
+- The exact clade identifier corresponding to the taxonomic group of interest in the selected database
+
+**Alignment parameters**
+
+- Alignment program: You can choose between MUSCLE (default) or MAFFT for multiple sequence alignment of marker sequences.
+- Marker truncation length: Number of nucleotides to trim from each side of marker sequences to remove poorly aligned regions.
+- Save alignment files: Optionally keep multiple sequence alignments for individual markers.
+
+**Results and Outputs**
+
+The tool generates two or three outputs:
+
+- A collection of per-reference SNV profiles with respect to the selected clade, i.e.,
+  each element of the collection contains the SNV profile for one reference genome with respect to the chosen clade.
+
+  Element identifiers follow the scheme <Clade>.<Reference>, which is the naming scheme expected by SameStr Merge.
+- A multiple-sequence alignment of genomes across clade markers. This is a single dataset in gz-compressed fasta format.
+- Optionally, a collection of per-marker genome alignments, in which each element is a multiple-sequence alignment
+  in fasta format of the input genomes against one specific marker from the chosen clade.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>

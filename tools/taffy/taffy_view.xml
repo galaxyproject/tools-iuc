@@ -1,0 +1,422 @@
+<tool id="taffy_view" name="Taffy view" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>converts between TAF and MAF formats</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/> 
+    <expand macro="stdio"/>
+    <command detect_errors="aggressive">
+        <![CDATA[        
+        ## Set variables
+        @SET_UNCOMPRESS_NAMES@
+
+        ## Uncompress input files if necessary and create symlinks for uncompressed files
+        @UNCOMPRESS_TAF_AND_MAF@
+
+        ## If a region is extracted, an index file needs to be available with the 
+        ## same name as the input file + an .tai extension. For this, we generate the index 
+        ## file automatically based on the input file name.
+        ## Input file name is defined in @SET_UNCOMPRESS_NAMES@
+        #if $region.extract == 'true':
+            taffy index
+            --logLevel 'INFO'
+            --inputFile '$uncompressed_input' && 
+        #end if 
+
+        ## Run main command
+        taffy view
+            --logLevel 'INFO'
+            --inputFile '$uncompressed_input' ## inputFile must be provided (not via stdin) to support --region
+            #if $input_mapping:
+                --nameMapFile '$input_mapping'
+            #end if
+            #if $region.extract == 'true':
+                --region $region.region
+            #end if 
+            #if $onlyDifferences.show == 'reference':
+                --showOnlyReferenceDifferences
+            #else if $onlyDifferences.show == 'lineage':
+                --showOnlyLineageDifferences
+                --phylogeny $onlyDifferences.phylogeny
+            #end if 
+            #if $output.format == 'maf':
+                --maf
+                $output.visual.colorBases
+
+                ## Compress MAF output if requested by user 
+                @COMPRESS_MAF@
+            #else if $output.format == 'paf':
+                #if $output.pafType == '--paf':
+                    --paf
+                #else:
+                    --paf-all
+                #end if
+                #if $output.cigarType == 'cs':
+                    --cs
+                #end if
+
+                ## Compress PAF output if requested by user 
+                @COMPRESS_PAF@
+            #else: ## 'taf'
+                $output.visual.colorBases
+                $output.visual.omitCoordinates
+                $output.runLengthEncodeBases
+                --repeatCoordinatesEveryNColumns $output.repeatCoordinatesEveryNColumns
+
+                ## Compress TAF output if requested by user 
+                @COMPRESS_TAF@
+            #end if 
+    ]]></command>
+    <inputs>
+        <expand macro="input_taf_maf"/>
+        <conditional name="region">
+            <param name="extract" type="select" label="Convert only a sub-region">
+                <option value="false" selected="true">No, convert entire alignment (default)</option>
+                <option value="true">Yes, convert a sub-region</option>
+            </param>
+            <when value="false"/>
+            <when value="true">
+                <param argument="--region" type="text" label="Sub-Region to extract" help="Enter the sub-region as: SEQ:START-END (0-based open-ended like BED). Also supports 'SEQ' only (for whole sequence) or 'SEQ:POS' (for single base). If 'Genome name mapping' is applied simultaneously, the given SEQ value is updated too if present in the name mapping file. SEQ must match the sequence name as it appears in the index file">
+                    <expand macro="sanitizer_default"/>
+                    <validator type="regex" message="Invalid format. Use SEQ, SEQ:POS, or SEQ:START-END">^.+(:(\d+)(-\d*)?)?$</validator>
+                </param>
+            </when>
+        </conditional>
+        <param name="input_mapping" type="data" format="tabular,tsv,txt" optional="true" label="Genome name mapping file" help="A two-column tab-separated file mapping old assembly names to new ones. Useful for renaming genomes in the output. Format: &lt;OriginalName&gt; &lt;NewName&gt; (--nameMapFile)"/>
+        <conditional name="onlyDifferences">
+            <param name="show" type="select" label="Mask identical bases" help="Mask identical bases by replacing them with a '*' character to highlight differences">
+                <option value="false" selected="true">None (default)</option>
+                <option value="reference">Mask matches to reference (first row) (--showOnlyReferenceDifferences)</option>
+                <option value="lineage">Mask matches to ancestral lineage (--showOnlyLineageDifferences)</option>
+            </param>
+            <when value="false"/>
+            <when value="reference"/>
+            <when value="lineage">
+                <param name="phylogeny" type="data" format="txt" label="Phylogeny" help="A Newick tree used to infer lineage changes. Species names must match sequence name prefixes. The alignment must contain the corresponding ancestral sequences (--phylogeny)"/>
+            </when>
+        </conditional>
+        <conditional name="output">
+            <param name="format" type="select" label="Output file format">
+                <option value="taf" selected="true">Output as TAF file (default)</option>
+                <option value="maf">Output as MAF file (--maf)</option>
+                <option value="paf">Output as PAF file (--paf)</option>
+            </param>
+            <when value="taf">
+                <expand macro="params_repeatCoordinatesEveryNColumns"/>
+                <param argument="--runLengthEncodeBases" type="boolean" truevalue="--runLengthEncodeBases" falsevalue="" checked="false" label="Run-length encode bases" help="Compresses the sequence data using run-length encoding"/>  
+                 <section name="visual" title="Visualization options" expanded="true" help="These options are for visualization only. They produce an invalid formatted output file, which cannot be used by most downstream tools">
+                    <expand macro="params_colorBases"/>
+                    <param argument="--omitCoordinates" type="boolean" truevalue="--omitCoordinates" falsevalue="" checked="false" label="Omit coordinates" help="Only outputs the alignment columns, omitting sequence coordinates"/>  
+                </section>
+                <expand macro="params_conditional_compression_taf"/>
+            </when>
+            <when value="maf">
+                <section name="visual" title="Visualization options" expanded="true" help="These options are for visualization only. They produce an invalid formatted output file, which cannot be used by most downstream tools">
+                    <expand macro="params_colorBases"/>
+                </section>
+                <expand macro="params_conditional_compression_maf"/>
+            </when>
+            <when value="paf">
+                <param name="pafType" type="select" label="PAF format" help="Select 'all-to-one' to output pairwise alignments only between the reference (first row) and other sequences. Select 'all-to-all' to output alignments between every possible pair of sequences in the block">
+                    <option value="--paf" selected="true">Output in all-to-one PAF format (default)</option>
+                    <option value="--paf-all">Output in all-to-all PAF format (--paf-all)</option>
+                </param>
+                <param name="cigarType" type="select" label="CIGAR string format" help="Select 'cg' for the standard CIGAR format (e.g. 10M) or 'cs' for the detailed format, which includes the bases of the differences (e.g. =ACTG*ac+G)">
+                    <option value="cg" selected="true">Use in cg format (default)</option>
+                    <option value="cs">Use in cs format (--cs)</option>
+                </param>
+                <expand macro="params_conditional_compression_paf"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="taf">
+            <change_format>
+                <when input="output.compression_taf" value="gz" format="taf.gz"/>
+                <when input="output.compression_maf" value="gz" format="maf.gz"/>
+                <when input="output.compression_maf" value="bz2" format="maf.bz2"/>
+                <when input="output.compression_paf" value="gz" format="paf.gz"/>
+                <when input="output.format" value="maf" format="maf"/>
+                <when input="output.format" value="paf" format="paf"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: TAF input, TAF output, Output should equal input -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <output name="out_file" ftype="taf" md5="44549a3d5b05d230e2917baaff6c3fbb"/>
+        </test>
+        <!-- Test 2: TAF input, MAF output, Output should equal input of Test 4 -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+            </conditional>
+            <output name="out_file" ftype="maf" md5="0e80d9065734a14b928d810c3f6af2c7"/>
+        </test>
+        <!-- Test 3: TAF input, PAF all-to-one output -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="paf"/>
+            </conditional>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="#taf" negate="true"/>
+                    <has_text text="##maf" negate="true"/>
+                    <has_line line="Anc1.Anc1refChr1&#009;296994&#009;292714&#009;292764&#009;+&#009;Anc0.Anc0refChr0&#009;4151&#009;0&#009;50&#009;50&#009;50&#009;255&#009;cg:Z:50M"/>
+                    <has_text text="cs:Z:=ACA*TA*CA*TA*GA" negate="true"/>
+                    <has_text text="+&#009;mr.mrrefChr1&#009;" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: MAF input, TAF output, Output should equal input of Test 1 -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testMaf.maf"/>
+            <output name="out_file" ftype="taf" md5="44549a3d5b05d230e2917baaff6c3fbb"/>
+        </test>
+        <!-- Test 5: MAF input, MAF output, Output should equal input -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testMaf.maf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+            </conditional>
+            <output name="out_file" ftype="maf" md5="0e80d9065734a14b928d810c3f6af2c7"/>
+        </test>
+        <!-- Test 6: MAF input, PAF all-to-one output-->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testMaf.maf"/>
+            <conditional name="output">
+                <param name="format" value="paf"/>
+            </conditional>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="#taf" negate="true"/>
+                    <has_text text="##maf" negate="true"/>
+                    <has_line line="Anc1.Anc1refChr1&#009;296994&#009;292714&#009;292764&#009;+&#009;Anc0.Anc0refChr0&#009;4151&#009;0&#009;50&#009;50&#009;50&#009;255&#009;cg:Z:50M"/>
+                    <has_text text="cs:Z:=ACA*TA*CA*TA*GA" negate="true"/>
+                    <has_text text="+&#009;mr.mrrefChr1&#009;" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: Compressed MAF input (.gz), TAF output, Output should equal input of Test 1 -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testMaf.maf.gz"/>
+            <output name="out_file" ftype="taf" md5="44549a3d5b05d230e2917baaff6c3fbb"/>
+        </test>
+        <!-- Test 8: Compressed MAF input (.bz2), TAF output, Output should equal input of Test 1 -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testMaf.maf.bz2"/>
+            <output name="out_file" ftype="taf" md5="44549a3d5b05d230e2917baaff6c3fbb"/>
+        </test>
+        <!-- Test 9: TAF input, PAF all-to-all output -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="paf"/>
+                <param name="pafType" value="--paf-all"/>
+            </conditional>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="#taf" negate="true"/>
+                    <has_text text="##maf" negate="true"/>
+                    <has_line line="Anc1.Anc1refChr1&#009;296994&#009;292714&#009;292764&#009;+&#009;Anc0.Anc0refChr0&#009;4151&#009;0&#009;50&#009;50&#009;50&#009;255&#009;cg:Z:50M"/>
+                    <has_text text="cs:Z:=ACA*TA*CA*TA*GA" negate="true"/>
+                    <has_text text="+&#009;mr.mrrefChr1&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 10: TAF input, PAF all-to-one output with cs format for CIGAR strings -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="paf"/>
+                <param name="cigarType" value="cs"/>
+            </conditional>
+            <output name="out_file" ftype="paf">
+                <assert_contents>
+                    <has_text text="#taf" negate="true"/>
+                    <has_text text="##maf" negate="true"/>
+                    <has_line line="Anc1.Anc1refChr1&#009;296994&#009;292714&#009;292764&#009;+&#009;Anc0.Anc0refChr0&#009;4151&#009;0&#009;50&#009;50&#009;50&#009;255&#009;cg:Z:50M" negate="true"/>
+                    <has_text text="cs:Z:=ACA*TA*CA*TA*GA"/>
+                    <has_text text="+&#009;mr.mrrefChr1&#009;" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 11: TAF input, MAF output with enabled visualisations -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+                <conditional name="visual">
+                    <param name="colorBases" value="true"/>
+                </conditional>
+            </conditional>
+            <output name="out_file" ftype="maf">
+                <assert_contents>
+                    <has_text text="##maf" n="1"/>
+                    <has_line line="a" n="6"/>
+                    <has_line line="s&#009;Anc0.Anc0refChr0&#009;51&#009;7&#009;+&#009;4151&#009;ACATCTG" negate="true"/>
+                    <has_line_matching expression="s\tAnc0\.Anc0refChr0\t50\t1\t\+\t4151\t\x1b\[41mA\x1b\[0m"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 12: TAF input, TAF output with enabled visualisations -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+                <conditional name="visual">
+                    <param name="colorBases" value="true"/>
+                    <param name="omitCoordinates" value="true"/>
+                </conditional>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text="; i 0 Anc0.Anc0refChr0 0 + 4151 i 1 Anc1.Anc1refChr1 292714 + 296994 i 2 " negate="true"/>
+                    <has_text_matching expression="\x1b\[42mT\x1b\[0m\x1b\[42mT\x1b\[0m\x1b\[42mT\x1b\[0m\x1b\[42mT\x1b\[0m\x1b\[42mT\x1b\[0m\x1b\[42mT\x1b\[0m\x1b\[42mT\x1b\[0m\x1b\[41mA\x1b\[0m\x1b\[42mT\x1b\[0m"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 13: TAF input, TAF output with repeatCoordinatesEveryNColumns -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+                <param name="repeatCoordinatesEveryNColumns" value="10"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text="AAAATAAAA ; g 3 1 g 7 1 g 8 1" negate="true"/>
+                    <has_text text="0 Anc0.Anc0refChr0" n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 14: TAF input, TAF output with runLengthEncodeBases & Genome name mapping-->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <param name="input_mapping" value="taffy_view_mapping_input.tsv"/>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+                <param name="runLengthEncodeBases" value="true"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf run_length_encode_bases:1" n="1"/>
+                    <has_text text="Anc0.Anc0refChr0" negate="true"/>
+                    <has_text text="simDog_chr6.simDog.chr6" negate="true"/>
+                    <has_text text="NewAnc0refChr0"/>
+                    <has_text text="NewSimDog"/>
+                    <has_line line="C 4 G 1 C 4 "/>
+                    <has_line line="AAATAAATT" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 15: TAF input, TAF output with shown differences to reference & region extraction -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="region">
+                <param name="extract" value="true"/>
+                <param name="region" value="Anc0.Anc0refChr0:100-2000"/>
+            </conditional>
+            <conditional name="onlyDifferences">
+                <param name="show" value="reference"/>
+            </conditional>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text="0 Anc0.Anc0refChr0 0 + 4151" negate="true"/>
+                    <has_text text="0 Anc0.Anc0refChr0 100 + 4151"/>
+                    <has_line line="TTTTTTTTT" negate="true"/>
+                    <has_line line="T*G*GG***"/>
+                    <has_line line="T*G*GG*TT" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 16: TAF input, TAF output with shown differences to phylogeny -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="onlyDifferences">
+                <param name="show" value="lineage"/>
+                <param name="phylogeny" value="taffy_view_phylogeny_input.txt"/>
+            </conditional>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_line line="TTTTTTTTT" negate="true"/>
+                    <has_line line="T*G*GG***" negate="true"/>
+                    <has_line line="T*G*GG*TT"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 17: TAF input, Compressed TAF output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="taf"/>
+                <param name="compression_taf" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="taf.gz">
+                <assert_contents>
+                    <has_size size="615" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 18: TAF input, Compressed MAF output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+                <param name="compression_maf" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="maf.gz">
+                <assert_contents>
+                    <has_size size="842" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 19: TAF input, Compressed MAF output (.bz2) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="maf"/>
+                <param name="compression_maf" value="bz2"/>
+            </conditional>
+            <output name="out_file" ftype="maf.bz2">
+                <assert_contents>
+                    <has_size size="814" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 20: TAF input, Compressed PAF output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="output">
+                <param name="format" value="paf"/>
+                <param name="compression_paf" value="gz"/>
+            </conditional>
+            <output name="out_file" ftype="paf.gz">
+                <assert_contents>
+                    <has_size size="646" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Taffy view converts multiple genome alignment files between TAF (Transposed Alignment Format) and MAF (Multiple Alignment Format).
+It can extract specific regions, modify alignment representation, and apply naming transformations.
+The tool converts it to the requested output format.
+Supported output formats are TAF, MAF, or PAF. 
+    ]]></help>
+    <expand macro="citation"/>
+    <expand macro="creator"/>
+</tool>

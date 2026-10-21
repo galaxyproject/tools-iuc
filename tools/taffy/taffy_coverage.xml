@@ -1,0 +1,209 @@
+<tool id="taffy_coverage" name="Taffy coverage" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>computes basic pairwise coverage stats for a TAF file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/> 
+    <expand macro="stdio"/>
+    <command detect_errors="aggressive">
+        <![CDATA[
+        ## Set variables
+        @SET_UNCOMPRESS_NAMES@
+        
+        ## Uncompress input files if necessary and create symlinks for uncompressed files
+        @UNCOMPRESS_TAF_AND_MAF@
+
+        ## Run main command
+        taffy coverage
+            --logLevel 'INFO'
+            --inputFile '$uncompressed_input' 
+            #if $reference.type == 'specific':
+                --reference '$reference.reference'
+            #end if
+            #if $genomeNames.parsing == 'specific':
+                --genomeNames '$genomeNames.genomeNames'
+            #end if
+            #if $gapThreshold.type == 'specific':
+                #for $threshold in $str($gapThreshold.gapThreshold).split():
+                    #if $threshold.isdigit():
+                        --gapThreshold '$threshold'
+                    #end if
+                #end for
+            #end if
+            #if $sexChr.type == 'specific':
+                #for $chr in $str($sexChr.sexChr).split():
+                    --sexChr '$chr'
+                #end for
+            #end if
+            > '$out_file'
+    ]]></command>
+    <inputs>
+        <expand macro="input_taf"/>
+        <conditional name="reference">
+            <param name="type" type="select" label="Reference genome" help="Coverage is calculated relative to the sequence in the first row of each alignment block. Specify a reference genome to force a specific genome to be the reference, ignoring blocks where it is not present">
+                <option value="" selected="true">Use first row of each alignment block (default)</option>
+                <option value="specific">Specify a reference genome (--reference)</option>
+            </param>
+            <when value=""/>
+            <when value="specific">
+                <param name="reference" type="text" value="" label="Reference genome name">
+                    <expand macro="sanitizer_default"/>
+                    <expand macro="validator_trim"/>
+                </param>
+            </when>
+        </conditional>
+        <conditional name="genomeNames">
+            <param name="parsing" type="select" label="Genome name parsing" help="Genome names are auto-detected by taking the prefix before the first dot (e.g. 'hg38.chr1' -> 'hg38'). All sequences with the same genome name are pooled for coverage calculation. If your genome names contain dots (e.g. 'E.coli'), provide a genome list to prevent incorrect parsing specifically for them">
+                <option value="" selected="true">Auto-detect all (default)</option>
+                <option value="specific">Provide genome list (--genomeNames)</option>
+            </param>
+            <when value=""/>
+            <when value="specific">
+                <param name="genomeNames" type="text" value="" label="Genome name list" help="Space-separated list of genome names (e.g. 'E.coli C.elegans S.aureus.USA300')">
+                    <expand macro="sanitizer_default"/>
+                    <expand macro="validator_space_list"/>
+                </param>
+            </when>
+        </conditional>
+        <conditional name="gapThreshold">
+            <param name="type" type="select" label="Gap handling" help="Coverage is calculated based on the total length of the reference contigs. Specify gap size thresholds to exclude gaps larger than a specific size (e.g. unsequenced regions) from the reference length calculation">
+                <option value="" selected="true">Include all gaps (default)</option>
+                <option value="specific">Specify gap size thresholds (--gapThreshold)</option>
+            </param>
+            <when value=""/>
+            <when value="specific">
+                <param name="gapThreshold" type="text" value="" label="Gap size thresholds" help="Space-separated list of gap sizes in base pairs (e.g. '10000 50000'). Coverage statistics will be calculated by excluding gaps larger than these thresholds. Each provided threshold will result in a separate row in the output">
+                    <sanitizer>
+                        <valid initial="string.digits">
+                            <add value=" "/>
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex" message="Provide a space-separated list of positive numbers">^\d+(\s+\d+)*$</validator>
+                </param>
+            </when>
+        </conditional>
+        <conditional name="sexChr">
+            <param name="type" type="select" label="Sex chromosome handling" help="Statistics are aggregated for the whole reference genome. Specify sex chromosomes to separate statistics for autosomes and sex chromosomes">
+                <option value="" selected="true">No separation, treating all as one set (default)</option>
+                <option value="specific">Specify sex chromosomes (--sexChr)</option>
+            </param>
+            <when value=""/>
+            <when value="specific">
+                <param name="sexChr" type="text" value="" label="Sex chromosome contigs" help="Space-separated list of full reference contig names (e.g. 'hg38.chrX hg38.chrY'). Output will include specific statistics for autosomes vs. sex chromosomes.">
+                    <expand macro="sanitizer_default"/>
+                    <expand macro="validator_space_list"/>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="tabular"/>
+    </outputs>
+    <tests>
+        <!-- Test 1: TAF input, Tool defaults -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="_Sex_Chroms_" negate="true"/>
+                    <has_text text="_Autosomes_" negate="true"/>
+                    <has_text text="Anc0.Anc0refChr0&#009;4151" n="9"/>
+                    <has_text text="_Total_" n="9"/>
+                    <has_text text="&#009;simCow_chr6&#009;"/>
+                    <has_n_lines n="19"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: TAF input, with modified reference -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="reference">
+                <param name="type" value="specific"/>
+                <param name="reference" value="Anc2"/>
+            </conditional>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Anc2.Anc2refChr1&#009;4655"/>
+                    <has_text text="Anc0.Anc0refChr0&#009;4151" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: TAF input, with genome name parsing -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="genomeNames">
+                <param name="parsing" value="specific"/>
+                <param name="genomeNames" value="simCow_chr6.simCow"/>
+            </conditional>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="simCow_chr6.simCow"/>
+                    <has_text text="&#009;simCow_chr6&#009;" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: TAF input, with gap thresholds -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="gapThreshold">
+                <param name="type" value="specific"/>
+                <param name="gapThreshold" value="100 1000 10000"/>
+            </conditional>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="_Total_&#009;100"/>
+                    <has_text text="_Total_&#009;1000"/>
+                    <has_text text="_Total_&#009;10000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: TAF input, with defined sex chromosomes -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf"/>
+            <conditional name="sexChr">
+                <param name="type" value="specific"/>
+                <param name="sexChr" value="Anc0.Anc0refChr0"/>
+            </conditional>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="_Sex_Chroms_"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: Compressed TAF input (.gz), Tool defaults -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="testTaf.taf.gz"/>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="_Sex_Chroms_" negate="true"/>
+                    <has_text text="_Autosomes_" negate="true"/>
+                    <has_text text="Anc0.Anc0refChr0&#009;4151" n="9"/>
+                    <has_text text="_Total_" n="9"/>
+                    <has_text text="&#009;simCow_chr6&#009;"/>
+                    <has_n_lines n="19"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Taffy coverage calculates basic pairwise coverage statistics between a reference genome and other genomes in a TAF file. 
+Coverage is reported both as the number of aligned base pairs and as a fraction of the reference sequence.
+This tool is useful for evaluating how much of a reference genome is aligned to other genomes and for comparing alignment completeness across species.
+The output is a tabular file with the following columns:
+
+- **contig**: The name of the reference contig.
+- **max-gap**: The gap filter used. Reference regions located in a gap larger than this value are excluded from the length (len).
+- **len**: The effective length of the reference in base pairs (bp).
+- **query**: The name of the genome being compared against the reference.
+- **aln**: Coverage: The fraction of the reference (len) that is aligned in the query genome. Formula: aln-bp / len.
+- **ident**: Identity: The fraction of aligned bases that are exactly identical (measure of similarity in present regions). Formula: ident-bp / aln-bp.
+- **1:1-aln**: Single-Copy Coverage: Like aln, but only counts regions where both reference and query appear exactly once in the alignment block (no duplications/paralogs).
+- **1:1-ident**: Single-Copy Identity: Like ident, but only for 1:1 regions.
+- **aln-bp**: The absolute number of bases that are aligned (no gap, and no 'N').
+- **ident-bp**: The absolute number of bases that are aligned and identical.
+- **1:1-aln-bp**: Absolute number of aligned bases in 1:1 regions.
+- **1:1-ident-bp**: Absolute number of identical bases in 1:1 regions.
+    ]]></help>
+    <expand macro="citation"/>
+    <expand macro="creator"/>
+</tool>

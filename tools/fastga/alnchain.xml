@@ -1,0 +1,162 @@
+<tool id="alnchain" name="ALNchain" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>filter .1aln alignments into one-to-one global alignment</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        ## A .1aln file embeds relative paths to the source genome databases
+        ## (.1gdb/.gix). To make this tool portable we re-stage the two source
+        ## genomes under the exact basenames embedded in the .1aln and rebuild
+        ## the genome database and index in the job working directory.
+        ln -s '$genome1' '${genome1.element_identifier}' &&
+        ln -s '$genome2' '${genome2.element_identifier}' &&
+        FAtoGDB '${genome1.element_identifier}' &&
+        FAtoGDB '${genome2.element_identifier}' &&
+        GIXmake -T\${GALAXY_SLOTS:-8} '${genome1.element_identifier}' &&
+        GIXmake -T\${GALAXY_SLOTS:-8} '${genome2.element_identifier}' &&
+
+        ## ALNchain string-matches the .1aln file extension; symlink to satisfy it.
+        ln -s '$input' 'input.1aln' &&
+
+        @ALNCHAIN_CMD@
+            -o'output'
+            'input.1aln' &&
+
+        mv 'output.1aln' '$output'
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="binary" label="Input .1aln alignment file" help="A .1aln file produced by FastGA. In the FastGA tool, select the '1aln (-1)' output format to generate one."/>
+        <param name="genome1" type="data" format="fasta,fasta.gz" label="Genome 1 used to produce the .1aln" help="Must be the same FASTA that was passed as the first input to FastGA when the .1aln was produced, with the same filename. The .1aln file embeds path references to its source genomes and ALNchain needs to rebuild their databases in the job working directory."/>
+        <param name="genome2" type="data" format="fasta,fasta.gz" label="Genome 2 used to produce the .1aln" help="Must be the same FASTA that was passed as the second input to FastGA when the .1aln was produced, with the same filename."/>
+        <expand macro="chaining_params"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="binary"/>
+    </outputs>
+    <tests>
+        <!-- Test 1: defaults -->
+        <test expect_num_outputs="1">
+            <param name="input" value="chrM_HGvMM.1aln"/>
+            <param name="genome1" value="chrM_hg38.fa.gz"/>
+            <param name="genome2" value="chrM_mm39.fa.gz"/>
+            <output name="output">
+                <assert_contents>
+                    <has_size value="2300" delta="200"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: non-default chain-construction params (-g -l -p -q -z) plus -f -->
+        <test expect_num_outputs="1">
+            <param name="input" value="chrM_HGvMM.1aln"/>
+            <param name="genome1" value="chrM_hg38.fa.gz"/>
+            <param name="genome2" value="chrM_mm39.fa.gz"/>
+            <section name="chain_params">
+                <param name="max_gap" value="20000"/>
+                <param name="max_overlap" value="5000"/>
+                <param name="gap_penalty" value="0.05"/>
+                <param name="overlap_penalty" value="0.2"/>
+                <param name="score_drop" value="2000"/>
+            </section>
+            <section name="filter_params">
+                <param name="close_gap_limit" value="500"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_size value="2300" delta="200"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: lenient filtering params (-s -n -c -e), chain still passes -->
+        <test expect_num_outputs="1">
+            <param name="input" value="chrM_HGvMM.1aln"/>
+            <param name="genome1" value="chrM_hg38.fa.gz"/>
+            <param name="genome2" value="chrM_mm39.fa.gz"/>
+            <section name="filter_params">
+                <param name="min_chain_score" value="5000"/>
+                <param name="min_chain_count" value="1"/>
+                <param name="chain_coverage" value="0.3"/>
+                <param name="seq_coverage" value="0.1"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_size value="2300" delta="200"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: strict filtering rejects the chain, output shrinks to header only -->
+        <test expect_num_outputs="1">
+            <param name="input" value="chrM_HGvMM.1aln"/>
+            <param name="genome1" value="chrM_hg38.fa.gz"/>
+            <param name="genome2" value="chrM_mm39.fa.gz"/>
+            <section name="filter_params">
+                <param name="min_chain_score" value="100000"/>
+                <param name="min_chain_count" value="5"/>
+                <param name="chain_coverage" value="1.0"/>
+                <param name="seq_coverage" value="0.9"/>
+            </section>
+            <output name="output">
+                <assert_contents>
+                    <has_size value="1800" delta="200"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+For each pair of sequences, ALNchain post-processes a ``.1aln`` alignment file produced by FastGA to generate a subset of alignments forming a one-to-one global alignment (allowing rearrangements), by selecting the best-scored local chains under user-specified constraints.
+
+A *chain* is a sequence of collinear alignments between two contigs. ALNchain uses a linear gap penalty for chaining: the cost of a gap or overlap between consecutive alignments is set by ``-p`` and ``-q``, and the maximum gap and overlap sizes allowed in a chain are bounded by ``-g`` and ``-l``. Chains are scored as ``C - G*p - O*q``, where ``C`` is the total number of unique sequence positions covered by the alignments. A chain is broken if its running score drops by more than ``-z``.
+
+Chains are then selected by score, highest first. The ``-s`` and ``-n`` options set the minimum score and the minimum number of alignment fragments required for a chain to be considered. For each candidate chain, ALNchain computes the number of additional positions it covers on the sequences relative to the chains already selected; if that number is below ``-c`` times the chain size, or below ``-e`` times the sequence size, the chain is rejected. When tracking covered positions, ``-f`` is used as the upper limit for closing gaps (fuzzy merge).
+
+-----
+
+Input
+*****
+
+A single ``.1aln`` dataset (for example the ``1aln`` output of the FastGA tool), together with the two source genome FASTAs that were originally aligned to produce it.
+
+A ``.1aln`` file is not self-contained: it embeds path references to the genome databases (``.1gdb`` / ``.gix``) that FastGA built from its two inputs. To run ALNchain outside of the directory where those databases happen to live, this wrapper re-stages the two genomes and rebuilds their databases in the job working directory. **The two FASTA inputs must therefore be the same two files, with the same filenames, that were passed to FastGA when the .1aln was produced.**
+
+If you only need to chain the alignment output of a single FastGA run, consider enabling chaining directly inside the FastGA tool—it routes its output through ALNchain without requiring the genomes to be supplied twice.
+
+-----
+
+Options
+*******
+
+**Chain construction and scoring**
+
+    =====================================  ========  ===========
+    **Option**                             **Flag**  **Default**
+    -------------------------------------  --------  -----------
+    Maximum gap size                       -g        10000
+    Maximum overlap size                   -l        10000
+    Gap penalty coefficient                -p        0.1
+    Overlap penalty coefficient            -q        0.1
+    Score drop threshold for breaking      -z        1000
+    =====================================  ========  ===========
+
+**Chain selection**
+
+    =====================================  ========  ===========
+    **Option**                             **Flag**  **Default**
+    -------------------------------------  --------  -----------
+    Minimum chain score                    -s        10000
+    Minimum alignment fragments per chain  -n        1
+    Maximum coverage (fraction of chain)   -c        0.5
+    Minimum extension (fraction of seq.)   -e        0.0
+    Maximum gap for fuzzy merge            -f        1000
+    =====================================  ========  ===========
+
+-----
+
+Output
+******
+
+A filtered ``.1aln`` file containing only the selected chains. On small or simple inputs where every alignment already satisfies the defaults, the output may look nearly identical to the input; ALNchain only appends a provenance line to the file header in that case.
+
+]]></help>
+    <expand macro="citations" />
+</tool>

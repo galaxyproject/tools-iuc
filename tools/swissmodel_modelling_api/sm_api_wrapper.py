@@ -10,6 +10,23 @@ from urllib.parse import urlsplit
 import requests
 
 
+def _api_error_detail(response, max_len=2000):
+    """Return the error message the SWISS-MODEL API sent with a response.
+
+    The API explains why a request was rejected (e.g. an invalid target
+    sequence) in the response body; without it, users only see a status code.
+    """
+    try:
+        detail = json.dumps(response.json(), indent=2)
+    except ValueError:
+        detail = response.text.strip()
+    if not detail:
+        return ""
+    if len(detail) > max_len:
+        detail = detail[:max_len] + "... [truncated]"
+    return f"\nResponse from SWISS-MODEL:\n{detail}"
+
+
 class _SmApiWhisperer:
     """Parent class for talking to the SWISS-MODEL API."""
 
@@ -45,6 +62,7 @@ class _SmApiWhisperer:
         if response.ok is not True:
             raise RuntimeError(
                 f"Submitting modelling job failed ({response.status_code})"
+                + _api_error_detail(response)
             )
         self.project_id = response.json()["project_id"]
 
@@ -96,6 +114,7 @@ class _SmApiWhisperer:
                 raise RuntimeError(
                     f"Fetching {file_type} output failed ("
                     + f"{response.status_code})."
+                    + _api_error_detail(response)
                 )
             try:
                 os.mkdir(os.path.join(outdir, file_type))
@@ -195,18 +214,23 @@ class _UserTemplateWhisperer(_SmApiWhisperer):
         }
 
 
-def _defastarise_targets(sequences):
-    """In case some of the targets carry FastA headers, remove them."""
+def _defastarise_targets(fasta_file):
+    """Parse sequences from a Multi-FastA file, removing headers."""
     targets = []
-    for seq in sequences:
-        seq = seq.split(" ")
-        if len(seq) > 1:
-            if seq[0].strip().startswith((">", "__gt__")):
-                targets.append("".join(seq[1:]))
+    current_seq = []
+
+    with open(fasta_file, encoding="utf8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith(">"):
+                if current_seq:
+                    targets.append("".join(current_seq))
+                    current_seq = []
             else:
-                targets.append("".join(seq))
-        else:
-            targets.extend(seq)
+                if line:
+                    current_seq.append("".join(line.split()))
+        if current_seq:
+            targets.append("".join(current_seq))
 
     return targets
 
@@ -237,9 +261,9 @@ def _parse_args():
     )
     parser.add_argument(
         "-t",
-        "--template-sequence",
-        help="The template sequence used for alignment mode",
-        metavar="<SEQUENCE>",
+        "--template-sequence-file",
+        help="FastA file with the template sequence used for alignment mode",
+        metavar="<FASTA FILE>",
     )
     # ToDo: do we need the offset from the user? Doesn't interactive alignment
     #       mode compute it?
@@ -285,7 +309,7 @@ def _parse_args():
     )
     metas = {
         "outdir": "<OUTPUT DIRECTORY>",
-        "target_sequences": "<SEQUENCE[S]>",
+        "target_sequences_file": "<[Multi-]FASTA FILE>",
     }
     parser.add_argument(
         "outdir",
@@ -293,11 +317,10 @@ def _parse_args():
         metavar=metas["outdir"],
     )
     parser.add_argument(
-        "target_sequences",
-        help="Target sequence to be modelled; to add multiple sequences, "
-        + "delimit with a space",
-        metavar=metas["target_sequences"],
-        nargs=argparse.REMAINDER,
+        "target_sequences_file",
+        help="FastA file with target sequence to be modelled; Multi-FastA file "
+        + "for multiple target sequences",
+        metavar=metas["target_sequences_file"],
     )
 
     opts = parser.parse_args()
@@ -309,7 +332,7 @@ def _parse_args():
             "auth_asym_id",
             "pdb_id",
             "template_seqres_offset",
-            "template_sequence",
+            "template_sequence_file",
         ],
         "automodel": [],
         "usertemplate": ["template_file"],
@@ -338,13 +361,6 @@ def _parse_args():
             if len(value) == 0:
                 print(
                     f"Argument of '{mta}' can not be an empty string",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-        elif isinstance(value, list):
-            if len(value) == 0 or not all(value):
-                print(
-                    f"Argument of '{mta}' can not be an empty",
                     file=sys.stderr,
                 )
                 sys.exit(2)
@@ -378,7 +394,7 @@ def _main():
             file=sys.stderr,
         )
         sys.exit(1)
-    target_sequences = _defastarise_targets(opts.target_sequences)
+    target_sequences = _defastarise_targets(opts.target_sequences_file)
     # determine class
     whsprr = None
     if opts.project_type.lower() == "automodel":
@@ -386,7 +402,7 @@ def _main():
             target_sequences, token, project_title=opts.project_title
         )
     elif opts.project_type.lower() == "alignment":
-        template_sequence = _defastarise_targets([opts.template_sequence])
+        template_sequence = _defastarise_targets(opts.template_sequence_file)
         assert len(template_sequence) == 1
         template_sequence = template_sequence[0]
         whsprr = _AlignmentWhisperer(
@@ -426,4 +442,4 @@ def _main():
 if __name__ == "__main__":
     _main()
 
-#  LocalWords:  Pylint
+#  LocalWords:  Pylint FASTA

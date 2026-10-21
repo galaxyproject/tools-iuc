@@ -1,0 +1,162 @@
+<tool id="taffy_add_gap_bases" name="Taffy add gap bases" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>fills interstitial gaps in a TAF file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/> 
+    <expand macro="stdio"/>
+    <command detect_errors="aggressive">
+        <![CDATA[
+        ## Set variables
+        @SET_UNCOMPRESS_NAMES@
+        
+        ## Uncompress input files if necessary and create symlinks for uncompressed files
+        @UNCOMPRESS_TAF_AND_MAF@
+
+        ## Uncompress fasta files if set
+        #if $gapFill.source == 'fasta':
+            #for $i, $fasta_file in enumerate($gapFill.input_fasta):
+                #set $temp_input = 'input_%s.fasta' % $i
+                #if $fasta_file.is_of_type('fasta.gz')
+                    gunzip -c '$fasta_file' > '$temp_input' &&
+                #else if $fasta_file.is_of_type('fasta.bz2')
+                    bzip2 -dc '$fasta_file' > '$temp_input' &&
+                #else
+                    ln -s '$fasta_file' '$temp_input' &&
+                #end if
+            #end for
+        #end if
+
+        ## Run main command
+        taffy add-gap-bases
+            #if $gapFill.source == 'hal':
+                --halFile '$gapFill.input_hal'
+            #elif $gapFill.source == 'fasta':
+                #for $i, $fasta_file in enumerate($gapFill.input_fasta):
+                    'input_${i}.fasta'
+                #end for
+            #end if
+            --logLevel 'INFO'
+            --inputFile '$uncompressed_input'
+            --maximumGapStringLength $maximumGapStringLength
+            --repeatCoordinatesEveryNColumns $repeatCoordinatesEveryNColumns
+
+        ## Compress TAF output if requested by user 
+        @COMPRESS_TAF@
+    ]]></command>
+    <inputs>
+        <expand macro="input_taf"/> 
+        <param argument="--maximumGapStringLength" type="integer" min="-1" value="50" label="Maximum gap string length to insert" help="Specify the maximum length of a gap to fill. Gaps longer than this will not be filled. A negative value (e.g., -1) means no limit"/>
+        <conditional name="gapFill">
+            <param name="source" type="select" label="Source of sequence to fill gaps">
+                <option value="" selected="true">Select the source of the sequences ...</option>
+                <option value="hal">Fill gaps via a HAL file</option>
+                <option value="fasta">Fill gaps via one or more FASTA files</option>
+                <validator type="empty_field" message="You must select a source of the sequences to fill gaps"/>
+            </param>
+            <when value=""/>
+            <when value="hal">    
+                <expand macro="input_hal"/>  
+            </when>
+            <when value="fasta">
+                <expand macro="input_fasta"/>  
+            </when>
+        </conditional>
+        <expand macro="params_repeatCoordinatesEveryNColumns"/>
+        <expand macro="params_conditional_compression_taf"/>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="taf">
+            <change_format>
+                <when input="compression_taf" value="gz" format="taf.gz"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: TAF input, Tool defaults with HAL as source -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="mr.taf"/>
+            <conditional name="gapFill">
+                <param name="source" value="hal"/>
+                <param name="input_hal" value="mr.hal"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_text text=" ; g " negate="true"/>
+                    <has_line line="AAA ; G 0 G G 1 G G 2 G"/>
+                    <has_line line="AAA ; G 0 AT G 1 AA G 2 AA"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: TAF input, Tool defaults with FASTA as source  -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="mr.taf"/>
+            <conditional name="gapFill">
+                <param name="source" value="fasta"/>
+                <param name="input_fasta" value="mr.mrrefChr1.fasta.gz"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_line line="AAA ; G 0 G g 1 1 g 2 1"/>
+                    <has_line line="AAA ; G 0 TA g 1 2 g 2 2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: TAF input, HAL as source and lower maximum gap length -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="mr.taf"/>
+            <param name="maximumGapStringLength" value="1"/>
+            <conditional name="gapFill">
+                <param name="source" value="hal"/>
+                <param name="input_hal" value="mr.hal"/>
+            </conditional>
+            <output name="out_file" ftype="taf">
+                <assert_contents>
+                    <has_text text="#taf" n="1"/>
+                    <has_line line="AAA ; G 0 G G 1 G G 2 G"/>
+                    <has_line line="AAA ; G 0 AT G 1 AA G 2 AA" negate="true"/>
+                    <has_line line="AAA ; g 0 2 g 1 2 g 2 2"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- Test 4: TAF input, HAL as source, compressed TAF output (.gz) -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="mr.taf"/>
+            <conditional name="gapFill">
+                <param name="source" value="hal"/>
+                <param name="input_hal" value="mr.hal"/>
+            </conditional>
+            <param name="compression_taf" value="gz"/>
+            <output name="out_file" ftype="taf.gz">
+                <assert_contents>
+                    <has_size size="282" delta="10"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Taffy add gap bases fills the gaps between alignment blocks by inserting the actual nucleotide sequence. 
+This is done individually for each sequence in the alignment.
+To do so, the tool requires the corresponding sequence data from FASTA or HAL files. 
+The tool only fills the gaps between alignment blocks; it does not overwrite existing 'N' characters within a block.
+
+- **FASTA files:**
+  The sequences in the FASTA file must start at position 0 (whole chromosome/contig). 
+  Sub-sequences with offset coordinates are not supported.
+  The FASTA header must contain only the sequence name (e.g., ``>Genome.chr1``), without any additional description.
+
+- **HAL files:**
+  The HAL file must contain all genomes (species) present in the TAF file.
+  While it does not strictly need to contain every single sequence, missing sequences will result in gaps not being filled.
+
+When a gap is filled, the tool encodes this information with a 'G' (gap with sequence) tag by replacing the 'g' (gap) tag in the header line of the alignment block in the form: ``BASES ; G <POS> <FILLED_BASES>``
+
+The maximum length of inserted gap strings can be limited to prevent filling excessively large regions.
+Use this tool to produce alignments with explicit gap sequences, making them suitable for downstream analyses that require filled interstitial regions.
+    ]]></help>
+    <expand macro="citation"/>
+    <expand macro="creator"/>
+</tool>
