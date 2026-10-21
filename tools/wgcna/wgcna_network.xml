@@ -3,7 +3,9 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="wgcna_xrefs"/>
     <expand macro="wgcna_requirements"/>
+    <version_command>echo @TOOL_VERSION@</version_command>
     <command detect_errors="exit_code"><![CDATA[
         mkdir -p plots results &&
         Rscript '$wgcna_script'
@@ -12,6 +14,7 @@
         <configfile name="wgcna_script" filename="wgcna_script.R"><![CDATA[
 library(WGCNA)
 library(igraph)
+library(svglite)
 options(stringsAsFactors = FALSE)
 
 ## Galaxy parameters
@@ -24,16 +27,15 @@ min_module_size    <- as.integer($min_module_size)
 merge_cut_height   <- as.numeric($merge_cut_height)
 me_cor_threshold   <- as.numeric($me_cor_threshold)
 plot_resolution    <- as.integer($plot_resolution)
+image_format       <- "$image_format"
 
 log_transform      <- $log_transform
 filter_by_variance <- $filter_by_variance
 variance_quantile  <- as.numeric($variance_quantile)
 run_sample_gene_qc <- $run_sample_gene_qc
 
-## Use GALAXY_SLOTS if set by the cluster runner, fall back to 2 otherwise
-n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "2"))
-allowWGCNAThreads(nThreads = n_threads)
-
+## Use GALAXY_SLOTS if set by the cluster runner, fall back to 4 otherwise
+n_threads <- as.integer(Sys.getenv("GALAXY_SLOTS", unset = "4"))
 allowWGCNAThreads(nThreads = n_threads)
 
 ## corFnc/adjacency()/TOMsimilarity() expect the *function name* ("cor" or
@@ -73,6 +75,14 @@ if (is.na(soft_power)) {
                  ") does not match the selected variance_quantile (", variance_quantile, ").")
      }
  }
+ cfg_cor_fnc_line <- grep("^corFnc\\s*=", sft_config, value = TRUE)[1]
+ if (!is.na(cfg_cor_fnc_line) && nzchar(cfg_cor_fnc_line)) {
+     cfg_cor_fnc <- trimws(strsplit(cfg_cor_fnc_line, "=", fixed = TRUE)[[1]][2])
+     if (nzchar(cfg_cor_fnc) && cfg_cor_fnc != cor_fnc) {
+         warning("Correlation function in soft-thresholding config (", cfg_cor_fnc,
+                 ") does not match the selected correlation function (", cor_fnc, ").")
+     }
+ }
 cat("Soft power loaded from config file:", soft_power, "\n")
 #else:
 soft_power <- as.integer("$soft_power")
@@ -110,11 +120,18 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
         if (is.numeric(col_values)) {
             pieces[[col_name]] <- col_values
         } else {
-            col_factor <- factor(col_values, exclude = NULL)
-            levels(col_factor)[is.na(levels(col_factor))] <- "NA"
+            col_factor <- factor(col_values)
             mm <- model.matrix(~ col_factor - 1)
             colnames(mm) <- paste0(col_name, "_", levels(col_factor))
-            pieces[[col_name]] <- mm
+            if (any(is.na(col_values))) {
+                mm_full <- matrix(NA_real_, nrow = length(col_values), ncol = ncol(mm),
+                                  dimnames = list(NULL, colnames(mm)))
+                complete_rows <- which(!is.na(col_values))
+                mm_full[complete_rows, ] <- mm
+                pieces[[col_name]] <- mm_full
+            } else {
+                pieces[[col_name]] <- mm
+            }
         }
     }
 
@@ -123,14 +140,9 @@ prepare_trait_matrix <- function(meta, sample_col = 1) {
     return(result)
 }
 
-## Human-readable trait names for plot axes (one-hot columns like
-## sample_group_group_A become "Group A"; underscores become spaces).
+## Human-readable trait names for plot axes (underscores become spaces).
 prettify_trait_label <- function(labels) {
     vapply(labels, function(label) {
-        if (grepl("_group_", label, fixed = TRUE)) {
-            level <- sub(".*_group_", "", label)
-            return(paste0("Group ", level))
-        }
         gsub("_", " ", label)
     }, character(1), USE.NAMES = FALSE)
 }
@@ -157,14 +169,82 @@ prettify_trait_label <- function(labels) {
 ## config rendering for every job, not just this one.
 
 REF_DPI <- 72
-LINES_PER_INCH_REF <- 5
+## Slightly under the geometric 1/5in-per-line rule of thumb, to leave
+## headroom now that BASE_POINTSIZE below is larger.
+LINES_PER_INCH_REF <- 4.5
+## Kept well under common raster-backend limits (Cairo's image surface caps
+## out around 32767px per side, and huge canvases can also exhaust memory:
+## a 12000x12000 RGBA bitmap is already ~580MB). 9000px is still very high
+## resolution at typical DPI settings, keeps worst-case memory usage in
+## check, and leaves a comfortable safety margin so png()/tiff() never
+## fail even when the data-driven dimension formulas below grow large.
+MAX_PNG_DIM <- 9000
 
-dpi_safe_dims <- function(width_px, height_px, ref_dpi = REF_DPI, target_dpi = plot_resolution) {
+dpi_safe_dims <- function(width_px, height_px, ref_dpi = REF_DPI, target_dpi = plot_resolution,
+                          max_dim = MAX_PNG_DIM) {
     scale <- max(1, target_dpi / ref_dpi)
     list(
-        width  = as.integer(ceiling(width_px  * scale)),
-        height = as.integer(ceiling(height_px * scale))
+        width  = min(max_dim, as.integer(ceiling(width_px  * scale))),
+        height = min(max_dim, as.integer(ceiling(height_px * scale)))
     )
+}
+
+safe_dim <- function(px, max_dim = MAX_PNG_DIM) min(max_dim, as.integer(px))
+
+## Reference canvas (in the same base, pre-DPI-scaling px units passed to
+## open_plot_device) at which BASE_POINTSIZE looks right. Plots whose base
+## canvas grows with the amount of data (more samples/genes/modules/traits)
+## get a proportionally larger pointsize so labels don't shrink relative to
+## the figure as it grows; sqrt() dampens that growth so text doesn't
+## become oversized on very large canvases. Plots with a fixed base canvas
+## simply get BASE_POINTSIZE.
+BASE_POINTSIZE <- 18
+REF_CANVAS_DIAG <- sqrt(1600^2 + 900^2)
+
+scaled_pointsize <- function(width_px, height_px, base_pointsize = BASE_POINTSIZE,
+                             min_pointsize = 14, max_pointsize = 26) {
+    diag_ratio <- sqrt(width_px^2 + height_px^2) / REF_CANVAS_DIAG
+    ps <- round(base_pointsize * sqrt(diag_ratio))
+    max(min_pointsize, min(max_pointsize, ps))
+}
+
+## Open a plot device that keeps the intended physical size (base_px /
+## REF_DPI inches), in whichever raster or vector format the user selected
+## via image_format ("png", "jpg", "pdf", or "svg"). Always scale *both*
+## width and height; scaling only one axis produces a squeezed canvas that
+## clips titles/labels.
+##
+## Raster formats (png/jpg) share identical width/height/res/pointsize
+## semantics, so they're opened the same way at dpi-scaled pixel dimensions.
+## pdf() and svglite() are vector devices: they take width/height in
+## *inches*, have no res argument, and text scales losslessly with
+## pointsize regardless of dpi -- so instead of scaling pixel counts by
+## plot_resolution, we convert the same base_px values straight to inches
+## at REF_DPI. Either way, the returned `dims` list is always in the same
+## dpi-scaled pixel-equivalent units, so cap_mar_to_figure()'s
+## margin-in-lines math (which only cares about physical inches, not
+## literal pixels) produces identical layouts no matter which format was
+## chosen. svglite() (rather than base R's svg()) is used so SVG output
+## does not depend on the R build having Cairo support.
+##
+## pointsize defaults to NULL, which auto-scales via scaled_pointsize() based
+## on the (pre-DPI) canvas size; pass an explicit value to override.
+open_plot_device <- function(filename_base, width_px, height_px, pointsize = NULL) {
+    if (is.null(pointsize)) pointsize <- scaled_pointsize(width_px, height_px)
+    dims <- dpi_safe_dims(width_px, height_px)
+    filename <- paste0(filename_base, ".", image_format)
+    if (image_format == "png") {
+        png(filename, width = dims[["width"]], height = dims[["height"]], res = plot_resolution, pointsize = pointsize)
+    } else if (image_format == "jpg") {
+        jpeg(filename, width = dims[["width"]], height = dims[["height"]], res = plot_resolution, pointsize = pointsize, quality = 95)
+    } else if (image_format == "pdf") {
+        pdf(filename, width = width_px / REF_DPI, height = height_px / REF_DPI, pointsize = pointsize)
+    } else if (image_format == "svg") {
+        svglite(filename, width = width_px / REF_DPI, height = height_px / REF_DPI, pointsize = pointsize)
+    } else {
+        stop("Unsupported image_format: ", image_format)
+    }
+    dims
 }
 
 cap_mar_to_figure <- function(width_px, height_px, mar,
@@ -189,6 +269,11 @@ cap_mar_to_figure <- function(width_px, height_px, mar,
     as.numeric(mar)
 }
 
+## Close the plot device opened for the current plot.
+finish_plot <- function(png_dev) {
+    dev.off(which = png_dev)
+}
+
 ## ── STEP 1: Load data ────────────────────────────────────────────────────────
 counts <- read.delim(counts_file, check.names = FALSE, row.names = 1)
 ## Note: row.names = 1 is intentionally NOT used here, since the first
@@ -199,8 +284,12 @@ meta   <- read.delim(metadata_file, check.names = FALSE)
 ## Sanity check: the samples in the counts matrix (columns) must match the
 ## samples listed in the first column of the metadata file.
 if (!setequal(colnames(counts), meta[[colnames(meta)[1]]])) {
-    stop("Sample names in the counts matrix columns do not match the sample ",
-         "names in the first column of the metadata file.")
+    extra_counts <- setdiff(colnames(counts), meta[[1]])
+    extra_meta   <- setdiff(meta[[1]], colnames(counts))
+    msg <- "Sample names in the counts matrix columns do not match the sample names in the first column of the metadata file."
+    if (length(extra_counts) > 0) msg <- paste0(msg, " Samples in counts but not metadata: ", paste(head(extra_counts, 5), collapse = ", "))
+    if (length(extra_meta) > 0) msg <- paste0(msg, " Samples in metadata but not counts: ", paste(head(extra_meta, 5), collapse = ", "))
+    stop(msg)
 }
 
 cat("Data loaded:", nrow(counts), "genes x", ncol(counts), "samples\n")
@@ -230,7 +319,7 @@ if (filter_by_variance) {
         warning("No finite variances found; skipping variance filtering.")
     } else {
         variance_threshold <- quantile(valid_var, variance_quantile, na.rm = TRUE)
-        filtered_expr_data <- expr_data[gene_variances > variance_threshold, , drop = FALSE]
+        filtered_expr_data <- expr_data[which(gene_variances > variance_threshold), , drop = FALSE]
         if (nrow(filtered_expr_data) == 0) {
             warning("Variance filter removed all genes; using unfiltered expression matrix.")
             filtered_expr_data <- expr_data
@@ -249,20 +338,13 @@ cat("Genes after variance filtering:", nrow(filtered_expr_data), "\n")
 ## histogram carries more information (finer bin detail) as gene counts grow;
 ## width stays fixed since a variance histogram doesn't need extra width.
 n_genes_for_plot01 <- nrow(filtered_expr_data)
-plot01_base_h <- max(600, round(400 + 150 * log10(max(n_genes_for_plot01, 10))))
-## width has an exact assertion (800), height is min-600; keep 800 as-is but
-## ensure height accommodates default margins at the chosen DPI.
-plot01_dims <- dpi_safe_dims(800, plot01_base_h)
-plot01_height <- max(600, plot01_dims[["height"]])
-## Use R's literal default mar (c(5,4,4,2)+0.1) rather than querying
-## par("mar") here: no graphics device has been opened yet at this point in
-## the script, and calling par() cold (before the first png()/device call)
-## can behave unpredictably in headless containers with no default device
-## backend configured.
-plot01_mar <- cap_mar_to_figure(800, plot01_height, c(5, 4, 4, 2) + 0.1)
-
-png("plots/01_gene_variance_distribution.png", width = 800, height = plot01_height, res = plot_resolution)
-par(mar = plot01_mar)
+plot01_base_h <- max(700, round(500 + 150 * log10(max(n_genes_for_plot01, 10))))
+plot01_dims <- open_plot_device("plots/01_gene_variance_distribution", 1000, plot01_base_h)
+png_dev <- dev.cur()
+## Use R's literal default mar rather than querying par("mar") before a
+## device is open (headless containers can mis-report the default).
+plot01_mar <- cap_mar_to_figure(plot01_dims[["width"]], plot01_dims[["height"]], c(5, 5, 5, 2) + 0.1)
+par(mar = plot01_mar, oma = c(0.5, 0.5, 0.8, 0.5))
 var_plot <- gene_variances[is.finite(gene_variances) & gene_variances > 0]
 if (length(var_plot) > 1) {
     hist(log10(var_plot), breaks = 50,
@@ -275,7 +357,7 @@ if (length(var_plot) > 1) {
     plot.new()
     text(0.5, 0.5, "Insufficient variance values for histogram")
 }
-dev.off()
+finish_plot(png_dev)
 
 datExpr <- t(filtered_expr_data)
 
@@ -289,50 +371,46 @@ sampleTree <- hclust(dist(datExpr), method = "average")
 n_samples_for_plot02 <- nrow(datExpr)
 max_sample_label_chars <- max(nchar(rownames(datExpr)), na.rm = TRUE)
 sample_label_cex       <- 0.7
-plot02_base_w <- max(1200, 20 * n_samples_for_plot02 + 400)
-plot02_base_h <- max(700, 3 * n_samples_for_plot02 + 500)
-## Both width and height have only MIN assertions; scale the canvas with DPI
-## so the intended physical figure size (and therefore margin capacity in
-## lines) is preserved, regardless of plot_resolution.
-plot02_dims <- dpi_safe_dims(plot02_base_w, plot02_base_h)
-sample_clustering_width  <- plot02_dims[["width"]]
-sample_clustering_height <- plot02_dims[["height"]]
-## Reserve enough bottom margin so the subtitle sits below sample labels.
-## Keep the per-character growth, but cap it against the actual figure.
-plot02_mar_bottom <- max(5, min(20, max_sample_label_chars * 0.18 + 3))
-plot02_mar <- c(plot02_mar_bottom, 5, 4, 2)
-plot02_mar <- cap_mar_to_figure(sample_clustering_width, sample_clustering_height, plot02_mar)
-
-png("plots/02_sample_clustering.png", width = sample_clustering_width, height = sample_clustering_height, res = plot_resolution)
-par(mar = plot02_mar)
+## Floors kept modest and growth capped: label length is handled entirely
+## via plot02_mar_bottom below (the bottom margin), so it is intentionally
+## NOT factored into the canvas size here -- doing so previously inflated
+## the whole canvas (mostly empty space) just because sample IDs were long.
+plot02_base_w <- min(1600, max(700, 22 * n_samples_for_plot02 + 300))
+plot02_base_h <- min(900, max(550, 10 * n_samples_for_plot02 + 350))
+plot02_dims <- open_plot_device("plots/02_sample_clustering", plot02_base_w, plot02_base_h)
+png_dev <- dev.cur()
+## Bottom margin must fit vertical sample IDs plus the subtitle below them.
+plot02_mar_bottom <- max(10, min(28, max_sample_label_chars * sample_label_cex * 0.42 + 6))
+plot02_mar <- cap_mar_to_figure(plot02_dims[["width"]], plot02_dims[["height"]],
+                               c(plot02_mar_bottom, 6, 5, 2))
+par(mar = plot02_mar, oma = c(0.4, 0.4, 0.8, 0.4), xpd = NA)
 plot(sampleTree,
      main = "Sample Clustering to Detect Outliers",
-     xlab = "", ylab = "Height", cex = sample_label_cex)
-abline(h = 200, col = "red", lwd = 2, lty = 2)
+     xlab = "", ylab = "Height", cex = sample_label_cex, hang = 0.1)
 mtext("Height represents dissimilarity between samples",
-      side = 1, line = 1.5, cex = 0.75, col = "gray30")
-dev.off()
+      side = 1, line = max(plot02_mar[1] - 1.4, 3), cex = 0.75, col = "gray30")
+finish_plot(png_dev)
 
 set.seed(123)
 sel_genes <- sample(seq_len(ncol(datExpr)), min(20, ncol(datExpr)))
-gene_axis_cex        <- 0.6
-max_gene_label_chars <- max(nchar(colnames(datExpr)[sel_genes]), na.rm = TRUE)
+gene_axis_cex        <- 1.05
+## Capped so a handful of very long gene IDs can't blow up the plot height.
+max_gene_label_chars <- min(40, max(nchar(colnames(datExpr)[sel_genes]), na.rm = TRUE))
 ## Vertical tick labels (las = 2) consume roughly one text line per character.
 ## Use a slightly more conservative factor so labels still fit at high DPI.
 gene_label_lines     <- max_gene_label_chars * gene_axis_cex * 0.45
 expr_xlab_line       <- ceiling(gene_label_lines) + 1
 expr_box_bottom_mar  <- expr_xlab_line + 2
-plot03_base_h        <- max(750, 380 + max_gene_label_chars * 10)
-## Width has an exact assertion (1400) so we cannot grow it; scale height
-## with DPI to preserve figure inches, and always apply the margin capper.
-plot03_dims_h <- dpi_safe_dims(1400, plot03_base_h)[["height"]]
-expr_plot_height <- max(700, plot03_dims_h)
-## Cap both subplot margin sets against the actual (width,height).
-plot03_mar_hist <- cap_mar_to_figure(1400, expr_plot_height, c(5, 4, 4, 2))
-plot03_mar_box  <- cap_mar_to_figure(1400, expr_plot_height, c(expr_box_bottom_mar, 4, 4, 1))
-
-png("plots/03_expression_data_distribution.png", width = 1400, height = expr_plot_height, res = plot_resolution)
-par(mfrow = c(1, 2), mar = plot03_mar_hist)
+plot03_base_w        <- 1900
+plot03_base_h        <- max(800, 420 + max_gene_label_chars * 12)
+plot03_dims <- open_plot_device("plots/03_expression_data_distribution", plot03_base_w, plot03_base_h)
+png_dev <- dev.cur()
+## Each mfrow panel is half the figure width; cap margins against that.
+plot03_panel_w <- as.integer(plot03_dims[["width"]] / 2)
+plot03_mar_hist <- cap_mar_to_figure(plot03_panel_w, plot03_dims[["height"]], c(6, 5, 5, 2))
+plot03_mar_box  <- cap_mar_to_figure(plot03_panel_w, plot03_dims[["height"]],
+                                    c(expr_box_bottom_mar, 5, 5, 1.5))
+par(mfrow = c(1, 2), mar = plot03_mar_hist, oma = c(0.4, 0.4, 0.6, 0.4))
 hist(as.numeric(datExpr), breaks = 100,
      main = "Distribution of Expression Values",
      sub  = ifelse(log_transform, "Log2-transformed counts", "Input counts"),
@@ -344,7 +422,7 @@ boxplot(datExpr[, sel_genes, drop = FALSE],
         las = 2, cex.axis = gene_axis_cex, col = "lightblue", border = "gray40")
 mtext("Genes", side = 1, line = expr_xlab_line, cex = 0.9)
 par(mfrow = c(1, 1))
-dev.off()
+finish_plot(png_dev)
 
 ## ── STEP 3: Prepare trait data ───────────────────────────────────────────────
 if (ncol(meta) < 2) {
@@ -357,19 +435,20 @@ if (anyDuplicated(meta[[sample_column]]) > 0) {
 }
 
 ## ─── resolve trait column tokens (names or 1-based indices) ───
-trait_indices <- suppressWarnings(as.integer(trait_tokens))
-if (all(!is.na(trait_indices))) {
-    if (any(trait_indices < 1 | trait_indices > ncol(meta))) {
-        bad <- trait_indices[trait_indices < 1 | trait_indices > ncol(meta)]
-        stop("Trait column index out of range: ", paste(bad, collapse = ", "))
-    }
-    trait_columns <- colnames(meta)[trait_indices]
+if (all(trait_tokens %in% colnames(meta))) {
+    trait_columns <- trait_tokens
 } else {
-    missing <- setdiff(trait_tokens, colnames(meta))
-    if (length(missing) > 0) {
+    trait_indices <- suppressWarnings(as.integer(trait_tokens))
+    if (all(!is.na(trait_indices))) {
+        if (any(trait_indices < 1 | trait_indices > ncol(meta))) {
+            bad <- trait_indices[trait_indices < 1 | trait_indices > ncol(meta)]
+            stop("Trait column index out of range: ", paste(bad, collapse = ", "))
+        }
+        trait_columns <- colnames(meta)[trait_indices]
+    } else {
+        missing <- setdiff(trait_tokens, colnames(meta))
         stop("Trait column(s) not found: ", paste(missing, collapse = ", "))
     }
-    trait_columns <- trait_tokens
 }
 
 meta_subset <- meta[, c(sample_column, trait_columns), drop = FALSE]
@@ -401,6 +480,9 @@ if (run_sample_gene_qc) {
 }
 
 cat("After goodSamplesGenes:", ncol(datExpr), "genes,", nrow(datExpr), "samples\n")
+if (nrow(datExpr) < 2) {
+    stop("Too few samples (", nrow(datExpr), ") remaining after goodSamplesGenes.")
+}
 if (ncol(datExpr) < min_module_size) {
     stop("Too few genes (", ncol(datExpr), ") for min_module_size=", min_module_size)
 }
@@ -417,8 +499,7 @@ net <- blockwiseModules(
     mergeCutHeight    = merge_cut_height,
     numericLabels     = TRUE,
     pamRespectsDendro = FALSE,
-    saveTOMs          = TRUE,
-    saveTOMFileBase   = "WGCNA_TOM",
+    saveTOMs          = FALSE,
     nThreads          = n_threads,
     verbose           = 3
 )
@@ -433,21 +514,22 @@ cat("Modules identified (excluding grey):",
     sum(names(module_gene_counts) != "grey"), "\n")
 print(module_gene_counts)
 
-## plotDendroAndColors manages its own margins internally, but it still
-## respects the current par() state and can blow up on a small figure.  Pre-set
-## a DPI-aware default mar so internal adjustments land inside the figure.
-plot05_mar <- cap_mar_to_figure(1200, 750, c(3, 3, 3, 1))
-png("plots/05_dendrogram_and_modules.png", width = 1200, height = 750, res = plot_resolution)
-par(mar = plot05_mar)
+## plotDendroAndColors manages its own margins internally; give it a
+## DPI-scaled canvas and a modest outer margin so the title is not clipped.
+plot05_dims <- open_plot_device("plots/05_dendrogram_and_modules", 1600, 900)
+png_dev <- dev.cur()
+plot05_mar <- cap_mar_to_figure(plot05_dims[["width"]], plot05_dims[["height"]], c(3, 4, 4, 2))
+par(mar = plot05_mar, oma = c(0.6, 0.6, 1.2, 0.6))
 plotDendroAndColors(
     net[["dendrograms"]][[1]],
     module_colors[net[["blockGenes"]][[1]]],
     "Module Colors",
     dendroLabels = FALSE, hang = 0.03,
     addGuide = TRUE, guideHang = 0.05,
-    main = "Gene Clustering Dendrogram and Module Colors"
+    main = "Gene Clustering Dendrogram and Module Colors",
+    cex.colorLabels = 1.4, cex.main = 1.7, cex.axis = 1.3, cex.lab = 1.3
 )
-dev.off()
+finish_plot(png_dev)
 
 ## ── STEP 5: Module eigengenes ────────────────────────────────────────────────
 module_eigengenes <- orderMEs(net[["MEs"]])
@@ -466,31 +548,32 @@ if (!anyNA(me_numeric_ids)) {
 
 ## Scale the eigengene dendrogram canvas with the number of modules and
 ## traits, matching the approach used for the module-trait heatmap (plot 07)
-## below, so labels stay readable with many modules/traits.
-plot06_base_w <- max(1000, 60 * ncol(trait_data) + 700)
-plot06_base_h <- max(700, 40 * ncol(module_eigengenes) + 500)
-## Width and height are MIN-only assertions; scale with DPI for safe margins.
-plot06_dims <- dpi_safe_dims(plot06_base_w, plot06_base_h)
-eigengene_dendro_width  <- plot06_dims[["width"]]
-eigengene_dendro_height <- plot06_dims[["height"]]
-plot06_mar <- cap_mar_to_figure(eigengene_dendro_width, eigengene_dendro_height, c(5, 4, 4, 2))
+## below, so labels stay readable with many modules/traits; capped so very
+## large module/trait counts don't blow up the canvas indefinitely.
+plot06_base_w <- min(3600, max(1900, 110 * ncol(trait_data) + 1100))
+plot06_base_h <- min(3200, max(1400, 70 * ncol(module_eigengenes) + 800))
 
 if (ncol(module_eigengenes) > 1) {
     ME_cor  <- cor(module_eigengenes, use = "pairwise.complete.obs")
     ME_diss <- 1 - ME_cor
     ME_tree <- hclust(as.dist(ME_diss), method = "average")
-    png("plots/06_module_eigengene_dendrogram.png", width = eigengene_dendro_width, height = eigengene_dendro_height, res = plot_resolution)
-    par(mar = plot06_mar)
-    plot(ME_tree, main = "Clustering of Module Eigengenes", xlab = "", sub = "", cex = 0.9)
-    abline(h = 0.25, col = "red", lty = 2)
-    dev.off()
+    plot06_dims <- open_plot_device("plots/06_module_eigengene_dendrogram", plot06_base_w, plot06_base_h)
+    png_dev <- dev.cur()
+    plot06_mar <- cap_mar_to_figure(plot06_dims[["width"]], plot06_dims[["height"]], c(10, 6, 5, 2))
+    par(mar = plot06_mar, oma = c(0.4, 0.4, 0.8, 0.4), xpd = NA)
+    plot(ME_tree, hang = 0.1, main = "Clustering of Module Eigengenes", xlab = "", sub = "",
+         cex = 1.3, cex.main = 1.6, cex.axis = 1.3, cex.lab = 1.3)
+    abline(h = merge_cut_height, col = "red", lty = 2)
+    finish_plot(png_dev)
 } else {
     cat("Only one module found; skipping module eigengene dendrogram.\n")
-    png("plots/06_module_eigengene_dendrogram.png", width = eigengene_dendro_width, height = eigengene_dendro_height, res = plot_resolution)
-    par(mar = plot06_mar)
+    plot06_dims <- open_plot_device("plots/06_module_eigengene_dendrogram", plot06_base_w, plot06_base_h)
+    png_dev <- dev.cur()
+    plot06_mar <- cap_mar_to_figure(plot06_dims[["width"]], plot06_dims[["height"]], c(5, 5, 5, 2))
+    par(mar = plot06_mar, oma = c(0.4, 0.4, 0.8, 0.4))
     plot.new()
-    text(0.5, 0.5, "Only one module found;\ndendrogram not applicable", cex = 1.2)
-    dev.off()
+    text(0.5, 0.5, "Only one module found;\ndendrogram not applicable", cex = 1.6)
+    finish_plot(png_dev)
 }
 
 ## ── Genome-wide gene-module membership summary ─────────────────────────────
@@ -531,24 +614,22 @@ text_matrix <- paste0(signif(module_trait_cor, 2), "\n(", signif(module_trait_pv
 dim(text_matrix) <- dim(module_trait_cor)
 
 ## Scale the heatmap canvas with the number of traits/modules being plotted
-## so that labels stay readable even with many traits or many modules; the
-## floor values below match the previous fixed 1200x800 default for a
-## typical small run.
+## so that labels stay readable even with many traits or many modules;
+## capped so cells don't balloon in size (and text along with them) when
+## there are only a handful of traits/modules to display. The floors are
+## kept modest so a small number of traits/modules doesn't produce a huge
+## canvas with a handful of oversized, mostly-empty cells.
 trait_display_labels <- prettify_trait_label(colnames(trait_data_aligned))
 n_traits_for_plot07  <- length(trait_display_labels)
 n_modules_for_plot07 <- ncol(module_eigengenes)
-plot07_base_w  <- max(900, 80 * n_traits_for_plot07 + 500)
-plot07_base_h <- max(700, 35 * n_modules_for_plot07 + 400)
-## Width and height are MIN-only assertions; scale with DPI for safe margins
-## with mar=c(10,10,4,3) (which is a large, label-friendly margin set).
-plot07_dims <- dpi_safe_dims(plot07_base_w, plot07_base_h)
-heatmap_width  <- plot07_dims[["width"]]
-heatmap_height <- plot07_dims[["height"]]
-plot07_mar <- cap_mar_to_figure(heatmap_width, heatmap_height, c(10, 10, 4, 3))
-heatmap_cex_text <- max(0.9, min(1.4, 3.5 / sqrt(max(n_traits_for_plot07, n_modules_for_plot07))))
-
-png("plots/07_module_trait_heatmap.png", width = heatmap_width, height = heatmap_height, res = plot_resolution)
-par(mar = plot07_mar)
+plot07_base_w <- min(2200, max(650, 90 * n_traits_for_plot07 + 300))
+plot07_base_h <- min(1900, max(500, 55 * n_modules_for_plot07 + 300))
+plot07_dims <- open_plot_device("plots/07_module_trait_heatmap", plot07_base_w, plot07_base_h)
+png_dev <- dev.cur()
+plot07_mar <- cap_mar_to_figure(plot07_dims[["width"]], plot07_dims[["height"]], c(12, 12, 6, 4))
+heatmap_cex_text <- max(1.1, min(1.6, 4.5 / sqrt(max(n_traits_for_plot07, n_modules_for_plot07))))
+heatmap_cex_lab  <- max(1.2, min(1.7, 5 / sqrt(max(n_traits_for_plot07, n_modules_for_plot07))))
+par(mar = plot07_mar, oma = c(0.6, 0.6, 1, 0.6))
 labeledHeatmap(
     Matrix        = module_trait_cor,
     xLabels       = trait_display_labels,
@@ -559,10 +640,13 @@ labeledHeatmap(
     textMatrix    = text_matrix,
     setStdMargins = FALSE,
     cex.text      = heatmap_cex_text,
+    cex.lab.x     = heatmap_cex_lab,
+    cex.lab.y     = heatmap_cex_lab,
+    cex.main      = 1.3,
     zlim          = c(-1, 1),
     main          = "Module-Trait Relationships\n(correlation and p-value)"
 )
-dev.off()
+finish_plot(png_dev)
 
 ## ── STEP 7 & 8: GS/MM and hub genes for each trait ─────────────────────────
 ## Gene significance, module membership, and hub-gene analysis are run
@@ -593,10 +677,17 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
     names(gene_significance_pval) <- colnames(datExpr)
 
     ## The most relevant module is the one whose eigengene shows the strongest
-    ## absolute correlation with this trait.
-    trait_vec            <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
-    best_idx             <- which.max(trait_vec)
-    most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
+    ## absolute correlation with this trait (excluding unassigned grey module).
+    candidate_modules <- setdiff(rownames(module_trait_cor_sub), c("MEgrey", "ME0"))
+    if (length(candidate_modules) > 0) {
+        trait_vec <- abs(module_trait_cor_sub[candidate_modules, trait_of_interest, drop = TRUE])
+        best_idx  <- which.max(trait_vec)
+        most_relevant_module <- candidate_modules[best_idx]
+    } else {
+        trait_vec <- abs(module_trait_cor_sub[, trait_of_interest, drop = TRUE])
+        best_idx  <- which.max(trait_vec)
+        most_relevant_module <- rownames(module_trait_cor_sub)[best_idx]
+    }
     module_id_clean      <- sub("^ME", "", most_relevant_module)
 
     if (!is.na(suppressWarnings(as.numeric(module_id_clean)))) {
@@ -632,10 +723,12 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
 
     trait_label <- safe_label(trait_of_interest)
 
-    plot08_mar <- cap_mar_to_figure(1000, 700, c(5, 4, 4, 2) + 0.1)
-    png(paste0("plots/08_gene_significance_vs_module_membership_", module_name, "_", trait_label, ".png"),
-        width = 1000, height = 700, res = plot_resolution)
-    par(mar = plot08_mar)
+    plot08_dims <- open_plot_device(
+        paste0("plots/08_gene_significance_vs_module_membership_", module_name, "_", trait_label),
+        1100, 800)
+    png_dev <- dev.cur()
+    plot08_mar <- cap_mar_to_figure(plot08_dims[["width"]], plot08_dims[["height"]], c(6, 7, 5, 2.5))
+    par(mar = plot08_mar, oma = c(0.5, 0.8, 0.8, 0.5))
     plot(abs(module_gene_info[["ModuleMembership"]]),
          abs(module_gene_info[["GeneSignificance"]]),
          xlab = paste("Module Membership in", module_name, "module"),
@@ -644,7 +737,7 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
          pch = 20, col = module_name, cex = 1)
     abline(lm(abs(GeneSignificance) ~ abs(ModuleMembership), data = module_gene_info),
            col = "red", lwd = 2)
-    dev.off()
+    finish_plot(png_dev)
 
     write.table(module_gene_info,
         file  = paste0("results/module_gene_info_", module_name, "_", trait_label, ".tsv"),
@@ -670,17 +763,19 @@ for (trait_of_interest in colnames(trait_data_aligned)) {
 
     is_top10 <- hub_info[["Connectivity"]] > quantile(hub_info[["Connectivity"]], 0.9, na.rm = TRUE)
 
-    plot09_mar <- cap_mar_to_figure(800, 600, c(5, 4, 4, 2) + 0.1)
-    png(paste0("plots/09_hub_genes_", module_name, "_", trait_label, ".png"),
-        width = 800, height = 600, res = plot_resolution)
-    par(mar = plot09_mar)
+    plot09_dims <- open_plot_device(
+        paste0("plots/09_hub_genes_", module_name, "_", trait_label),
+        1000, 750)
+    png_dev <- dev.cur()
+    plot09_mar <- cap_mar_to_figure(plot09_dims[["width"]], plot09_dims[["height"]], c(6, 7, 5, 3))
+    par(mar = plot09_mar, oma = c(0.5, 0.8, 0.8, 0.5))
     plot(hub_info[["ModuleMembership"]], hub_info[["Connectivity"]],
          xlab = "Module Membership (MM)", ylab = "Connectivity (Intramodular)",
          main = paste("Hub Gene Identification in", module_name, "module"),
          pch = 20, col = ifelse(is_top10, "red", "black"))
     legend("topright", legend = c("Top 10% connected", "Other genes"),
            col = c("red", "black"), pch = 20, bty = "n")
-    dev.off()
+    finish_plot(png_dev)
 }
 
 ## ── STEP 9: Co-expression network visualization ───────────────────────────────
@@ -704,11 +799,14 @@ network_graph  <- graph_from_adjacency_matrix(adj_thresh, mode = "undirected", w
 gene_color_map <- setNames(module_colors, colnames(datExpr))
 node_colors    <- gene_color_map[top_genes]
 node_colors[is.na(node_colors)] <- "grey"
-node_sizes     <- log10(degree(network_graph) + 1) * 3 + 3
+## Smaller nodes and more force-directed iterations reduce the visual
+## overlap/clustering between densely-connected same-module genes.
+node_sizes     <- log10(degree(network_graph) + 1) * 2 + 2
 
-plot14_mar <- cap_mar_to_figure(1200, 1200, c(1, 1, 3, 1))
-png("plots/14_coexpression_network.png", width = 1200, height = 1200, res = plot_resolution)
-par(mar = plot14_mar)
+plot14_dims <- open_plot_device("plots/14_coexpression_network", 1800, 1800)
+png_dev <- dev.cur()
+plot14_mar <- cap_mar_to_figure(plot14_dims[["width"]], plot14_dims[["height"]], c(1.5, 1.5, 5, 1.5))
+par(mar = plot14_mar, oma = c(0.4, 0.4, 1.2, 0.4))
 set.seed(123)
 plot(network_graph,
      vertex.size        = node_sizes,
@@ -717,15 +815,17 @@ plot(network_graph,
      vertex.frame.color = NA,
      edge.width         = 0.4,
      edge.color         = "gray80",
-     layout             = layout_with_fr(network_graph),
-     main = paste0("Co-expression Network\n(Top ", n_top, " Variable Genes, Top 5% Connections)"))
+     layout             = layout_with_fr(network_graph, niter = 2000,
+                                          start.temp = sqrt(vcount(network_graph)) * 2),
+     main = paste0("Co-expression Network\n(Top ", n_top, " Variable Genes, Top 5% Connections)"),
+     cex.main = 1.8)
 unique_colors <- unique(node_colors[node_colors != "grey"])
 if (length(unique_colors) <= 10) {
     legend("topright", legend = unique_colors,
-           col = unique_colors, pch = 19, cex = 0.7,
+           col = unique_colors, pch = 19, cex = 1.1,
            title = "Modules", bty = "n")
 }
-dev.off()
+finish_plot(png_dev)
 
 ## ── STEP 10: Module eigengene network ────────────────────────────────────────
 me_correlation <- cor(module_eigengenes, use = "pairwise.complete.obs")
@@ -759,7 +859,7 @@ numeric_me       <- suppressWarnings(!is.na(as.numeric(module_ids_me)))
 module_colors_me[numeric_me] <- labels2colors(as.numeric(module_ids_me[numeric_me]))
 names(module_colors_me) <- me_names
 
-plot15_mar <- cap_mar_to_figure(1000, 1000, c(1, 1, 3, 1))
+plot15_base_dim <- 1300
 if (sum(me_adj) > 0) {
     me_network    <- graph_from_adjacency_matrix(me_adj, mode = "undirected", diag = FALSE)
     vertex_colors <- module_colors_me[vertex_attr(me_network, "name")]
@@ -769,48 +869,68 @@ if (sum(me_adj) > 0) {
     module_sizes_table <- table(module_colors)
     module_sizes_net   <- module_sizes_table[vertex_colors]
     module_sizes_net[is.na(module_sizes_net)] <- 10
-    node_sizes_me <- log10(as.numeric(module_sizes_net) + 1) * 10 + 10
+    node_sizes_me <- log10(as.numeric(module_sizes_net) + 1) * 7 + 7
 
-    png("plots/15_module_eigengene_network.png", width = 1000, height = 1000, res = plot_resolution)
-    par(mar = plot15_mar)
+    plot15_dims <- open_plot_device("plots/15_module_eigengene_network", plot15_base_dim, plot15_base_dim)
+    png_dev <- dev.cur()
+    plot15_mar <- cap_mar_to_figure(plot15_dims[["width"]], plot15_dims[["height"]], c(1.5, 1.5, 5, 1.5))
+    par(mar = plot15_mar, oma = c(0.4, 0.4, 1.2, 0.4))
     set.seed(123)
+    ## The module-eigengene network only ever has a handful of nodes (one
+    ## per module), so a force-directed layout can bunch densely-correlated
+    ## modules close together, making their labels overlap each other and
+    ## the nodes. A circular layout guarantees even spacing between nodes
+    ## regardless of how many edges exist; vertex.label.degree is set per
+    ## node to the node's own angle around the circle, so each label is
+    ## pushed straight outward away from the center (vertex.label.dist)
+    ## instead of defaulting to the same direction for every node.
+    me_circle_layout <- layout_in_circle(me_network)
+    me_label_angles  <- atan2(me_circle_layout[, 2], me_circle_layout[, 1])
     plot(me_network,
-         vertex.size        = node_sizes_me,
-         vertex.label       = vertex_colors,
-         vertex.label.cex   = 0.7,
-         vertex.label.color = "black",
-         vertex.color       = vertex_colors,
-         vertex.frame.color = "black",
-         edge.width         = 2.5,
-         edge.color         = "gray40",
-         layout             = layout_with_fr(me_network),
-         main = paste0("Module Eigengene Network\n(|correlation| > ", cor_thresh, ", p < 0.05)"))
-    dev.off()
+         vertex.size         = node_sizes_me,
+         vertex.label        = vertex_colors,
+         vertex.label.cex    = 1.3,
+         vertex.label.color  = "black",
+         vertex.label.dist   = 1.8,
+         vertex.label.degree = me_label_angles,
+         vertex.color        = vertex_colors,
+         vertex.frame.color  = "black",
+         edge.width          = 2.5,
+         edge.color          = "gray40",
+         layout              = me_circle_layout,
+         main = paste0("Module Eigengene Network\n(|correlation| > ", cor_thresh, ", p < 0.05)"),
+         cex.main = 1.6)
+    finish_plot(png_dev)
 } else {
     ## Always emit this plot (even as a placeholder) so downstream output
     ## discovery always finds the same, deterministic set of plot files.
     cat("No significant module-module edges after thresholding.\n")
-    png("plots/15_module_eigengene_network.png", width = 1000, height = 1000, res = plot_resolution)
+    plot15_dims <- open_plot_device("plots/15_module_eigengene_network", plot15_base_dim, plot15_base_dim)
+    png_dev <- dev.cur()
+    plot15_mar <- cap_mar_to_figure(plot15_dims[["width"]], plot15_dims[["height"]], c(1, 1, 3, 1))
     par(mar = plot15_mar)
     plot.new()
     text(0.5, 0.5, "No significant module-module\nedges found", cex = 1.2)
-    dev.off()
+    finish_plot(png_dev)
 }
 
 me_cor_labeled <- me_correlation
 rownames(me_cor_labeled) <- module_colors_me
 colnames(me_cor_labeled) <- module_colors_me
 
-plot16_mar_multi   <- cap_mar_to_figure(1200, 1200, c(5, 4, 4, 2) + 0.1)
-plot16_mar_single  <- cap_mar_to_figure(1200, 1200, c(5, 5, 4, 2))
-png("plots/16_module_eigengene_correlation_heatmap.png", width = 1200, height = 1200, res = plot_resolution)
+plot16_dims        <- open_plot_device("plots/16_module_eigengene_correlation_heatmap", 1200, 1200)
+png_dev <- dev.cur()
+plot16_mar_multi   <- cap_mar_to_figure(plot16_dims[["width"]], plot16_dims[["height"]], c(5, 4, 4, 2) + 0.1)
+plot16_mar_single  <- cap_mar_to_figure(plot16_dims[["width"]], plot16_dims[["height"]], c(5, 5, 4, 2))
 if (nrow(me_cor_labeled) > 1) {
-    par(mar = plot16_mar_multi)
+    par(mar = plot16_mar_multi, cex.main = 1.3)
     heatmap(me_cor_labeled,
             col     = colorRampPalette(c("blue", "white", "red"))(50),
             scale   = "none",
             symm    = TRUE,
             margins = c(8, 8),
+            cexRow  = 1.1,
+            cexCol  = 1.1,
             main    = "Module Eigengene Correlation Heatmap")
 } else {
     par(mar = plot16_mar_single)
@@ -819,10 +939,10 @@ if (nrow(me_cor_labeled) > 1) {
           zlim = c(-1, 1),
           axes = FALSE,
           main = "Module Eigengene Correlation Heatmap")
-    axis(1, at = 1, labels = colnames(me_cor_labeled), las = 2)
-    axis(2, at = 1, labels = rownames(me_cor_labeled), las = 2)
+    axis(1, at = 1, labels = colnames(me_cor_labeled), las = 2, cex.axis = 1.2)
+    axis(2, at = 1, labels = rownames(me_cor_labeled), las = 2, cex.axis = 1.2)
 }
-dev.off()
+finish_plot(png_dev)
 
 cat("\nWGCNA pipeline complete.\n")
 cat("Plots written to: plots/\n")
@@ -849,12 +969,18 @@ cat("Results written to: results/\n")
         <expand macro="filter_variance_params"/>
         <param name="run_sample_gene_qc" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Run WGCNA sample/gene QC filtering" help="Use goodSamplesGenes to remove samples or genes that fail WGCNA checks."/>
         <param name="trait_columns" type="data_column" data_ref="metadata_file" use_header_names="true" multiple="true" label="Metadata trait columns" help="Select one or more trait columns from the metadata file. Numeric columns are used as-is; categorical columns are one-hot encoded. Gene significance, module membership, and hub-gene analysis are run for every selected trait (and each one-hot level of categorical traits)."/>
-        <param name="plot_resolution" type="integer" value="300" min="72" max="600" label="Plot resolution (DPI)" help="Resolution, in dots per inch, used when rendering the PNG plots."/>
+        <param name="plot_resolution" type="integer" value="300" min="72" max="600" label="Plot resolution (DPI)" help="Resolution, in dots per inch, used when rendering the individual plots. Ignored for PDF format, which is resolution-independent."/>
+        <param name="image_format" type="select" label="Plot image format" help="File format used for every individual plot in the plots collection.">
+            <option value="png" selected="true">PNG</option>
+            <option value="jpg">JPEG</option>
+            <option value="pdf">PDF</option>
+            <option value="svg">SVG</option>
+        </param>
         <param name="save_rscript" type="boolean" checked="false" truevalue="true" falsevalue="false" label="Save the R script used for this run" help="Useful for debugging. If enabled, the exact R script executed by this tool is provided as an additional output."/>
     </inputs>
     <outputs>
         <collection name="wgcna_plots" type="list" label="${tool.name} on ${on_string} - WGCNA plots">
-            <discover_datasets pattern="(?P&lt;name&gt;.+)\.png" directory="plots" format="png"/>
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.(?P&lt;ext&gt;png|jpg|pdf|svg)" directory="plots"/>
         </collection>
         <collection name="gene_tables" type="list" label="${tool.name} on ${on_string} - Module and hub gene tables">
             <discover_datasets pattern="(?P&lt;name&gt;module_gene_info_.+)\.tsv" directory="results" format="tabular"/>
@@ -883,8 +1009,8 @@ cat("Results written to: results/\n")
                 <element name="01_gene_variance_distribution">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="800"/>
-                        <has_image_height min="600"/>
+                        <has_image_width min="3500"/>
+                        <has_image_height min="2450"/>
                     </assert_contents>
                 </element>
                 <element name="02_sample_clustering">
@@ -897,15 +1023,15 @@ cat("Results written to: results/\n")
                 <element name="03_expression_data_distribution">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1400"/>
-                        <has_image_height min="700"/>
+                        <has_image_width min="5600"/>
+                        <has_image_height min="2800"/>
                     </assert_contents>
                 </element>
                 <element name="05_dendrogram_and_modules">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="750"/>
+                        <has_image_width min="5600"/>
+                        <has_image_height min="3150"/>
                     </assert_contents>
                 </element>
                 <element name="06_module_eigengene_dendrogram">
@@ -925,22 +1051,22 @@ cat("Results written to: results/\n")
                 <element name="08_gene_significance_vs_module_membership_magenta_age_at_diagnosis">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1000"/>
-                        <has_image_height height="700"/>
+                        <has_image_width min="3850"/>
+                        <has_image_height min="2800"/>
                     </assert_contents>
                 </element>
                 <element name="14_coexpression_network">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="1200"/>
+                        <has_image_width min="4900"/>
+                        <has_image_height min="4900"/>
                     </assert_contents>
                 </element>
                 <element name="16_module_eigengene_correlation_heatmap">
                     <assert_contents>
                         <has_size min="100"/>
-                        <has_image_width width="1200"/>
-                        <has_image_height height="1200"/>
+                        <has_image_width min="4200"/>
+                        <has_image_height min="4200"/>
                     </assert_contents>
                 </element>
             </output_collection>
@@ -962,6 +1088,74 @@ cat("Results written to: results/\n")
                     </assert_contents>
                 </element>
             </output_collection>
+        </test>
+        <!-- Non-default image_format: verify plots collection is generated as PDF -->
+        <test expect_num_outputs="3">
+            <param name="counts_file" value="normalized_counts.tsv"/>
+            <param name="metadata_file" value="trait_data.tsv"/>
+            <param name="network_type" value="signed"/>
+            <param name="min_module_size" value="10"/>
+            <param name="trait_columns" value="2"/>
+            <param name="image_format" value="pdf"/>
+            <output_collection name="wgcna_plots" type="list" count="11">
+                <element name="01_gene_variance_distribution">
+                    <assert_contents>
+                        <has_size min="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="gene_tables" type="list" count="2"/>
+        </test>
+        <!-- Non-default image_format: JPEG, same dimensions as the default PNG run -->
+        <test expect_num_outputs="3">
+            <param name="counts_file" value="normalized_counts.tsv"/>
+            <param name="metadata_file" value="trait_data.tsv"/>
+            <param name="network_type" value="signed"/>
+            <param name="min_module_size" value="10"/>
+            <param name="trait_columns" value="2"/>
+            <param name="image_format" value="jpg"/>
+            <output_collection name="wgcna_plots" type="list" count="11">
+                <element name="01_gene_variance_distribution">
+                    <assert_contents>
+                        <has_size min="100"/>
+                        <has_image_width min="3500"/>
+                        <has_image_height min="2450"/>
+                    </assert_contents>
+                </element>
+                <element name="02_sample_clustering">
+                    <assert_contents>
+                        <has_size min="100"/>
+                        <has_image_width min="1200"/>
+                        <has_image_height min="700"/>
+                    </assert_contents>
+                </element>
+                <element name="14_coexpression_network">
+                    <assert_contents>
+                        <has_size min="100"/>
+                        <has_image_width min="4900"/>
+                        <has_image_height min="4900"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="gene_tables" type="list" count="2"/>
+        </test>
+        <!-- Non-default image_format: verify plots collection is generated as SVG -->
+        <test expect_num_outputs="3">
+            <param name="counts_file" value="normalized_counts.tsv"/>
+            <param name="metadata_file" value="trait_data.tsv"/>
+            <param name="network_type" value="signed"/>
+            <param name="min_module_size" value="10"/>
+            <param name="trait_columns" value="2"/>
+            <param name="image_format" value="svg"/>
+            <output_collection name="wgcna_plots" type="list" count="11">
+                <element name="01_gene_variance_distribution">
+                    <assert_contents>
+                        <has_size min="100"/>
+                        <has_text text="&lt;svg"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="gene_tables" type="list" count="2"/>
         </test>
         <test expect_num_outputs="4">
             <param name="counts_file" value="normalized_counts.tsv"/>
@@ -1042,7 +1236,11 @@ Runs the complete Weighted Gene Co-expression Network Analysis (WGCNA) workflow:
 
 **Network type, TOM type, and correlation type**
 
-Network type defaults to *Unsigned*. For most RNA-seq co-expression analyses, *Signed* (or *Signed hybrid*) is recommended instead, since it preserves the distinction between positive and negative correlations — set Network type and TOM type to matching signed/unsigned values. Correlation type defaults to Pearson; choose biweight midcorrelation (bicor) for a robust alternative that down-weights outlier samples.
+Network type defaults to *Signed* (recommended). For RNA-seq co-expression analyses, *Signed* (or *Signed hybrid*) preserves the distinction between positive and negative correlations — set Network type and TOM type to matching signed/unsigned values. Correlation type defaults to Pearson; choose biweight midcorrelation (bicor) for a robust alternative that down-weights outlier samples.
+
+**Plot image format**
+
+The plots in the wgcna_plots collection can be produced as PNG (default), JPEG, PDF, or SVG. PDF and SVG formats are resolution-independent (vector graphics), so the Plot resolution (DPI) setting only affects the raster formats (PNG, JPEG).
 
 **Outputs**
 

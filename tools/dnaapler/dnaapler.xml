@@ -1,0 +1,507 @@
+<tool id="dnaapler" name="DNAapler" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0">
+    <description>reorient circular microbial sequences</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">dnaapler</xref>
+    </xrefs>
+    <expand macro="requirements"/>
+    <version_command>dnaapler --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($analysis.mode) == 'custom' and $analysis.custom_db.ext == 'fasta.gz':
+            gzip -cd '$analysis.custom_db' > custom_db.faa &&
+        #elif str($analysis.mode) == 'bulk' and str($analysis.bulk_mode.target) == 'custom' and $analysis.bulk_mode.custom_db.ext == 'fasta.gz':
+            gzip -cd '$analysis.bulk_mode.custom_db' > custom_db.faa &&
+        #end if
+        dnaapler '$analysis.mode'
+            --input '$analysis.input'
+            --output 'dnaapler_output'
+            --threads "\${GALAXY_SLOTS:-1}"
+        #if str($analysis.mode) in ('all', 'chromosome', 'plasmid', 'phage', 'archaea', 'custom'):
+            --evalue '$analysis.evalue'
+            --autocomplete '$analysis.autocomplete'
+        #elif str($analysis.mode) == 'bulk':
+            --evalue '$analysis.evalue'
+            --mode '$analysis.bulk_mode.target'
+        #end if
+        #if str($analysis.mode) in ('all', 'chromosome', 'plasmid', 'phage', 'archaea', 'custom', 'mystery') and str($analysis.seed_value) not in ('', 'None'):
+            --seed_value '$analysis.seed_value'
+        #end if
+        #if str($analysis.mode) == 'all' and str($analysis.ignore).strip():
+            --ignore '$ignore_file'
+        #elif str($analysis.mode) == 'custom':
+            #if $analysis.custom_db.ext == 'fasta.gz':
+                --custom_db 'custom_db.faa'
+            #else:
+                --custom_db '$analysis.custom_db'
+            #end if
+        #elif str($analysis.mode) == 'bulk' and str($analysis.bulk_mode.target) == 'custom':
+            #if $analysis.bulk_mode.custom_db.ext == 'fasta.gz':
+                --custom_db 'custom_db.faa'
+            #else:
+                --custom_db '$analysis.bulk_mode.custom_db'
+            #end if
+        #end if
+        --prefix 'dnaapler'
+    ]]></command>
+    <configfiles>
+        <configfile name="ignore_file"><![CDATA[
+#if str($analysis.mode) == 'all':
+#for $contig_id in str($analysis.ignore).split(','):
+#if $contig_id.strip():
+$contig_id.strip()
+#end if
+#end for
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="analysis">
+            <param name="mode" type="select" label="Reorientation method" help="Choose how DNAapler selects a new start. All searches bundled marker families; Bulk applies one marker family to multiple sequences.">
+                <option value="all" selected="true">All marker families (recommended for mixed circular sequences)</option>
+                <option value="chromosome">Chromosome (DnaA)</option>
+                <option value="plasmid">Plasmid (RepA)</option>
+                <option value="phage">Phage (TerL)</option>
+                <option value="archaea">Archaea (COG1474)</option>
+                <option value="custom">Custom protein database (one sequence)</option>
+                <option value="mystery">Mystery (random coding sequence)</option>
+                <option value="largest">Largest coding sequence</option>
+                <option value="nearest">Nearest (second predicted coding sequence)</option>
+                <option value="bulk">Bulk: one marker family for multiple sequences</option>
+            </param>
+            <when value="all">
+                <expand macro="assembly_input"/>
+                <param argument="--ignore" type="text" value="" optional="true" label="Contig IDs to leave unchanged" help="Optional comma-separated IDs (the first word of each FASTA header or the GFA segment name).">
+                    <validator type="regex" message="Use comma-separated IDs with letters, numbers, dots, underscores, or hyphens; do not include spaces.">^[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*$</validator>
+                </param>
+                <expand macro="search_controls"/>
+            </when>
+            <when value="chromosome">
+                <expand macro="assembly_input"/>
+                <expand macro="search_controls"/>
+            </when>
+            <when value="plasmid">
+                <expand macro="assembly_input"/>
+                <expand macro="search_controls"/>
+            </when>
+            <when value="phage">
+                <expand macro="assembly_input"/>
+                <expand macro="search_controls"/>
+            </when>
+            <when value="archaea">
+                <expand macro="assembly_input"/>
+                <expand macro="search_controls"/>
+            </when>
+            <when value="custom">
+                <expand macro="assembly_input"/>
+                <param argument="--custom_db" type="data" format="fasta,fasta.gz" label="Amino acid FASTA of target proteins" help="Plain or gzip-compressed amino acid FASTA used to choose the new start."/>
+                <expand macro="search_controls"/>
+            </when>
+            <when value="mystery">
+                <expand macro="mystery_input"/>
+                <param argument="--seed_value" type="integer" value="" optional="true" label="Random seed" help="Leave blank to use DNAapler's default (13)."/>
+            </when>
+            <when value="largest">
+                <expand macro="assembly_input"/>
+            </when>
+            <when value="nearest">
+                <expand macro="assembly_input"/>
+            </when>
+            <when value="bulk">
+                <expand macro="assembly_input"/>
+                <conditional name="bulk_mode">
+                    <param name="target" argument="--mode" type="select" label="Marker family for every sequence">
+                        <option value="chromosome" selected="true">Chromosome (DnaA)</option>
+                        <option value="plasmid">Plasmid (RepA)</option>
+                        <option value="phage">Phage (TerL)</option>
+                        <option value="archaea">Archaea (COG1474)</option>
+                        <option value="custom">Custom protein database</option>
+                    </param>
+                    <when value="chromosome"/>
+                    <when value="plasmid"/>
+                    <when value="phage"/>
+                    <when value="archaea"/>
+                    <when value="custom">
+                        <param argument="--custom_db" type="data" format="fasta,fasta.gz" label="Amino acid FASTA of target proteins" help="Plain or gzip-compressed amino acid FASTA used for all input sequences."/>
+                    </when>
+                </conditional>
+                <param argument="--evalue" type="float" value="1e-10" min="0" label="Maximum MMseqs2 E-value" help="DNAapler's default is 1e-10."/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="reoriented_fasta" format="fasta" from_work_dir="dnaapler_output/dnaapler_reoriented.fasta" label="DNAapler: output sequences (FASTA)"/>
+        <data name="reoriented_gfa" format="gfa1" from_work_dir="dnaapler_output/dnaapler_reoriented.gfa" label="DNAapler: reoriented assembly graph (GFA1)">
+            <filter>analysis['input'].ext in ('gfa1', 'gfa1.gz')</filter>
+        </data>
+        <data name="all_summary" format="tabular" from_work_dir="dnaapler_output/dnaapler_all_reorientation_summary.tsv" label="DNAapler: All reorientation summary (processed sequences)">
+            <filter>analysis['mode'] == 'all'</filter>
+        </data>
+        <data name="bulk_summary" format="tabular" from_work_dir="dnaapler_output/dnaapler_bulk_reorientation_summary.tsv" label="DNAapler: Bulk reorientation summary (processed sequences)">
+            <filter>analysis['mode'] == 'bulk'</filter>
+        </data>
+        <collection name="unmatched_contigs" type="list" label="DNAapler: contigs with no matching protein (FASTA)">
+            <filter>analysis['mode'] == 'bulk'</filter>
+            <discover_datasets pattern="dnaapler_(?P&lt;designation&gt;failed_to_reorient)\.fasta" format="fasta" directory="dnaapler_output" visible="false"/>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_all_reoriented.fasta" ftype="fasta"/>
+            <output name="all_summary" file="expected_all_summary.tsv" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="circular_and_linear.gfa" ftype="gfa1"/>
+            </conditional>
+            <output name="reoriented_gfa" file="expected_all_reoriented.gfa" ftype="gfa1"/>
+            <output name="reoriented_fasta" ftype="fasta">
+                <assert_contents>
+                    <has_text text="&gt;linear_contig"/>
+                    <has_text text="&gt;circular_plasmid"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="all_summary">
+                <assert_contents>
+                    <has_text text="circular_plasmid"/>
+                    <not_has_text text="linear_contig"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="linear_only.gfa" ftype="gfa1"/>
+            </conditional>
+            <output name="reoriented_gfa" file="linear_only.gfa" ftype="gfa1"/>
+            <output name="reoriented_fasta" file="expected_linear_only.fasta" ftype="fasta"/>
+            <output name="all_summary">
+                <assert_contents>
+                    <has_text text="No_reorientation"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="rotated.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_all_reoriented.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="circular_and_linear.gfa.gz" ftype="gfa1.gz"/>
+            </conditional>
+            <output name="reoriented_gfa" file="expected_all_reoriented.gfa" ftype="gfa1"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="no_hit.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta" file="no_hit.fasta" ftype="fasta"/>
+            <output name="all_summary" file="expected_all_no_hit_summary.tsv" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="bulk_mixed.fasta" ftype="fasta"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="plasmid"/>
+                </conditional>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_bulk_all_matched.fasta" ftype="fasta"/>
+            <output name="bulk_summary" file="expected_bulk_summary.tsv" ftype="tabular"/>
+            <output_collection name="unmatched_contigs" type="list" count="1">
+                <element name="failed_to_reorient" file="no_hit.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="bulk_mixed_circular.gfa" ftype="gfa1"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="plasmid"/>
+                </conditional>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_bulk_gfa_mixed.fasta" ftype="fasta"/>
+            <output_collection name="unmatched_contigs" type="list" count="1">
+                <element name="failed_to_reorient" file="no_hit.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="custom"/>
+                <param name="input" value="custom_target.fasta" ftype="fasta"/>
+                <param name="custom_db" value="custom_db.faa" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_custom_reoriented.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="custom"/>
+                <param name="input" value="custom_target.fasta" ftype="fasta"/>
+                <param name="custom_db" value="custom_db.faa.gz" ftype="fasta.gz"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_custom_reoriented.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="bulk_custom_target.fasta" ftype="fasta"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="custom"/>
+                    <param name="custom_db" value="custom_db.faa" ftype="fasta"/>
+                </conditional>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_custom_reoriented.fasta" ftype="fasta"/>
+            <output name="bulk_summary" file="expected_bulk_custom_summary.tsv" ftype="tabular"/>
+            <output_collection name="unmatched_contigs" type="list" count="1">
+                <element name="failed_to_reorient" file="no_hit.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="bulk_custom_target.fasta" ftype="fasta"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="custom"/>
+                    <param name="custom_db" value="custom_db.faa.gz" ftype="fasta.gz"/>
+                </conditional>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_custom_reoriented.fasta" ftype="fasta"/>
+            <output name="bulk_summary" file="expected_bulk_custom_summary.tsv" ftype="tabular"/>
+            <output_collection name="unmatched_contigs" type="list" count="1">
+                <element name="failed_to_reorient" file="no_hit.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <test expect_failure="true">
+            <conditional name="analysis">
+                <param name="mode" value="plasmid"/>
+                <param name="input" value="bulk_mixed.fasta" ftype="fasta"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="more than one entry"/>
+            </assert_stderr>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="plasmid"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+                <param name="evalue" value="0"/>
+                <param name="autocomplete" value="largest"/>
+            </conditional>
+            <output name="reoriented_fasta">
+                <assert_contents>
+                    <has_text_matching expression="^&gt;circular_plasmid\nATGATTTCTTTCTTTGAGGATGTGATCGAAGGTATCTCACGCAATCTTACGTCAAATGAC"/>
+                    <has_n_lines n="1033"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="There were 0 MMseqs2 hits"/>
+                <has_text text="Running largest"/>
+            </assert_stderr>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="plasmid"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_bulk_all_matched.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+                <param name="ignore" value="circular_plasmid"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_all_ignored.fasta" ftype="fasta"/>
+            <output name="all_summary" file="expected_all_ignored_summary.tsv" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="plasmid"/>
+                </conditional>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_bulk_all_matched.fasta" ftype="fasta"/>
+            <output_collection name="unmatched_contigs" type="list" count="0"/>
+        </test>
+        <test expect_failure="true">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="no_hit.fasta" ftype="fasta"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="plasmid"/>
+                </conditional>
+            </conditional>
+            <assert_stderr>
+                <has_text text="There were 0 MMseqs2 hits"/>
+            </assert_stderr>
+        </test>
+        <test expect_failure="true">
+            <conditional name="analysis">
+                <param name="mode" value="plasmid"/>
+                <param name="input" value="no_hit.fasta" ftype="fasta"/>
+                <param name="autocomplete" value="largest"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="less than 4 CDS"/>
+            </assert_stderr>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="mystery"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+                <param name="seed_value" value="17"/>
+            </conditional>
+            <output name="reoriented_fasta">
+                <assert_contents>
+                    <has_text_matching expression="^&gt;circular_plasmid\nATGGCTACAGATAAAGGTAAAGAAACCAGAAAAATGATGCTCTACGTCGGTGGCGCCGCT"/>
+                    <has_n_lines n="1033"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--seed_value '17'"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="largest"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta">
+                <assert_contents>
+                    <has_text_matching expression="^&gt;circular_plasmid\nATGATTTCTTTCTTTGAGGATGTGATCGAAGGTATCTCACGCAATCTTACGTCAAATGAC"/>
+                    <has_n_lines n="1033"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="nearest"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta">
+                <assert_contents>
+                    <has_text_matching expression="^&gt;circular_plasmid\nATGGTTGATGCCCCGCCCTCAATCCCGCTGCCAACTTGCATGGTTGAAGCAGCACAGATT"/>
+                    <has_n_lines n="1033"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="chromosome"/>
+                <param name="input" value="circular_chromosome_marker.gfa" ftype="gfa1"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_chromosome_marker.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="phage"/>
+                <param name="input" value="circular_phage_marker.gfa" ftype="gfa1"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_phage_marker.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="archaea"/>
+                <param name="input" value="circular_archaea_marker.gfa" ftype="gfa1"/>
+            </conditional>
+            <output name="reoriented_fasta" file="expected_archaea_marker.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="analysis">
+                <param name="mode" value="bulk"/>
+                <param name="input" value="circular_archaea_marker.gfa" ftype="gfa1"/>
+                <conditional name="bulk_mode">
+                    <param name="target" value="archaea"/>
+                </conditional>
+            </conditional>
+            <output name="bulk_summary" file="expected_bulk_archaea_summary.tsv" ftype="tabular"/>
+            <output_collection name="unmatched_contigs" type="list" count="0"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="circular_competing_markers.gfa" ftype="gfa1"/>
+            </conditional>
+            <output name="all_summary" file="expected_competing_markers_summary.tsv" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="analysis">
+                <param name="mode" value="all"/>
+                <param name="input" value="no_hit_dotted.fasta" ftype="fasta"/>
+                <param name="ignore" value="no_hit.1"/>
+            </conditional>
+            <output name="reoriented_fasta" file="no_hit_dotted.fasta" ftype="fasta"/>
+            <output name="all_summary">
+                <assert_contents>
+                    <has_text text="no_hit.1"/>
+                    <has_text text="Contig_ignored"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="mystery"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="reoriented_fasta" ftype="fasta">
+                <assert_contents>
+                    <has_text text="&gt;circular_plasmid"/>
+                    <has_n_lines n="1033"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <not_has_text text="--seed_value"/>
+            </assert_command>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="analysis">
+                <param name="mode" value="mystery"/>
+                <param name="input" value="rotated.fasta" ftype="fasta"/>
+                <param name="seed_value" value="0"/>
+            </conditional>
+            <output name="reoriented_fasta" ftype="fasta">
+                <assert_contents>
+                    <has_text text="&gt;circular_plasmid"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--seed_value '0'"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**DNAapler** moves the start of a circular microbial sequence to a marker gene or
+predicted coding sequence. FASTA does not record circularity; rotating a linear
+sequence joins its ends.
+
+**Methods.** All searches bundled DnaA, COG1474, RepA, and TerL markers for each
+record. When families compete, that order takes precedence over hit score. All
+cannot use a custom database. Use Custom for one sequence or Bulk with Custom
+for multiple records in one dataset.
+
+**GFA and outputs.** Only simple circular GFA segments are reoriented; linear
+segments pass through. The FASTA output contains every GFA segment. All keeps
+searched records without marker hits in its FASTA and summary. Bulk puts
+unmatched records in a separate collection; for GFA input, they also remain in
+the main FASTA. In mixed GFA, summaries cover only processed circular segments.
+A GFA with no circular segments passes through with summary rows for all
+segments; a Bulk search of eligible segments with no hits fails.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
