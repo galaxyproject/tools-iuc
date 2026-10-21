@@ -18,12 +18,21 @@ Catalog metadata is looked up through the public GWOSC API (no credentials, outb
 ## Resources
 
 Most analyses need under 0.5 GB of memory. `search_skymaps` and `parameters_estimation` read full-resolution
-sky maps and PE files and peak at about 1.5 GB; `hubble_constant` (bright) at about 1 GB.
+sky maps and PE files and peak at about 1.5 GB; `hubble_constant` (bright) at about 1 GB. `rates` and `primordial_black_holes`
+read the LVK search-sensitivity injections (~900 MB, downloaded once per job) and peak at about 0.6 GB.
 
 ## Not in this wrapper
 
 `galaxy_catalog` and the spectral and dark-siren methods of `hubble_constant` run icarogw, which is not packaged on
-conda, and hours-long sampling; they are available from the command line only.
+conda, and hours-long sampling; they are available from the command line only. `check_catalogs`, a maintenance
+check of the package (are new catalogs on GWOSC?), is also left out.
+
+## Regenerating the wrapper
+
+`gwtc_analysis.xml` is generated from the command line of the package by `galaxy/gen_galaxy_wrapper.py` in the
+[gwtc_analysis repository](https://github.com/danielsentenac/gwtc_analysis); the tests are written there too. Edits
+made here by hand (or by the autoupdate bot) are fine, but should be carried over to the generator so that the next
+regeneration keeps them.
 
 ## Dependency
 
