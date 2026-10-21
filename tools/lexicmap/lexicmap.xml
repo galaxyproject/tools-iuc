@@ -1,4 +1,4 @@
-<tool id="lexicmap_search" name="LexicMap Search" version="@TOOL_VERSION@+galaxy5" profile="@PROFILE_VERSION@">
+<tool id="lexicmap_search" name="LexicMap Search" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE_VERSION@">
     <description>nucleotide sequence tool for querying genomes</description>
     <macros>
         <import>macros.xml</import>
@@ -14,6 +14,21 @@
 
 export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
 
+## LexicMap v0.10 can bound the seed-anchor collection buffers and the retained
+## -a/--all alignment fields, spilling the overflow to TMPDIR. Point TMPDIR at a
+## disk-backed directory inside the job working dir (cleaned up with the job);
+## a tmpfs TMPDIR would defeat the caps by keeping the data in RAM.
+export TMPDIR="\$PWD/lexicmap_spill_tmp";
+mkdir -p "\$TMPDIR";
+
+## Budgets scale with the job allocation and sum to ~80% of RAM: the
+## seed-anchor collection buffer gets 3/5 (LexicMap divides it into fixed
+## shares across the --max-query-conc slots) and the retained alignment
+## fields get 1/5. The remaining ~20% covers the resident index, alignment
+## workspaces, and Go non-heap overhead.
+SEED_MEM_MB=\$(( \${GALAXY_MEMORY_MB:-8192} * 3 / 5 ));
+ALIGN_MEM_MB=\$(( \${GALAXY_MEMORY_MB:-8192} / 5 ));
+
 #for $counter, $index in enumerate($INDICES):
     set -eu;
     lexicmap search
@@ -25,7 +40,12 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
 
         '$query'
 
+        #if $compress_output and len($INDICES) == 1
+        --out-file '$out_file'
+        --force-gzip-output
+        #else
         --out-file 'lexicmap_search_result__index${counter}.tsv'
+        #end if
 
         --top-n-genomes '$top_n_genomes'
 
@@ -35,6 +55,8 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
         --align-min-match-len '$align_min_match_len'
         --align-min-match-pident '$align_min_match_pident'
         --max-evalue '$max_evalue'
+        --max-seed-memory "\${SEED_MEM_MB}M"
+        --max-align-result-memory "\${ALIGN_MEM_MB}M"
         --max-query-conc "\$(( \${GALAXY_SLOTS:-1} > 8 ? 8 : \${GALAXY_SLOTS:-1} ))"
         --seed-max-dist '$seed_max_dist'
         --seed-max-gap '$seed_max_gap'
@@ -67,6 +89,7 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
         lexicmap utils merge-search-results
             --out-file "combined_result.\${counter}.tsv"
             -q "\$q" lexicmap_search_result__index*.tsv
+            -n '$top_n_genomes'
             -j 1 &
         pids="\$pids \$!";
         if [ \$((counter % \${GALAXY_SLOTS:-1})) -eq 0 ]; then
@@ -75,9 +98,15 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
         fi;
     done &&
     for p in \$pids; do wait "\$p"; done &&
+    #if $compress_output
+    cat combined_result.*.tsv | awk 'NR==1 || $0 !~ /^query\tqlen\thits/' | gzip > '$out_file'
+    #else
     cat combined_result.*.tsv | awk 'NR==1 || $0 !~ /^query\tqlen\thits/' > '$out_file'
-#else
+    #end if
+#else if not $compress_output
     mv lexicmap_search_result__index0.tsv '$out_file'
+#else
+    echo "LexicMap wrote compressed output to '$out_file'"
 #end if
     ]]></command>
     <inputs>
@@ -98,6 +127,7 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
         </conditional>
         <param argument="--top-n-genomes" type="integer" value="0" label="Keep top N genome matches for a query (0 for all)"/>
         <param argument="--all" type="boolean" truevalue="--all" falsevalue="" checked="true" label="Output all columns" help="Output more columns, e.g., matched sequences. Use this if you want to output blast-style format with 'lexicmap utils 2blast'."/>
+        <param name="compress_output" type="boolean" truevalue="true" falsevalue="" checked="false" label="gzip-compress the search result" help="Store the result dataset gzip-compressed (LexicMap's --force-gzip-output)."/>
         <section name="advanced_settings" title="Advanced settings" expanded="false">
             <param argument="--align-band" value="100" type="integer" label="Align band" help="Band size in backtracking the score matrix (pseudo alignment"/>
             <param argument="-align-ext-len" min="0" value="1000" type="integer" label="Align extend length" help="Extend length of upstream and downstream of seed regions, for extracting query and target sequences for alignment. It should be &lt;= contig interval length in database."/>
@@ -117,6 +147,9 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
     </inputs>
     <outputs>
         <data name="out_file" format="tabular">
+            <change_format>
+                <when input="compress_output" value="true" format="gz"/>
+            </change_format>
             <actions>
                 <conditional name="all">
                     <when value="true">
@@ -143,6 +176,21 @@ export GOMEMLIMIT=\$((\${GALAXY_MEMORY_MB:-8192} * 9 / 10))MiB;
                 <param name="load_whole_seeds" value="true"/>
             </section>
             <output name="out_file" value="lexicmap_query_result.tsv"/>
+        </test>
+        <!-- Test - gzip-compressed output -->
+        <test expect_num_outputs="1">
+            <conditional name="db_opts">
+                <param name="db_opts_selector" value="db"/>
+                <param name="lexicmap_index" value="LexicMapIndex1"/>
+            </conditional>
+            <param name="query" value="lexicmap_query.fasta.gz"/>
+            <param name="all" value="false"/>
+            <param name="compress_output" value="true"/>
+            <section name="advanced_settings">
+                <param name="top_n_chains" value="0"/>
+                <param name="load_whole_seeds" value="true"/>
+            </section>
+            <output name="out_file" ftype="gz" value="lexicmap_query_result.tsv" decompress="true"/>
         </test>
         <!-- Test 2 - query one local index with a multi-FASTA query file -->
         <test expect_num_outputs="1">
