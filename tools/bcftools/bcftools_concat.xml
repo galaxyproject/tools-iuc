@@ -18,9 +18,11 @@ bcftools @EXECUTABLE@
 #set $section = $sec_default
 
 #if $section.mode.naive == "yes":
-    --naive
-#else if $section.mode.naive == "force":
-    --naive-force
+    #if $section.mode.naive_force:
+        --naive-force
+    #else:
+        --naive
+    #end if
 #else:
     #if $section.mode.overlaps.allow_overlaps == 'yes':
         --allow-overlaps
@@ -28,28 +30,32 @@ bcftools @EXECUTABLE@
             --rm-dups $section.mode.overlaps.rm_dups
         #end if
     #end if
-    ${section.mode.ligate}
-    #if $section.mode.ligate_mode
-        $section.mode.ligate_mode
+    #if $section.mode.ligate:
+        ${section.mode.ligate}
+        #if $section.mode.ligate_mode:
+            $section.mode.ligate_mode
+        #end if
+        ${section.compact_PS}
+        #if str($section.min_PQ):
+            --min-PQ ${section.min_PQ}
+        #end if
+    #else:
+        #if $section.drop_genotypes:
+            --drop-genotypes
+        #end if
     #end if
 #end if
-${section.compact_PS}
-#if str($section.min_PQ):
-    --min-PQ ${section.min_PQ}
-#end if
-#if $section.drop_genotypes:
-    --drop-genotypes
-#end if
 
-#set $section = $sec_restrict
-@REGIONS@
+#if $section.mode.naive != "yes":
+    #set $section = $sec_restrict
+    @REGIONS@
+#end if
 
 ## General options
 #set $section = $sec_general
 @NO_VERSION@
-@VERBOSITY@
 
-#if $sec_default.mode.naive in ["yes", "force"]:
+#if $sec_default.mode.naive == "yes":
     #if $output_type == 'v':
         --output-type 'z'
     #else:
@@ -62,7 +68,7 @@ ${section.compact_PS}
 
 ## Primary Input/Outputs
 @INPUT_FILES@
-#if $sec_default.mode.naive in ["yes", "force"] and $output_type == 'v':
+#if $sec_default.mode.naive == "yes" and $output_type == 'v':
     > output.gz && bcftools index output.gz && bcftools view -O v -o '$output_file' output.gz
 #else:
     > '$output_file'
@@ -77,52 +83,49 @@ ${section.compact_PS}
             <conditional name="mode">
                 <param argument="--naive" type="select" label="Naive concat">
                     <help><![CDATA[
---naive concatenates VCF or BCF files without recompression. This can be used used to combine results that were generated separately for each chromosome.  This is very fast but requires that all files are of the same type (all VCF or all BCF) and have the same headers. This is because all tags and chromosome names in the BCF body rely on the implicit order of the contig and tag definitions in the header. Currently no sanity checks are in place. Dangerous, use with caution.
+--naive concatenates VCF or BCF files without recompression. This can be used to combine results that were generated separately for each chromosome. This is very fast but requires that all files are of the same type (all VCF or all BCF) and have identical headers. Cannot be combined with --allow-overlaps, --ligate, --drop-genotypes, or region filtering.
                     ]]></help>
-                    <option value="no">No </option>
-                    <option value="yes">Yes </option>
-                    <option value="force">Yes, force (dangerous, use with caution)</option>
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
                 </param>
-                <when value="yes"/>
+                <when value="yes">
+                    <param argument="--naive-force" type="boolean" truevalue="--naive-force" falsevalue="" checked="false" label="Naive force" help="Same as --naive, but does not check if the headers of all input files are compatible. This can be dangerous and cause corrupted files if headers differ. Use with caution!" />
+                </when>
                 <when value="no">
                     <conditional name="overlaps">
-                        <param name="allow_overlaps" type="select" label="Allow Overlaps">
+                        <param argument="--allow-overlaps" type="select" label="Allow Overlaps">
                             <help>
-                            First coordinate of the next file can precede last record of the current file.
+With this option enabled the tool will handle inputs with overlapping variant positions, i.e.  the first coordinate of an input can safely precede the last record of the previous input without messing up the sort order in the output. Without the option concatenation can run faster, but it's your responsibility to provide non-overlapping inputs in the first place.
                             </help>
-                            <option value="yes">Yes </option>
-                            <option value="no">No </option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
                         </param>
                         <when value="yes">
-                            <param name="rm_dups" type="select" label="Remove duplicate" optional="true">
-                                <help><![CDATA[
-                                 Output duplicate records present in multiple files only once:
-                                   rm-dups <snps|indels|both|all|none>
-                                ]]></help>
-                                <option value="snps">snps - SNP records</option>
-                                <option value="indels">indels - indel records</option>
-                                <option value="both">both - both SNP and indel records</option>
-                                <option value="all">all - records</option>
-                                <option value="exact">Exact - alias for -D, --remove-duplicates</option>
-                                <option value="none">none - output multiple records instead</option>
+                            <param argument="--rm-dups" type="select" label="Remove duplicates resulting from concatenation of" optional="true">
+                                <help>
+The following rules are applied depending on your selection: SNPs - of SNP records affecting the same genomic position only the first one is kept regardless of whether the ALT alleles match or not; indels - of indel records affecting the same genomic position only the first one is kept regardless of whether the REF and ALT alleles match or not; both - deduplicates both SNP and indel records according to the previous rules; all - deduplicates all kinds of records according to the rules for SNPs; exact - deduplicates all kinds of records if they match exactly considering REF and ALT.
+                                </help>
+                                <option value="snps">SNPs (snps)</option>
+                                <option value="indels">indels</option>
+                                <option value="both">SNPs and indels (both)</option>
+                                <option value="all">all records (all)</option>
+                                <option value="exact">exact matches (exact)</option>
                             </param>
                         </when>
                         <when value="no"/>
                     </conditional>
-                    <param name="ligate" type="boolean" truevalue="--ligate" falsevalue="" label="Ligate" help="Ligate phased VCFs by matching phase at overlapping haplotypes"/>
-                    <param name="ligate_mode" type="select" optional="true" label="Ligate mode" help="It allows finer control of --ligate behavior">
+                    <param name="ligate" type="boolean" truevalue="--ligate" falsevalue="" label="Ligate" help="Ligate phased VCFs by matching phase at overlapping haplotypes. Cannot be combined with Allow Overlaps (--allow-overlaps), Naive concat (--naive), or Drop genotypes (--drop-genotypes). Please run with Ligate only when dealing with overlapping phased chunks."/>
+                    <param name="ligate_mode" type="select" optional="true" label="Ligate mode" help="Finer control of --ligate behavior (only applicable when Ligate is enabled)">
                         <option value="--ligate-warn">Ligate warn: Drop sites that are present in one chunk but absent in the other (--ligate-warn)</option>
-                        <option value="--ligate-force">Ligate force: Kepp sites that are present only in one chunk (--ligate-force)</option>
+                        <option value="--ligate-force">Ligate force: Keep sites that are present only in one chunk (--ligate-force)</option>
                     </param>
                 </when>
-                <when value="force"/>
             </conditional>
-            <param name="compact_PS" type="boolean" truevalue="--compact-PS" falsevalue="" label="Compact Ps" help="Do not output PS tag at each site, only at the start of a new phase set block."/>
-            <param name="min_PQ" type="integer" label="Min Pq" value="30" optional="true" help="Break phase set if phasing quality is lower than &lt;int&gt;"/>
-            <param argument="--drop-genotypes" type="boolean" truevalue="--drop-genotypes" falsevalue="" checked="false" label="Drop individual genotype information" />
+            <param name="compact_PS" type="boolean" truevalue="--compact-PS" falsevalue="" label="Compact Ps" help="Do not output PS tag at each site, only at the start of a new phase set block. Note: This option is intended only with Phased Concat (--ligate)."/>
+            <param name="min_PQ" type="integer" label="Min Pq" value="30" optional="true" help="Break phase set if phasing quality is lower than &lt;int&gt;. Note: This option is intended only with Phased Concat (--ligate)."/>
+            <param argument="--drop-genotypes" type="boolean" truevalue="--drop-genotypes" falsevalue="" checked="false" label="Drop individual genotype information" help="Drop individual genotype information. Note: Cannot be combined with Phased Concat (--ligate) or Naive concat (--naive)." />
         </section>
         <section name="sec_general" expanded="false" title="General Options">
-            <expand macro="macro_verbosity" />
             <expand macro="macro_no_version" />
         </section>
         <expand macro="macro_select_output_type"/>
@@ -134,7 +137,6 @@ ${section.compact_PS}
         <test>
             <param name="input_files" ftype="vcf" value="concat.1.b.vcf,concat.1.a.vcf"/>
             <section name="sec_general">
-                <param name="verbosity" value="1"/>
                 <param name="no_version" value="true"/>
             </section>
             <param name="output_type" value="v"/>
@@ -146,7 +148,6 @@ ${section.compact_PS}
                 </assert_contents>
             </output>
             <assert_command>
-                <has_text text="--verbosity=1"/>
                 <has_text text="--no-version"/>
             </assert_command>
         </test>
@@ -190,7 +191,6 @@ ${section.compact_PS}
                     <param name="naive" value="no"/>
                     <conditional name="overlaps">
                         <param name="allow_overlaps" value="yes"/>
-                        <param name="rm_dups" value="none"/>
                     </conditional>
                 </conditional>
             </section>
@@ -254,12 +254,12 @@ ${section.compact_PS}
             <param name="input_files" ftype="vcf" value="concat.1.a.vcf,concat.1.b.vcf"/>
             <section name="sec_default">
                 <conditional name="mode">
-                    <param name="naive" value="force"/>
+                    <param name="naive" value="yes"/>
+                    <param name="naive_force" value="true"/>
                 </conditional>
             </section>
             <section name="sec_general">
                 <param name="no_version" value="true"/>
-                <param name="verbosity" value="1"/>
             </section>
             <param name="output_type" value="v"/>
             <output name="output_file">
@@ -271,7 +271,6 @@ ${section.compact_PS}
             <assert_command>
                 <has_text text="--naive-force"/>
                 <has_text text="--no-version"/>
-                <has_text text="--verbosity"/>
             </assert_command>
         </test>
         <test>
@@ -284,7 +283,6 @@ ${section.compact_PS}
             </section>
             <section name="sec_general">
                 <param name="no_version" value="true"/>
-                <param name="verbosity" value="1"/>
             </section>
             <param name="output_type" value="v"/>
             <output name="output_file">
@@ -295,7 +293,6 @@ ${section.compact_PS}
             <assert_command>
                 <has_text text="--drop-genotypes"/>
                 <has_text text="--no-version"/>
-                <has_text text="--verbosity"/>
             </assert_command>
         </test>
         <test>
@@ -331,6 +328,16 @@ Concatenate or combine VCF/BCF files. All source files must have the same sample
 Naive concatenation is useful when using a galaxy workflow that splits a BAM file by chromosome, processes each in parallel, then bcftools concat merges the results into a single VCF file:
 
 BAM -> bamtools split => bcftools mpileup => bcftools call => bcftools concat -> VCF
+
+
+Option Interdependencies:
+-------------------------
+- **Naive mode (`--naive` / `--naive-force`)**: Cannot be combined with `--allow-overlaps`, `--ligate`, `--drop-genotypes`, or region filtering (`-r`/`-R`).
+- **Allow overlaps (`-a`) vs Phased concat (`-l`)**: `--allow-overlaps` and `--ligate` cannot be combined. When concatenating phased chunks with overlaps, run with `--ligate` only.
+- **Remove duplicates (`-d`/`-D`)**: Supported only with `--allow-overlaps` (`-a`).
+- **Restrict to regions (`-r`/`-R`)**: In concat, region filtering is supported only with `--allow-overlaps` (`-a`).
+- **Drop genotypes (`--drop-genotypes`)**: Cannot be combined with `--ligate` or `--naive`.
+- **Compact PS (`-c`) and Phasing Quality (`--min-PQ`)**: Intended only for use with Phased Concat (`--ligate`).
 
 
 @REGIONS_HELP@
