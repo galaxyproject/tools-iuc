@@ -27,13 +27,6 @@ read the LVK search-sensitivity injections (~900 MB, downloaded once per job) an
 conda, and hours-long sampling; they are available from the command line only. `check_catalogs`, a maintenance
 check of the package (are new catalogs on GWOSC?), is also left out.
 
-## Regenerating the wrapper
-
-`gwtc_analysis.xml` is generated from the command line of the package by `galaxy/gen_galaxy_wrapper.py` in the
-[gwtc_analysis repository](https://github.com/danielsentenac/gwtc_analysis); the tests are written there too. Edits
-made here by hand (or by the autoupdate bot) are fine, but should be carried over to the generator so that the next
-regeneration keeps them.
-
 ## Dependency
 
 - Conda package: `gwtc_analysis` (version pinned in the wrapper XML).
