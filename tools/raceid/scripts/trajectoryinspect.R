@@ -1,11 +1,11 @@
 #!/usr/bin/env R
 VERSION <- "0.2" # nolint
 
-args <- commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) != 1) {
-     message(paste("VERSION:", VERSION))
-     stop("Please provide the config file")
+    message(paste("VERSION:", VERSION))
+    stop("Please provide the config file")
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
@@ -19,7 +19,7 @@ second <- test
 second$cex <- 0.5
 second$line <- 2.5
 
-do.trajectoryinspection.stemID <- function(ltr) { # nolint
+do.trajectoryinspection.stemid <- function(ltr) { # nolint
     makeBranchLink <- function(i, j, k) { # nolint
         ingoing <- paste(sort(c(i, j)), collapse = ".")
         outgoing <- paste(sort(c(j, k)), collapse = ".")
@@ -34,7 +34,8 @@ do.trajectoryinspection.stemID <- function(ltr) { # nolint
     )
     write.table(
         head(bra$diffgenes$z, trjsid.numdiffgenes),
-        file = out.diffgenes)
+        file = out.diffgenes
+    )
 
     par(mfrow = c(3, 2), cex = 0.5)
     print(do.call(plotmap, c(bra$scl, final = FALSE, fr = FALSE)))
@@ -51,57 +52,63 @@ do.trajectoryinspection.stemID <- function(ltr) { # nolint
     print(do.call(mtext, c("Final Clusters (F-R)", test)))
 }
 
-do.trajectoryinspection.fateID <- function(ltr) { # nolint
-    n <- do.call(cellsfromtree, c(ltr, trjfid.cellsfrom))
+do.trajectoryinspection.fateid <- function(ltr) { # nolint
+    n <- do.call(cellsfromtree, c(ltr, trjfid_cellsfrom))
     x <- getfdata(ltr@sc)
 
-    trjfid.filterset$x <- x
-    trjfid.filterset$n <- n$f
-    fs <- do.call(filterset, c(trjfid.filterset))
-    trjfid.getsom$x <- fs
-    s1d <- do.call(getsom, c(trjfid.getsom))
-    trjfid.procsom$s1d <- s1d
-    ps <- do.call(procsom, c(trjfid.procsom))
+    trjfid_filterset$x <- x
+    trjfid_filterset$n <- n$f
+    fs <- do.call(filterset, c(trjfid_filterset))
+    trjfid_getsom$x <- fs
+    s1d <- do.call(getsom, c(trjfid_getsom))
+    trjfid_procsom$s1d <- s1d
+    ps <- do.call(procsom, c(trjfid_procsom))
 
-    y    <- ltr@sc@cpart[n$f]
+    y <- ltr@sc@cpart[n$f]
     fcol <- ltr@sc@fcol
 
-    trjfid.plotheat$xpart <- y
-    trjfid.plotheat$xcol <- fcol
+    trjfid_plotheat$xpart <- y
+    trjfid_plotheat$xcol <- fcol
 
     test$side <- 3
     test$line <- 3
 
-    ##Plot average z-score for all modules derived from the SOM:
-    trjfid.plotheat$x <- ps$nodes.z
-    trjfid.plotheat$ypart <- unique(ps$nodes)
-    print(do.call(plotheatmap, c(trjfid.plotheat)))
-    print(do.call(mtext, c("Average z-score for all modules derived from SOM",
-                           test)))
-    ##Plot z-score profile of each gene ordered by SOM modules:
-    trjfid.plotheat$x <- ps$all.z
-    trjfid.plotheat$ypart <- ps$nodes
-    print(do.call(plotheatmap, c(trjfid.plotheat)))
-    print(do.call(mtext, c(paste0("z-score profile of each gene",
-                                  "ordered by SOM modules"), test)))
-    ##Plot normalized expression profile of each gene ordered by SOM modules:
-    trjfid.plotheat$x <- ps$all.e
-    trjfid.plotheat$ypart <- ps$nodes
-    print(do.call(plotheatmap, c(trjfid.plotheat)))
-    print(do.call(mtext, c(paste0("Normalized expression profile of each",
-                                  "gene ordered by SOM modules"), test)))
-    ##Plot binarized expression profile of each gene
-    ##(z-score < -1, -1 < z-score < 1, z-score > 1)
-    trjfid.plotheat$x <- ps$all.b
-    trjfid.plotheat$ypart <- ps$nodes
-    print(do.call(plotheatmap, c(trjfid.plotheat)))
+    ## Plot average z-score for all modules derived from the SOM:
+    trjfid_plotheat$x <- ps$nodes.z
+    trjfid_plotheat$ypart <- unique(ps$nodes)
+    print(do.call(plotheatmap, c(trjfid_plotheat)))
+    print(do.call(mtext, c(
+        "Average z-score for all modules derived from SOM",
+        test
+    )))
+    ## Plot z-score profile of each gene ordered by SOM modules:
+    trjfid_plotheat$x <- ps$all.z
+    trjfid_plotheat$ypart <- ps$nodes
+    print(do.call(plotheatmap, c(trjfid_plotheat)))
+    print(do.call(mtext, c(paste0(
+        "z-score profile of each gene",
+        "ordered by SOM modules"
+    ), test)))
+    ## Plot normalized expression profile of each gene ordered by SOM modules:
+    trjfid_plotheat$x <- ps$all.e
+    trjfid_plotheat$ypart <- ps$nodes
+    print(do.call(plotheatmap, c(trjfid_plotheat)))
+    print(do.call(mtext, c(paste0(
+        "Normalized expression profile of each",
+        "gene ordered by SOM modules"
+    ), test)))
+    ## Plot binarized expression profile of each gene
+    ## (z-score < -1, -1 < z-score < 1, z-score > 1)
+    trjfid_plotheat$x <- ps$all.b
+    trjfid_plotheat$ypart <- ps$nodes
+    print(do.call(plotheatmap, c(trjfid_plotheat)))
     print(do.call(mtext, c("Binarized expression profile of each gene", test)))
     ## This should be written out, and passed back into the tool
     ## to perform sominspect
     return(list(fs = fs, ps = ps, y = y, fcol = fcol, nf = n$f))
 }
 
-do.trajectoryinspection.fateID.sominspect <- function(domo) { # nolint
+do.trajectoryinspection.fateid.sominspect <- function(domo) { # nolint
     g <- trjfidsomi.use.genes
     if (class(g) == "numeric") {
         g <- names(ps$nodes)[ps$nodes %in% g]
@@ -135,11 +142,11 @@ do.trajectoryinspection.fateID.sominspect <- function(domo) { # nolint
 ltr <- in.rdat
 
 pdf(out.pdf)
-if (perform.stemID) do.trajectoryinspection.stemID(ltr)
-if (perform.fateID) {
-    domo <- do.trajectoryinspection.fateID(ltr)
-    if (perform.fateID.sominspect) {
-        do.trajectoryinspection.fateID.sominspect(domo)
+if (perform.stemid) do.trajectoryinspection.stemid(ltr)
+if (perform.fateid) {
+    domo <- do.trajectoryinspection.fateid(ltr)
+    if (perform.fateid.sominspect) {
+        do.trajectoryinspection.fateid.sominspect(domo)
     }
 }
 dev.off()

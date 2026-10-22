@@ -56,6 +56,7 @@ def transform_pkl_to_json(pkl_fp, json_fp):
         'taxonomy': in_metadata['taxonomy'],
         'merged_taxon': {}
     }
+
     # transform merged_taxons tuple keys to string
     for k in in_metadata['merged_taxon']:
         n = ' , '.join(k)
@@ -84,6 +85,13 @@ def transform_json_to_pkl(json_fp, pkl_fp):
     for k in in_metadata['merged_taxon']:
         n = ' , '.split(k)
         out_metadata[n] = in_metadata['merged_taxon'][k]
+
+    # Ensure that there are 8 taxonomy levels (for compatibility between Metaphlan v3 and v4)
+    # v3 DB release encodes the taxids as: ('2|1224|1236|91347|543|547|354276', 4404432)
+    # v4 DB release encodes the taxids as: ('2|1224|1236|91347|543|547|354276|', 4404432)
+    for k in out_metadata['taxonomy']:
+        if out_metadata['taxonomy'][k][0].count('|') == 6:
+            out_metadata['taxonomy'][k] = (out_metadata['taxonomy'][k][0] + '|', out_metadata['taxonomy'][k][1])
 
     # dump metadata to Pickle file
     with bz2.BZ2File(pkl_fp, 'w') as pkl_f:

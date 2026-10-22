@@ -1,0 +1,190 @@
+<tool id="nlp_geocode_entities" name="NLP Geocode Named Entities" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">24.1</token>
+    </macros>
+    <requirements>
+        <!-- Pure-stdlib script (urllib); only a Python interpreter is required. -->
+        <requirement type="package" version="3.12">python</requirement>
+    </requirements>
+    <required_files>
+        <include path="geocode_entities.py"/>
+    </required_files>
+    <command detect_errors="exit_code"><![CDATA[
+    python '$__tool_directory__/geocode_entities.py'
+    --input '$input'
+    --geojson '$geojson_output'
+    --tabular '$tabular_output'
+    --entity-types '$entity_types'
+    #if $nominatim.source == "custom"
+    --nominatim-url '$nominatim.url'
+    #end if
+    --user-agent 'galaxy-nlp-geocoder'
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="json" label="NLP-annotated JSON"
+            help="JSON output from spaCy or Stanza with NER annotations"/>
+        <param name="entity_types" type="select" label="Entity types to geocode" multiple="true" display="checkboxes"
+            help="Which NER entity labels to geocode. GPE and LOC are the most reliable; FAC and ORG resolve only when the name matches a place known to Nominatim.">
+            <option value="GPE" selected="true">GPE (countries, cities, states)</option>
+            <option value="LOC" selected="true">LOC (non-GPE locations: mountains, rivers, etc.)</option>
+            <option value="FAC">FAC (buildings, airports, highways, etc.)</option>
+            <option value="ORG">ORG (organizations — may resolve if named after a place)</option>
+        </param>
+        <conditional name="nominatim">
+            <param name="source" type="select" label="Nominatim server"
+                help="Use the public OpenStreetMap Nominatim API (rate limited to 1 request/second) or a custom/self-hosted Nominatim instance for higher volume.">
+                <option value="public" selected="true">Public OpenStreetMap (rate limited: 1 req/sec)</option>
+                <option value="custom">Custom / self-hosted Nominatim instance</option>
+            </param>
+            <when value="public"/>
+            <when value="custom">
+                <param name="url" type="text" value="" label="Nominatim URL"
+                    help="e.g. nominatim.example.edu (without http:// prefix)"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="geojson_output" format="geojson" label="Geocoded locations (GeoJSON) from ${on_string}"/>
+        <data name="tabular_output" format="tabular" label="Geocoded locations (table) from ${on_string}"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input" value="ner_spacy.json"/>
+            <param name="entity_types" value="GPE,LOC,FAC"/>
+            <conditional name="nominatim">
+                <param name="source" value="public"/>
+            </conditional>
+            <output name="geojson_output" ftype="geojson">
+                <assert_contents>
+                    <has_json_property_with_text property="type" text="FeatureCollection"/>
+                    <has_text text="Feature"/>
+                    <has_text text="geometry"/>
+                    <has_text text="coordinates"/>
+                </assert_contents>
+            </output>
+            <output name="tabular_output" ftype="tabular">
+                <assert_contents>
+                    <has_text text="entity"/>
+                    <has_text text="latitude"/>
+                    <has_n_columns n="6"/>
+                    <has_n_lines min="2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Geocode Named Entities
+======================
+
+Extracts location-type named entities from NLP-annotated JSON (spaCy or Stanza)
+and geocodes them to geographic coordinates using Nominatim (OpenStreetMap).
+
+How It Works
+------------
+
+1. Reads NER-annotated JSON output from the spaCy or Stanza Galaxy tools
+2. Extracts entities matching the selected types (GPE, LOC, FAC, ORG)
+3. Deduplicates entity names and geocodes each unique name via Nominatim
+4. Outputs GeoJSON (viewable with Galaxy's OpenLayers plugin) and a tabular summary
+
+Inputs
+------
+
+JSON produced by the spaCy or Stanza Galaxy NLP tools with NER annotations; the tool
+auto-detects the format. For spaCy the ``entities`` are at the top level alongside a
+``tokens`` list; for Stanza they are nested under ``sentences``. A minimal spaCy-style
+example::
+
+    {
+      "text": "... Paris ...",
+      "tokens": [ {"text": "Paris"} ],
+      "entities": [
+        {"text": "Paris", "label": "GPE", "start_char": 10, "end_char": 15}
+      ]
+    }
+
+Entity Types
+------------
+
+**GPE** (Geo-Political Entity)
+    Countries, cities, states, provinces. Most reliable for geocoding.
+
+**LOC** (Location)
+    Non-GPE locations: mountains, bodies of water, regions.
+
+**FAC** (Facility)
+    Buildings, airports, highways, bridges. May or may not resolve.
+
+**ORG** (Organization)
+    Organizations that may resolve if named after a place (e.g., "Pentagon").
+    Use with caution — many organizations won't geocode successfully.
+
+Outputs
+-------
+
+**GeoJSON**
+    Standard GeoJSON FeatureCollection with Point geometries. Each feature includes:
+
+    - ``name``: Entity text
+    - ``entity_type``: NER label (GPE, LOC, etc.)
+    - ``count``: Number of mentions in the text
+    - ``display_name``: Full address from Nominatim
+
+    Viewable directly in Galaxy using the **OpenLayers** visualization plugin.
+
+**Tabular summary**
+    Tab-separated file with columns: entity, type, latitude, longitude, count, display_name.
+    Sorted by mention count (descending).
+
+Nominatim Server
+----------------
+
+By default, this tool uses the public OpenStreetMap Nominatim API, which is
+rate-limited to 1 request per second. For large-scale geocoding, administrators
+can deploy a self-hosted Nominatim instance and configure the tool to use it.
+
+Self-hosting options:
+
+- Docker: `mediagis/nominatim <https://github.com/mediagis/nominatim-docker>`_
+- Regional extracts from `Geofabrik <https://download.geofabrik.de/>`_ reduce storage needs
+- No rate limiting when self-hosted
+
+Example Workflow
+----------------
+
+::
+
+    Upload text → spaCy (NER, JSON) → Geocode Entities → GeoJSON → OpenLayers map
+
+Example Use Cases
+-----------------
+
+- Literary geography: map real and fictional places mentioned in novels
+- Historical research: visualize geographic references in archival documents
+- Travel writing analysis: track routes and destinations in narratives
+- News analysis: map the geographic focus of articles over time
+- Digital humanities: spatial analysis of large text corpora
+
+Notes
+-----
+
+- Disambiguation: Nominatim returns the most likely match for ambiguous names
+- Accuracy depends on NER quality and Nominatim's coverage
+- The public API is limited to 1 request/second; self-host for large datasets
+- Best for well-known places; very local or historical names may not resolve
+
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@misc{openstreetmap,
+  author = {{OpenStreetMap contributors}},
+  title = {{OpenStreetMap}},
+  year = {2024},
+  url = {https://www.openstreetmap.org}
+}
+        </citation>
+    </citations>
+</tool>

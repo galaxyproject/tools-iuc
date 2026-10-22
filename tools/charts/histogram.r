@@ -1,6 +1,5 @@
 # wrapper
 wrapper <- function(table, columns, options) {
-
     # initialize output list
     l <- list()
 
@@ -17,10 +16,10 @@ wrapper <- function(table, columns, options) {
 
     # identify optimal breaks
     hist_data <- hist(unlist(m), plot = FALSE)
-    breaks <- hist_data$breaks;
+    breaks <- hist_data$breaks
 
     # add as first column
-    l <- append(l, list(breaks[2: length(breaks)]))
+    l <- append(l, list(breaks[2:length(breaks)]))
 
     # loop through all columns
     for (key in seq(m)) {

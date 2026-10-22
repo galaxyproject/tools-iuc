@@ -4,7 +4,6 @@ zero <- function(v) {
 
 # wrapper
 wrapper <- function(table, columns, options) {
-
     # initialize output list
     l <- list()
 

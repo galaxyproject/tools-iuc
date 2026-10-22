@@ -1,0 +1,187 @@
+<tool id="telogator_make_ref" name="Telogator Make Reference" version="@VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>Create custom telogator reference from a T2T assembly</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        #set $identifier = str($input_fasta.element_identifier)
+        #set $safe_name = re.sub('[^\w\-\.]', '_', $identifier)
+        #if $input_fasta.is_of_type('fasta.gz') and not ($safe_name.endswith('.fa.gz') or $safe_name.endswith('.fasta.gz'))
+            #set $safe_name = $safe_name + '.fa.gz'
+        #elif $input_fasta.is_of_type('fasta') and not ($safe_name.endswith('.fa') or $safe_name.endswith('.fasta'))
+            #set $safe_name = $safe_name + '.fa'
+        #end if
+        mkdir -p output_dir &&
+        ln -sf '${input_fasta}' '${safe_name}' &&
+        make_telogator_ref
+        -i '${safe_name}'
+        -o output_dir/output_ref.fa
+        -s '${sample_name}'
+        -c '${contig_list}'
+        ## Optional kmer file
+        #if $kmer_file
+            -k '${kmer_file}'
+        #end if
+        ## Minimum telomere length
+        -m '${min_tel_length}'
+        ## Optional flags
+        ${add_tel}
+        ${plot}
+        ## Move outputs
+        && mv output_dir/output_ref.fa '${output_fasta}'
+    ]]></command>
+    <inputs>
+        <param name="input_fasta" type="data" format="fasta,fasta.gz" label="Input T2T reference FASTA" help="Telomere-to-telomere reference genome assembly in FASTA format (gzipped supported)"/>
+        <param name="sample_name" argument="-s" type="text" value="sample" label="Sample name" help="Sample name to prepend to contig identifiers in the output">
+            <validator type="regex" message="Sample name must contain only alphanumeric characters and hyphens">^[a-zA-Z0-9-]+$</validator>
+        </param>
+        <param name="contig_list" argument="-c" type="text" value="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY" label="List of contigs" help="Comma-delimited list of contigs to include. Default is all human chromosomes.">
+            <validator type="empty_field"/>
+            <sanitizer>
+                <valid initial="string.printable">
+                    <remove value="&quot;"/>
+                </valid>
+            </sanitizer>
+        </param> 
+        <param name="kmer_file" argument="-k" type="data" format="tsv" optional="true" value="" label="Telomere kmers file" help="Optional telomere k-mers file. If omitted, a built-in human telomere k-mers file is used."/>
+        <param name="min_tel_length" argument="-m" type="integer" value="0" min="0" label="Minimum telomere length" help="Minimum telomere length required at contig ends (in base pairs)"/>
+        <param name="add_tel" type="boolean" truevalue="--add-tel" falsevalue="" checked="false" label="Include masked telomeres" help="Include masked telomeres as separate contigs in the output"/>
+        <param name="plot" type="boolean" truevalue="--plot" falsevalue="" checked="false" label="Generate telomere signal plots" help="Generate PNG plots showing telomere signals for each chromosome arm"/>
+    </inputs>
+    <outputs>
+        <data name="output_fasta" format="fasta" label="${tool.name} on ${on_string}: Reference FASTA"/>
+        <collection name="plots" type="list" label="${tool.name} on ${on_string}: Telomere signal plots">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.png$" directory="output_dir" format="png"/>
+            <filter>plot</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Test 1: Basic usage with minimal parameters -->
+        <test expect_num_outputs="1">
+            <param name="input_fasta" value="t2t_subset_with_telomeres.fa.gz"/>
+            <param name="sample_name" value="test-sample1"/>
+            <param name="contig_list" value="t2t-i002c-mat_chr11p,t2t-i002c-mat_chr11q,t2t-i002c-mat_chr12p,t2t-i002c-mat_chr12q,t2t-i002c-mat_chr13p,t2t-i002c-mat_chr13q"/>
+            <output name="output_fasta">
+                <assert_contents>
+                    <has_text text=">test-sample"/>
+                    <has_line_matching expression="^&gt;.*"/>
+                    <has_line_matching expression="^[ACGTN]+$"/>
+                    <has_size value="6100428" delta="100000"/>
+                    <not_has_text text=">test-sample1_tel-"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: With plot generation -->
+        <test expect_num_outputs="2">
+            <param name="input_fasta" value="t2t_subset_with_telomeres.fa.gz"/>
+            <param name="sample_name" value="test-sample2"/>
+            <param name="plot" value="true"/>
+            <param name="contig_list" value="t2t-i002c-mat_chr11p,t2t-i002c-mat_chr11q,t2t-i002c-mat_chr12p,t2t-i002c-mat_chr12q,t2t-i002c-mat_chr13p,t2t-i002c-mat_chr13q"/>
+            <output name="output_fasta">
+                <assert_contents>
+                    <has_text text=">test-sample2"/>
+                </assert_contents>
+            </output>
+            <output_collection name="plots" type="list">
+                <element name="test-sample2_telsignal_t2t-i002c-mat_chr11pp">
+                    <assert_contents>
+                        <has_size min="10000"/>
+                    </assert_contents>
+                </element>
+                <element name="test-sample2_telsignal_t2t-i002c-mat_chr11qq">
+                    <assert_contents>
+                        <has_size min="10000"/>
+                    </assert_contents>
+                </element>
+                <element name="test-sample2_telsignal_t2t-i002c-mat_chr12pp">
+                    <assert_contents>
+                        <has_size min="10000"/>
+                    </assert_contents>
+                </element>
+                <element name="test-sample2_telsignal_t2t-i002c-mat_chr12qq">
+                    <assert_contents>
+                        <has_size min="10000"/>
+                    </assert_contents>
+                </element>
+                <element name="test-sample2_telsignal_t2t-i002c-mat_chr13pp">
+                    <assert_contents>
+                        <has_size min="10000"/>
+                    </assert_contents>
+                </element>
+                <element name="test-sample2_telsignal_t2t-i002c-mat_chr13qq">
+                    <assert_contents>
+                        <has_size min="10000"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- Test 3: use telomere parameters -->
+        <test expect_num_outputs="1">
+            <param name="input_fasta" value="t2t_subset_with_telomeres.fa.gz" />
+            <param name="sample_name" value="test-sample3"/>
+            <param name="min_tel_length" value="1000"/>
+            <param name="add_tel" value="true"/>
+            <param name="contig_list" value="t2t-i002c-mat_chr11p,t2t-i002c-mat_chr11q,t2t-i002c-mat_chr12p,t2t-i002c-mat_chr12q,t2t-i002c-mat_chr13p,t2t-i002c-mat_chr13q"/>
+            <output name="output_fasta">
+                <assert_contents>
+                    <has_text text=">test-sample3"/>
+                    <has_line_matching expression="^&gt;.*"/>
+                    <has_line_matching expression="^[ACGTN]+$"/>
+                    <has_size value="4066952" delta="100000"/>
+                    <has_text text=">test-sample3_tel-"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Telogator Make Reference creates a custom telogator reference database from a telomere-to-telomere (T2T) reference genome assembly. This tool is essential for analyzing telomeres in non-human organisms or custom genome assemblies.
+
+The tool performs the following steps:
+
+1. Reads the input T2T reference FASTA file
+2. Identifies telomeric sequences at contig ends
+3. Optionally filters and remaps contigs
+4. Creates a processed reference suitable for telogator analysis
+5. Generates an index file (.fai) for the reference
+6. Optionally generates visualization plots of telomere signals
+
+**When to use this tool**
+
+Use this tool when you need to:
+
+- Analyze telomeres in non-human organisms (e.g., mouse, maize, other species)
+- Work with custom or newly assembled T2T genomes
+- Create a reference from alternative human T2T assemblies (T2T-yao, T2T-cn1, etc.)
+- Prepare references with specific contig selections or naming conventions
+
+**Inputs**
+
+- **T2T reference FASTA**: A telomere-to-telomere reference genome assembly
+- **Sample name**: Identifier prepended to contig names (use organism/assembly name)
+- **Contig list**: Comma-delimited list of contigs to include (defaults to all human chromosomes)
+- **Telomere kmers file** (optional): Custom telomere repeat patterns for non-human organisms
+- **Minimum telomere length**: Filter contigs by minimum telomere length at ends
+
+**Outputs**
+
+1. **Reference FASTA**: Processed telogator reference file ready for use with telogator
+2. **Reference index (.fai)**: Index file for the created reference FASTA
+3. **Telomere signal plots** (optional): PNG plots showing telomere signals for each chromosome arm
+
+**Important Notes**
+
+- The input FASTA should be a high-quality T2T assembly with telomeres at contig ends
+- The sample name should be descriptive (e.g., organism name, assembly version), may not contain underscores
+- The contig list defaults to human chromosomes; modify it for other organisms or custom assemblies
+- For non-human organisms, provide a telomere kmers file matching the species' telomere repeats
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

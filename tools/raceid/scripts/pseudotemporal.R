@@ -4,8 +4,8 @@ VERSION <- "0.1" # nolint
 args <- commandArgs(trailingOnly = T) # nolint
 
 if (length(args) != 1) {
-     message(paste("VERSION:", VERSION))
-     stop("Please provide the config file")
+    message(paste("VERSION:", VERSION))
+    stop("Please provide the config file")
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
@@ -29,20 +29,31 @@ do.pseudotemp <- function(sc) { # nolint
     ltr <- do.call(comppvalue, c(ltr, pstc.comppval))
     x <- do.call(compscore, c(ltr, pstc.compscore))
     print(do.call(mtext, c("Compute Score", test)))
-    print(do.call(mtext, c(paste0("No. of inter-cluster links / ",
-                                  "Delta median entropy of each cluster / ",
-                                  "StemID2 score (combination of both)"),
-                           second)))
+    print(do.call(mtext, c(
+        paste0(
+            "No. of inter-cluster links / ",
+            "Delta median entropy of each cluster / ",
+            "StemID2 score (combination of both)"
+        ),
+        second
+    )))
     plotdistanceratio(ltr)
     print(do.call(mtext, c("Cell-to-Cell Distance Ratio", test)))
-    print(do.call(mtext, c("Original vs High-dimensional Embedded Space",
-                           second)))
+    print(do.call(mtext, c(
+        "Original vs High-dimensional Embedded Space",
+        second
+    )))
     do.call(plotgraph, c(ltr, pstc.plotgraph))
     print(do.call(mtext, c(paste0(c("Lineage Trajectories", rep(" ", 54)),
-                                  collapse = ""), test)))
-    print(do.call(mtext, c(paste0(c(paste0("Colour = Level of Significance, ",
-                                           "Width = Link Score"),
-                                    rep(" ", 106)), collapse = ""), second)))
+        collapse = ""
+    ), test)))
+    print(do.call(mtext, c(paste0(c(
+        paste0(
+            "Colour = Level of Significance, ",
+            "Width = Link Score"
+        ),
+        rep(" ", 106)
+    ), collapse = ""), second)))
     plotspantree(ltr)
     print(do.call(mtext, c("Minimum Spanning Tree", test)))
     plotspantree(ltr, projections = TRUE)

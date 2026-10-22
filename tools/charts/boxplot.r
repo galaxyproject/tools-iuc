@@ -1,5 +1,4 @@
 wrapper <- function(table, columns, options) {
-
     # initialize output list
     l <- list()
 

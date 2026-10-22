@@ -250,7 +250,7 @@ def __main__():
     length = ','.join(lengths) if lengths else None
     method = args.method
     proteasome = args.proteasome if args.prediction == 'processcing' else None
-    url = 'http://tools-cluster-interface.iedb.org/tools_api/%s/' %\
+    url = 'https://tools-cluster-interface.iedb.org/tools_api/%s/' %\
         args.prediction
 
     # results
