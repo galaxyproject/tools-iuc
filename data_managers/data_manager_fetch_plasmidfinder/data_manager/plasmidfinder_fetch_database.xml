@@ -5,76 +5,37 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
+#set $database_date, $database_commit = str($database_select).split('_')
 database_dir='${output_file.extra_files_path}/plasmidfinder-db' &&
-git clone
-#if str($database_select) == '2.2'
-    --branch 'plasmidfinder-3.0.3'
-#elif str($database_select) != 'latest'
-    --branch '$database_select'
-#end if
-    'https://bitbucket.org/genomicepidemiology/plasmidfinder_db.git' "\${database_dir}" &&
-database_commit=\$(git -C "\${database_dir}" rev-parse --short=7 HEAD) &&
-database_date=\$(TZ=UTC git -C "\${database_dir}" log -1 --format=%cd --date=format-local:%Y_%m_%d) &&
-database_id="plasmidfinder_\${database_commit}_\${database_date}" &&
+git clone --no-checkout 'https://bitbucket.org/genomicepidemiology/plasmidfinder_db.git' "\${database_dir}" &&
+git -C "\${database_dir}" checkout --detach '$database_commit' &&
 
-awk -F '\t' '!/^[[:space:]]*(#|$)/ && !seen[\$1]++ {print \$1}' "\${database_dir}/config" > database_prefixes.txt &&
+for database_file in "\${database_dir}"/*.fsa; do
+    kma index -i "\${database_file}" -o "\${database_file%.fsa}" || exit \$?;
+done &&
 
-if [ ! -s database_prefixes.txt ]; then
-    echo 'No databases found in the database configuration' >&2;
-    exit 1;
-fi &&
-while IFS= read -r database_prefix; do
-    kma index -i "\${database_dir}/\${database_prefix}.fsa" -o "\${database_dir}/\${database_prefix}" || exit \$?;
-done < database_prefixes.txt &&
-
-installed_database=\$(awk -F '\t' -v database_id="\${database_id}" '\$1 == database_id {print \$2; exit}' '$installed_databases') &&
-if [ -n "\${installed_database}" ]; then
-    mkdir -p "\${installed_database}" &&
-    cp -R "\${database_dir}/." "\${installed_database}/" &&
-    echo "Reinstalled database \${database_id}; keeping the existing database entry." >&2 &&
-    printf '%s\n' '{"data_tables": {"plasmidfinder_database": []}}' > dm.json;
-else
-if [ -f "\${database_dir}/VERSION" ]; then
-    database_version=\$(cat "\${database_dir}/VERSION");
-elif [ -f "\${database_dir}/VERSION.txt" ]; then
-    database_version=\$(cat "\${database_dir}/VERSION.txt");
-else
-    database_version='$database_select';
-fi &&
-## Fill metadata placeholders after the selected database has been checked out.
-sed
-    -e "s/@DATABASE_COMMIT@/\${database_commit}/g"
-    -e "s/@DATABASE_DATE@/\${database_date}/g"
-    -e "s/@DATABASE_VERSION@/\${database_version}/g"
-    '$data_manager_json' > dm.json;
-fi
+cp '$data_manager_json' dm.json
     ]]></command>
     <configfiles>
         <configfile name="data_manager_json"><![CDATA[#slurp
+#set $database_date, $database_commit = str($database_select).split('_')
 {
   "data_tables": {
     "plasmidfinder_database": [
       {
-        "date": "@DATABASE_DATE@",
-        "name": "@DATABASE_VERSION@_@DATABASE_DATE@_@DATABASE_COMMIT@",
+        "date": "${database_date.replace('-', '_')}",
+        "name": "$database_date",
         "path": "plasmidfinder-db",
-        "value": "plasmidfinder_@DATABASE_COMMIT@_@DATABASE_DATE@"
+        "value": "plasmidfinder_${database_commit[:7]}_$database_date"
       }
     ]
   }
 }
 ]]></configfile>
-        <configfile name="installed_databases"><![CDATA[#slurp
-#for $row in $__app__.tool_data_tables['plasmidfinder_database'].get_fields()
-${row[0]}	${row[3]}
-#end for
-]]></configfile>
     </configfiles>
     <inputs>
-        <param name="database_select" type="select" label="Database version" help="Choose a database version to download (default latest version)">
-            <option value="latest" selected="true">Latest available version</option>
-            <option value="2.2">V2.2_2025-11-27</option>
-            <option value="2.1">V2.1_2019-08-28</option>
+        <param name="database_select" type="select" label="Database snapshot" help="Each snapshot is labelled by date and commithash.">
+            <option value="2025-11-27_07648fddc4c6cf0330c9fc041dd6f52b4a69f8d6" selected="true">2025-11-27_07648fd</option>
         </param>
     </inputs>
     <outputs>
@@ -82,22 +43,15 @@ ${row[0]}	${row[3]}
     </outputs>
     <tests>
         <test expect_num_outputs="1">
-           <param name="database_select" value="2.1"/>
-           <output name="output_file" value="plasmidfinder_test_data_manager_2.1.json"/>
-           <assert_stderr>
-               <has_text text="# Template database created." n="9"/>
-           </assert_stderr>
-        </test>
-        <test expect_num_outputs="1">
-           <param name="database_select" value="2.2"/>
-           <output name="output_file" value="plasmidfinder_test_data_manager_2.2.0.json"/>
+           <param name="database_select" value="2025-11-27_07648fddc4c6cf0330c9fc041dd6f52b4a69f8d6"/>
+           <output name="output_file" value="plasmidfinder_test_data_manager_2025-11-27.json"/>
            <assert_stderr>
                <has_text text="# Template database created." n="9"/>
            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
-        Download plasmidfinder database from the bitbucket repository: https://bitbucket.org/genomicepidemiology/plasmidfinder_db/src/master/
+        Download a PlasmidFinder database snapshot from https://bitbucket.org/genomicepidemiology/plasmidfinder_db/ and build KMA indexes.
     ]]></help>
     <citations>
         <citation type="doi">10.1007/978-1-4939-9877-7_20</citation>
