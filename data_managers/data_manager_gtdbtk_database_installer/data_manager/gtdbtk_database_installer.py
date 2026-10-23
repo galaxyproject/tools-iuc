@@ -184,9 +184,7 @@ def url_download(url, target_directory, meta):
 def create_data_manager_entry(database_name, release, file_path):
     time = date.today().strftime("%Y-%m-%d")
     data_manager_entry = {}
-    data_manager_entry["value"] = (
-        f"{database_name.replace(' ', '_').lower()}_release_{release}_downloaded_{time}"
-    )
+    data_manager_entry["value"] = f"{database_name.replace(' ', '_').lower()}_release_{release}"
     if release == "mocked_232":
         data_manager_entry["name"] = "Mocked GTBD DB (232)"
     else:
