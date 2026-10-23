@@ -5,6 +5,7 @@
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">bionym</requirement>
+        <requirement type="package" version="6.0.2">pyyaml</requirement>
         <!-- Judge (JEV / POST /v1/systemone): key is required for real runs.
              base_url/model are optional variables — unset falls back to the
              TypeSafe endpoint (https://api.typesafe.ai) and jev-latest. -->
@@ -19,8 +20,9 @@
         </credentials>
         <!-- LLM passes (proposals, summary): optional — when unset the tool runs
              evidence+JEV only. Admins can instead inject LLM_API_KEY /
-             LLM_BASE_URL via the job destination env (e.g. a LiteLLM proxy);
-             user credentials below take precedence per the credentials doc. -->
+             LLM_BASE_URL via the job destination env, or point LITELLM_CONFIG_FILE
+             at an llm_hub-style litellm_config.yaml (parsed in <command>).
+             User credentials below take precedence over both. -->
         <credentials name="litellm_llm" version="1.0" optional="true" label="LLM endpoint (OpenAI-compatible)"
                      description="Optional LLM used for claim proposals and summaries. Any OpenAI-compatible endpoint (LiteLLM proxy, OpenRouter, Ollama).">
             <variable name="base_url" inject_as_env="LLM_BASE_URL" optional="false"
@@ -43,12 +45,28 @@
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 ## per-job cache keeps API/JEV responses across retries within this job
-export BIONYM_CACHE_DIR="\$PWD/.bionym_cache" &&
-export BIONYM_PROPOSAL_MIN_SCORE=$adv.proposal_min_score &&
-export BIONYM_PROPOSAL_CONCURRENCY=$adv.proposal_concurrency &&
+export BIONYM_CACHE_DIR="\$PWD/.bionym_cache"
+export BIONYM_PROPOSAL_MIN_SCORE=$adv.proposal_min_score
+export BIONYM_PROPOSAL_CONCURRENCY=$adv.proposal_concurrency
 #if $adv.llm_model:
-export LLM_MODEL="$adv.llm_model.fields.model_id" &&
+export LLM_MODEL="$adv.llm_model.fields.model_id"
+export LLM_PROVIDER="$adv.llm_model.fields.provider"
 #end if
+## hub fallback: when no LLM credential/env is set, resolve endpoint+key
+## from the admin's litellm_config.yaml (llm_hub's LITELLM_CONFIG_FILE
+## convention); provider selects the servers: entry, falls back to the
+## top-level single-server shape
+if [ -z "\$LLM_API_KEY" ] && [ -n "\$LITELLM_CONFIG_FILE" ]; then
+    eval "\$(python - "\$LLM_PROVIDER" <<'PYEOF'
+import os, sys, yaml
+cfg = yaml.safe_load(open(os.environ['LITELLM_CONFIG_FILE'])) or {}
+srv = (cfg.get('servers') or {}).get(sys.argv[1]) or cfg
+for want, have in (('LLM_BASE_URL', 'LITELLM_BASE_URL'), ('LLM_API_KEY', 'LITELLM_API_KEY')):
+    if not os.environ.get(want) and srv.get(have):
+        print('export {}="{}"'.format(want, srv[have]))
+PYEOF
+)"
+fi
 bionym resolve
     '$identifier'
     --out graph.json
