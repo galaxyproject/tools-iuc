@@ -786,9 +786,11 @@ if (!is.null(opt$esf)) {
         dds <- estimateSizeFactors(dds, type = opt$esf)
     } else {
         sf_table <- read.table(opt$esf)
-        # Sort the provided size factors just in case the order differs from the input file order.
-        merged_table <- merge(sample_table, sf_table, by.x = 0, by.y = 1, sort = FALSE)
-        sf_values <- as.numeric(unlist(merged_table[5]))
+        # Match the provided size factors to the samples by name, the order may differ from the input file order.
+        sf_values <- as.numeric(sf_table[[2]][match(colnames(dds), sf_table[[1]])])
+        if (anyNA(sf_values)) {
+            stop("Size factors file must contain a valid value for every sample")
+        }
         "sizeFactors"(dds) <- sf_values
 
         cat("Using user-provided size factors:\n")
