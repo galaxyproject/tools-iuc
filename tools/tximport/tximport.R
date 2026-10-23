@@ -67,7 +67,6 @@ files <- file.path(samples_df[, "path"])
 names(files) <- samples_df[, "id"]
 
 
-
 library(tximport)
 
 ### if the input is a gff/gtf file first need to create the tx2gene table
@@ -83,7 +82,6 @@ if (!is.null(opt$gff_file)) {
 } else {
     tx2gene <- read.table(opt$tx2gene, header = FALSE)
 }
-
 
 
 ##
