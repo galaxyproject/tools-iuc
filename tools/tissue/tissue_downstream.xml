@@ -1,0 +1,306 @@
+<tool id="tissue_downstream" name="TISSUE downstream analysis" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>test differential expression, filter uncertain cells, or compute PCA</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="0.1">wpca</requirement>
+        <!-- WPCA 0.1 uses scipy.linalg.eigh(eigvals=...) and check_array(force_all_finite=...). -->
+        <requirement type="package" version="1.13.1">scipy</requirement>
+        <requirement type="package" version="1.7.2">scikit-learn</requirement>
+    </expand>
+    <required_files>
+        <include path="tissue_downstream.py"/>
+    </required_files>
+    <version_command>python -c "from importlib.metadata import version; print(version('tissue-sc'))"</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+@THREADS@
+python '$__tool_directory__/tissue_downstream.py'
+    --input '$input'
+    --method '$method'
+    --operation '$analysis.operation'
+    --seed $seed
+    #if str($analysis.operation) == 'testing'
+        --condition '$analysis.condition'
+        --test '$analysis.test'
+        --n-imputations $analysis.n_imputations
+        $analysis.symmetric
+        #if $analysis.group1
+            --group1 '$analysis.group1'
+        #end if
+        #if $analysis.group2
+            --group2 '$analysis.group2'
+        #end if
+    #end if
+    #if str($analysis.operation) in ('weighted_pca', 'filtered_pca')
+        --n-components $analysis.n_components
+        $analysis.scale
+    #end if
+    #if str($analysis.operation) == 'weighted_pca'
+        --pca-method '$analysis.pca_method'
+        --weighting '$analysis.weighting'
+        #if str($analysis.quantile_cutoff) not in ('None', '')
+            --quantile-cutoff $analysis.quantile_cutoff
+        #end if
+        --replace-inf '$analysis.replace_inf'
+        --binarize '$analysis.binarization.method'
+        #if str($analysis.binarization.method) == 'quantile'
+            --binarize-quantile $analysis.binarization.binarize_quantile
+        #end if
+        --binarize-ratio $analysis.binarize_ratio
+        $analysis.log_transform
+    #end if
+    #if str($analysis.operation) in ('detect', 'filtered_pca')
+        --filter-method '$analysis.filtering.method'
+        #if str($analysis.filtering.method) == 'proportion'
+            --proportion $analysis.filtering.proportion
+        #end if
+        #if $analysis.stratification
+            --stratification '$analysis.stratification'
+        #end if
+        $analysis.normalize
+    #end if
+    --output '$output'
+    --table '$table'
+    ]]></command>
+    <inputs>
+        <param argument="--input" type="data" format="h5ad" label="Calibrated spatial data" help="Annotated AnnData produced by TISSUE prediction and calibration, including prediction intervals and calibration scores."/>
+        <expand macro="prediction_method"/>
+        <expand macro="seed"/>
+        <conditional name="analysis">
+            <param argument="--operation" type="select" label="Analysis">
+                <option value="testing" selected="true">Multiple-imputation hypothesis testing</option>
+                <option value="weighted_pca">Uncertainty-weighted PCA</option>
+                <option value="detect">Detect uncertain cells</option>
+                <option value="filtered_pca">PCA fitted after filtering uncertain cells</option>
+            </param>
+            <when value="testing">
+                <param argument="--condition" type="text" label="Observation column defining comparison groups">
+                    <validator type="empty_field"/>
+                </param>
+                <param argument="--test" type="select" label="Hypothesis test">
+                    <option value="ttest" selected="true">Two-sample t-test with Rubin's rules</option>
+                    <option value="wilcoxon_greater">Mann-Whitney U: greater expression</option>
+                    <option value="wilcoxon_less">Mann-Whitney U: lesser expression</option>
+                </param>
+                <param argument="--group1" type="text" optional="true" label="First comparison group" help="Leave empty to compare each group against all other cells."/>
+                <param argument="--group2" type="text" optional="true" label="Second comparison group" help="Leave empty to compare the first group against all other cells. Requires a first group if supplied."/>
+                <param argument="--n-imputations" type="integer" min="2" value="100" label="Number of imputations"/>
+                <param argument="--symmetric" type="boolean" truevalue="--symmetric" falsevalue="--no-symmetric" checked="false" label="Use symmetric calibration scores" help="The upstream downstream-testing default is asymmetric, independently of the prediction interval setting."/>
+            </when>
+            <when value="weighted_pca">
+                <expand macro="pca_parameters"/>
+                <param argument="--pca-method" type="select" label="PCA algorithm">
+                    <option value="wpca" selected="true">Weighted PCA</option>
+                    <option value="empca">Expectation-maximization PCA</option>
+                    <option value="pca">Ordinary PCA</option>
+                </param>
+                <param argument="--weighting" type="select" label="Weights">
+                    <option value="inverse_norm_pi_width" selected="true">Inverse interval widths, normalized per gene</option>
+                    <option value="inverse_pi_width">Inverse interval widths</option>
+                    <option value="uniform">Uniform</option>
+                </param>
+                <param argument="--quantile-cutoff" type="float" min="0" max="1" optional="true" label="Upper quantile for clipping finite weights"/>
+                <param argument="--replace-inf" type="select" label="Replace nonfinite weights">
+                    <option value="none" selected="true">Do not replace</option>
+                    <option value="max">Maximum finite weight</option>
+                    <option value="min">Minimum finite weight</option>
+                    <option value="mean">Mean finite weight</option>
+                    <option value="median">Median finite weight</option>
+                </param>
+                <conditional name="binarization">
+                    <param name="method" argument="--binarize" type="select" label="Binarize weights">
+                        <option value="quantile" selected="true">Quantile threshold</option>
+                        <option value="otsu">Otsu threshold</option>
+                        <option value="none">Keep continuous weights</option>
+                    </param>
+                    <when value="quantile">
+                        <param argument="--binarize-quantile" type="float" min="0" max="1" value="0.2" label="Weight quantile threshold"/>
+                    </when>
+                    <when value="otsu"/>
+                    <when value="none"/>
+                </conditional>
+                <param argument="--binarize-ratio" type="float" min="1" value="10" label="Ratio of high to low binarized weights"/>
+                <param argument="--log-transform" type="boolean" truevalue="--log-transform" falsevalue="" checked="false" label="Log-transform weights before binarizing"/>
+            </when>
+            <when value="detect">
+                <expand macro="cell_filter_parameters"/>
+            </when>
+            <when value="filtered_pca">
+                <expand macro="cell_filter_parameters"/>
+                <expand macro="pca_parameters"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output" format="h5ad" label="${tool.name} on ${on_string}: annotated spatial data"/>
+        <data name="table" format="tabular" label="${tool.name} on ${on_string}: ${analysis.operation} results"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="testing"/>
+                <param name="condition" value="condition"/>
+                <param name="group1" value="A"/>
+                <param name="group2" value="B"/>
+                <param name="n_imputations" value="5"/>
+            </conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/spage_A_B_pvalue,uns/tissue_downstream_galaxy"/>
+                </assert_contents>
+            </output>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="161"/>
+                    <has_n_columns n="3"/>
+                    <has_line_matching expression="result\tgene\tvalue"/>
+                    <has_text_matching expression="(?m)^spage_A_B_(?:tstat|pvalue|poolmean|varb|varw)\t[^\t\r\n]+\t[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$" n="160"/>
+                    <has_text_matching expression="(?m)^spage_A_B_pvalue\t[^\t\r\n]+\t(?:0(?:\.\d+)?|1(?:\.0+)?|[1-9](?:\.\d+)?e-\d+)$" n="32"/>
+                    <has_text_matching expression="(?m)^spage_A_B_tstat\t" n="32"/>
+                    <has_text_matching expression="(?m)^spage_A_B_poolmean\t" n="32"/>
+                    <has_text_matching expression="(?m)^spage_A_B_varb\t" n="32"/>
+                    <has_text_matching expression="(?m)^spage_A_B_varw\t" n="32"/>
+                    <has_line_matching expression="spage_A_B_tstat\tplp1\t-0\.2019[0-9]*"/>
+                    <has_line_matching expression="spage_A_B_pvalue\tplp1\t0\.8439[0-9]*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="weighted_pca"/>
+                <param name="n_components" value="3"/>
+            </conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/spage_predicted_expression_PC3_,obsm/tissue_pca_weights"/>
+                </assert_contents>
+            </output>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="4"/>
+                    <not_has_text text="nan"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="detect"/>
+                <conditional name="filtering">
+                    <param name="method" value="proportion"/>
+                    <param name="proportion" value="0.1"/>
+                </conditional>
+                <param name="stratification" value="condition"/>
+            </conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/tissue_keep"/>
+                </assert_contents>
+            </output>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="2"/>
+                    <has_line_matching expression="cell_id\ttissue_keep"/>
+                    <has_text_matching expression="(?m)^\d+\tTrue$" n="114"/>
+                    <has_text_matching expression="(?m)^\d+\tFalse$" n="14"/>
+                    <has_line_matching expression="0\tTrue"/>
+                    <has_line_matching expression="80\tFalse"/>
+                    <has_line_matching expression="3404\tTrue"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="filtered_pca"/>
+                <param name="n_components" value="3"/>
+                <param name="normalize" value="true"/>
+                <conditional name="filtering">
+                    <param name="method" value="otsu"/>
+                </conditional>
+            </conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/tissue_keep,obsm/spage_predicted_expression_PC3_,uns/spage_predicted_expression_PC3_filtered_"/>
+                </assert_contents>
+            </output>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="5"/>
+                    <has_text text="False"/>
+                    <has_text text="True"/>
+                    <not_has_text text="nan"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="testing"/>
+                <param name="condition" value="missing"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Observation metadata column 'missing' is absent"/>
+            </assert_stderr>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="testing"/>
+                <param name="condition" value="condition"/>
+                <param name="test" value="wilcoxon_greater"/>
+                <param name="n_imputations" value="3"/>
+                <param name="symmetric" value="true"/>
+            </conditional>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="65"/>
+                    <has_n_columns n="3"/>
+                    <has_text text="spage_A_all_pvalue"/>
+                    <has_text text="spage_B_all_pvalue"/>
+                    <not_has_text text="nan"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="weighted_pca"/>
+                <param name="pca_method" value="empca"/>
+                <param name="n_components" value="3"/>
+                <param name="weighting" value="inverse_pi_width"/>
+                <param name="quantile_cutoff" value="0.8"/>
+                <param name="replace_inf" value="mean"/>
+                <param name="log_transform" value="true"/>
+                <conditional name="binarization"><param name="method" value="none"/></conditional>
+            </conditional>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="4"/>
+                    <not_has_text text="nan"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+This tool applies [TISSUE](https://github.com/sunericd/TISSUE) downstream analyses to the calibrated spatial AnnData produced by the TISSUE prediction tool. Choose the prediction method that produced the input. All analyses use both target and cross-validated calibration genes in the prediction matrices.
+
+**Multiple-imputation hypothesis testing** samples expression from the calibration-score distributions and pools tests across imputations. It calls ``tissue.downstream.multiple_imputation_testing`` with a two-sample t-test or directional Mann-Whitney U test. Supply an ``obs`` column defining groups, with at least two cells in each comparison group. An empty first group requests each group versus the rest; an empty second group requests the first group versus the rest. The table contains ``result``, ``gene``, and ``value`` columns; result names identify the comparison and statistic. P-values are unadjusted. SpatialDE and gene-signature testing are not included.
+
+**Uncertainty-weighted PCA** calls ``weighted_PCA``. Weights derive from inverse prediction interval widths, optionally normalized per gene, clipped, log-transformed, and binarized. The default uses the upstream 20th-percentile threshold and a high/low weight ratio of 10. Uniform weighting and ordinary PCA are also available. Nonfinite weights can be replaced explicitly; prediction intervals must be finite. The output stores weights in ``obsm['tissue_pca_weights']`` and components in ``obsm['{method}_predicted_expression_PC{n_components}_']``.
+
+**Detect uncertain cells** calls ``detect_uncertain_cells`` on interval widths. It flags cells with the highest mean gene-wise z-score of uncertainty, using a fixed proportion or Otsu threshold. An optional ``obs`` column applies filtering separately within strata. Widths must vary for every gene within each stratum. The output retains all cells and records the retained-cell mask in ``obs['tissue_keep']`` and the results table.
+
+**Filtered PCA** calls ``filtered_PCA`` to fit PCA on retained cells, then project all cells. Its output includes the retained-cell mask, components for all cells in ``obsm``, and components for retained cells in ``uns['{method}_predicted_expression_PC{n_components}_filtered_']``. Its table contains ``cell_id``, ``tissue_keep``, and principal components. The component count must fit the retained cell and predicted gene counts.
+
+PCA and filtering use interval widths, so their results depend on the prediction tool's alpha and symmetry settings. Multiple-imputation testing constructs its own calibration-score distributions; its upstream default is asymmetric. The random seed controls imputation sampling. PCA component signs may vary across numerical libraries.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
