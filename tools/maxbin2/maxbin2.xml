@@ -1,4 +1,4 @@
-<tool id="maxbin2" name="MaxBin2" version="@MAXBIN_VERSION@+galaxy6">
+<tool id="maxbin2" name="MaxBin2" version="@MAXBIN_VERSION@+galaxy7">
     <description>clusters metagenomic contigs into bins</description>
     <macros>
         <token name="@MAXBIN_VERSION@">2.2.7</token>
@@ -21,6 +21,7 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@MAXBIN_VERSION@">maxbin2</requirement>
+        <requirement type="package" version="3.12">python</requirement>
     </requirements>
     <version_command><![CDATA[run_MaxBin.pl -version | head -n 1]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
@@ -73,7 +74,7 @@ echo "==== MaxBin2 stdout ====" &&
 echo "==== MaxBin2 stderr ====" 1>&2 &&
 #end if
 
-run_MaxBin.pl
+python '$__tool_directory__/scripts/run_maxbin.py'
     -contig '$contig'
     -out out
 #if $assembly.inputs.type == 'reads':
@@ -89,16 +90,17 @@ run_MaxBin.pl
     -markerset $output.markerset
     -thread \${GALAXY_SLOTS:-1}
 
-&& gzip -cd out.marker_of_each_bin.tar.gz | tar -xf -
+&& tar -xzf out.marker_of_each_bin.tar.gz
 
 ## redirect the idba out and err file content to stdout and err
 ## since this is also wanted in case the error case ';' is used here to
 ## separate commands
 #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
-; echo "==== IDBA stdout ===="
+; maxbin_rc=\$? ; echo "==== IDBA stdout ===="
 && if [[ -f out.idba.out ]]; then cat out.idba.out; fi
 && echo "==== IDBA stderr ====" 1>&2
 && if [[ -f out.idba.err ]]; then cat out.idba.err 1>&2; fi
+; exit \$maxbin_rc
 #end if
     ]]></command>
     <inputs>
@@ -191,6 +193,25 @@ run_MaxBin.pl
         </data>
     </outputs>
     <tests>
+        <!-- A valid assembly without enough marker genes is an empty binning result. -->
+        <test expect_num_outputs="5">
+            <param name="contig" value="no_markers.fasta"/>
+            <conditional name="assembly">
+                <param name="type" value="individual"/>
+                <conditional name="inputs">
+                    <param name="type" value="abund"/>
+                    <param name="abund" value="no_markers.abund.tsv"/>
+                </conditional>
+            </conditional>
+            <section name="output">
+                <param name="log" value="true"/>
+            </section>
+            <output_collection name="bins" type="list" count="0"/>
+            <output name="summary"><assert_contents><has_size value="0"/></assert_contents></output>
+            <output name="noclass"><assert_contents><has_text text="&gt;long_contig"/><not_has_text text="&gt;short_contig"/></assert_contents></output>
+            <output name="toshort"><assert_contents><has_text text="&gt;short_contig"/><not_has_text text="&gt;long_contig"/></assert_contents></output>
+            <output name="log"><assert_contents><has_text text="dataset cannot be binned"/></assert_contents></output>
+        </test>
         <!-- test w contigs and reads as input -->
         <test expect_num_outputs="4">
             <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
@@ -519,6 +540,12 @@ run_MaxBin.pl
         </test>
     </tests>
     <help><![CDATA[
+When MaxBin2 explicitly reports that insufficient marker genes prevent binning,
+the tool returns an empty bin collection instead of failing. Contigs are retained
+in the unclassified or too-short output according to the minimum contig length.
+Summary, marker and plot outputs are empty because no bins were recovered; the
+log retains MaxBin2's diagnostic. Other failures remain errors.
+
 MaxBin is a software that clusters metagenomic contigs into different bins,
 each consists (hopefully) of contigs from one species. MaxBin uses the
 nucleotide composition information and contig abundance information to do
