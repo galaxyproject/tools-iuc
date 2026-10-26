@@ -2,12 +2,12 @@
 
 
 import argparse
-from pathlib import Path
-from shutil import which
-from subprocess import PIPE, Popen
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from shutil import which
+from subprocess import PIPE, Popen
 
 from lxml import etree
 from yaml import safe_load
