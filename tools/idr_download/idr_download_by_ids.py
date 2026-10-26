@@ -1,674 +1,293 @@
+# import libraries
 import argparse
-import json
+import csv
 import os
+import subprocess
 import sys
-import tarfile
-from contextlib import ExitStack
-from itertools import product
-from tempfile import TemporaryDirectory
 
-import numpy
-from omero.cli import cli_login
-from omero.constants.namespaces import NSBULKANNOTATIONS
-from omero.gateway import _ImageWrapper, BlitzGateway
+
+import numpy as np
+from pandas import DataFrame
 from tifffile import imwrite
+from connect_omero_IDR import establish_IDR_connection, establish_OMERO_connection
 
 
-def warn(message: str, image_identifier: str, warn_skip: bool = False) -> None:
-    """Print an error `message` to stderr and
-    - prefix with the `image_identifier`
-    - suffix with 'Skipping download!' if `warn_skip` is True
+IDR_URL = "https://idr.openmicroscopy.org"
+ZARR_ENTITY_TYPE = "com.glencoesoftware.ngff:multiscales"
+MAX_IDR_FILES = 20
 
-    Args:
-        message (string): Message to print to stderr
-        image_identifier (string): Image identifier
-        warn_skip (bool, optional): Whether 'skipping download' should be suffix to the message. Defaults to False.
-    """
-    message = message.rstrip()
-    if warn_skip:
-        if message[-1] in [".", "!", "?"]:
-            skip_msg = " Skipping download!"
-        else:
-            skip_msg = ". Skipping download!"
+
+# import environmental variables for OMERO login
+usr = os.getenv("OMERO_USER")
+psw = os.getenv("OMERO_PASSWORD")
+uuid_key = os.getenv("UUID_SESSION_KEY")
+
+
+# helper functions
+def write_tsv(path, header, rows):
+    with open(path, "w", newline="") as file:
+        writer = csv.writer(file, delimiter="\t")
+        writer.writerow(header)
+        writer.writerows(rows)
+
+
+def get_json(session, url):
+    response = session.get(url)
+    response.raise_for_status()
+    return response.json()
+
+# IDR block
+
+
+# get image data Zarr/Images
+def get_image_from_IDR(image_id, session, out_dir):
+    r = get_json(session, f"{IDR_URL}/api/v0/m/images/{image_id}/")
+    external_info = r["data"]["omero:details"].get("externalInfo") or {}
+    is_zarr = external_info.get("EntityType") == ZARR_ENTITY_TYPE
+    print(f"Is Zarr? {is_zarr}")
+    # get the Zarr url if the dataset is a ZARR
+    if is_zarr:
+        zarr_url = external_info["Lsid"].replace("s3:", "https:").replace("?anonymous=true", "").rstrip("/")
+        validator_url = f"https://ome.github.io/ome-ngff-validator/?source={zarr_url}"
+        # write a TSV file with different informations
+        out_tsv = os.path.join(out_dir, f"zarr_info_{image_id}.tsv")
+        write_tsv(out_tsv, ["image_id", "zarr_url", "validator_url"],
+                  [[image_id, zarr_url, validator_url]])
+        print(f"Zarr info saved to {out_tsv}")
+        # wite a HTML file with the link to the NGFF-validator
+        out_html = os.path.join(out_dir, f"NGFF_validator_{image_id}.html")
+        with open(out_html, "w", encoding="utf-8") as f:
+            f.write(f"Open <a href='{validator_url}'>image in NGFF-validator</a>\n")
+        print(f"HTML saved to {out_html}")
+        return
+    # if not Zarr get the original files only if there are at most MAX_IDR_FILES
+    # (to avoid fetching too much data from IDR)
+    download_urls = get_json(session, f"{IDR_URL}/image/{image_id}/download_urls/")["download_urls"]
+    if len(download_urls) > MAX_IDR_FILES:
+        out_tsv = os.path.join(out_dir, f"download_urls_{image_id}.tsv")
+        write_tsv(out_tsv, ["image_name", "url"],
+                  [[url.split("/")[-1], url] for url in download_urls])
+        print(f"More than {MAX_IDR_FILES} files: URLs saved to {out_tsv}")
+        return
+    for tif_url in download_urls:
+        image_path = os.path.join(out_dir, tif_url.split("/")[-1])
+        # stream to disk instead of holding the whole file in memory
+        with session.get(tif_url, stream=True) as response:
+            response.raise_for_status()
+            with open(image_path, mode="wb") as file:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    file.write(chunk)
+        print(f"Saved {image_path}")
+
+
+# get annotation (key-value pairs) from IDR
+def get_annotation_from_IDR(obj_id, obj_type, session, out_dir):
+    url = f"{IDR_URL}/webclient/api/annotations/?type=map&{obj_type}={obj_id}"
+    rows = [[a["ns"], key, value]
+            for a in get_json(session, url)["annotations"]
+            for key, value in a["values"]]
+    out_tsv = os.path.join(out_dir, f"annotations_{obj_type}_{obj_id}.tsv")
+    write_tsv(out_tsv, ["namespace", "key", "value"], rows)
+    print(f"{len(rows)} annotations saved to {out_tsv}")
+
+
+# get bulk (tables) from IDR
+def get_bulk_annotation_from_IDR(screen_id, session, out_dir):
+    url = f"{IDR_URL}/webclient/api/annotations/?type=file&screen={screen_id}"
+    json_data = get_json(session, url)
+    # look for name = "bulk_annotations"
+    file_id = None
+    for ann in json_data["annotations"]:
+        if ann.get("file", {}).get("name") == "bulk_annotations":
+            file_id = ann["file"]["id"]
+            break
+    if file_id is None:
+        print(f"No bulk_annotations file found for screen {screen_id}")
+        return
+    print(f"Found bulk_annotations file {file_id}")
+    limit = 1000
+    offset = 0
+    row_count = None
+    data = []
+    while row_count is None or offset < row_count:
+        url = f"{IDR_URL}/webclient/omero_table/{file_id}/json/?limit={limit}&offset={offset}"
+        json_data = get_json(session, url)
+        row_count = json_data["meta"]["totalCount"]
+        column_names = json_data["data"]["columns"]
+        data.extend(json_data["data"]["rows"])
+        offset += limit
+        print(f"loaded {min(offset, row_count)}/{row_count} rows")
+    df_ann = DataFrame(data, columns=column_names)
+    out_tsv = os.path.join(out_dir, f"bulk_annotations_{screen_id}.tsv")
+    df_ann.to_csv(out_tsv, sep="\t", index=False)
+    print(f"Bulk annotations saved to {out_tsv} ({len(df_ann)} rows)")
+
+
+# OMERO BLOCK
+
+# fetch single image function
+def fetch_image(image, channel, stack, time, tile, mode, out_dir):
+    image_id = image.getId()
+    pixels = image.getPrimaryPixels()
+    size_z, size_c, size_t = image.getSizeZ(), image.getSizeC(), image.getSizeT()
+    # the function can get planes, stacks or hypercubes which will be saved as TIFF
+    if mode == "plane":
+        planes = pixels.getPlane(stack, channel, time)
+        axes = "YX"
+        out_name = f"image_{image_id}_z{stack}_c{channel}_t{time}.tiff"
+    elif mode == "stack":
+        if tile is None:
+            tile = (0, 0, pixels.getSizeX(), pixels.getSizeY())   # x, y, width, height of tile
+        zct_list = [(iz, channel, time, tile) for iz in range(size_z)]
+        planes = np.array(list(pixels.getTiles(zct_list)))
+        axes = "ZYX"
+        out_name = f"image_{image_id}_stack_c{channel}_t{time}.tiff"
+    else:  # hypercube
+        zct_list = [(z, c, t) for z in range(size_z) for c in range(size_c) for t in range(size_t)]
+        planes = np.array(list(pixels.getPlanes(zct_list)))
+        # restore the Z, C, T dimensions (same order as zct_list)
+        planes = planes.reshape(size_z, size_c, size_t, *planes.shape[-2:])
+        axes = "ZCTYX"
+        out_name = f"image_{image_id}_hypercube.tiff"
+    out = os.path.join(out_dir, out_name)
+    imwrite(out, planes, metadata={"axes": axes})
+    print(f"Saved {out} (shape: {planes.shape}, axes: {axes})")
+
+
+# function to fetch one or more images calling fetch_image
+def get_images_from_OMERO(image_ids, channel, stack, time, tile, mode, conn, out_dir):
+    missing = []
+    for i, image_id in enumerate(image_ids, start=1):
+        print(f"[{i}/{len(image_ids)}] Image {image_id}")
+        image = conn.getObject("Image", image_id)
+        if image is None:
+            # skip missing ids instead of aborting the whole batch
+            print(f"Warning: no image with id {image_id}, skipping", file=sys.stderr)
+            missing.append(image_id)
+            continue
+        fetch_image(image, channel, stack, time, tile, mode, out_dir)
+    if missing:
+        raise ValueError(f"{len(missing)} image id(s) not found: {missing}")
+
+
+# function to fetch a dataset with all images
+def get_images_from_dataset(dataset_id, channel, stack, time, tile, mode, conn, out_dir):
+    dataset = conn.getObject("Dataset", dataset_id)
+    if dataset is None:
+        raise ValueError(f"No dataset with id {dataset_id}")
+    for image in dataset.listChildren():
+        fetch_image(image, channel, stack, time, tile, mode, out_dir)
+
+
+# function to get the original data
+def get_original_data_from_OMERO(conn, host, port, image_ids, dataset_id, out_dir):
+    if image_ids:
+        targets = [("Image", image_id) for image_id in image_ids]
     else:
-        skip_msg = ""
-    print(
-        "ImageSpecWarning for {0}: {1}{2}".format(image_identifier, message, skip_msg),
-        file=sys.stderr,
+        targets = [("Dataset", dataset_id)]
+    # reuse the session of the open connection: no password on the command line
+    session_key = conn.getEventContext().sessionUuid
+    for obj_type, obj_id in targets:
+        # one subfolder per object to avoid file name collisions between filesets
+        target_dir = os.path.join(out_dir, f"{obj_type.lower()}_{obj_id}")
+        os.makedirs(target_dir, exist_ok=True)
+        subprocess.run(["omero", "download", "-s", host, "-p", str(port), "-k", session_key,
+                        f"{obj_type}:{obj_id}", target_dir], check=True)
+        print(f"Original files of {obj_type} {obj_id} saved to {target_dir}")
+
+
+def parse_args():
+    examples = """examples:
+  image        python %(prog)s image 12345 -o results
+  annotation   python %(prog)s annotation 12345 image
+  bulk         python %(prog)s bulk 777
+  omero plane  python %(prog)s omero 54321 --mode plane -z 0 -c 1 -t 0
+  omero multi  python %(prog)s omero 54321 54322 54323 --mode plane -o results
+  omero stack  python %(prog)s omero 54321 --mode stack --tile 50 50 10 10
+  omero cube   python %(prog)s omero 54321 --mode hypercube
+  omero ds     python %(prog)s omero --dataset 777 --mode plane
+  omero orig   python %(prog)s omero 54321 54322 --original -o originals
+"""
+    parser = argparse.ArgumentParser(
+        description="Fetch images and map annotations from IDR, or pixel data from OMERO.",
+        epilog=examples,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    # options shared by all subcommands (can be given after the subcommand)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-o", "--output-dir", default=".", help="Destination folder for all output files (created if missing, default: .)")
 
-def find_channel_index(image: _ImageWrapper, channel_name: str) -> int:
-    """Identify the channel index from the `image` and the `channel_name`
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    Args:
-        image (_ImageWrapper): image wrapper on which the channel should be identified
-        channel_name (string): name of the channel to look for
+    p_img = sub.add_parser("image", parents=[common], help="Download an IDR image (Zarr images: info saved to a TSV)")
+    p_img.add_argument("image_id", type=int, help="OMERO image id")
+    p_anno = sub.add_parser("annotation", parents=[common], help="Save IDR map annotations to a TSV file")
+    p_anno.add_argument("obj_id", type=int, help="Object id")
+    p_anno.add_argument("obj_type", help="Object type for the API query (e.g. image, project)")
+    p_bulk = sub.add_parser("bulk", parents=[common], help="Save a screen's bulk_annotations table to a TSV file")
+    p_bulk.add_argument("screen_id", type=int, help="Screen id with a bulk_annotations file annotation")
+    p_omero = sub.add_parser("omero", parents=[common], help="Fetch pixel data from one or more OMERO images")
+    p_omero.add_argument("--original", action="store_true",
+                         help="Download the original files with 'omero download'")
+    p_omero.add_argument("image_ids", type=int, nargs="*", default=[],
+                         help="One or more OMERO image ids (omit when using --dataset)")
+    p_omero.add_argument("--dataset", type=int, default=None,
+                         help="Dataset id: fetch all images in the dataset")
+    p_omero.add_argument("--mode", choices=["plane", "stack", "hypercube"], default="plane",
+                         help="plane: one ZCT plane | stack: tiled Z-stack | hypercube: all ZCT planes")
+    p_omero.add_argument("-z", "--stack", type=int, default=0, help="Z index (plane mode)")
+    p_omero.add_argument("-c", "--channel", type=int, default=0, help="Channel index (plane and stack modes)")
+    p_omero.add_argument("-t", "--time", type=int, default=0, help="Time index (plane and stack modes)")
+    p_omero.add_argument("--tile", type=int, nargs=4, metavar=("X", "Y", "W", "H"), help="Tile region x y width height (stack mode, default: full frame)")
+    p_omero.add_argument("--host", default="idr.openmicroscopy.org", help="OMERO server host")
+    p_omero.add_argument("--port", type=int, default=4064, help="OMERO server port")
 
-    Returns:
-        int: Index of the channel or -1 if was not found.
-    """
-    channel_name = channel_name.lower()
-    for n, channel in enumerate(image.getChannelLabels()):
-        if channel_name == channel.lower():
-            return n
-    # Check map annotation for information (this is necessary for some images)
-    for ann in image.listAnnotations(NSBULKANNOTATIONS):
-        pairs = ann.getValue()
-        for p in pairs:
-            if p[0] == "Channels":
-                channels = p[1].replace(" ", "").split(";")
-                for n, c in enumerate(channels):
-                    for value in c.split(":"):
-                        if channel_name == value.lower():
-                            return n
-    return -1
-
-
-def get_clipping_region(
-    image: _ImageWrapper, x: int, y: int, w: int, h: int
-) -> list[int]:
-    """Check `x`, `y` and adjust `w`, `h` to image size to be able to crop the `image` with these coordinates
-
-    Args:
-        image (_ImageWrapper): image wrapper on which region want to be cropped
-        x (int): left x coordinate
-        y (int): top y coordinate
-        w (int): width
-        h (int): height
-
-    Raises:
-        ValueError: if the x or y coordinates are negative.
-        ValueError: if the x or y coordinates are larger than the width or height of the image.
-
-    Returns:
-        list[int]: new [x, y, width, height] adjusted to the image
-    """
-    # If the (x, y) coordinate falls outside the image boundaries, we
-    # cannot just shift it because that would render the meaning of
-    # w and h undefined (should width and height be decreased or the whole
-    # region be shifted to keep them fixed?).
-    # It may be better to abort in this situation.
-    if x < 0 or y < 0:
-        raise ValueError(
-            "Too small upper left coordinate ({0}, {1}) for clipping region.".format(
-                x, y
-            )
-        )
-    size_x = image.getSizeX()
-    size_y = image.getSizeY()
-    if x >= size_x or y >= size_y:
-        raise ValueError(
-            "Upper left coordinate ({0}, {1}) of clipping region lies "
-            "outside of image.".format(x, y)
-        )
-    # adjust width and height to the image dimensions
-    if w <= 0 or x + w > size_x:
-        w = size_x - x
-    if h <= 0 or y + h > size_y:
-        h = size_y - y
-    return [x, y, w, h]
+    return parser.parse_args()
 
 
-def confine_plane(image: _ImageWrapper, z: int) -> int:
-    """Adjust/Confine `z` to be among the possible z for the `image`
+def main(args):
+    out_dir = args.output_dir
+    os.makedirs(out_dir, exist_ok=True)
 
-    Args:
-        image (_ImageWrapper): image wrapper for which the z is adjusted
-        z (int): plane index that need to be confined
-
-    Returns:
-        int: confined z
-    """
-    if z < 0:
-        z = 0
-    else:
-        max_z = image.getSizeZ() - 1
-        if z > max_z:
-            z = max_z
-    return z
-
-
-def confine_frame(image: _ImageWrapper, t: int) -> int:
-    """Adjust/Confine `t` to be among the possible t for the `image`
-
-    Args:
-        image (_ImageWrapper): image wrapper for which the t is adjusted
-        t (int): frame index that need to be confined
-
-    Returns:
-        int: confined t
-    """
-    if t < 0:
-        t = 0
-    else:
-        max_t = image.getSizeT() - 1
-        if t > max_t:
-            t = max_t
-    return t
-
-
-def get_image_array(
-    image: _ImageWrapper, tile: list[int], z: int, c: int, t: int
-) -> numpy.ndarray:
-    """Get a 2D numpy array from an `image` wrapper for a given `tile`, `z`, `c`, `t`
-
-    Args:
-        image (_ImageWrapper): image wrapper from which values are taken
-        tile (list[int]): [x, y, width, height] where x,y is the top left coordinate of the region to crop
-        z (int): plane index
-        c (int): channel index
-        t (int): frame index
-
-    Returns:
-        numpy.ndarray: image values of the selected area (2 dimensions)
-    """
-    pixels = image.getPrimaryPixels()
-    try:
-        selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
-    except Exception:
-        warning = "{0} (ID: {1})".format(image.getName(), image.getId())
-        warn("Could not download the requested region", warning)
-        return
-
-    return selection
-
-
-def get_full_image_array(image: _ImageWrapper) -> numpy.ndarray:
-    """Get a 5D numpy array with all values from an `image` wrapper
-
-    Args:
-        image (_ImageWrapper): image wrapper from which values are taken
-
-    Returns:
-        numpy.ndarray: image values in the TZCYX order (5 dimensions)
-    """
-    # The goal is to get the image in TZCYX order
-    pixels = image.getPrimaryPixels()
-    # Get the final tzclist in the order that will make the numpy reshape work
-    tzclist = list(
-        product(
-            range(image.getSizeT()), range(image.getSizeZ()), range(image.getSizeC())
-        )
-    )
-    # As getPlanes requires the indices in the zct order
-    # We keep the final order but switch indices
-    zctlist = [(z, c, t) for (t, z, c) in tzclist]
-    try:
-        all_planes = numpy.array(list(pixels.getPlanes(zctlist)))
-        all_planes_reshaped = all_planes.reshape(
-            image.getSizeT(),
-            image.getSizeZ(),
-            image.getSizeC(),
-            all_planes.shape[-2],
-            all_planes.shape[-1],
-        )
-    except Exception as e:
-        warning = "{0} (ID: {1})".format(image.getName(), image.getId())
-        warn(f"Could not download the full image \n {e.msg}", warning)
-        return
-
-    return all_planes_reshaped
-
-
-def download_image_data(
-    image_ids_or_dataset_id: str,
-    dataset: bool = False,
-    download_original: bool = False,
-    download_full: bool = False,
-    channel: str = None,
-    z_stack: int = 0,
-    frame: int = 0,
-    coord: tuple[int, int] = (0, 0),
-    width: int = 0,
-    height: int = 0,
-    region_spec: str = "rectangle",
-    skip_failed: bool = False,
-    download_tar: bool = False,
-    omero_host: str = "idr.openmicroscopy.org",
-    omero_secured: bool = False,
-    config_file: str = None,
-) -> None:
-    """Download the image data of
-      either a list of image ids or all images from a dataset.
-      The image data can be:
-       - a 2D cropped region or
-       - a hyperstack written in a tiff file
-       - the original image uploaded in omero
-      Optionally, the final file can be in a tar
-
-    Args:
-        image_ids_or_dataset_id (list[str]): Can be either a list with a single id (int) of a dataset or a list with images ids (int) or images ids prefixed by 'image-'
-        dataset (bool, optional): Whether the image_ids_or_dataset_id is a dataset id and all images from this dataset should be retrieved (true) or image_ids_or_dataset_id are individual image ids (false). Defaults to False.
-        download_original (bool, optional): Whether the original file uploded to omero should be downloaded (ignored if `download_full` is set to True). Defaults to False.
-        download_full (bool, optional): Whether the full image (hyperstack) on omero should be written to TIFF. Defaults to False.
-        channel (string, optional): Channel name (ignored if `download_full` or `download_original` is set to True). Defaults to None.
-        z_stack (int, optional): Z stack (plane) index (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
-        frame (int, optional): T frame index (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
-        coord (tuple[int, int], optional): Coordinates of the top left or center of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to (0, 0).
-        width (int, optional): Width of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
-        height (int, optional): Height of the region to crop (ignored if `download_full` or `download_original` is set to True). Defaults to 0.
-        region_spec (str, optional): How the region is specified ('rectangle' = coord is top left or 'center' = the region is center, ignored if `download_full` or `download_original` is set to True). Defaults to "rectangle".
-        skip_failed (bool, optional): Do not stop the downloads if one fails. Defaults to False.
-        download_tar (bool, optional): Put all downloaded images into a tar file. Defaults to False.
-        omero_host (str, optional): omero host url. Defaults to "idr.openmicroscopy.org".
-        omero_secured (bool, optional): Whether the omero connects with secure connection. Defaults to False.
-        config_file (string, optional): File path with config file with credentials to connect to OMERO. Defaults to None.
-
-    Raises:
-        ValueError: If the region_spec is not 'rectangle' nor 'center' and a cropped region is wanted.
-        ValueError: If there is no dataset with this number in OMERO
-        ValueError: If there is no image with this number in OMERO
-        Exception: If the command to download the original image fails
-        ValueError: If the channel name could not be identified
-    """
-
-    if config_file is None:  # IDR connection
-        omero_username = "public"
-        omero_password = "public"
-    else:  # other omero instance
-        with open(config_file) as f:
-            cfg = json.load(f)
-            omero_username = cfg["username"]
-            omero_password = cfg["password"]
-
-            if omero_username == "" or omero_password == "":
-                omero_username = "public"
-                omero_password = "public"
-
-    if (
-        not download_original
-        and not download_full
-        and region_spec not in ["rectangle", "center"]
-    ):
-        raise ValueError(
-            'Got unknown value "{0}" as region_spec argument'.format(region_spec)
-        )
-    with ExitStack() as exit_stack:
-        conn = exit_stack.enter_context(
-            BlitzGateway(
-                omero_username, omero_password, host=omero_host, secure=omero_secured
-            )
-        )
-        if download_tar:
-            # create an archive file to write images to
-            archive = exit_stack.enter_context(tarfile.open("images.tar", mode="w"))
-            tempdir = exit_stack.enter_context(TemporaryDirectory())
-
-        if dataset:
-            dataset_warning_id = "Dataset-ID: {0}".format(image_ids_or_dataset_id[0])
-            try:
-                dataset_id = int(image_ids_or_dataset_id[0])
-            except ValueError:
-                image_ids = None
+    if args.command == "omero":
+        if not (uuid_key or (usr and psw)):
+            raise EnvironmentError("Set UUID_SESSION_KEY, or both OMERO_USER and OMERO_PASSWORD")
+        if bool(args.image_ids) == (args.dataset is not None):
+            raise ValueError("Provide either one or more image ids or --dataset (not both)")
+        # drop duplicate ids while keeping the given order
+        image_ids = list(dict.fromkeys(args.image_ids))
+        tile = tuple(args.tile) if args.tile is not None else None
+        conn = establish_OMERO_connection(uuid_key, usr, psw, args.host, args.port)
+        try:
+            if args.original:
+                get_original_data_from_OMERO(conn, args.host, args.port, image_ids,
+                                             args.dataset, out_dir)
+            elif args.dataset is not None:
+                get_images_from_dataset(args.dataset, args.channel, args.stack, args.time,
+                                        tile, args.mode, conn, out_dir)
             else:
-                try:
-                    dataset = conn.getObject("Dataset", dataset_id)
-                except Exception as e:
-                    # respect skip_failed on unexpected errors
-                    if skip_failed:
-                        warn(str(e), dataset_warning_id, warn_skip=True)
-                    else:
-                        raise
-                else:
-                    image_ids = [image.id for image in dataset.listChildren()]
-
-            if image_ids is None:
-                if skip_failed:
-                    warn(
-                        "Unable to find a dataset with this ID in the " "database.",
-                        dataset_warning_id,
-                        warn_skip=True,
-                    )
-                else:
-                    raise ValueError(
-                        "{0}: Unable to find a dataset with this ID in the "
-                        "database. Aborting!".format(dataset_warning_id)
-                    )
-
-        else:
-            # basic argument sanity checks and adjustments
-            prefix = "image-"
-            # normalize image ids by stripping off prefix if it exists
-            image_ids = [
-                iid[len(prefix):] if iid[:len(prefix)] == prefix else iid
-                for iid in image_ids_or_dataset_id
-            ]
-        for image_id in image_ids:
-            image_warning_id = "Image-ID: {0}".format(image_id)
-            try:
-                image_id = int(image_id)
-            except ValueError:
-                image = None
-            else:
-                try:
-                    image = conn.getObject("Image", image_id)
-                except Exception as e:
-                    # respect skip_failed on unexpected errors
-                    if skip_failed:
-                        warn(str(e), image_warning_id, warn_skip=True)
-                        continue
-                    else:
-                        raise
-
-            if image is None:
-                if skip_failed:
-                    warn(
-                        "Unable to find an image with this ID in the database.",
-                        image_warning_id,
-                        warn_skip=True,
-                    )
-                    continue
-                raise ValueError(
-                    "{0}: Unable to find an image with this ID in the "
-                    "database. Aborting!".format(image_warning_id)
-                )
-            try:
-                # try to extract image name
-                # if anything goes wrong here skip the image
-                # or abort.
-                image_name = os.path.splitext(image.getName())[0]
-                image_warning_id = "{0} (ID: {1})".format(image_name, image_id)
-            except Exception as e:
-                # respect skip_failed on unexpected errors
-                if skip_failed:
-                    warn(str(e), image_warning_id, warn_skip=True)
-                    continue
-                else:
-                    raise
-            if download_full:
-                fname = (
-                    "__".join([image_name.replace(" ", "_"), str(image_id), "full"])
-                    + ".tiff"
-                )
-                # download and save the region as TIFF
-                try:
-                    im_array = get_full_image_array(image)
-
-                    if download_tar:
-                        fname = os.path.join(tempdir, fname)
-
-                    imwrite(fname, im_array, imagej=True)
-                    # move image into tarball
-                    if download_tar:
-                        archive.add(fname, os.path.basename(fname))
-                        os.remove(fname)
-                except Exception as e:
-                    if skip_failed:
-                        # respect skip_failed on unexpected errors
-                        warn(str(e), image_warning_id, warn_skip=True)
-                        continue
-                    else:
-                        raise
-            elif download_original:
-                try:
-                    # try to extract image properties
-                    # if anything goes wrong here skip the image
-                    # or abort.
-                    original_image_name = image.getFileset().listFiles()[0].getName()
-                    fname = (
-                        image_name
-                        + "__"
-                        + str(image_id)
-                        + os.path.splitext(original_image_name)[1]
-                    )
-                    fname = fname.replace(" ", "_")
-                    fname = fname.replace("/", "_")
-                    download_directory = "./"
-                    if download_tar:
-                        download_directory = tempdir
-                    with cli_login(
-                        "-u", omero_username, "-s", omero_host, "-w", omero_password
-                    ) as cli:
-                        cli.invoke(
-                            ["download", f"Image:{image_id}", download_directory]
-                        )
-                        if cli.rv != 0:
-                            raise Exception("Download failed.")
-                    # This will download to download_directory/original_image_name
-                    os.rename(
-                        os.path.join(download_directory, original_image_name),
-                        os.path.join(download_directory, fname),
-                    )
-                    # move image into tarball
-                    if download_tar:
-                        archive.add(
-                            os.path.join(download_directory, fname),
-                            os.path.basename(fname),
-                        )
-                        os.remove(os.path.join(download_directory, fname))
-                except Exception as e:
-                    # respect skip_failed on unexpected errors
-                    if skip_failed:
-                        warn(str(e), image_warning_id, warn_skip=True)
-                        continue
-                    else:
-                        raise
-            else:
-                try:
-                    # try to extract image properties
-                    # if anything goes wrong here skip the image
-                    # or abort.
-                    if region_spec == "rectangle":
-                        tile = get_clipping_region(image, *coord, width, height)
-                    elif region_spec == "center":
-                        tile = get_clipping_region(
-                            image, *_center_to_ul(*coord, width, height)
-                        )
-
-                    ori_z, z_stack = z_stack, confine_plane(image, z_stack)
-                    ori_frame, frame = frame, confine_frame(image, frame)
-                    num_channels = image.getSizeC()
-                    if channel is None:
-                        channel_index = 0
-                    else:
-                        channel_index = find_channel_index(image, channel)
-                except Exception as e:
-                    # respect skip_failed on unexpected errors
-                    if skip_failed:
-                        warn(str(e), image_warning_id, warn_skip=True)
-                        continue
-                    else:
-                        raise
-
-                # region sanity checks and warnings
-                if tile[2] < width or tile[3] < height:
-                    # The downloaded image region will have smaller dimensions
-                    # than the specified width x height.
-                    warn(
-                        "Downloaded image dimensions ({0} x {1}) will be smaller "
-                        "than the specified width and height ({2} x {3}).".format(
-                            tile[2], tile[3], width, height
-                        ),
-                        image_warning_id,
-                    )
-
-                # z-stack sanity checks and warnings
-                if z_stack != ori_z:
-                    warn(
-                        "Specified image plane ({0}) is out of bounds. Using {1} "
-                        "instead.".format(ori_z, z_stack),
-                        image_warning_id,
-                    )
-
-                # frame sanity checks and warnings
-                if frame != ori_frame:
-                    warn(
-                        "Specified image frame ({0}) is out of bounds. Using "
-                        "frame {1} instead.".format(ori_frame, frame),
-                        image_warning_id,
-                    )
-
-                # channel index sanity checks and warnings
-                if channel is None:
-                    if num_channels > 1:
-                        warn(
-                            "No specific channel selected for multi-channel "
-                            "image. Using first of {0} channels.".format(num_channels),
-                            image_warning_id,
-                        )
-                else:
-                    if channel_index == -1 or channel_index >= num_channels:
-                        if skip_failed:
-                            warn(
-                                str(channel)
-                                + " is not a known channel name for this image.",
-                                image_warning_id,
-                                warn_skip=True,
-                            )
-                            continue
-                        else:
-                            raise ValueError(
-                                '"{0}" is not a known channel name for image {1}. '
-                                "Aborting!".format(channel, image_warning_id)
-                            )
-
-                fname = "__".join([image_name, str(image_id)] + [str(x) for x in tile])
-                fname += ".tiff"
-                fname = fname.replace(" ", "_")
-                # download and save the region as TIFF
-                try:
-                    im_array = get_image_array(
-                        image, tile, z_stack, channel_index, frame
-                    )
-
-                    if download_tar:
-                        fname = os.path.join(tempdir, fname)
-                    imwrite(fname, im_array)
-                    # move image into tarball
-                    if download_tar:
-                        archive.add(fname, os.path.basename(fname))
-                        os.remove(fname)
-                except Exception as e:
-                    if skip_failed:
-                        # respect skip_failed on unexpected errors
-                        warn(str(e), image_warning_id, warn_skip=True)
-                        continue
-                    else:
-                        raise
-
-
-def _center_to_ul(center_x: int, center_y: int, width: int, height: int) -> list[int]:
-    """Convert the center coordinates (`center_x`, `center_y`), `width`, `height` to upper left coordinates, width, height
-
-    Args:
-        center_x (int): x coordinate of center
-        center_y (int): y coordinate of center
-        width (int): width
-        height (int): height
-
-    Returns:
-        list[int]: [x, y, width, height] where x,y are the upper left coordinates
-    """
-    if width > 0:
-        ext_x = (width - 1) // 2
-        ul_x = max([center_x - ext_x, 0])
-        width = center_x + ext_x + 1 - ul_x
+                get_images_from_OMERO(image_ids, args.channel, args.stack, args.time,
+                                      tile, args.mode, conn, out_dir)
+        finally:
+            conn.close()
     else:
-        ul_x = 0
-    if height > 0:
-        ext_y = (height - 1) // 2
-        ul_y = max([center_y - ext_y, 0])
-        height = center_y + ext_y + 1 - ul_y
-    else:
-        ul_y = 0
-    return ul_x, ul_y, width, height
+        session = establish_IDR_connection()
+        try:
+            if args.command == "image":
+                get_image_from_IDR(args.image_id, session, out_dir)
+            elif args.command == "annotation":
+                get_annotation_from_IDR(args.obj_id, args.obj_type, session, out_dir)
+            else:  # bulk
+                get_bulk_annotation_from_IDR(args.screen_id, session, out_dir)
+        finally:
+            session.close()
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument(
-        "image_ids_or_dataset_id",
-        nargs="*",
-        default=[],
-        help="one or more IDR image ids or a single dataset id"
-        "for which to retrieve data (default: "
-        "read ids from stdin).",
-    )
-    region = p.add_mutually_exclusive_group()
-    region.add_argument(
-        "--rectangle",
-        nargs=4,
-        type=int,
-        default=argparse.SUPPRESS,
-        help="specify a clipping region for the image as x y width height, "
-        "where x and y give the upper left coordinate of the rectangle "
-        "to clip to. Set width and height to 0 to extend the rectangle "
-        "to the actual size of the image.",
-    )
-    region.add_argument(
-        "--center",
-        nargs=4,
-        type=int,
-        default=argparse.SUPPRESS,
-        help="specify a clipping region for the image as x y width height, "
-        "where x and y define the center of a width x height rectangle. "
-        "Set either width or height to 0 to extend the region to the "
-        "actual size of the image along the x- or y-axis.\n"
-        "Note: Even values for width and height will be rounded down to "
-        "the nearest odd number.",
-    )
-    region.add_argument(
-        "--download-original",
-        dest="download_original",
-        action="store_true",
-        help="download the original file uploaded to omero",
-    )
-    region.add_argument(
-        "--download-full",
-        dest="download_full",
-        action="store_true",
-        help="download the full image on omero",
-    )
-    p.add_argument(
-        "-c",
-        "--channel",
-        help="name of the channel to retrieve data for "
-        "(note: the first channel of each image will be downloaded if "
-        "left unspecified), ignored with `--download-original` and "
-        "`--download-full`",
-    )
-    p.add_argument(
-        "-f",
-        "--frame",
-        type=int,
-        default=0,
-        help="index of the frame to retrive data for (first frame is 0),"
-        " ignored with `--download-original` and `--download-full`",
-    )
-    p.add_argument(
-        "-z",
-        "--z-stack",
-        type=int,
-        default=0,
-        help="index of the slice to retrive data for (first slice is 0),"
-        " ignored with `--download-original` and `--download-full`",
-    )
-    p.add_argument("--skip-failed", action="store_true")
-    p.add_argument("--download-tar", action="store_true")
-    p.add_argument("-oh", "--omero-host", type=str, default="idr.openmicroscopy.org")
-    p.add_argument("--omero-secured", action="store_true", default=True)
-    p.add_argument("-cf", "--config-file", dest="config_file", default=None)
-    p.add_argument("--dataset", action="store_true")
-    args = p.parse_args()
-    if not args.image_ids_or_dataset_id:
-        args.image_ids_or_dataset_id = sys.stdin.read().split()
-    if args.dataset and len(args.image_ids_or_dataset_id) > 1:
-        warn("Multiple dataset ids provided. Only the first one will be used.")
-    if "center" in args:
-        args.coord, args.width, args.height = (
-            args.center[:2],
-            args.center[2],
-            args.center[3],
-        )
-        args.region_spec = "center"
-        del args.center
-    elif "rectangle" in args:
-        args.coord, args.width, args.height = (
-            args.rectangle[:2],
-            args.rectangle[2],
-            args.rectangle[3],
-        )
-        args.region_spec = "rectangle"
-        del args.rectangle
-    download_image_data(**vars(args))
+    args = parse_args()
+    try:
+        main(args)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
