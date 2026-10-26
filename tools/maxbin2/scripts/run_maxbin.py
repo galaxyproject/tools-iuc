@@ -1,10 +1,10 @@
 """Preserve MaxBin failures except its explicit insufficient-marker outcome."""
 
 import gzip
-from pathlib import Path
 import subprocess
 import sys
 import tarfile
+from pathlib import Path
 
 
 NO_BINS = (
