@@ -7,8 +7,8 @@ import sys
 
 
 import numpy as np
-from pandas import DataFrame
 from connect_omero_IDR import establish_IDR_connection, establish_OMERO_connection
+from pandas import DataFrame
 from tifffile import imwrite
 
 
