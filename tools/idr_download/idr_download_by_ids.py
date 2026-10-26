@@ -8,8 +8,8 @@ import sys
 
 import numpy as np
 from pandas import DataFrame
-from tifffile import imwrite
 from connect_omero_IDR import establish_IDR_connection, establish_OMERO_connection
+from tifffile import imwrite
 
 
 IDR_URL = "https://idr.openmicroscopy.org"
