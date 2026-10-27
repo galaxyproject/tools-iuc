@@ -1,0 +1,313 @@
+<tool id="transvar" name="TransVar" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>annotates genomic, cDNA and protein variants</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_0199</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_3197</edam_operation>
+        <edam_operation>operation_3225</edam_operation>
+    </edam_operations>
+    <expand macro="requirements"/>
+    <!-- TransVar prints its version to stderr and then exits 1, which would
+         abort the job before the tool command runs. -->
+    <version_command>transvar --version 2>&amp;1 || true</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## The generated config holds the reference and the database paths, so the
+## command line only has to name which of them to switch on. TRANSVAR_CFG also
+## keeps TransVar away from the config inside its installed Python package.
+export TRANSVAR_CFG='$transvar_cfg' &&
+## TransVar resolves a database it cannot open relative to this directory, and
+## crashes in posixpath.join when the variable is unset.
+export TRANSVAR_DOWNLOAD_DIR='$annotations.fields.path' &&
+
+transvar $annotation.mode
+    --refversion '$annotations.fields.refversion'
+#for $source in str($sources).split(',')
+    --$source
+#end for
+#if str($annotation.input_type.query_source) == 'text'
+    -i '$annotation.input_type.query'
+#elif str($annotation.input_type.query_source) == 'file'
+    -l '$annotation.input_type.query_file'
+#else
+    --vcf '$annotation.input_type.query_vcf'
+#end if
+    $adv.transcript_selection
+    $adv.strictversion
+    $adv.gseq
+    $adv.aa3
+    $adv.oneline
+    --seqmax $adv.seqmax
+    --prombeg $adv.prombeg
+    --promend $adv.promend
+#if str($annotation.input_type.query_source) == 'vcf'
+    > '$output_vcf'
+#else
+    > '$output'
+#end if
+    ]]></command>
+    <configfiles>
+        <configfile name="transvar_cfg"><![CDATA[[DEFAULT]
+refversion = ${annotations.fields.refversion}
+
+[${annotations.fields.refversion}]
+reference = ${reference.fields.path}
+#for $source in str($sources).split(',')
+${source} = ${annotations.fields.path}/${source}.transvardb
+#end for
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="annotation">
+            <param name="mode" type="select" label="Annotation mode" help="Which level the variants you want to annotate are expressed on.">
+                <option value="panno" selected="true">Protein level (panno)</option>
+                <option value="canno">cDNA level (canno)</option>
+                <option value="ganno">Genomic level (ganno)</option>
+            </param>
+            <when value="panno">
+                <expand macro="query_input" examples="PIK3CA:p.E545K, PIK3CA:p.545_546delEQinsK, MET:p.1010"/>
+            </when>
+            <when value="canno">
+                <expand macro="query_input" examples="PIK3CA:c.1633G&gt;A, ABCB11:c.1198-8_1199insC"/>
+            </when>
+            <when value="ganno">
+                <conditional name="input_type">
+                    <param name="query_source" type="select" label="Variants to annotate">
+                        <option value="text" selected="true">Enter a single variant</option>
+                        <option value="file">Read a list of variants from a dataset</option>
+                        <option value="vcf">Read variants from a VCF dataset</option>
+                    </param>
+                    <when value="text">
+                        <expand macro="query_text" examples="chr3:g.178936091G&gt;A, chr3:g.178936091_178936092delGA"/>
+                    </when>
+                    <when value="file">
+                        <expand macro="query_file"/>
+                    </when>
+                    <when value="vcf">
+                        <param name="query_vcf" type="data" format="vcf" label="VCF dataset" help="The annotation is appended as extra columns to each record."/>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <param name="annotations" type="select" label="Transcript annotation database" help="Downloaded with the TransVar data manager.">
+            <options from_data_table="transvar_annotations">
+                <filter type="sort_by" column="3"/>
+                <validator type="no_options" message="No TransVar annotation database is available. Ask your Galaxy administrator to run the TransVar data manager."/>
+            </options>
+        </param>
+        <param name="sources" type="select" multiple="true" optional="false" label="Transcript annotation sources" help="TransVar reports one line per matching transcript, so selecting several sources annotates the same variant against each of them.">
+            <options from_data_table="transvar_annotations">
+                <column name="value" index="4"/>
+                <filter type="param_value" ref="annotations" column="0"/>
+                <filter type="multiple_splitter" column="4" separator=","/>
+                <filter type="sort_by" column="4"/>
+            </options>
+            <validator type="no_options" message="The selected database contains no annotation sources."/>
+        </param>
+        <param name="reference" type="select" label="Reference genome" help="TransVar reads the reference sequence to resolve codons and to check reference alleles. Pick the assembly the annotation database above was built for; a mismatched genome yields wrong consequences or no output at all.">
+            <options from_data_table="fasta_indexes">
+                <filter type="sort_by" column="2"/>
+                <validator type="no_options" message="No reference genome is available. Ask your Galaxy administrator to install the assembly the annotation database was built for."/>
+            </options>
+        </param>
+        <section name="adv" title="Advanced options" expanded="false">
+            <param name="transcript_selection" type="select" label="Transcripts to consider">
+                <option value="" selected="true">All transcripts</option>
+                <option value="--longest">Longest transcript only</option>
+                <option value="--longestcoding">Protein-coding transcript with the longest CDS only</option>
+            </param>
+            <param argument="--strictversion" type="boolean" truevalue="--strictversion" falsevalue="" checked="false" label="Require matching transcript version" help="Only match a queried transcript accession if its version number is identical."/>
+            <param argument="--gseq" type="boolean" truevalue="--gseq" falsevalue="" checked="false" label="Append VCF-style coordinates" help="Adds CHROM, POS, REF and ALT columns to the output."/>
+            <param argument="--aa3" type="boolean" truevalue="--aa3" falsevalue="" checked="false" label="Use three letter amino acid codes" help="Report p.Tyr2Cys instead of p.Y2C."/>
+            <param argument="--oneline" type="boolean" truevalue="--oneline" falsevalue="" checked="false" label="One line per query" help="Collapse the hits of all matching transcripts into a single line."/>
+            <param argument="--seqmax" type="integer" min="-1" value="10" label="Maximum reported sequence length" help="Longer reference or alternative sequences are abbreviated. Use -1 to report them in full."/>
+            <param argument="--prombeg" type="integer" min="0" value="1000" label="Promoter start" help="Bases upstream of the transcription start site that still count as promoter."/>
+            <param argument="--promend" type="integer" min="0" value="0" label="Promoter end" help="Bases downstream of the transcription start site that still count as promoter."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} ${annotation.mode} on ${on_string}">
+            <filter>annotation['input_type']['query_source'] != 'vcf'</filter>
+        </data>
+        <data name="output_vcf" format="vcf" label="${tool.name} ${annotation.mode} on ${on_string} (VCF)">
+            <filter>annotation['input_type']['query_source'] == 'vcf'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: single protein variant typed into the form -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="panno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="text"/>
+                    <param name="query" value="TESTG:p.Y2C"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <output name="output" file="panno_text.tabular" ftype="tabular"/>
+        </test>
+        <!-- 2: single cDNA variant typed into the form; the ">" of the
+             substitution has to survive input sanitization -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="canno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="text"/>
+                    <param name="query" value="TESTG:c.5A&gt;G"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <output name="output" file="canno_text.tabular" ftype="tabular"/>
+        </test>
+        <!-- 3: single genomic variant typed into the form -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="ganno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="text"/>
+                    <param name="query" value="chrT:g.605A&gt;G"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <output name="output" file="ganno_text.tabular" ftype="tabular"/>
+        </test>
+        <!-- 4: list of variants from a dataset, with a history reference -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="panno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="file"/>
+                    <param name="query_file" value="variants.txt" ftype="txt"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <output name="output" file="panno_list.tabular" ftype="tabular"/>
+        </test>
+        <!-- 5: VCF in, VCF out -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="ganno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="vcf"/>
+                    <param name="query_vcf" value="variants.vcf" ftype="vcf"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <output name="output_vcf" file="ganno.vcf" ftype="vcf"/>
+        </test>
+        <!-- 6: advanced options -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="panno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="text"/>
+                    <param name="query" value="TESTG:p.Y2C"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <section name="adv">
+                <param name="transcript_selection" value="--longest"/>
+                <param name="gseq" value="true"/>
+                <param name="aa3" value="true"/>
+                <param name="oneline" value="true"/>
+            </section>
+            <output name="output" file="panno_advanced.tabular" ftype="tabular"/>
+        </test>
+        <!-- 7: a gene that is absent from the annotation database. TransVar
+             succeeds and returns the header only, so make sure the wrapper
+             does not turn that into a failure. -->
+        <test expect_num_outputs="1">
+            <conditional name="annotation">
+                <param name="mode" value="panno"/>
+                <conditional name="input_type">
+                    <param name="query_source" value="text"/>
+                    <param name="query" value="NOSUCHGENE:p.A1B"/>
+                </conditional>
+            </conditional>
+            <param name="annotations" value="testg_ucsc"/>
+            <param name="sources" value="ucsc"/>
+            <param name="reference" value="transvar_test"/>
+            <output name="output" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_line_matching expression="input\ttranscript\tgene\t.*"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+TransVar_ is a multiway annotator for precision medicine. It translates a
+variant between the genomic, cDNA and protein levels and reports, for every
+matching transcript, the affected region and the functional consequence.
+
+Pick the level your variants are written on:
+
+* **Protein level (panno)**, e.g. ``PIK3CA:p.E545K``
+* **cDNA level (canno)**, e.g. ``PIK3CA:c.1633G>A``
+* **Genomic level (ganno)**, e.g. ``chr3:g.178936091G>A``
+
+Variants can be typed one at a time into the form, read line by line from a
+dataset, or, in genomic mode, taken from a VCF dataset. VCF input produces
+VCF output with the annotation appended as extra columns; every other input
+produces a tabular dataset.
+
+-----
+
+**Transcript annotation databases**
+
+The transcript sets are not bundled with TransVar. A Galaxy administrator
+downloads them once with the **TransVar annotations** data manager, which
+stores them in a Galaxy managed data directory. This tool then reads them
+from there, rather than from the installed Python package.
+
+Selecting more than one source annotates each variant against each of them;
+the ``source`` field of the ``info`` column says which transcript set a line
+came from.
+
+-----
+
+**Reference genome**
+
+TransVar reads the reference sequence to resolve codons and to verify
+reference alleles, so a reference genome is always required. It must be the
+assembly the annotation database was built for, otherwise the reported
+consequences are wrong. Without a matching reference TransVar reports no
+annotation at all.
+
+The genome is taken from the assemblies your administrator has installed,
+rather than from a dataset in your history. TransVar's transcript databases
+are published only for a few assemblies (hg19, hg38 and mm10), and the same
+administrator who runs the data manager to install them also installs the
+matching genome, so pairing the two from the same curated lists avoids
+silently annotating against the wrong assembly.
+
+-----
+
+**Output**
+
+One line per query and matching transcript, with the input, the transcript
+and gene, the coordinates on all three levels, the affected region, and an
+``info`` field holding the consequence (``CSQN``), the reference codon,
+candidate alternative codons and the annotation source.
+
+.. _TransVar: https://bioinformatics.mdanderson.org/public-software/transvar/
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

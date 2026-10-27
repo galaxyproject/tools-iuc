@@ -21,10 +21,12 @@ Scanpy
     --- | ---
     `pp.filter_cells` | Filter cell outliers based on counts and numbers of genes expressed.
     `pp.filter_genes` | Filter genes based on number of cells or counts.
+    `filter_any` | Filter on any column of observations or variables
     `tl.filter_rank_genes_groups` | Filters out genes based on fold change and fraction of genes expressing the gene within and outside the groupby categories (**to fix**)
     `pp.highly_variable_genes` | Extract highly variable genes
-    `pp.subsample` | Subsample to a fraction of the number of observations
+    `pp.sample` | Sample observations or variables with or without replacement
     `pp.downsample_counts` | Downsample counts so that each cell has no more than target_counts
+    `filter_marker` | Filter markers from count matrix and marker list
     `pp.scrublet` | Predict doublets
 
 3. Normalize (`normalize.xml`)
@@ -52,7 +54,6 @@ Scanpy
 
     Methods | Description
     --- | ---
-    `tl.louvain` | Cluster cells into subgroups
     `tl.leiden` | Cluster cells into subgroups
     `pp.pca` | Principal component analysis
     `tl.diffmap` | Diffusion Maps
