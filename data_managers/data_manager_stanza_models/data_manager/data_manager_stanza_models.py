@@ -31,13 +31,13 @@ import stanza
 from certifi import where as certifi_where
 from stanza._version import __resources_version__, __version__
 from stanza.resources.common import (
-    LEMMA,
-    PROCESSOR_VARIANTS,
     add_dependencies,
     download_resources_json,
     flatten_processor_list,
+    LEMMA,
     load_resources_json,
     maintain_processor_list,
+    PROCESSOR_VARIANTS,
     request_file,
 )
 
