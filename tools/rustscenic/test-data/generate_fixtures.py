@@ -29,6 +29,7 @@ def main():
     )
     frame.to_csv(ROOT / "expression.tsv", sep="\t")
     frame.to_csv(ROOT / "expression.csv")
+    frame.T.rename_axis("gene").to_csv(ROOT / "expression_transposed.tsv", sep="\t")
     adata = ad.AnnData(
         X=sparse.csr_matrix(values),
         obs=pd.DataFrame(index=frame.index),
