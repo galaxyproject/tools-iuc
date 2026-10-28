@@ -6,9 +6,11 @@
     <expand macro="requirements">
         <requirement type="package" version="0.1">wpca</requirement>
         <!-- WPCA 0.1 uses scipy.linalg.eigh(eigvals=...) and check_array(force_all_finite=...). -->
-        <requirement type="package" version="1.13.1">scipy</requirement>
-        <requirement type="package" version="1.7.2">scikit-learn</requirement>
+        <requirement type="package" version="1.18.1">scipy</requirement>
+        <requirement type="package" version="1.9.1">scikit-learn</requirement>
+        <requirement type="package" version="1.1.3">spatialde</requirement>
     </expand>
+    <expand macro="creators"/>
     <required_files>
         <include path="tissue_downstream.py"/>
     </required_files>
@@ -21,8 +23,12 @@ python '$__tool_directory__/tissue_downstream.py'
     --operation '$analysis.operation'
     --seed $seed
     #if str($analysis.operation) == 'testing'
-        --condition '$analysis.condition'
-        --test '$analysis.test'
+        #if str($analysis.test) == 'spatialde'
+            --test spatialde
+        #else
+            --condition '$analysis.condition'
+            --test '$analysis.test'
+        #end if
         --n-imputations $analysis.n_imputations
         $analysis.symmetric
         #if $analysis.group1
@@ -75,13 +81,14 @@ python '$__tool_directory__/tissue_downstream.py'
                 <option value="filtered_pca">PCA fitted after filtering uncertain cells</option>
             </param>
             <when value="testing">
-                <param argument="--condition" type="text" label="Key in adata.obs for which to compute the hypothesis test">
+                <param argument="--condition" type="text" optional="true" label="Key in adata.obs for which to compute the hypothesis test" help="Required for the t-test and Mann-Whitney U tests. Ignored by the SpatialDE test, which does not compare groups.">
                     <validator type="empty_field"/>
                 </param>
                 <param argument="--test" type="select" label="Hypothesis test">
                     <option value="ttest" selected="true">Two-sample t-test with Rubin's rules</option>
                     <option value="wilcoxon_greater">Mann-Whitney U: greater expression</option>
                     <option value="wilcoxon_less">Mann-Whitney U: lesser expression</option>
+                    <option value="spatialde">SpatialDE spatially variable genes test</option>
                 </param>
                 <param argument="--group1" type="text" optional="true" label="First comparison group" help="Leave empty to compare each group against all other cells."/>
                 <param argument="--group2" type="text" optional="true" label="Second comparison group" help="Leave empty to compare the first group against all other cells. Requires a first group if supplied."/>
@@ -239,6 +246,29 @@ python '$__tool_directory__/tissue_downstream.py'
                 </assert_contents>
             </output>
         </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="calibrated.h5ad"/>
+            <conditional name="analysis">
+                <param name="operation" value="testing"/>
+                <param name="test" value="spatialde"/>
+                <param name="n_imputations" value="5"/>
+            </conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/spage_spatialde_pvalue,uns/tissue_downstream_galaxy"/>
+                </assert_contents>
+            </output>
+            <output name="table">
+                <assert_contents>
+                    <has_n_lines n="33"/>
+                    <has_n_columns n="3"/>
+                    <has_line_matching expression="result\tgene\tvalue"/>
+                    <has_text_matching expression="(?m)^spage_spatialde_pvalue\t" n="32"/>
+                    <has_text_matching expression="(?m)^spage_spatialde_pvalue\t[^\t\r\n]+\t(?:0(?:\.\d+)?|1(?:\.0+)?|[1-9](?:\.\d+)?e-\d+)$" n="32"/>
+                    <not_has_text text="nan"/>
+                </assert_contents>
+            </output>
+        </test>
         <test expect_failure="true">
             <param name="input" value="calibrated.h5ad"/>
             <conditional name="analysis">
@@ -292,7 +322,7 @@ python '$__tool_directory__/tissue_downstream.py'
     <help format="markdown"><![CDATA[
 This tool applies [TISSUE](https://github.com/sunericd/TISSUE) downstream analyses to the calibrated spatial AnnData produced by the TISSUE prediction tool. Choose the prediction method that produced the input. All analyses use both target and cross-validated calibration genes in the prediction matrices.
 
-**Multiple-imputation hypothesis testing** samples expression from the calibration-score distributions and pools tests across imputations. It calls ``tissue.downstream.multiple_imputation_testing`` with a two-sample t-test or directional Mann-Whitney U test. Supply an ``obs`` column defining groups, with at least two cells in each comparison group. An empty first group requests each group versus the rest; an empty second group requests the first group versus the rest. The table contains ``result``, ``gene``, and ``value`` columns; result names identify the comparison and statistic. P-values are unadjusted. SpatialDE and gene-signature testing are not included.
+**Multiple-imputation hypothesis testing** samples expression from the calibration-score distributions and pools tests across imputations. It calls ``tissue.downstream.multiple_imputation_testing`` with a two-sample t-test or directional Mann-Whitney U test. Supply an ``obs`` column defining groups, with at least two cells in each comparison group. An empty first group requests each group versus the rest; an empty second group requests the first group versus the rest. The table contains ``result``, ``gene``, and ``value`` columns; result names identify the comparison and statistic. P-values are unadjusted. The SpatialDE test identifies spatially variable genes; it does not compare groups and ignores the ``condition``, first, and second group settings. It uses the coordinates in ``obsm['spatial']`` and stores p-values under ``uns['{method}_spatialde_pvalue']``. Gene-signature testing is not included.
 
 **Uncertainty-weighted PCA** calls ``weighted_PCA``. Weights derive from inverse prediction interval widths, optionally normalized per gene, clipped, log-transformed, and binarized. The default uses the upstream 20th-percentile threshold and a high/low weight ratio of 10. Uniform weighting and ordinary PCA are also available. Nonfinite weights can be replaced explicitly; prediction intervals must be finite. The output stores weights in ``obsm['tissue_pca_weights']`` and components in ``obsm['{method}_predicted_expression_PC{n_components}_']``.
 
