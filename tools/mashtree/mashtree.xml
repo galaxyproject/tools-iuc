@@ -1,0 +1,234 @@
+<tool id="mashtree" name="Mashtree" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="GPL-3.0-or-later">
+    <description>create a neighbor-joining tree from genome assemblies using Mash distances</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">mashtree</xref>
+    </xrefs>
+    <expand macro="requirements"/>
+    <version_command>mashtree --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#import re
+
+mkdir -p staged &&
+set -- &&
+#set $seen_names = []
+#set $input_count = 0
+#for $input in $input_source.fasta_files
+    #set $input_count = $input_count + 1
+    #if str($input_source.source) == "collection"
+        #set $label = str($input.element_identifier)
+    #else
+        #set $label = str($input.name)
+    #end if
+    #set $name = re.sub(r'\.(fasta|fna|fa|fas|fsa|mfa|faa)(\.gz)?$', '', $label, flags=re.IGNORECASE)
+    #set $name = re.sub(r'[^\w\-]', '_', $name)
+    #if $name in $seen_names
+        echo "Input names become ambiguous after filename normalization: '$name'" >&2 &&
+        exit 1 &&
+    #end if
+    #silent $seen_names.append($name)
+    #if $input.is_of_type("fasta.gz")
+        #set $extension = "fasta.gz"
+    #else
+        #set $extension = "fasta"
+    #end if
+    #set $stage_path = "staged/%s.%s" % ($name, $extension)
+    ln -s '$input' '$stage_path' &&
+    set -- "\$@" '$stage_path' &&
+#end for
+#if $input_count < 2
+    echo "Mashtree requires at least two FASTA inputs" >&2 &&
+    exit 1
+#else
+    mashtree
+        --numcpus "\${GALAXY_SLOTS:-1}"
+        --sort-order '$advanced.sort_order'
+        --kmerlength '$advanced.kmer_length'
+        --sketch-size '$advanced.sketch_size'
+        --seed '$advanced.seed'
+        --outtree mashtree.dnd
+        --outmatrix matrix.tab
+        "\$@"
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_source">
+            <param name="source" type="select" label="Input source">
+                <option value="collection" selected="true">FASTA list collection</option>
+                <option value="datasets">Multiple FASTA datasets</option>
+            </param>
+            <when value="collection">
+                <param name="fasta_files" type="data_collection" collection_type="list" format="fasta,fasta.gz" label="FASTA collection" help="A list collection containing at least two FASTA assemblies. Each collection element is treated as one sample."/>
+            </when>
+            <when value="datasets">
+                <param name="fasta_files" type="data" format="fasta,fasta.gz" multiple="true" min="2" label="FASTA datasets" help="Select at least two FASTA assemblies. Each dataset is treated as one sample."/>
+            </when>
+        </conditional>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param argument="--sort-order" type="select" label="Tree sort order" help="Currently has no effect in Mashtree 1.4.6 due to an upstream bug: tree construction always uses alphabetical sample order. See the known limitation below.">
+                <option value="ABC" selected="true">Alphabetical (ABC)</option>
+                <option value="input-order">Input order</option>
+                <option value="random">Random</option>
+            </param>
+            <param name="kmer_length" argument="--kmerlength" type="integer" value="21" min="1" max="32" label="K-mer length" help="K-mer size used by Mash."/>
+            <param argument="--sketch-size" type="integer" value="10000" min="1" label="Sketch size" help="Number of hashes retained in each Mash sketch."/>
+            <param argument="--seed" type="integer" value="42" label="Mash seed" help="Random seed used when constructing Mash sketches."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="tree" format="newick" from_work_dir="mashtree.dnd" label="${tool.name} on ${on_string}: tree"/>
+        <data name="matrix" format="tabular" from_work_dir="matrix.tab" label="${tool.name} on ${on_string}: distance matrix"/>
+    </outputs>
+    <tests>
+        <!-- Default list-collection input -->
+        <test expect_num_outputs="2">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="plasmid_alpha" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta" value="plasmid_beta.fasta" ftype="fasta"/>
+                        <element name="plasmid_gamma" value="plasmid_gamma.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="tree">
+                <assert_contents>
+                    <has_text text="plasmid_alpha"/>
+                    <has_text text="plasmid_beta"/>
+                    <has_text text="plasmid_gamma"/>
+                    <has_text text=";"/>
+                </assert_contents>
+            </output>
+            <output name="matrix">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="plasmid_alpha"/>
+                    <has_text text="plasmid_beta"/>
+                    <has_text text="plasmid_gamma"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Mixed compressed/uncompressed input and non-default options -->
+        <test expect_num_outputs="2">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="plasmid_alpha" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="plasmid_beta" value="plasmid_beta.fasta.gz" ftype="fasta.gz"/>
+                        <element name="plasmid_gamma" value="plasmid_gamma.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <section name="advanced">
+                <param name="sort_order" value="input-order"/>
+                <param name="kmer_length" value="19"/>
+                <param name="sketch_size" value="5000"/>
+                <param name="seed" value="7"/>
+            </section>
+            <output name="tree">
+                <assert_contents>
+                    <has_line line="(plasmid_alpha:0.02478,plasmid_beta:0.00000,plasmid_gamma:0.02539);"/>
+                </assert_contents>
+            </output>
+            <output name="matrix">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="0.0247795"/>
+                    <has_text text="0.0747311"/>
+                    <has_text text="0.0253942"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Multiple individual datasets instead of a collection -->
+        <test expect_num_outputs="2">
+            <conditional name="input_source">
+                <param name="source" value="datasets"/>
+                <param name="fasta_files" value="plasmid_alpha.fasta,plasmid_beta.fasta,plasmid_gamma.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="tree">
+                <assert_contents>
+                    <has_text text="plasmid_alpha"/>
+                    <has_text text="plasmid_beta"/>
+                    <has_text text="plasmid_gamma"/>
+                    <has_text text=";"/>
+                </assert_contents>
+            </output>
+            <output name="matrix">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="plasmid_alpha"/>
+                    <has_text text="plasmid_beta"/>
+                    <has_text text="plasmid_gamma"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Mashtree requires at least two samples -->
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="only_one" value="plasmid_alpha.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Mashtree requires at least two FASTA inputs"/>
+            </assert_stderr>
+        </test>
+        <!-- Normalized sample names must remain unique -->
+        <test expect_failure="true" expect_exit_code="1">
+            <conditional name="input_source">
+                <param name="source" value="collection"/>
+                <param name="fasta_files">
+                    <collection type="list">
+                        <element name="sample A" value="plasmid_alpha.fasta" ftype="fasta"/>
+                        <element name="sample@A" value="plasmid_beta.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Input names become ambiguous after filename normalization"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Mashtree rapidly compares genome assemblies using Mash distances and builds a
+neighbor-joining tree. This wrapper also returns the pairwise Mash distance
+matrix used to construct the tree.
+
+**Input**
+
+Provide at least two FASTA datasets, either as a Galaxy list collection or by
+selecting multiple datasets directly. Both uncompressed and gzip-compressed
+FASTA are accepted. Each dataset or collection element is treated as one
+sample.
+
+Dataset names or collection element names are used to derive sample labels.
+Names are normalized when needed for Mashtree-compatible filenames; if two
+names would become ambiguous after normalization, the job fails instead of
+producing ambiguous sample labels.
+
+**Known limitation**
+
+The **Tree sort order** option currently has no effect in Mashtree 1.4.6.
+An upstream bug causes tree construction to use alphabetical sample order even
+when **Input order** or **Random** is selected. This is tracked in
+`Mashtree issue #95 <https://github.com/lskatz/mashtree/issues/95>`_.
+
+**Outputs**
+
+* **Tree**: Newick neighbor-joining tree.
+* **Distance matrix**: tab-delimited pairwise Mash distances.
+    ]]></help>
+    <expand macro="citations"/>
+    <creator>
+        <person givenName="Casper" familyName="Westergaard" url="https://github.com/CWestergaard"/>
+    </creator>
+</tool>

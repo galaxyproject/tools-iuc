@@ -76,7 +76,6 @@ if (model %in% c("C2", "PLIERpriors")) {
 }
 
 
-
 ### validate -------------------------------------------------------------------
 val_all <- validate(dat, rav_model)
 validated_ind <- validatedSignatures(val_all,
