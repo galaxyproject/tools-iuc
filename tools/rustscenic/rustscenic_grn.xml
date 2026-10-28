@@ -1,0 +1,235 @@
+<tool id="rustscenic_grn" name="RustScenic GRN" version="@TOOL_VERSION@+galaxy0" profile="25.1" license="MIT">
+    <description>infer TF-target networks from single-cell RNA expression</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.5.1</token>
+        <xml name="assert_results" tokens="mode,ceiling,window,rate">
+            <output name="network" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="3"/>
+                    <has_n_lines min="3"/>
+                    <has_text_matching expression="\ATF\ttarget\timportance\n(?:TF_[AB]\t(?:TF_[AB]|G[123])\t(?:[1-9][0-9]*(?:\.[0-9]*)?|0?\.[0-9]*[1-9][0-9]*)(?:[eE][+-]?[0-9]+)?\n)+\Z"/>
+                    <has_text_matching expression="(?m)^TF_A\tG1\t"/>
+                    <has_text_matching expression="(?m)^TF_B\tG2\t"/>
+                    <has_text_matching expression="(?m)^(TF_[AB])\t\1\t" negate="true"/>
+                </assert_contents>
+            </output>
+            <output name="provenance" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_text property="stage" text="grn"/>
+                    <has_json_property_with_text property="rustscenic_version" text="0.5.1"/>
+                    <has_json_property_with_value property="n_cells" value="64"/>
+                    <has_json_property_with_value property="n_genes" value="5"/>
+                    <has_json_property_with_value property="n_tfs_used" value="2"/>
+                    <has_json_property_with_value property="seed" value="777"/>
+                    <has_json_property_with_text property="early_stop_mode" text="@MODE@"/>
+                    <has_json_property_with_value property="n_estimators_ceiling" value="@CEILING@"/>
+                    <has_json_property_with_value property="early_stop_window" value="@WINDOW@"/>
+                    <has_json_property_with_value property="learning_rate" value="@RATE@"/>
+                    <has_json_property_with_value property="max_features" value="1.0"/>
+                    <has_json_property_with_value property="subsample" value="1.0"/>
+                    <has_json_property_with_value property="max_depth" value="2"/>
+                </assert_contents>
+            </output>
+        </xml>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">rustscenic</requirement>
+    </requirements>
+    <version_command>rustscenic --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+#set $expression_path = 'expression.' + str($input.format)
+export RAYON_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 &&
+ln -s '${input.expression}' '$expression_path' &&
+rustscenic grn
+    --expression '$expression_path'
+    --tfs '$tfs'
+    --output 'grn.tsv'
+    --seed '$seed'
+    --n-estimators '$advanced.n_estimators'
+    --learning-rate '$advanced.learning_rate'
+    --max-features '$advanced.max_features'
+    --subsample '$advanced.subsample'
+    --max-depth '$advanced.max_depth'
+    --early-stop-window '$advanced.early_stop_window'
+    --early-stop-mode '$advanced.early_stop_mode'
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="format" type="select" label="Expression matrix format">
+                <option value="h5ad" selected="true">AnnData (H5AD)</option>
+                <option value="tsv">Tab-separated table (TSV)</option>
+                <option value="csv">Comma-separated table (CSV)</option>
+            </param>
+            <when value="h5ad">
+                <param argument="--expression" type="data" format="h5ad" label="Prepared RNA expression" help="Cells by genes in X, with gene symbols in var_names matching the TF list. Select the intended layer and normalize/log-transform before running this tool."/>
+            </when>
+            <when value="tsv">
+                <param argument="--expression" type="data" format="tabular" label="Prepared RNA expression" help="Header row of gene symbols; first column contains cell IDs, remaining columns contain numeric expression. Rows are cells and columns are genes."/>
+            </when>
+            <when value="csv">
+                <param argument="--expression" type="data" format="csv" label="Prepared RNA expression" help="Header row of gene symbols; first column contains cell IDs, remaining columns contain numeric expression. Rows are cells and columns are genes."/>
+            </when>
+        </conditional>
+        <param argument="--tfs" type="data" format="txt" label="Candidate transcription factors" help="One gene symbol per line, matching expression gene names. Blank lines and lines starting with # are ignored. At least one TF must occur in the expression matrix."/>
+        <param argument="--seed" type="integer" min="0" value="777" label="Random seed"/>
+        <section name="advanced" title="Fitting options" expanded="false">
+            <param argument="--n-estimators" type="integer" min="1" value="5000" label="Maximum trees per target gene" help="Estimator ceiling; early stopping can finish before this limit."/>
+            <param argument="--learning-rate" type="float" min="0.0" value="0.01" label="Learning rate">
+                <validator type="expression" message="Learning rate must be finite and greater than zero.">value &gt; 0 and value - value == 0</validator>
+            </param>
+            <param argument="--max-features" type="float" min="0.0" max="1.0" value="0.1" label="Fraction of TF features considered per split">
+                <validator type="expression" message="Feature fraction must be finite and in (0, 1].">0 &lt; value &lt;= 1</validator>
+            </param>
+            <param argument="--subsample" type="float" min="0.0" max="1.0" value="0.9" label="Fraction of cells sampled per tree" help="At 1.0 there are no out-of-bag cells, so arboreto-mode stopping fits to the estimator ceiling.">
+                <validator type="expression" message="Cell fraction must be finite and in (0, 1].">0 &lt; value &lt;= 1</validator>
+            </param>
+            <param argument="--max-depth" type="integer" min="1" value="3" label="Maximum tree depth"/>
+            <param argument="--early-stop-window" type="integer" min="0" value="25" label="Early-stopping window" help="Number of recent improvements in the stopping monitor. Zero disables early stopping."/>
+            <param argument="--early-stop-mode" type="select" label="Early-stopping rule">
+                <option value="arboreto" selected="true">Arboreto-style out-of-bag rule</option>
+                <option value="legacy_inbag">Historical RustScenic in-bag rule</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="network" format="tabular" from_work_dir="grn.tsv" label="${tool.name} on ${on_string}: TF-target network"/>
+        <data name="provenance" format="json" from_work_dir="grn.json" label="${tool.name} on ${on_string}: fitting metadata"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="format" value="tsv"/>
+                <param name="expression" value="expression.tsv" ftype="tabular"/>
+            </conditional>
+            <param name="tfs" value="tfs.txt"/>
+            <section name="advanced">
+                <param name="n_estimators" value="32"/>
+                <param name="learning_rate" value="0.1"/>
+                <param name="max_features" value="1.0"/>
+                <param name="subsample" value="1.0"/>
+                <param name="max_depth" value="2"/>
+                <param name="early_stop_window" value="0"/>
+            </section>
+            <expand macro="assert_results" mode="arboreto" ceiling="32" window="0" rate="0.1"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="format" value="csv"/>
+                <param name="expression" value="expression.csv" ftype="csv"/>
+            </conditional>
+            <param name="tfs" value="tfs.txt"/>
+            <section name="advanced">
+                <param name="n_estimators" value="32"/>
+                <param name="learning_rate" value="0.1"/>
+                <param name="max_features" value="1.0"/>
+                <param name="subsample" value="1.0"/>
+                <param name="max_depth" value="2"/>
+                <param name="early_stop_window" value="0"/>
+            </section>
+            <expand macro="assert_results" mode="arboreto" ceiling="32" window="0" rate="0.1"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="format" value="h5ad"/>
+                <param name="expression" value="expression.h5ad" ftype="h5ad"/>
+            </conditional>
+            <param name="tfs" value="tfs.txt"/>
+            <section name="advanced">
+                <param name="n_estimators" value="32"/>
+                <param name="learning_rate" value="0.1"/>
+                <param name="max_features" value="1.0"/>
+                <param name="subsample" value="1.0"/>
+                <param name="max_depth" value="2"/>
+                <param name="early_stop_window" value="0"/>
+            </section>
+            <expand macro="assert_results" mode="arboreto" ceiling="32" window="0" rate="0.1"/>
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="format" value="h5ad"/>
+                <param name="expression" value="expression.h5ad" ftype="h5ad"/>
+            </conditional>
+            <param name="tfs" value="tfs.txt"/>
+            <section name="advanced">
+                <param name="n_estimators" value="16"/>
+                <param name="learning_rate" value="0.2"/>
+                <param name="max_features" value="1.0"/>
+                <param name="subsample" value="1.0"/>
+                <param name="max_depth" value="2"/>
+                <param name="early_stop_window" value="3"/>
+                <param name="early_stop_mode" value="legacy_inbag"/>
+            </section>
+            <expand macro="assert_results" mode="legacy_inbag" ceiling="16" window="3" rate="0.2"/>
+        </test>
+        <test expect_failure="true" expect_exit_code="2">
+            <conditional name="input">
+                <param name="format" value="tsv"/>
+                <param name="expression" value="expression.tsv" ftype="tabular"/>
+            </conditional>
+            <param name="tfs" value="missing_tfs.txt"/>
+            <assert_stderr>
+                <has_text text="error: no TFs"/>
+                <has_text text="found in expression data"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+Infer a weighted transcription-factor-to-target network from prepared single-cell
+RNA expression with RustScenic's histogram gradient-boosting implementation.
+The output contains candidate associations and is not experimental evidence
+of regulation or a motif-filtered regulon set.
+
+Inputs
+------
+
+Use a cells-by-genes matrix of normalized, log-transformed RNA expression.
+This tool does not normalize, select genes or select an AnnData layer. For H5AD,
+place the intended expression in ``X`` and matching gene symbols in ``var_names``.
+For TSV/CSV, supply a header of gene symbols and cell IDs in the first column.
+The TF file contains one matching gene symbol per line. Blank lines and lines
+starting with ``#`` are ignored. At least one TF must match an expression gene.
+
+The released CLI checks TF overlap against the input names before its inference
+code resolves alternative AnnData annotations. Put the intended symbols directly
+in ``var_names``; do not rely on a ``feature_name`` column to rescue an unmatched
+TF list. Inputs and the fitting matrix must fit the job's available memory.
+
+Outputs
+-------
+
+The **network** is a TSV with ``TF``, ``target`` and ``importance`` columns.
+Self-links and zero-importance edges are omitted by the upstream implementation.
+The **fitting metadata** is the upstream JSON containing version, seed, input
+dimensions, runtime and ``grn_fit`` settings/tree summaries. It does not contain
+input hashes or a complete software-environment record. Galaxy history retains
+the selected input datasets and tool parameters.
+
+Fitting and interpretation
+--------------------------
+
+The default early-stopping rule follows arboreto-style out-of-bag improvements;
+the historical in-bag rule is available for older RustScenic analyses. A zero
+window disables stopping. Setting the cell fraction to 1.0 leaves no out-of-bag
+cells, so the arboreto-style rule reaches the estimator ceiling. The random seed
+is recorded in the JSON; changes to data, parameters or implementation can alter
+the network.
+
+RustScenic uses histogram-based boosting, while arboreto/pySCENIC uses
+scikit-learn models. Rankings and importance values can differ. This tool
+does not run GENIE3, motif filtering, AUCell or the complete SCENIC/SCENIC+
+workflow. It makes no claim of output equivalence or biological validation.
+Galaxy's allocated CPU slots control Rayon parallelism; native numerical-library
+threads are limited to one to avoid nested parallelism.
+
+See the `RustScenic documentation <https://ekin-kahraman.github.io/rustscenic/>`_
+and `validation notes <https://ekin-kahraman.github.io/rustscenic/validation/>`_.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.5281/zenodo.23677082</citation>
+        <citation type="doi">10.1093/bioinformatics/bty916</citation>
+    </citations>
+    <creator>
+        <person givenName="Ekin" familyName="Kahraman" url="https://github.com/Ekin-Kahraman"/>
+    </creator>
+</tool>
