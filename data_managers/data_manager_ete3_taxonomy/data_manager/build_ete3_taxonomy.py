@@ -2,6 +2,8 @@ import argparse
 import hashlib
 import tarfile
 import tempfile
+import json
+from datetime import date
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -131,6 +133,18 @@ def main():
         required=True,
         help="Path where the ETE3 SQLite database will be written.",
     )
+    
+    parser.add_argument(
+        "--output-json",
+        required=True,
+        help="Path where the JSON output will be written.",
+    )
+    
+    parser.add_argument(
+        "--ete-version",
+        required=True,
+        help="Version of ETE3 to use.",
+    )
 
     parser.add_argument(
         "--taxonomy-dir",
@@ -142,15 +156,21 @@ def main():
     )
 
     parser.add_argument(
-        "--identity-output",
-        required=True,
-        help="File in which to write the stable taxonomy SHA-256 digest.",
+        "--taxonomy-value",
+        default=None,
+        help="Value of the existing NCBI taxonomy dump.",
+    )
+
+    parser.add_argument(
+        "--taxonomy-name",
+        default=None,
+        help="Name of the existing NCBI taxonomy dump.",
     )
 
     args = parser.parse_args()
 
     output_db = Path(args.output_db)
-    identity_output = Path(args.identity_output)
+    output_json = Path(args.output_json)
 
     output_db.parent.mkdir(
         parents=True,
@@ -162,10 +182,15 @@ def main():
             output_db,
             args.taxonomy_dir,
         )
+
+        value = args.taxonomy_value
+        name = args.taxonomy_name
+
     else:
-        source_digest = build_from_download(
-            output_db,
-        )
+        source_digest = build_from_download(output_db)
+
+        value = f"ncbi_{source_digest}"
+        name = f"NCBI Taxonomy (downloaded {date.today().isoformat()})"
 
     if not output_db.exists():
         raise RuntimeError(
@@ -177,10 +202,21 @@ def main():
             f"ETE3 taxonomy database is empty: {output_db}"
         )
 
-    identity_output.write_text(
-        f"{source_digest}\n",
-        encoding="utf-8",
-    )
+    data_manager_json = {
+        "data_tables": {
+            "ete3_taxonomy_db": [
+                {
+                    "value": value,
+                    "name": name,
+                    "version": args.ete_version,
+                    "path": output_db.name,
+                }
+            ]
+        }
+    }
+
+    with open(args.output_json, "w") as handle:
+        json.dump(data_manager_json, handle)
 
 
 if __name__ == "__main__":
