@@ -19,7 +19,7 @@ def main():
     query = str(sys.argv[3])
 
     try:
-        if query == "7":
+        if query == "full_gene_table":
             g_out = str(sys.argv[5])
             full_gene_table(g_out)
             sys.exit(0)
@@ -44,14 +44,14 @@ def main():
                                  index=False).strip(sep).split(sep)
                 inp = ",".join(inp)
 
-        if query == "8":
+        if query == "pipeline_genes":
             if str(sys.argv[5]) == "txt":
                 g_out = str(sys.argv[7])
             else:
                 g_out = str(sys.argv[6])
             genes_in_pipeline(inp, g_out)
             sys.exit(0)
-        elif query == "9":
+        elif query == "phenotype_category_genes":
             if str(sys.argv[5]) == "txt":
                 g_out = str(sys.argv[7])
             else:
@@ -64,32 +64,29 @@ def main():
         elif query == "11":
             par_gen(inp)
             sys.exit(0)
-        elif query == "2" or query == "4":
+        elif query == "phenotype_genes":
             final_list = pheno_mapping(inp)
         else:
             final_list = gene_mapping(inp)
         inp = ",".join(final_list)
 
-        if query == "1":
+        if query == "gene_phenotypes":
             get_pheno(inp)
             sys.exit(0)
-        elif query == "2":
+        elif query == "phenotype_genes":
             if str(sys.argv[5]) == "txt":
                 g_out = str(sys.argv[7])
             else:
                 g_out = str(sys.argv[6])
             get_genes(inp, g_out)
             sys.exit(0)
-        elif query == "3":
+        elif query == "gene_set_phenotypes":
             gene_set(inp)
             sys.exit(0)
-        elif query == "4":
-            extr_img(inp)
-            sys.exit(0)
-        elif query == "5":
+        elif query == "measured_parameters":
             parameters(inp)
             sys.exit(0)
-        elif query == "6":
+        elif query == "significant_parameters":
             sign_par(inp)
             sys.exit(0)
         else:
