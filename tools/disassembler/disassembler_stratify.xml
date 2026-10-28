@@ -8,10 +8,15 @@
     <command detect_errors="exit_code"><![CDATA[
         #import re
         ## stratify reads <target>.scores.json from one directory and names its outputs
-        ## after <target>, so each element is staged under its identifier.
+        ## after <target>, so each dataset is staged under its name. We strip a trailing
+        ## .scores.json (or just .json) so a dataset uploaded with the original filename
+        ## does not end up as <name>.scores.json.scores.json.
         mkdir candidates &&
         #for $scores_file in $scores:
-            #set $target = re.sub(r'[^\w.\-]', '_', str($scores_file.element_identifier))
+            #set $raw = str($scores_file.element_identifier)
+            #set $raw = re.sub(r'\.scores\.json$', '', $raw)
+            #set $raw = re.sub(r'\.json$', '', $raw)
+            #set $target = re.sub(r'[^\w.\-]', '_', $raw)
             ln -s '$scores_file' 'candidates/${target}.scores.json' &&
         #end for
         disassembler stratify
@@ -21,7 +26,7 @@
             #end for
     ]]></command>
     <inputs>
-        <param name="scores" type="data_collection" collection_type="list" format="json" label="Harvest scores" help="The scores collection produced by disassembler harvest, one JSON dataset per target."/>
+        <param name="scores" type="data" multiple="true" format="json" label="Harvest scores" help="The scores JSON datasets produced by disassembler harvest, one per target. Each dataset's name is used as the target name."/>
         <repeat name="score_bins" title="Score bin" min="1" help="Maps to --score-bin LO:HI:N. Bins must not overlap.">
             <param name="lo" type="float" value="0.0" min="0" label="Lower score bound (inclusive)"/>
             <param name="hi" type="float" value="1.01" min="0" label="Upper score bound (exclusive)" help="Bins are half-open, so a bin that should include a perfect containment score of 1.0 needs an upper bound above 1."/>
@@ -39,12 +44,7 @@
     </outputs>
     <tests>
         <test expect_num_outputs="3">
-            <param name="scores">
-                <collection type="list">
-                    <element name="hiv1_pol" value="hiv1_pol.scores.json"/>
-                    <element name="pfcrt" value="pfcrt.scores.json"/>
-                </collection>
-            </param>
+            <param name="scores" value="hiv1_pol.scores.json,pfcrt.scores.json" ftype="json"/>
             <repeat name="score_bins">
                 <param name="lo" value="0.5"/>
                 <param name="hi" value="1.01"/>
@@ -58,12 +58,14 @@
             <output_collection name="accessions" type="list" count="2">
                 <element name="hiv1_pol">
                     <assert_contents>
+                        <has_n_lines n="2"/>
                         <!-- One from [0.5, 1.01), plus the only nonzero score in [0.0, 0.5). -->
                         <has_text_matching expression="^SRR8209082\nDRR000252\n$"/>
                     </assert_contents>
                 </element>
                 <element name="pfcrt">
                     <assert_contents>
+                        <has_n_lines n="2"/>
                         <has_text_matching expression="^ERR2028820\nERR0000002\n$"/>
                     </assert_contents>
                 </element>
@@ -77,18 +79,14 @@
             </output_collection>
             <output name="bins_summary">
                 <assert_contents>
-                    <has_text text="hiv1_pol"/>
-                    <has_text text="pfcrt"/>
+                    <has_json_property_with_value property="hiv1_pol" value='{"total_selected": 2, "bins": [{"lo": 0.5, "hi": 1.01, "requested": 1, "available": 2, "selected": 1, "accessions": [{"acc": "SRR8209082", "score": 0.97}]}, {"lo": 0.0, "hi": 0.5, "requested": 5, "available": 1, "selected": 1, "accessions": [{"acc": "DRR000252", "score": 0.41}]}], "n_available_nonzero": 3}'/>
+                    <has_json_property_with_value property="pfcrt" value='{"total_selected": 2, "bins": [{"lo": 0.5, "hi": 1.01, "requested": 1, "available": 1, "selected": 1, "accessions": [{"acc": "ERR2028820", "score": 0.88}]}, {"lo": 0.0, "hi": 0.5, "requested": 5, "available": 1, "selected": 1, "accessions": [{"acc": "ERR0000002", "score": 0.12}]}], "n_available_nonzero": 2}'/>
                 </assert_contents>
             </output>
         </test>
         <test expect_failure="true">
             <!-- Overlapping bins are refused. -->
-            <param name="scores">
-                <collection type="list">
-                    <element name="hiv1_pol" value="hiv1_pol.scores.json"/>
-                </collection>
-            </param>
+            <param name="scores" value="hiv1_pol.scores.json" ftype="json"/>
             <repeat name="score_bins">
                 <param name="lo" value="0.0"/>
                 <param name="hi" value="0.6"/>
@@ -99,6 +97,9 @@
                 <param name="hi" value="1.01"/>
                 <param name="n" value="1"/>
             </repeat>
+            <assert_stderr>
+                <has_text text="--score-bin ranges overlap"/>
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
@@ -125,23 +126,8 @@ made up from other bins.
 Input
 *****
 
-The **Scores** collection from **disassembler harvest**. Element identifiers are used as target
-names.
-
------
-
-Parameters
-**********
-
-    ======================  ===========  ===============================================
-    **Parameter**           **Default**  **Description**
-    ----------------------  -----------  -----------------------------------------------
-    Lower score bound       0.0          Inclusive lower end of the bin
-    Upper score bound       1.01         Exclusive upper end of the bin; must be above
-                                         the lower bound
-    Number of accessions    100          How many to sample from the bin (0 reserves the
-                                         bin without sampling from it)
-    ======================  ===========  ===============================================
+The **Scores** datasets from **disassembler harvest**, one per target. Each dataset's name is used
+as the target name.
 
 Bins must not overlap. To sample the same score range twice, run the tool once per set of disjoint
 bins.

@@ -13,17 +13,22 @@
         workers=\${GALAXY_SLOTS:-1} &&
         fetch_workers=\$workers &&
         if [ -n "\${GALAXY_MEMORY_MB:-}" ]; then
-            fit=\$(( GALAXY_MEMORY_MB / $max_size_mb - 4 - workers ));
+            fit=\$(( GALAXY_MEMORY_MB / \${DISASSEMBLER_WALKER_MAX_SIZE_MB} - 4 - workers ));
             if [ "\$fit" -lt "\$fetch_workers" ]; then fetch_workers=\$fit; fi;
             if [ "\$fetch_workers" -lt 1 ]; then fetch_workers=1; fi;
         fi &&
 
         ## The walker names the reference after its file stem (summary file, multi-anchor
-        ## haplotype tags), so it is linked under the dataset name instead of Galaxy's
-        ## dataset_<uuid>.dat.
+        ## haplotype tags), so it is linked (or decompressed, for fasta.gz) under the
+        ## dataset name instead of Galaxy's dataset_<uuid>.dat. The regex strips a trailing
+        ## .gz too so a reference_name derived from foo.fasta.gz is just foo, not foo.fasta.
         #import re
-        #set $reference_name = re.sub(r'\.(fasta|fas|fa|fna)$', '', re.sub(r'[^\w.\-]', '_', str($query.element_identifier)))
-        ln -s '$query' '${reference_name}.fasta' &&
+        #set $reference_name = re.sub(r'\.(fasta|fas|fa|fna)(\.gz)?$', '', re.sub(r'[^\w.\-]', '_', str($query.element_identifier)))
+        #if $query.is_of_type('fasta.gz'):
+            gunzip -c '$query' > '${reference_name}.fasta' &&
+        #else:
+            ln -s '$query' '${reference_name}.fasta' &&
+        #end if
 
         logan-walker
             #if $input.mode == 'accession':
@@ -34,12 +39,13 @@
             --query '${reference_name}.fasta'
             --out-dir walker_out
             --out-fasta reconstructed.fasta
-            ## The default, /dev/shm/logan-walker, is shared by every job on the node
-            ## and is only 64 MB inside a default Docker container.
+            ## Scratch dir for shard payloads. The CLI default, /dev/shm/logan-walker, is
+            ## shared by every job on the node and is only 64 MB inside a default Docker
+            ## container, so we point it at the job's working directory instead.
             --scratch-dir walker_scratch
-            --workers \$workers
-            --fetch-workers \$fetch_workers
-            --max-size-mb $max_size_mb
+            --workers "\$workers"
+            --fetch-workers "\$fetch_workers"
+            --max-size-mb "\${DISASSEMBLER_WALKER_MAX_SIZE_MB}"
             --min-cov $min_cov
             --prune-frac $prune_frac
             $prefer_majority
@@ -62,6 +68,12 @@
         ## The summary is named after the reference file.
         mv walker_out/*_walker_summary.json walker_summary.json
     ]]></command>
+    <environment_variables>
+        <!-- Per-accession compressed unitig size cap in MB. Accessions whose Logan
+             payload is larger are skipped. 1024 MB is a safe default for a generic
+             Galaxy node; admins can override per destination in job_conf.yml. -->
+        <environment_variable name="DISASSEMBLER_WALKER_MAX_SIZE_MB">1024</environment_variable>
+    </environment_variables>
     <inputs>
         <conditional name="input">
             <param name="mode" type="select" label="Accessions to reconstruct">
@@ -78,8 +90,7 @@
                 </param>
             </when>
         </conditional>
-        <param argument="--query" type="data" format="fasta" label="Reference CDS" help="In-frame coding sequence of the target gene. A FASTA with more than one record switches on multi-anchor mode: every record contributes anchors, and each accession's primary haplotype comes from the reference that aligns best."/>
-        <param argument="--max-size-mb" type="integer" value="1024" min="1" label="Maximum compressed unitig size per accession (MB)" help="Accessions whose compressed Logan unitig file is larger than this are skipped. This bounds download volume and memory."/>
+        <param argument="--query" type="data" format="fasta,fasta.gz" label="Reference CDS" help="In-frame coding sequence of the target gene, optionally gzip-compressed. A FASTA with more than one record switches on multi-anchor mode: every record contributes anchors, and each accession's primary haplotype comes from the reference that aligns best."/>
         <param argument="--min-cov" type="float" value="0.85" min="0" max="1" label="Minimum reference coverage" help="Fraction of the reference a reconstruction must cover to be reported."/>
         <param argument="--prune-frac" type="float" value="0.01" min="0" max="0.99" label="Pruning depth fraction" help="Unitigs below this fraction of the gene's depth are dropped and the path is realigned, which removes the aligner's pull toward the reference. 0 disables pruning."/>
         <param argument="--prefer-majority" type="boolean" truevalue="--prefer-majority" falsevalue="--no-prefer-majority" checked="true" label="Prefer the majority allele" help="At two-allele sites, put the more abundant allele on the primary haplotype. When off, the primary keeps the allele that matches the reference."/>
@@ -132,7 +143,7 @@
                 <param name="mode" value="accession"/>
                 <param name="accession" value="SRR8209082"/>
             </conditional>
-            <param name="query" value="hiv1_pol.fasta"/>
+            <param name="query" value="hiv1_pol.fasta" ftype="fasta"/>
             <output name="reconstructed">
                 <assert_contents>
                     <has_n_lines n="2"/>
@@ -159,9 +170,9 @@
         <test expect_num_outputs="5">
             <conditional name="input">
                 <param name="mode" value="list"/>
-                <param name="accession_list" value="walker_accessions.txt"/>
+                <param name="accession_list" value="walker_accessions.txt" ftype="txt"/>
             </conditional>
-            <param name="query" value="hiv1_pol.fasta"/>
+            <param name="query" value="hiv1_pol.fasta" ftype="fasta"/>
             <section name="output_options">
                 <param name="emit_alts" value="false"/>
                 <param name="emit_vcf" value="true"/>
@@ -169,6 +180,7 @@
             </section>
             <output name="reconstructed">
                 <assert_contents>
+                    <has_n_lines n="2"/>
                     <has_line_matching expression="^>SRR8209082_primary .*"/>
                 </assert_contents>
             </output>
@@ -202,7 +214,7 @@
                 <param name="mode" value="accession"/>
                 <param name="accession" value="SRR0000001"/>
             </conditional>
-            <param name="query" value="hiv1_pol.fasta"/>
+            <param name="query" value="hiv1_pol.fasta" ftype="fasta"/>
             <param name="allow_empty" value="true"/>
             <section name="output_options">
                 <param name="emit_alts" value="false"/>
@@ -225,7 +237,7 @@
                 <param name="mode" value="accession"/>
                 <param name="accession" value="SRR0000001"/>
             </conditional>
-            <param name="query" value="hiv1_pol.fasta"/>
+            <param name="query" value="hiv1_pol.fasta" ftype="fasta"/>
         </test>
     </tests>
     <help><![CDATA[
