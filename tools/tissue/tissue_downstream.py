@@ -42,20 +42,26 @@ def run(args):
                 raise ValueError(f"Input is missing calibration metadata: {predicted + suffix}.")
         if "conf_genes_used" not in data.uns:
             raise ValueError("Input is missing uns['conf_genes_used'].")
-        groups = obs_values(data, args.condition)
-        data.obs[args.condition] = groups
-        if args.group2 and not args.group1:
-            raise ValueError("A second comparison group requires a first comparison group.")
-        first_groups = [args.group1] if args.group1 else np.unique(groups)
-        for first in first_groups:
-            second_mask = groups == args.group2 if args.group2 else groups != first
-            if (groups == first).sum() < 2 or second_mask.sum() < 2:
-                raise ValueError("Each comparison group must contain at least two cells.")
-            if args.group2 == first:
-                raise ValueError("Comparison groups must be distinct.")
+        if args.test == "spatialde":
+            if "spatial" not in data.obsm:
+                raise ValueError("The SpatialDE test requires spatial coordinates in obsm['spatial'].")
+            condition = None
+        else:
+            groups = obs_values(data, args.condition)
+            data.obs[args.condition] = groups
+            if args.group2 and not args.group1:
+                raise ValueError("A second comparison group requires a first comparison group.")
+            first_groups = [args.group1] if args.group1 else np.unique(groups)
+            for first in first_groups:
+                second_mask = groups == args.group2 if args.group2 else groups != first
+                if (groups == first).sum() < 2 or second_mask.sum() < 2:
+                    raise ValueError("Each comparison group must contain at least two cells.")
+                if args.group2 == first:
+                    raise ValueError("Comparison groups must be distinct.")
+            condition = args.condition
         keys = tissue.downstream.multiple_imputation_testing(
             data, predicted, calib_genes=list(data.uns["conf_genes_used"]),
-            condition=args.condition, test=args.test, n_imputations=args.n_imputations,
+            condition=condition, test=args.test, n_imputations=args.n_imputations,
             group1=args.group1, group2=args.group2, symmetric=args.symmetric, return_keys=True,
         )
         tables = []
@@ -130,7 +136,7 @@ def main():
     parser.add_argument("--condition")
     parser.add_argument("--group1")
     parser.add_argument("--group2")
-    parser.add_argument("--test", choices=["ttest", "wilcoxon_less", "wilcoxon_greater"], default="ttest")
+    parser.add_argument("--test", choices=["ttest", "wilcoxon_less", "wilcoxon_greater", "spatialde"], default="ttest")
     parser.add_argument("--n-imputations", type=int, default=100)
     parser.add_argument("--symmetric", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--n-components", type=int, default=15)
@@ -150,8 +156,10 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--table", required=True)
     args = parser.parse_args()
-    if args.operation == "testing" and not args.condition:
+    if args.operation == "testing" and args.test != "spatialde" and not args.condition:
         parser.error("--condition is required for hypothesis testing")
+    if args.operation == "testing" and args.test == "spatialde" and (args.group1 or args.group2):
+        parser.error("comparison groups are not supported with the SpatialDE test")
     try:
         run(args)
     except (ValueError, KeyError, np.linalg.LinAlgError) as error:
