@@ -170,7 +170,6 @@ def main():
     args = parser.parse_args()
 
     output_db = Path(args.output_db)
-    output_json = Path(args.output_json)
 
     output_db.parent.mkdir(
         parents=True,
