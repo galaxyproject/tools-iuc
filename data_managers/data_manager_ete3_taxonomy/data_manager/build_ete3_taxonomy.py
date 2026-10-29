@@ -1,8 +1,8 @@
 import argparse
 import hashlib
 import tarfile
-import tempfile
 import json
+import tempfile
 from datetime import date
 from pathlib import Path
 from urllib.request import urlretrieve
@@ -133,13 +133,13 @@ def main():
         required=True,
         help="Path where the ETE3 SQLite database will be written.",
     )
-    
+
     parser.add_argument(
         "--output-json",
         required=True,
         help="Path where the JSON output will be written.",
     )
-    
+
     parser.add_argument(
         "--ete-version",
         required=True,
