@@ -2,9 +2,11 @@
 """Download LIANA 2.0.0 resources and register them in Galaxy."""
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 import liana as li
@@ -66,8 +68,10 @@ def hcop_metadata(organism):
 class LianaResourcesDownloader:
     """Download selected resources into one directory per data-table entry."""
 
-    def __init__(self, output_json):
+    def __init__(self, output_json, output_dir):
         self.output_json = Path(output_json)
+        self.output_dir = Path(output_dir).resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.entries = []
 
     @staticmethod
@@ -89,17 +93,42 @@ class LianaResourcesDownloader:
             "description": f"LIANA ligand-receptor resource: {resource_id}",
         }
 
+    def write_frame(self, resource_id, frame):
+        """Create an immutable, content-addressed resource beneath extra_files."""
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", newline="", suffix=".tsv",
+                prefix=".liana-", dir=self.output_dir, delete=False,
+            ) as handle:
+                temporary_path = Path(handle.name)
+                frame.to_csv(handle, sep="\t", index=False, lineterminator="\n")
+            digest = self.file_digest(temporary_path)
+            value = f"{resource_id}_sha256_{digest}"
+            directory = self.output_dir / value
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"{value}.tsv"
+            if path.exists():
+                if self.file_digest(path) != digest:
+                    raise ValueError(f"Existing resource does not match its content identity: {value}")
+            else:
+                temporary_path.replace(path)
+            return value, path, digest
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
     @staticmethod
-    def output_path(resource_id):
-        directory = Path(resource_id)
-        directory.mkdir(parents=True, exist_ok=True)
-        return directory / f"{resource_id}.tsv"
+    def file_digest(path):
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def download_lr(self, resource_id):
         frame = li.rs.select_resource(resource_name=resource_id)
-        path = self.output_path(resource_id)
-        frame.to_csv(path, sep="\t", index=False)
-        return path
+        return self.write_frame(resource_id, frame)
 
     def download_hcop(self, resource_id):
         metadata = self.metadata(resource_id)
@@ -107,9 +136,7 @@ class LianaResourcesDownloader:
             target_organism=metadata["target_organism"],
             min_evidence=3,
         )
-        path = self.output_path(resource_id)
-        frame.to_csv(path, sep="\t", index=False)
-        return path
+        return self.write_frame(resource_id, frame)
 
     def download_metalinks(self, resource_id):
         metadata = METALINKS_PRESETS[resource_id]
@@ -117,9 +144,7 @@ class LianaResourcesDownloader:
         frame = li.rs.get_metalinks(
             biospecimen_location=metadata["biospecimen_location"],
         )
-        path = self.output_path(resource_id)
-        frame.to_csv(path, sep="\t", index=False)
-        return path
+        return self.write_frame(resource_id, frame)
 
     def resolve(self, selection):
         lr = self.available_lr_resources
@@ -152,14 +177,14 @@ class LianaResourcesDownloader:
             return self.download_hcop(resource_id)
         return self.download_lr(resource_id)
 
-    def add_entry(self, resource_id, output_path):
+    def add_entry(self, resource_id, value, output_path, digest):
         metadata = self.metadata(resource_id)
         self.entries.append({
-            "value": resource_id,
-            "name": metadata["name"],
-            "description": metadata["description"],
-            # The data-manager config moves this whole directory.
-            "path": str(Path(output_path).parent),
+            "value": value,
+            "name": f"{metadata['name']} (sha256 {digest[:12]})",
+            "description": f"{metadata['description']}; source={resource_id}; sha256={digest}",
+            # Galaxy resolves this relative to output_file.extra_files_path.
+            "path": str(Path(output_path).parent.relative_to(self.output_dir)),
         })
 
     def run(self, selection):
@@ -167,8 +192,8 @@ class LianaResourcesDownloader:
         log.info("Downloading %d LIANA resource(s)", len(resources))
         for resource_id in resources:
             log.info("Downloading %s", resource_id)
-            output_path = self.download(resource_id)
-            self.add_entry(resource_id, output_path)
+            value, output_path, digest = self.download(resource_id)
+            self.add_entry(resource_id, value, output_path, digest)
         payload = {"data_tables": {"liana_resources": self.entries}}
         self.output_json.write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -177,13 +202,14 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resource", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--output-dir", required=True)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     try:
-        LianaResourcesDownloader(args.output).run(args.resource)
+        LianaResourcesDownloader(args.output, args.output_dir).run(args.resource)
     except Exception as exc:
         log.exception("LIANA resource download failed: %s", exc)
         return 1

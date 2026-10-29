@@ -29,7 +29,11 @@ mdata = mu.read_h5mu('input_mudata.h5mu')
 raise ValueError('MuData input is supported only by mdata_to_anndata in this Galaxy tool.')
 #end if
 #else:
+#if str($method.method) == 'get_lric_auc':
+adata = sc.read_h5ad('input_anndata.h5ad', backed='r')
+#else:
 adata = sc.read_h5ad('input_anndata.h5ad')
+#end if
 #end if
 
 #if str($method.method) == 'spatial_neighbors'
@@ -164,6 +168,23 @@ else:
     raise TypeError('query_bandwidth returned an unsupported figure object')
 print(f"query_bandwidth_rows={len(bandwidth_data)}")
 
+#else if str($method.method) == 'get_lric_auc'
+lric_auc = li.mt.get_lric_auc(
+    adata=adata,
+    uns_key='$method.uns_key',
+#if str($method.max_dist) != '':
+    max_dist=$method.max_dist,
+#end if
+#if str($method.transform) == 'identity':
+    transform_fn=lambda values: values,
+#else if str($method.transform) == 'log2':
+    transform_fn=np.log2,
+#end if
+    min_bins=$method.min_bins,
+    verbose=False)
+lric_auc.to_csv('lric_auc.tsv', sep='\t', index=False)
+adata.file.close()
+
 #end if
         ]]></configfile>
     </configfiles>
@@ -179,6 +200,7 @@ print(f"query_bandwidth_rows={len(bandwidth_data)}")
                 <option value="mdata_to_anndata">mdata_to_anndata - Combine two MuData modalities into one AnnData object</option>
                 <option value="spatial_pair_proximity">spatial_pair_proximity - Summarize spatial proximity between populations</option>
                 <option value="interpolate_adata">interpolate_adata - Interpolate reference expression onto target coordinates</option>
+                <option value="get_lric_auc">get_lric_auc - Summarize spatial interaction curves</option>
                 <option value="query_bandwidth">query_bandwidth - Inspect expected spatial neighbourhood size</option>
             </param>
             <when value="spatial_neighbors">
@@ -265,6 +287,19 @@ print(f"query_bandwidth_rows={len(bandwidth_data)}")
                 </param>
                 <param argument="fill_value" type="float" value="0" label="Out-of-domain fill value"/>
             </when>
+            <when value="get_lric_auc">
+                <param argument="uns_key" type="text" value="lric" label="Spatial result key" help="Key in the input AnnData uns containing one LIANA 2 LRIC or cross-PCF result table. Use the results key chosen in Liana Methods.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="spatial result key"/>
+                </param>
+                <param argument="max_dist" type="float" value="" optional="true" min="0.000001" label="Maximum distance (exclusive)" help="Use radii strictly below this distance. Leave empty to use all radii."/>
+                <param name="transform" type="select" label="Curve transformation">
+                    <option value="log2_floor" selected="true">Log2 with g floored at 0.05 (LIANA default)</option>
+                    <option value="log2">Strict log2 (drop non-finite bins)</option>
+                    <option value="identity">Untransformed g</option>
+                </param>
+                <param argument="min_bins" type="integer" value="3" min="2" label="Minimum finite radius bins" help="Interactions with fewer finite bins in the selected distance range are omitted from the summary."/>
+            </when>
             <when value="query_bandwidth">
                 <expand macro="param_spatial_key"/>
                 <param argument="start" type="integer" value="0" min="0" label="Minimum bandwidth"/>
@@ -317,6 +352,9 @@ print(f"query_bandwidth_rows={len(bandwidth_data)}")
         </data>
         <data name="bandwidth_out" format="tabular" from_work_dir="bandwidth.tsv" label="${tool.name} (${method.method}) on ${on_string}: Bandwidth query">
             <filter>method['method'] == 'query_bandwidth'</filter>
+        </data>
+        <data name="lric_auc_out" format="tabular" from_work_dir="lric_auc.tsv" label="${tool.name} on ${on_string}: Spatial interaction scores">
+            <filter>method['method'] == 'get_lric_auc'</filter>
         </data>
         <data name="hidden_output" format="txt" label="Log file">
             <filter>advanced_common['show_log']</filter>
@@ -482,6 +520,51 @@ print(f"query_bandwidth_rows={len(bandwidth_data)}")
             <output name="bandwidth_out"><assert_contents><has_line line="bandwidth&#009;neighbours"/><has_n_lines n="6"/><has_n_columns n="2"/></assert_contents></output>
             <output name="hidden_output"><assert_contents><has_text_matching expression="li.pp.query_bandwidth"/><has_text_matching expression="query_bandwidth_rows=5"/></assert_contents></output>
         </test>
+        <!-- Constant curves have independently known span-normalized AUC values. -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="lric_auc_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_lric_auc"/>
+                <param name="uns_key" value="lric"/>
+                <param name="transform" value="log2_floor"/>
+                <param name="min_bins" value="3"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="lric_auc_out" ftype="tabular">
+                <assert_contents>
+                    <has_line line="source&#009;target&#009;ligand_complex&#009;receptor_complex&#009;interaction&#009;score&#009;peak_radius"/>
+                    <has_n_columns n="7"/><has_n_lines n="3"/>
+                    <has_line line="A&#009;B&#009;L1&#009;R1&#009;L1^R1&#009;1.0&#009;0.0"/>
+                    <has_line line="B&#009;A&#009;L2&#009;R2&#009;L2^R2&#009;-1.0&#009;0.0"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output"><assert_contents><has_text text="li.mt.get_lric_auc"/></assert_contents></output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="adata" value="lric_auc_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_lric_auc"/>
+                <param name="uns_key" value="lric"/>
+                <param name="transform" value="identity"/>
+                <param name="max_dist" value="2"/>
+                <param name="min_bins" value="2"/>
+            </conditional>
+            <output name="lric_auc_out" ftype="tabular"><assert_contents>
+                <has_n_lines n="3"/>
+                <has_line line="A&#009;B&#009;L1&#009;R1&#009;L1^R1&#009;2.0&#009;0.0"/>
+                <has_line line="B&#009;A&#009;L2&#009;R2&#009;L2^R2&#009;0.5&#009;0.0"/>
+            </assert_contents></output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="adata" value="lric_auc_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_lric_auc"/>
+                <param name="uns_key" value="lric"/>
+                <param name="transform" value="log2"/>
+                <param name="min_bins" value="4"/>
+            </conditional>
+            <output name="lric_auc_out" ftype="tabular"><assert_contents><has_line line="source&#009;target&#009;ligand_complex&#009;receptor_complex&#009;interaction&#009;score&#009;peak_radius"/><has_n_lines n="1"/></assert_contents></output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
@@ -516,6 +599,13 @@ This tool provides utility functions from LIANA+ for data transformation and pre
 
 - Modified AnnData object (for spatial_neighbors, obsm_to_adata, expand_coordinates)
 - Tabular file with factor scores or loadings (for extraction methods)
+
+get_lric_auc: summarize spatial interaction curves
+--------------------------------------------------
+
+Select the AnnData output of Liana Methods and enter the same spatial results key. The input must contain one LIANA 2 LRIC or cross-PCF result table; stacked samples or conditions must be separated before scoring.
+
+The output contains the interaction identifiers, a span-normalized area under each transformed g(r) curve (score), and the radius of its largest absolute deviation (peak_radius). With the default log2 transformation, positive scores indicate co-enrichment, negative scores indicate depletion, and zero corresponds to the null. Values below 0.05 are floored before the default log2 transformation. Untransformed scores use a different scale, with g = 1 as the null. Curves below the minimum finite-bin support are omitted, so a header-only result is valid when no curve qualifies. Expression matrices and annotations are not changed.
 
     ]]></help>
     <expand macro="citations"/>
