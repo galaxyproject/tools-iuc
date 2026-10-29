@@ -10,15 +10,10 @@ import argparse
 import json
 import os
 import shutil
-import sys
 import urllib.request
 import zipfile
 
-try:
-    import spacy
-except ImportError:
-    print("Error: spaCy is not installed. Please install spaCy and required models.", file=sys.stderr)
-    sys.exit(1)
+import spacy
 
 # Used only by the test-only --download path to fetch a small model on the fly.
 SPACY_MODELS_BASE_URL = "https://github.com/explosion/spacy-models/releases/download"
@@ -242,43 +237,23 @@ def main():
     # Determine the model directory: download on the fly for tests, otherwise
     # use the data-manager-installed directory passed via --model-dir.
     if args.download:
-        try:
-            model_dir = download_model(args.download, os.path.join(os.getcwd(), "spacy_models"))
-        except Exception as e:
-            print(f"Error downloading model '{args.download}': {e}", file=sys.stderr)
-            sys.exit(1)
+        model_dir = download_model(args.download, os.path.join(os.getcwd(), "spacy_models"))
     else:
         model_dir = args.model_dir
 
     # Load spaCy model
-    try:
-        nlp = spacy.load(model_dir)
-    except OSError as e:
-        print(f"Error loading spaCy model from '{model_dir}': {e}", file=sys.stderr)
-        sys.exit(1)
+    nlp = spacy.load(model_dir)
 
     # Read input text
-    try:
-        with open(args.input, 'r', encoding='utf-8') as f:
-            text = f.read()
-    except Exception as e:
-        print(f"Error reading input file: {e}", file=sys.stderr)
-        sys.exit(1)
+    with open(args.input, 'r', encoding='utf-8') as f:
+        text = f.read()
 
     # Process text
-    try:
-        output = process_text(nlp, text, args.format, include_components)
-    except Exception as e:
-        print(f"Error processing text: {e}", file=sys.stderr)
-        sys.exit(1)
+    output = process_text(nlp, text, args.format, include_components)
 
     # Write output
-    try:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            f.write(output)
-    except Exception as e:
-        print(f"Error writing output file: {e}", file=sys.stderr)
-        sys.exit(1)
+    with open(args.output, 'w', encoding='utf-8') as f:
+        f.write(output)
 
     print(f"Successfully processed {len(text)} characters")
 
