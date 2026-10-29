@@ -1,0 +1,165 @@
+<tool id="fair_bioheaders_strip" name="FAIR-bioHeaders strip" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>remove the metadata header from FASTA, GFA or GFF3</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_topics"/>
+    <edam_operations>
+        <edam_operation>operation_0335</edam_operation>
+    </edam_operations>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command><![CDATA[
+@SET_TYPE@
+## Check that the dataset has a header before stripping it. If no header is found,
+## the dataset probably has the wrong datatype, so stop with a clear error.
+## Any other problem with the header is left for the strip step below to handle.
+bioheaders convert --from '$type' --to yaml '$input' header.yaml 2> header-check.txt || true ;
+if grep -qE '^FHR: No [;#]~ FHR metadata header found$' header-check.txt; then
+    echo "No FAIR-bioHeaders header found for datatype $input.ext (read as $type): check the dataset's datatype." >&2 ;
+    exit 1 ;
+fi &&
+#if $metadata_format != 'none'
+    bioheaders convert --from '$type' --to '$metadata_format' '$input' '$metadata' &&
+#end if
+#if $compressed
+    #set $out = 'stripped.' + $type + '.gz'
+#else
+    #set $out = 'stripped.' + $type
+#end if
+bioheaders strip --type '$type' '$input' '$out' &&
+mv '$out' '$output'
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="@HEADED_FORMATS@" label="Data file with a header"
+            help="FASTA, GFA or GFF3, plain or gzip-compressed."/>
+        <param name="metadata_format" type="select" label="Also save the metadata as"
+            help="The header's metadata, as a separate dataset.">
+            <option value="none" selected="true">Don't save the metadata</option>
+            <option value="yaml">YAML</option>
+            <option value="json">JSON</option>
+            <option value="jsonld">JSON-LD</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="output" format_source="input" label="${tool.name} on ${on_string}"/>
+        <data name="metadata" format="yaml" label="${tool.name} on ${on_string}: metadata">
+            <filter>metadata_format != 'none'</filter>
+            <change_format>
+                <when input="metadata_format" value="json" format="json"/>
+                <when input="metadata_format" value="jsonld" format="jsonld"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: FASTA; the data lines are unchanged -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.fasta" ftype="fasta"/>
+            <output name="output" file="genome.fasta" ftype="fasta"/>
+        </test>
+        <!-- 2: gzip FASTA gives compressed FASTA; the metadata are saved as YAML -->
+        <test expect_num_outputs="2">
+            <param name="input" value="example.fhr.fasta.gz" ftype="fasta.gz"/>
+            <param name="metadata_format" value="yaml"/>
+            <!-- byte-for-byte: the toolkit's BGZF output is deterministic -->
+            <output name="output" file="genome.fasta.bgzf.gz" ftype="fasta.gz"/>
+            <output name="metadata" ftype="yaml">
+                <assert_contents>
+                    <has_line line="genome: Synthetic human reference example"/>
+                    <has_text text="checksum: "/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3: GFA, metadata as JSON -->
+        <test expect_num_outputs="2">
+            <param name="input" value="example.fhr.gfa" ftype="gfa1"/>
+            <param name="metadata_format" value="json"/>
+            <output name="output" file="graph.gfa" ftype="gfa1"/>
+            <output name="metadata" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="genome" value="&quot;Synthetic human reference example&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 4: GFF3 -->
+        <test expect_num_outputs="1">
+            <param name="input" value="annotation.fhgff3.gff3" ftype="gff3"/>
+            <output name="output" file="annotation.gff3" ftype="gff3"/>
+        </test>
+        <!-- 5: FASTA, metadata as JSON-LD -->
+        <test expect_num_outputs="2">
+            <param name="input" value="example.fhr.fasta" ftype="fasta"/>
+            <param name="metadata_format" value="jsonld"/>
+            <output name="output" file="genome.fasta" ftype="fasta"/>
+            <output name="metadata" ftype="jsonld">
+                <assert_contents>
+                    <has_text text="&quot;@context&quot;"/>
+                    <has_text text="xsbylyYQHLdufEbS8dLtCTMskblWOx9LEY8ZQK6Be2w="/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 6: gzip GFF3 -->
+        <test expect_num_outputs="1">
+            <param name="input" value="annotation.fhgff3.gff3.gz" ftype="gff3.gz"/>
+            <output name="output" file="annotation.gff3.bgzf.gz" ftype="gff3.gz"/>
+        </test>
+        <!-- 7: a file without a header fails the job -->
+        <test expect_failure="true" expect_exit_code="1">
+            <param name="input" value="genome.fasta" ftype="fasta"/>
+            <assert_stderr>
+                <has_text text="No FAIR-bioHeaders header found for datatype fasta"/>
+            </assert_stderr>
+        </test>
+        <!-- 8: so does a headed GFA labelled FASTA (FASTA headers start with ;~, not #~) -->
+        <test expect_failure="true" expect_exit_code="1">
+            <param name="input" value="example.fhr.gfa" ftype="fasta"/>
+            <assert_stderr>
+                <has_text text="check the dataset's datatype"/>
+            </assert_stderr>
+        </test>
+        <!-- 9: a file whose header is invalid can still be stripped -->
+        <test expect_num_outputs="1">
+            <param name="input" value="schema-invalid.fhr.fasta" ftype="fasta"/>
+            <output name="output" file="genome.fasta" ftype="fasta"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+Removes the FAIR-bioHeaders header from a FASTA, GFA or GFF3 file with the
+fair-bioheaders_ toolkit (``bioheaders strip``). Every other byte of the file
+is kept, so stripping and recombining with the same metadata gives the same
+content (a compressed file comes back as BGZF, which may differ byte for byte
+from the original gzip). Optionally,
+the header's metadata are saved as a separate YAML, JSON or JSON-LD dataset.
+
+Use it before a tool that rejects or misreads headed files, or to edit the metadata and
+add them back with **FAIR-bioHeaders combine**.
+
+@HEADER_HELP@
+
+-----
+
+**Input**
+
+A FASTA, GFA or GFF3 file with a header, plain or gzip-compressed. If no
+header is found the job fails: check that the dataset's datatype is right (a
+FASTA header starts with ``;~``, a GFA or GFF3 header with ``#~``).
+
+**Output**
+
+- The file without the header, in the same datatype.
+- Optionally, the metadata in YAML, JSON or JSON-LD. JSON-LD is available for
+  FHR (genome) metadata only so far, not yet for FHP or FHGFF3.
+
+@GALAXY_HELP@
+
+@LINKS@
+    ]]></help>
+    <expand macro="citations"/>
+    <expand macro="creator"/>
+</tool>
