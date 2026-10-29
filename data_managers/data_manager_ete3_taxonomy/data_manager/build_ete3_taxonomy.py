@@ -1,7 +1,7 @@
 import argparse
 import hashlib
-import tarfile
 import json
+import tarfile
 import tempfile
 from datetime import date
 from pathlib import Path
