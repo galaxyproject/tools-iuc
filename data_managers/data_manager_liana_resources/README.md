@@ -1,12 +1,12 @@
 LIANA Resources Data Manager
 ============================
 
-This Galaxy data manager downloads and caches resources used by the LIANA+ 1.8.1 wrappers.
+This Galaxy data manager downloads and caches resources used by the LIANA+ 2.0.0 wrappers.
 
 Managed resource families
 -------------------------
 
-- LIANA ligand-receptor resources returned by `li.resource.show_resources()`
+- LIANA ligand-receptor resources returned by `li.rs.show_resources()`
 - HCOP human-to-target-organism ortholog maps
 - Metalinks metabolite-protein interaction presets
 

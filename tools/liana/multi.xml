@@ -37,12 +37,10 @@ def flatten_values(matrix):
         matrix = matrix.toarray()
     return np.asarray(matrix).ravel()
 #if str($method.method) == 'to_tensor_c2c'
-tensor = li.multi.to_tensor_c2c(
+tensor = li.ms.to_tensor_c2c(
     adata=adata,
     sample_key='$method.sample_key',
-#if str($method.score_key) != ''
     score_key='$method.score_key',
-#end if
     source_key='$method.source_key',
     target_key='$method.target_key',
     ligand_key='$method.ligand_key',
@@ -53,11 +51,22 @@ tensor = li.multi.to_tensor_c2c(
 #end if
     non_negative=$method.non_negative,
     return_dict=False)
-import numpy as np
-np.save('tensor_output.npy', tensor)
+tensor_values = np.asarray(tensor.tensor)
+if not np.issubdtype(tensor_values.dtype, np.number):
+    raise TypeError('Tensor conversion did not produce a numeric array')
+np.save('tensor_output.npy', tensor_values, allow_pickle=False)
+axis_rows = [
+    (axis, tensor.order_labels[axis], index, str(label))
+    for axis, labels in enumerate(tensor.order_names)
+    for index, label in enumerate(labels)
+]
+pd.DataFrame(axis_rows, columns=['axis', 'axis_name', 'index', 'label']).to_csv(
+    'tensor_axes.tsv', sep='\t', index=False)
+print(f"tensor_ndim={tensor_values.ndim}")
+print(f"tensor_axis_count={len(tensor.order_names)}")
 
 #else if str($method.method) == 'lrs_to_views'
-mdata = li.multi.lrs_to_views(
+mdata = li.ms.lrs_to_views(
     adata=adata,
     #if str($method.score_key) != ''
         score_key='$method.score_key',
@@ -140,7 +149,7 @@ filter_by_prop_kwargs = {
     'min_smpls': $method.filter_by_prop_settings.min_smpls,
 }
 #end if
-mdata = li.multi.adata_to_views(
+mdata = li.ms.adata_to_views(
     adata=adata,
     groupby='$method.groupby',
     sample_key='$method.sample_key',
@@ -168,7 +177,7 @@ groupby_pairs = pd.read_csv('$method.groupby_pairs.pairs_file', sep='\t')
 #else:
 groupby_pairs = None
 #end if
-lr_result = li.multi.df_to_lr(
+lr_result = li.mt.df_to_lr(
     adata=adata,
     dea_df=dea_df,
     groupby='$method.groupby',
@@ -197,7 +206,7 @@ lr_result.to_csv('df_to_lr.tsv', sep='\t', index=False)
 print(f"df_to_lr_rows={len(lr_result)}")
 
 #else if str($method.method) == 'lrdata_to_mudata'
-mdata = li.multi.lrdata_to_mudata(
+mdata = li.ms.lrdata_to_mudata(
     lrdata=adata,
     xy_sep='$method.lr_sep',
 #if str($method.min_cells) != '':
@@ -228,7 +237,7 @@ markers = {
     for view, frame in markers_df.groupby('view', sort=False)
 }
 #if str($method.filter_settings.filter_mode) == 'flag':
-filtered_mdata = li.multi.filter_view_markers(
+filtered_mdata = li.ms.filter_view_markers(
     mdata=mdata_input,
     markers=markers,
     view_sep='$method.view_sep',
@@ -237,7 +246,7 @@ filtered_mdata = li.multi.filter_view_markers(
 true_count = sum(int(filtered_mdata.mod[view].var['$method.filter_settings.var_column'].sum()) for view in filtered_mdata.mod)
 print(f"filter_view_markers_true={true_count}")
 #else:
-filtered_mdata = li.multi.filter_view_markers(
+filtered_mdata = li.ms.filter_view_markers(
     mdata=mdata_input,
     markers=markers,
     view_sep='$method.view_sep',
@@ -252,7 +261,7 @@ filtered_mdata.write_h5mu('mdata_output.h5mu')
 if $method.k_range_min > $method.k_range_max:
     raise ValueError('K range minimum must be less than or equal to K range maximum')
 #end if
-li.multi.nmf(
+li.ms.nmf(
     adata=adata,
 #if str($method.n_components) != ''
     n_components=$method.n_components,
@@ -294,7 +303,15 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
                 <option value="nmf">nmf - Non-negative matrix factorization</option>
             </param>
             <when value="to_tensor_c2c">
-                <expand macro="params_multi_keys"/>
+                <param name="score_key" type="text" label="Interaction score column" help="Column in liana_res to use for tensor values, for example magnitude_rank or specificity_rank. Select the score explicitly.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="tensor score column"/>
+                </param>
+                <expand macro="param_uns_key"/>
+                <expand macro="param_source_key"/>
+                <expand macro="param_target_key"/>
+                <expand macro="param_ligand_key"/>
+                <expand macro="param_receptor_key"/>
                 <expand macro="param_sample_key" VALUE=""/>
                 <param argument="non_expressed_fill" type="float" value="" optional="true" label="Non-expressed fill value" help="Value to fill for non-expressed ligand-receptor pairs."/>
                 <param argument="non_negative" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Non-negative" help="Whether to make the tensor non-negative."/>
@@ -454,6 +471,9 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
         <data name="tensor_out" format="npy" from_work_dir="tensor_output.npy" label="${tool.name} (${method.method}) on ${on_string}: Tensor">
             <filter>method['method'] == 'to_tensor_c2c'</filter>
         </data>
+        <data name="tensor_axes_out" format="tabular" from_work_dir="tensor_axes.tsv" label="Tensor axis labels">
+            <filter>method['method'] == 'to_tensor_c2c'</filter>
+        </data>
         <data name="mdata_out" format="h5mu" from_work_dir="mdata_output.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MuData">
             <filter>method['method'] in ['lrs_to_views', 'adata_to_views', 'lrdata_to_mudata', 'filter_view_markers']</filter>
         </data>
@@ -468,8 +488,8 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
         </data>
     </outputs>
     <tests>
-        <!-- Test 1: to_tensor_c2c -->
-        <test expect_num_outputs="2">
+        <!-- Test 1: to_tensor_c2c saves a numeric tensor and its biological axis labels -->
+        <test expect_num_outputs="3">
             <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
             <conditional name="method">
                 <param name="method" value="to_tensor_c2c"/>
@@ -487,12 +507,21 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </section>
             <output name="tensor_out" ftype="npy">
                 <assert_contents>
-                    <has_size size="36700" delta="10000"/>
+                    <has_size min="128"/>
+                </assert_contents>
+            </output>
+            <output name="tensor_axes_out" ftype="tabular">
+                <assert_contents>
+                    <has_line line="axis&#009;axis_name&#009;index&#009;label"/>
+                    <has_n_columns n="4"/>
+                    <has_n_lines min="5"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.multi.to_tensor_c2c"/>
+                    <has_text_matching expression="li.ms.to_tensor_c2c"/>
+                    <has_text text="tensor_ndim=4"/>
+                    <has_text text="tensor_axis_count=4"/>
                 </assert_contents>
             </output>
         </test>
@@ -531,7 +560,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.multi.lrs_to_views"/>
+                    <has_text_matching expression="li.ms.lrs_to_views"/>
                     <has_text_matching expression="lrs_to_views_numeric_mean=0\.39158[0-9]+"/>
                 </assert_contents>
             </output>
@@ -557,7 +586,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.multi.nmf"/>
+                    <has_text_matching expression="li.ms.nmf"/>
                     <has_text_matching expression="nmf_w_numeric_mean=0\.3893[0-9]+"/>
                 </assert_contents>
             </output>
@@ -608,7 +637,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.multi.adata_to_views"/>
+                    <has_text_matching expression="li.ms.adata_to_views"/>
                     <has_text_matching expression="adata_to_views_numeric_mean=13\.1666[0-9]+"/>
                 </assert_contents>
             </output>
@@ -648,7 +677,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </conditional>
             <section name="advanced_common"><param name="show_log" value="true"/></section>
             <output name="lr_table_out"><assert_contents><has_n_columns min="10"/><has_n_lines n="9"/><has_text text="source"/><has_text text="ligand_complex"/><has_text text="receptor_complex"/></assert_contents></output>
-            <output name="hidden_output"><assert_contents><has_text_matching expression="li.multi.df_to_lr"/><has_text_matching expression="df_to_lr_rows=8"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.mt.df_to_lr"/><has_text_matching expression="df_to_lr_rows=8"/></assert_contents></output>
         </test>
         <!-- LIANA 1.8.1 lrdata_to_mudata: modalities and observation metadata -->
         <test expect_num_outputs="2">
@@ -662,7 +691,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </conditional>
             <section name="advanced_common"><param name="show_log" value="true"/></section>
             <output name="mdata_out"><assert_contents><has_h5_keys keys="mod/A,mod/B,obs/cell_type"/></assert_contents></output>
-            <output name="hidden_output"><assert_contents><has_text_matching expression="li.multi.lrdata_to_mudata"/><has_text_matching expression="lrdata_to_mudata_views=2"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.ms.lrdata_to_mudata"/><has_text_matching expression="lrdata_to_mudata_views=2"/></assert_contents></output>
         </test>
         <!-- LIANA 1.8.1 filter_view_markers: flag markers in each view -->
         <test expect_num_outputs="2">
@@ -675,7 +704,7 @@ adata.write_h5ad('anndata.h5ad', compression='gzip')
             </conditional>
             <section name="advanced_common"><param name="show_log" value="true"/></section>
             <output name="mdata_out"><assert_contents><has_h5_keys keys="mod/A/var/highly_variable,mod/B/var/highly_variable"/></assert_contents></output>
-            <output name="hidden_output"><assert_contents><has_text_matching expression="li.multi.filter_view_markers"/><has_text_matching expression="filter_view_markers_true=4"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.ms.filter_view_markers"/><has_text_matching expression="filter_view_markers_true=4"/></assert_contents></output>
         </test>
     </tests>
     <help><![CDATA[
@@ -705,7 +734,7 @@ This tool provides multi-sample and multi-condition analysis functions from LIAN
 
 **Outputs**
 
-- **to_tensor_c2c**: NumPy tensor file (.npy)
+- **to_tensor_c2c**: Numeric NumPy tensor file (.npy), readable without pickle, and a tabular file identifying every axis, element index and biological label.
 - **lrs_to_views/adata_to_views**: MuData file (.h5mu)
 - **nmf**: AnnData file with NMF results (.h5ad)
     ]]></help>

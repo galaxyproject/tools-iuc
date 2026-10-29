@@ -86,7 +86,7 @@ The following Python-only extension points are intentionally not exposed:
 
 Instead, stable options are represented with typed Galaxy parameters and conditionals. This keeps jobs reproducible, validates values before execution, and avoids evaluating user-supplied Python code.
 
-The deterministic local test fixtures include numerical reference assertions generated with LIANA 1.8.1. These complement structural HDF5 and tabular assertions and check that the wrapped calls retain expected numerical behavior.
+The deterministic local fixtures combine numerical and structural assertions. Spatial reference scores use LIANA 2.0's random-labelling null and retain the complete long-format result, including `g_pcf` and `g_expr` for grouped LRIC. Other numerical assertions are retained where the expected behavior is unchanged.
 
 ## References
 
@@ -106,3 +106,11 @@ For `translate_resource`, the ligand-receptor source and the ortholog mapping so
 The production table is declared in `tool_data_table_conf.xml.sample` and points to `tool-data/liana_resources.loc`; the `.loc.sample` file is only the installation template. For Planemo tests, `tool_data_table_conf.xml.test` points to `test-data/liana_resources.loc`, whose entries resolve local ligand-receptor, HCOP, and Metalinks fixtures through `${__HERE__}`. This mirrors the established IUC test-data-table pattern.
 
 Repeated spatial-annulus, cell-type, HCOP-download, MuData, separator, observation-key, view-key, and result-key parameters are defined in `macros.xml` so method categories share identical defaults and validation.
+
+## LIANA 2.0 compatibility
+
+The Galaxy method selectors are retained for existing workflows. Preprocessing calls now use `li.pp`, multisample calls use `li.ms`, and differential-expression interaction conversion uses `li.mt.df_to_lr`. These functions were relocated rather than removed. The multi tool declares its optional cell2cell, decoupler and kneed dependencies. Tensor export writes a numeric NumPy array without pickle and a separate table mapping each tensor axis index to its biological label.
+
+Cross-PCF emits each unordered cell-type pair once. Grouped LRIC remains directed. Both retain every column returned by LIANA in the H5AD and the tabular output. Existing annulus widths must be a positive integer multiple of the radius step. Angular sampling is no longer used by the analytical null. A nonzero legacy minimum-expressing-cell count must be replaced explicitly with the appropriate expression-proportion filter; the wrapper does not guess that scientific choice. Proportion filters default to zero to retain the previous wrapper's unfiltered default.
+
+Nullable-string serialization is explicitly enabled for all annotated-data outputs. The nullable PBMC regression fixture checks observation IDs, annotation missingness and the LIANA result table. PBMC expression tests use the nonnegative, log-normalized raw matrix rather than the scaled matrix in X. No expression values are clipped to satisfy the new validation.

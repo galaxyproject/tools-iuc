@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Download LIANA 1.8.1 resources and register them in Galaxy."""
+"""Download LIANA 2.0.0 resources and register them in Galaxy."""
 
 import argparse
 import json
@@ -72,7 +72,7 @@ class LianaResourcesDownloader:
 
     @staticmethod
     def available_lr_resources():
-        resources = li.resource.show_resources()
+        resources = li.rs.show_resources()
         if hasattr(resources, "tolist"):
             resources = resources.tolist()
         return [str(resource) for resource in resources]
@@ -96,14 +96,14 @@ class LianaResourcesDownloader:
         return directory / f"{resource_id}.tsv"
 
     def download_lr(self, resource_id):
-        frame = li.resource.select_resource(resource_name=resource_id)
+        frame = li.rs.select_resource(resource_name=resource_id)
         path = self.output_path(resource_id)
         frame.to_csv(path, sep="\t", index=False)
         return path
 
     def download_hcop(self, resource_id):
         metadata = self.metadata(resource_id)
-        frame = li.resource.get_hcop_orthologs(
+        frame = li.rs.get_hcop_orthologs(
             target_organism=metadata["target_organism"],
             min_evidence=3,
         )
@@ -113,8 +113,8 @@ class LianaResourcesDownloader:
 
     def download_metalinks(self, resource_id):
         metadata = METALINKS_PRESETS[resource_id]
-        # LIANA 1.8.1 no longer accepts the deprecated hmdb/uniprot booleans.
-        frame = li.resource.get_metalinks(
+        # Use the LIANA 2.0 biospecimen filter API.
+        frame = li.rs.get_metalinks(
             biospecimen_location=metadata["biospecimen_location"],
         )
         path = self.output_path(resource_id)

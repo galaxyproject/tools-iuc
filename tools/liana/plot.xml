@@ -36,7 +36,7 @@ adata = sc.read_h5ad('anndata.h5ad')
 
 
 #if str($method.method) == 'pl.dotplot':
-fig = li.plotting.dotplot(
+fig = li.pl.dotplot(
     adata=adata,
     uns_key='$method.uns_key',
     #if str($method.colour) != '':
@@ -56,7 +56,7 @@ fig = li.plotting.dotplot(
     return_fig=True)
 
 #else if str($method.method) == 'pl.dotplot_by_sample':
-fig = li.plotting.dotplot_by_sample(
+fig = li.pl.dotplot_by_sample(
     adata=adata,
     uns_key='$method.uns_key',
     sample_key='$method.sample_key',
@@ -76,7 +76,7 @@ fig = li.plotting.dotplot_by_sample(
     return_fig=True)
 
 #else if str($method.method) == 'pl.tileplot':
-fig = li.plotting.tileplot(
+fig = li.pl.tileplot(
     adata=adata,
     uns_key='$method.uns_key',
     #if str($method.fill) != '':
@@ -100,7 +100,7 @@ fig = li.plotting.tileplot(
     return_fig=True)
 
 #else if str($method.method) == 'pl.connectivity':
-fig = li.plotting.connectivity(
+fig = li.pl.connectivity(
     adata=adata,
     idx=$method.idx,
     spatial_key='$method.spatial_key',
@@ -110,7 +110,7 @@ fig = li.plotting.connectivity(
     return_fig=True)
 
 #else if str($method.method) == 'pl.target_metrics':
-fig = li.plotting.target_metrics(
+fig = li.pl.misty_target_metrics(
     misty=mdata,
     #if str($method.key) != '':
     key='$method.key',
@@ -126,19 +126,21 @@ fig = li.plotting.target_metrics(
     return_fig=True)
 
 #else if str($method.method) == 'pl.contributions':
-fig = li.plotting.contributions(
-    misty=mdata,
-    #if str($method.key) != '':
-    key='$method.key',
-    #end if
+#if str($method.key) != '':
+raise ValueError('LIANA 2.0 contributions no longer accepts a custom sorting key; leave this legacy option empty.')
+#end if
+fig = li.pl.misty_contributions(
+    target_metrics=mdata.uns['target_metrics'],
     #if str($method.view_names) != '':
     view_names=[x.strip() for x in '$method.view_names'.split(',')],
+    #else:
+    view_names=[name for name in mdata.mod if name in mdata.uns['target_metrics'].columns],
     #end if
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
 
 #else if str($method.method) == 'pl.interactions':
-fig = li.plotting.interactions(
+fig = li.pl.misty_interactions(
     misty=mdata,
     #if str($method.key) != '':
     key='$method.key',
@@ -154,20 +156,29 @@ fig = li.plotting.interactions(
     return_fig=True)
 
 #else if str($method.method) == 'pl.annulus_plot':
-li.plotting.annulus_plot(
+if $method.radius_step <= 0 or $method.annulus_width <= 0:
+    raise ValueError('Annulus width and radius step must both be positive.')
+annulus_steps_value = $method.annulus_width / $method.radius_step
+if not np.isclose(annulus_steps_value, round(annulus_steps_value)) or annulus_steps_value < 1:
+    raise ValueError('Annulus width must be a positive integer multiple of the radius step in LIANA 2.0.')
+fig = li.pl.annulus(
     adata=adata,
     spatial_key='$method.spatial_key',
-    annulus_width=$method.annulus_width,
+    annulus_steps=int(round(annulus_steps_value)),
     radius_step=$method.radius_step,
     extend_first_annulus=$method.extend_first_annulus,
     n_rings=$method.n_rings,
     seed=$method.seed,
-    figure_size=($method.figure_size_width, $method.figure_size_height))
-fig = plt.gcf()
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
 
 #else if str($method.method) == 'pl.lric_lineplot':
+import plotnine as p9
 curve_data = pd.read_csv('$method.curves', sep='\t')
-required_columns = {'radius', 'value'}
+# Accept legacy Galaxy curve tables while preserving LIANA 2.0 decomposition columns.
+if 'g' not in curve_data.columns and 'value' in curve_data.columns:
+    curve_data = curve_data.rename(columns={'value': 'g'})
+required_columns = {'radius', 'g'}
 missing_columns = required_columns.difference(curve_data.columns)
 if missing_columns:
     raise ValueError(f"Curve table is missing required columns: {sorted(missing_columns)}")
@@ -189,36 +200,56 @@ curve_data = curve_data[curve_data['interaction'].astype(str).isin(selected_inte
 #end if
 if curve_data.empty:
     raise ValueError('No curves remain after filtering')
-label_columns = [column for column in ['source', 'target', 'interaction'] if column in curve_data.columns]
-curves = {}
-if label_columns:
-    grouped_curves = curve_data.groupby(label_columns, dropna=False, sort=False)
-else:
-    grouped_curves = [('curve_1', curve_data)]
-for keys, frame in grouped_curves:
+id_columns = [
+    column for column in ['method', 'source', 'target', 'ligand_complex', 'receptor_complex', 'interaction']
+    if column in curve_data.columns
+]
+if not id_columns:
+    curve_data['interaction'] = 'curve_1'
+    id_columns = ['interaction']
+plot_frames = []
+fig = None
+for keys, frame in curve_data.groupby(id_columns, dropna=False, sort=False):
     if not isinstance(keys, tuple):
         keys = (keys,)
-    label_parts = [str(value) for value in keys if str(value) not in ['', 'nan', 'None']]
-    label = ' | '.join(label_parts) if label_parts else f'curve_{len(curves) + 1}'
-    frame = frame.sort_values('radius')
-    curves[label] = (frame['radius'].to_numpy(), frame['value'].to_numpy())
-first_radii = next(iter(curves.values()))[0]
-fig = li.plotting.lric_lineplot(
-    radii=first_radii,
-    curves=curves,
-    overlay=$method.overlay,
-    ncols=$method.ncols,
-    #if str($method.title) != '':
-    title='$method.title',
-    #end if
-    figure_size=($method.figure_size_width, $method.figure_size_height),
-    return_fig=True)
+    label = ' | '.join(str(value) for value in keys if pd.notna(value) and str(value))
+    # A table containing several methods can have empty decomposition columns.
+    decomposition_columns = [column for column in ['g_pcf', 'g_expr'] if column in frame]
+    if decomposition_columns and all(frame[column].isna().all() for column in decomposition_columns):
+        frame = frame.drop(columns=decomposition_columns)
+    curve_plot = li.pl.lric_lineplot(
+        liana_res=frame,
+        figure_size=($method.figure_size_width, $method.figure_size_height),
+        return_fig=True)
+    if fig is None:
+        fig = curve_plot
+    plot_frame = curve_plot.data.copy()
+    plot_frame['selection'] = label
+    plot_frames.append(plot_frame)
+plot_data = pd.concat(plot_frames, ignore_index=True)
+#if $method.overlay:
+plot_data['curve'] = plot_data['selection'] + ' | ' + plot_data['curve'].astype(str)
+fig.data = plot_data
+fig = fig + p9.theme(legend_position='right')
+#else:
+fig.data = plot_data
+fig = fig + p9.facet_wrap('~selection', ncol=$method.ncols)
+if plot_data['curve'].nunique() > 1:
+    fig = fig + p9.theme(legend_position='right')
+#end if
+#if str($method.title) != '':
+fig = fig + p9.labs(title='$method.title')
+#else:
+fig = fig + p9.labs(title='')
+#end if
+print(f"lric_plot_selections={len(plot_frames)}")
+print(f"lric_plot_components={plot_data['curve'].nunique()}")
 #else if str($method.method) == 'pl.circle_plot'
 if $method.edge_width_min > $method.edge_width_max:
     raise ValueError('Minimum edge width must not exceed maximum edge width')
 if $method.node_size_min > $method.node_size_max:
     raise ValueError('Minimum node size must not exceed maximum node size')
-ax = li.plotting.circle_plot(
+ax = li.pl.circle(
     adata=adata,
     uns_key='$method.uns_key',
     groupby='$method.groupby',
@@ -250,7 +281,7 @@ percentile_scaling = ($method.percentile_settings.percentile_low, $method.percen
 #else:
 percentile_scaling = None
 #end if
-fig, _ax = li.plotting.feature_by_group(
+fig, _ax = li.pl.feature_by_group(
     adata=adata,
     groupby='$method.groupby',
     spatial_key='$method.spatial_key',
@@ -395,7 +426,10 @@ else:
             </when>
             <when value="pl.contributions">
                 <expand macro="param_mdata"/>
-                <expand macro="param_misty_key"/>
+                <param name="key" type="text" value="" optional="true" label="Legacy sorting key" help="Leave empty. Custom contribution-sorting keys are not supported in LIANA 2.0.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_optional_key" FIELD="legacy sorting key"/>
+                </param>
                 <param argument="view_names" type="text" value="" optional="true" label="Views to include" help="Comma-separated view names (intra, juxta, para) to plot. Empty = all views. Useful for focusing on specific spatial scales.">
                     <expand macro="sanitize_query"/>
                     <expand macro="validator_optional_csv" FIELD="view-name list"/>
@@ -426,7 +460,7 @@ else:
                 <expand macro="param_figure_size" width="6" height="6"/>
             </when>
             <when value="pl.lric_lineplot">
-                <param name="curves" type="data" format="tabular" label="Spatial curves table" help="Long-form table from Liana Methods cross_pcf/lric, with radius and value columns."/>
+                <param name="curves" type="data" format="tabular" label="Spatial curves table" help="Long-form table from Liana Methods cross_pcf/lric, with radius and g columns. Legacy value columns are also accepted. LRIC architecture (g_pcf) and expression (g_expr) components are retained when present."/>
                 <param argument="source" type="text" value="" optional="true" label="Source cell type filter"><expand macro="sanitize_query"/>
                     <expand macro="validator_optional_key" FIELD="source filter"/></param>
                 <param argument="target" type="text" value="" optional="true" label="Target cell type filter"><expand macro="sanitize_query"/>
@@ -534,7 +568,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.dotplot"/>
+                    <has_text_matching expression="li.pl.dotplot"/>
                 </assert_contents>
             </output>
         </test>
@@ -566,7 +600,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.dotplot_by_sample"/>
+                    <has_text_matching expression="li.pl.dotplot_by_sample"/>
                 </assert_contents>
             </output>
         </test>
@@ -597,7 +631,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.tileplot"/>
+                    <has_text_matching expression="li.pl.tileplot"/>
                 </assert_contents>
             </output>
         </test>
@@ -624,7 +658,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.connectivity"/>
+                    <has_text_matching expression="li.pl.connectivity"/>
                 </assert_contents>
             </output>
         </test>
@@ -649,7 +683,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.target_metrics"/>
+                    <has_text_matching expression="li.pl.misty_target_metrics"/>
                 </assert_contents>
             </output>
         </test>
@@ -673,7 +707,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.contributions"/>
+                    <has_text_matching expression="li.pl.misty_contributions"/>
                 </assert_contents>
             </output>
         </test>
@@ -699,11 +733,11 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.interactions"/>
+                    <has_text_matching expression="li.pl.misty_interactions"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- LIANA 1.8 line plot from the methods long-form table -->
+        <!-- Legacy long-form table remains compatible with the LIANA 2.0 line plot -->
         <test expect_num_outputs="2">
             <param name="format" value="png"/>
             <conditional name="method">
@@ -725,7 +759,37 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.lric_lineplot"/>
+                    <has_text_matching expression="li.pl.lric_lineplot"/>
+                    <has_text text="lric_plot_selections=2"/>
+                    <has_text text="lric_plot_components=2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- LIANA 2.0 decomposition is retained across interaction facets. -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.lric_lineplot"/>
+                <param name="curves" value="spatial_curves_v2.tsv" ftype="tabular"/>
+                <param name="overlay" value="false"/>
+                <param name="ncols" value="2"/>
+                <param name="title" value="LRIC decomposition"/>
+                <param name="figure_size_width" value="8"/>
+                <param name="figure_size_height" value="5"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_image_width min="900"/>
+                    <has_image_height min="500"/>
+                    <has_image_channels min="3"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.pl.lric_lineplot"/>
+                    <has_text text="lric_plot_selections=2"/>
+                    <has_text text="lric_plot_components=3"/>
                 </assert_contents>
             </output>
         </test>
@@ -756,7 +820,7 @@ else:
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.annulus_plot"/>
+                    <has_text_matching expression="li.pl.annulus"/>
                 </assert_contents>
             </output>
         </test>
@@ -768,7 +832,7 @@ else:
             </conditional>
             <section name="advanced_common"><param name="show_log" value="true"/></section>
             <output name="out_png"><assert_contents><has_image_width min="400"/><has_image_height min="400"/><has_image_channels min="3"/></assert_contents></output>
-            <output name="hidden_output"><assert_contents><has_text_matching expression="li.plotting.circle_plot"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.pl.circle"/></assert_contents></output>
         </test>
         <!-- LIANA 1.8.1 feature_by_group: grouped spatial feature panels -->
         <test expect_num_outputs="2">
@@ -776,7 +840,7 @@ else:
             <conditional name="method"><param name="method" value="pl.feature_by_group"/><param name="adata" value="inflow_test.h5ad"/><param name="groupby" value="cell_type"/><param name="spatial_key" value="spatial"/><param name="labels" value="A,B"/><param name="feature" value="A^L2^R2"/><param name="figure_size_width" value="8"/><param name="figure_size_height" value="5"/><param name="normalize" value="true"/><conditional name="percentile_settings"><param name="percentile_selector" value="custom"/><param name="percentile_low" value="1"/><param name="percentile_high" value="99"/></conditional><param name="show_counts" value="true"/></conditional>
             <section name="advanced_common"><param name="show_log" value="true"/></section>
             <output name="out_png"><assert_contents><has_image_width min="500"/><has_image_height min="300"/></assert_contents></output>
-            <output name="hidden_output"><assert_contents><has_text_matching expression="li.plotting.feature_by_group"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.pl.feature_by_group"/></assert_contents></output>
         </test>
     </tests>
     <help><![CDATA[
@@ -819,9 +883,14 @@ Available Methods
 
 **annulus_plot**
     Inspect the concentric distance bins used by cross-PCF and LRIC on a spatial AnnData object.
+    Annulus width must be an integer multiple of the radius step, matching the exact
+    annulus_steps bins used by LIANA 2.0.
 
 **lric_lineplot**
     Plot distance-resolved g(r) curves from the long-form table emitted by cross_pcf or lric.
+    LIANA 2.0 g, g_pcf and g_expr columns are preserved. Older Galaxy tables using a
+    value column are also accepted. Multiple interactions can be overlaid or shown
+    in separate panels.
 
 **circle_plot**
     Summarize directed interactions among groups as a network-style circle plot.

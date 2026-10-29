@@ -41,4 +41,4 @@ class Resource:
         )
 
 
-resource = Resource()
+rs = Resource()
