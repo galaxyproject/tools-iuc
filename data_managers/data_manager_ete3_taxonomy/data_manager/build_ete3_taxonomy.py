@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import sqlite3
 import tarfile
 import tempfile
 from datetime import date
@@ -125,6 +126,19 @@ def build_from_download(output_db):
     return source_digest
 
 
+def database_version(output_db):
+    """Return the schema version ETE3 recorded in the database it built."""
+    with sqlite3.connect(output_db) as db:
+        row = db.execute("SELECT version FROM stats").fetchone()
+
+    if row is None:
+        raise RuntimeError(
+            f"ETE3 taxonomy database records no schema version: {output_db}"
+        )
+
+    return str(row[0])
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -143,12 +157,6 @@ def main():
         "--output-json",
         required=True,
         help="Path where the JSON output will be written.",
-    )
-
-    parser.add_argument(
-        "--ete-version",
-        required=True,
-        help="Version of ETE3 to use.",
     )
 
     parser.add_argument(
@@ -208,13 +216,15 @@ def main():
             f"ETE3 taxonomy database is empty: {output_db}"
         )
 
+    version = database_version(output_db)
+
     data_manager_json = {
         "data_tables": {
             "ete3_taxonomy_db": [
                 {
                     "value": value,
                     "name": name,
-                    "version": args.ete_version,
+                    "version": version,
                     "path": output_dir.name,
                 }
             ]
