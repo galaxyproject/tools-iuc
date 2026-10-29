@@ -29,123 +29,123 @@ SPACY_VERSION = "3.8"
 
 
 # spaCy model information
-# Format: model_name -> (display_name, language, size)
+# Format: model_name -> (display_name, language)
 SPACY_MODELS = {
     # English
-    "en_core_web_sm": ("English (small)", "en", "sm"),
-    "en_core_web_md": ("English (medium)", "en", "md"),
-    "en_core_web_lg": ("English (large)", "en", "lg"),
-    "en_core_web_trf": ("English (transformer)", "en", "trf"),
+    "en_core_web_sm": ("English (small)", "en"),
+    "en_core_web_md": ("English (medium)", "en"),
+    "en_core_web_lg": ("English (large)", "en"),
+    "en_core_web_trf": ("English (transformer)", "en"),
 
     # Spanish
-    "es_core_news_sm": ("Spanish (small)", "es", "sm"),
-    "es_core_news_md": ("Spanish (medium)", "es", "md"),
-    "es_core_news_lg": ("Spanish (large)", "es", "lg"),
+    "es_core_news_sm": ("Spanish (small)", "es"),
+    "es_core_news_md": ("Spanish (medium)", "es"),
+    "es_core_news_lg": ("Spanish (large)", "es"),
 
     # German
-    "de_core_news_sm": ("German (small)", "de", "sm"),
-    "de_core_news_md": ("German (medium)", "de", "md"),
-    "de_core_news_lg": ("German (large)", "de", "lg"),
+    "de_core_news_sm": ("German (small)", "de"),
+    "de_core_news_md": ("German (medium)", "de"),
+    "de_core_news_lg": ("German (large)", "de"),
 
     # French
-    "fr_core_news_sm": ("French (small)", "fr", "sm"),
-    "fr_core_news_md": ("French (medium)", "fr", "md"),
-    "fr_core_news_lg": ("French (large)", "fr", "lg"),
+    "fr_core_news_sm": ("French (small)", "fr"),
+    "fr_core_news_md": ("French (medium)", "fr"),
+    "fr_core_news_lg": ("French (large)", "fr"),
 
     # Chinese
-    "zh_core_web_sm": ("Chinese (small)", "zh", "sm"),
-    "zh_core_web_md": ("Chinese (medium)", "zh", "md"),
-    "zh_core_web_lg": ("Chinese (large)", "zh", "lg"),
+    "zh_core_web_sm": ("Chinese (small)", "zh"),
+    "zh_core_web_md": ("Chinese (medium)", "zh"),
+    "zh_core_web_lg": ("Chinese (large)", "zh"),
 
     # Japanese
-    "ja_core_news_sm": ("Japanese (small)", "ja", "sm"),
-    "ja_core_news_md": ("Japanese (medium)", "ja", "md"),
-    "ja_core_news_lg": ("Japanese (large)", "ja", "lg"),
+    "ja_core_news_sm": ("Japanese (small)", "ja"),
+    "ja_core_news_md": ("Japanese (medium)", "ja"),
+    "ja_core_news_lg": ("Japanese (large)", "ja"),
 
     # Portuguese
-    "pt_core_news_sm": ("Portuguese (small)", "pt", "sm"),
-    "pt_core_news_md": ("Portuguese (medium)", "pt", "md"),
-    "pt_core_news_lg": ("Portuguese (large)", "pt", "lg"),
+    "pt_core_news_sm": ("Portuguese (small)", "pt"),
+    "pt_core_news_md": ("Portuguese (medium)", "pt"),
+    "pt_core_news_lg": ("Portuguese (large)", "pt"),
 
     # Italian
-    "it_core_news_sm": ("Italian (small)", "it", "sm"),
-    "it_core_news_md": ("Italian (medium)", "it", "md"),
-    "it_core_news_lg": ("Italian (large)", "it", "lg"),
+    "it_core_news_sm": ("Italian (small)", "it"),
+    "it_core_news_md": ("Italian (medium)", "it"),
+    "it_core_news_lg": ("Italian (large)", "it"),
 
     # Dutch
-    "nl_core_news_sm": ("Dutch (small)", "nl", "sm"),
-    "nl_core_news_md": ("Dutch (medium)", "nl", "md"),
-    "nl_core_news_lg": ("Dutch (large)", "nl", "lg"),
+    "nl_core_news_sm": ("Dutch (small)", "nl"),
+    "nl_core_news_md": ("Dutch (medium)", "nl"),
+    "nl_core_news_lg": ("Dutch (large)", "nl"),
 
     # Greek
-    "el_core_news_sm": ("Greek (small)", "el", "sm"),
-    "el_core_news_md": ("Greek (medium)", "el", "md"),
-    "el_core_news_lg": ("Greek (large)", "el", "lg"),
+    "el_core_news_sm": ("Greek (small)", "el"),
+    "el_core_news_md": ("Greek (medium)", "el"),
+    "el_core_news_lg": ("Greek (large)", "el"),
 
     # Polish
-    "pl_core_news_sm": ("Polish (small)", "pl", "sm"),
-    "pl_core_news_md": ("Polish (medium)", "pl", "md"),
-    "pl_core_news_lg": ("Polish (large)", "pl", "lg"),
+    "pl_core_news_sm": ("Polish (small)", "pl"),
+    "pl_core_news_md": ("Polish (medium)", "pl"),
+    "pl_core_news_lg": ("Polish (large)", "pl"),
 
     # Norwegian
-    "nb_core_news_sm": ("Norwegian Bokmål (small)", "nb", "sm"),
-    "nb_core_news_md": ("Norwegian Bokmål (medium)", "nb", "md"),
-    "nb_core_news_lg": ("Norwegian Bokmål (large)", "nb", "lg"),
+    "nb_core_news_sm": ("Norwegian Bokmål (small)", "nb"),
+    "nb_core_news_md": ("Norwegian Bokmål (medium)", "nb"),
+    "nb_core_news_lg": ("Norwegian Bokmål (large)", "nb"),
 
     # Lithuanian
-    "lt_core_news_sm": ("Lithuanian (small)", "lt", "sm"),
-    "lt_core_news_md": ("Lithuanian (medium)", "lt", "md"),
-    "lt_core_news_lg": ("Lithuanian (large)", "lt", "lg"),
+    "lt_core_news_sm": ("Lithuanian (small)", "lt"),
+    "lt_core_news_md": ("Lithuanian (medium)", "lt"),
+    "lt_core_news_lg": ("Lithuanian (large)", "lt"),
 
     # Danish
-    "da_core_news_sm": ("Danish (small)", "da", "sm"),
-    "da_core_news_md": ("Danish (medium)", "da", "md"),
-    "da_core_news_lg": ("Danish (large)", "da", "lg"),
+    "da_core_news_sm": ("Danish (small)", "da"),
+    "da_core_news_md": ("Danish (medium)", "da"),
+    "da_core_news_lg": ("Danish (large)", "da"),
 
     # Swedish
-    "sv_core_news_sm": ("Swedish (small)", "sv", "sm"),
-    "sv_core_news_md": ("Swedish (medium)", "sv", "md"),
-    "sv_core_news_lg": ("Swedish (large)", "sv", "lg"),
+    "sv_core_news_sm": ("Swedish (small)", "sv"),
+    "sv_core_news_md": ("Swedish (medium)", "sv"),
+    "sv_core_news_lg": ("Swedish (large)", "sv"),
 
     # Romanian
-    "ro_core_news_sm": ("Romanian (small)", "ro", "sm"),
-    "ro_core_news_md": ("Romanian (medium)", "ro", "md"),
-    "ro_core_news_lg": ("Romanian (large)", "ro", "lg"),
+    "ro_core_news_sm": ("Romanian (small)", "ro"),
+    "ro_core_news_md": ("Romanian (medium)", "ro"),
+    "ro_core_news_lg": ("Romanian (large)", "ro"),
 
     # Catalan
-    "ca_core_news_sm": ("Catalan (small)", "ca", "sm"),
-    "ca_core_news_md": ("Catalan (medium)", "ca", "md"),
-    "ca_core_news_lg": ("Catalan (large)", "ca", "lg"),
+    "ca_core_news_sm": ("Catalan (small)", "ca"),
+    "ca_core_news_md": ("Catalan (medium)", "ca"),
+    "ca_core_news_lg": ("Catalan (large)", "ca"),
 
     # Finnish
-    "fi_core_news_sm": ("Finnish (small)", "fi", "sm"),
-    "fi_core_news_md": ("Finnish (medium)", "fi", "md"),
-    "fi_core_news_lg": ("Finnish (large)", "fi", "lg"),
+    "fi_core_news_sm": ("Finnish (small)", "fi"),
+    "fi_core_news_md": ("Finnish (medium)", "fi"),
+    "fi_core_news_lg": ("Finnish (large)", "fi"),
 
     # Croatian
-    "hr_core_news_sm": ("Croatian (small)", "hr", "sm"),
-    "hr_core_news_md": ("Croatian (medium)", "hr", "md"),
-    "hr_core_news_lg": ("Croatian (large)", "hr", "lg"),
+    "hr_core_news_sm": ("Croatian (small)", "hr"),
+    "hr_core_news_md": ("Croatian (medium)", "hr"),
+    "hr_core_news_lg": ("Croatian (large)", "hr"),
 
     # Korean
-    "ko_core_news_sm": ("Korean (small)", "ko", "sm"),
-    "ko_core_news_md": ("Korean (medium)", "ko", "md"),
-    "ko_core_news_lg": ("Korean (large)", "ko", "lg"),
+    "ko_core_news_sm": ("Korean (small)", "ko"),
+    "ko_core_news_md": ("Korean (medium)", "ko"),
+    "ko_core_news_lg": ("Korean (large)", "ko"),
 
     # Macedonian
-    "mk_core_news_sm": ("Macedonian (small)", "mk", "sm"),
-    "mk_core_news_md": ("Macedonian (medium)", "mk", "md"),
-    "mk_core_news_lg": ("Macedonian (large)", "mk", "lg"),
+    "mk_core_news_sm": ("Macedonian (small)", "mk"),
+    "mk_core_news_md": ("Macedonian (medium)", "mk"),
+    "mk_core_news_lg": ("Macedonian (large)", "mk"),
 
     # Russian
-    "ru_core_news_sm": ("Russian (small)", "ru", "sm"),
-    "ru_core_news_md": ("Russian (medium)", "ru", "md"),
-    "ru_core_news_lg": ("Russian (large)", "ru", "lg"),
+    "ru_core_news_sm": ("Russian (small)", "ru"),
+    "ru_core_news_md": ("Russian (medium)", "ru"),
+    "ru_core_news_lg": ("Russian (large)", "ru"),
 
     # Ukrainian
-    "uk_core_news_sm": ("Ukrainian (small)", "uk", "sm"),
-    "uk_core_news_md": ("Ukrainian (medium)", "uk", "md"),
-    "uk_core_news_lg": ("Ukrainian (large)", "uk", "lg"),
+    "uk_core_news_sm": ("Ukrainian (small)", "uk"),
+    "uk_core_news_md": ("Ukrainian (medium)", "uk"),
+    "uk_core_news_lg": ("Ukrainian (large)", "uk"),
 }
 
 
@@ -317,7 +317,7 @@ def main():
 
     if args.model:
         for model_name in args.model:
-            display_name, language, size = SPACY_MODELS[model_name]
+            display_name, language = SPACY_MODELS[model_name]
             print(f"\n{'=' * 60}\nProcessing {model_name}...\n{'=' * 60}")
 
             version = install_model(model_name, target_dir)
