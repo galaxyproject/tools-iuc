@@ -129,9 +129,14 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--output-db",
+        "--output-dir",
         required=True,
-        help="Path where the ETE3 SQLite database will be written.",
+        help=(
+            "Directory (a direct child of the output's extra files path) that "
+            "will hold taxa.sqlite. ETE3 also writes its taxa.sqlite.traverse.pkl "
+            "cache next to the database, so the whole directory is registered in "
+            "the data table."
+        ),
     )
 
     parser.add_argument(
@@ -169,12 +174,14 @@ def main():
 
     args = parser.parse_args()
 
-    output_db = Path(args.output_db)
+    output_dir = Path(args.output_dir)
 
-    output_db.parent.mkdir(
+    output_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
+
+    output_db = output_dir / "taxa.sqlite"
 
     if args.taxonomy_dir:
         source_digest = build_from_existing_taxonomy(
@@ -208,7 +215,7 @@ def main():
                     "value": value,
                     "name": name,
                     "version": args.ete_version,
-                    "path": output_db.name,
+                    "path": output_dir.name,
                 }
             ]
         }
