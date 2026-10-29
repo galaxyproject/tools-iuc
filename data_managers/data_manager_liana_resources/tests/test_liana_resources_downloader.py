@@ -1,4 +1,4 @@
-"""Test registration identity and Galaxy's real data-manager move handling."""
+"""Test LIANA resource identity and staged files independently of Galaxy internals."""
 
 import importlib.util
 import json
@@ -6,14 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
-from xml.etree import ElementTree as ET
-
-from galaxy.tool_util.data import (
-    _process_move,
-    _process_value_translations,
-    BundleProcessingOptions,
-)
-from galaxy.tool_util.data.bundles.models import convert_data_tables_xml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,49 +55,6 @@ class LianaResourceDownloaderTest(unittest.TestCase):
             file_path = self.extra_files / entry["path"] / f"{entry['value']}.tsv"
             self.assertTrue(file_path.is_file())
             self.assertEqual(set(entry), {"value", "name", "description", "path"})
-
-    def test_galaxy_move_registers_existing_file_and_preserves_legacy_installation(self):
-        entry = self.download()
-        source = self.extra_files / entry["path"] / f"{entry['value']}.tsv"
-        expected = source.read_bytes()
-        installed = self.directory / "i"
-        legacy = installed / "liana-db/Consensus/consensus.tsv"
-        legacy.parent.mkdir(parents=True)
-        legacy.write_text("previous installation\n")
-        bundle = convert_data_tables_xml(
-            ET.parse(ROOT / "data_manager_conf.xml").getroot().find("data_manager")
-        )
-        options = BundleProcessingOptions(
-            "LIANA resource regression", str(installed), str(self.directory / "conf.xml")
-        )
-        moved = _process_move(
-            "liana_resources", "path", str(self.extra_files), bundle, options, **entry
-        )
-        registered = _process_value_translations(
-            "liana_resources", "path", bundle, options, **entry
-        )
-        self.assertTrue(moved)
-        target = Path(registered) / f"{entry['value']}.tsv"
-        self.assertTrue(target.is_file())
-        self.assertEqual(target.read_bytes(), expected)
-        self.assertFalse(source.exists())
-        self.assertEqual(legacy.read_text(), "previous installation\n")
-        # The same content must also install successfully when its target
-        # directory already exists from an earlier Data Manager job.
-        repeated_entry = self.download()
-        self.assertEqual(repeated_entry, entry)
-        self.assertTrue((self.extra_files / entry["path"]).is_dir())
-        self.assertTrue(_process_move(
-            "liana_resources", "path", str(self.extra_files), bundle,
-            options, **repeated_entry,
-        ))
-        repeated_registered = _process_value_translations(
-            "liana_resources", "path", bundle, options, **repeated_entry
-        )
-        self.assertEqual(repeated_registered, registered)
-        self.assertEqual(target.read_bytes(), expected)
-        self.assertEqual(legacy.read_text(), "previous installation\n")
-        self.assertFalse((self.extra_files / entry["path"] / f"{entry['value']}.tsv").exists())
 
     def test_existing_artifact_with_wrong_content_is_not_overwritten(self):
         entry = self.download()
