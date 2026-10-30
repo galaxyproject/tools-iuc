@@ -28,8 +28,9 @@ The LIANA wrapper uses the registered `path` and appends `<value>.tsv`. Resource
 Development checks
 ------------------
 
-The standard Galaxy XML tool test checks the consensus resource registration JSON; it does not verify every resource family or deployment into an installed Galaxy data table. The optional unit tests check the downloader's staged files, stable and changed-content identities, and rejection of corrupt staged files. They use the local LIANA stub and pandas, without importing Galaxy internals, and are run separately from Planemo:
+The standard Galaxy XML tool test checks the consensus resource registration JSON using the real LIANA package. It does not verify every resource family or deployment into an installed Galaxy data table. Run the wrapper checks with Planemo from this directory:
 
 ```console
-python -m unittest discover -s tests -v
+planemo lint data_manager/liana_resources_manager.xml
+planemo test data_manager/liana_resources_manager.xml
 ```
