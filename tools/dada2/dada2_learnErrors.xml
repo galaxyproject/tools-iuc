@@ -38,6 +38,17 @@ err <- learnErrors(files, nbases = 10**$nbases,
            errorEstimationFunction = errfoo, multithread = nthreads,
            randomize = $advanced.randomize, MAX_CONSIST = $advanced.maxconsist, OMEGA_C = $advanced.omegac)
 
+#if $advanced.monotone_decreasing
+# Apply a reverse cumulative maximum to each transition row, as in
+# nf-core/ampliseq 2.11.0's optional NovaSeq post-learning correction.
+# Preserve the learned object's other fields and matrix dimension names.
+error_rates <- getErrors(err)
+err[["err_out"]] <- t(apply(error_rates, 1, function(x) rev(cummax(rev(x)))))
+dimnames(err[["err_out"]]) <- dimnames(error_rates)
+stopifnot(all(apply(err[["err_out"]], 1, diff) <= 0))
+cat("Applied monotone-decreasing post-learning correction\n")
+#end if
+
 saveRDS(err, file='$errors')
 
 ## generate error plots
@@ -51,6 +62,7 @@ ggsave('plot.pdf', plot, width = 20,height = 15,units = c("cm"))
         <param name="seed" type="integer" optional="true" min="0" max="2147483647" label="Random seed" help="Controls which samples are selected when Randomize samples is enabled and the learning budget uses only a subset of multiple input samples. A seed does not affect sample selection for a single sample or when all samples are used. Leave blank for default random-number-generator behavior. Reproducibility also requires the same input order and software version."/>
         <section name="advanced" title="Advanced Option">
             <expand macro="errorEstimationFunction"/>
+            <param name="monotone_decreasing" type="boolean" checked="false" label="Enforce non-increasing error rates after learning" help="Optional nf-core/ampliseq NovaSeq correction: replace each transition rate by the maximum of that rate and all higher-quality rates. This acts after learning, preserves other learned model fields, and is different from the binned-quality error estimation function. Applies to all rows, including self-transitions, without renormalization. Leave disabled for the standard DADA2 learned model."/>
             <param argument="randomize" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Randomize samples" help="Pick samples at random, otherwise samples are read in the provided order until enough reads are obtained (default)."/>
             <param name="maxconsist" argument="MAX_CONSIST" type="integer" value="10" min="0" label="Maximum number of times to step through the selfconsistency loop" help="If convergence was not reached in MAX_CONSIST steps, the estimated error rates in the last step are returned."/>
             <param name="omegac" argument="OMEGA_C" type="float" value="0" min="0" label="Threshold at which unique sequences inferred to contain errors are corrected" help="For reasons of convergence, and because it is
@@ -177,6 +189,22 @@ all reads are counted and contribute to estimating the error rates."/>
                 <has_text text="186736 total bases in 744 reads from 1 samples"/>
             </assert_stdout>
         </test>
+        <test expect_num_outputs="2">
+            <param name="fls" value="filterAndTrim_F3D0_R1.fq.gz,filterAndTrim_F3D141_R1.fq.gz" ftype="fastqsanger.gz"/>
+            <param name="seed" value="100"/>
+            <section name="advanced">
+                <param name="monotone_decreasing" value="true"/>
+            </section>
+            <output name="errors" ftype="dada2_errorrates">
+                <assert_contents><has_size min="1000"/></assert_contents>
+            </output>
+            <output name="plot" ftype="pdf">
+                <assert_contents><has_text text="%PDF"/></assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="Applied monotone-decreasing post-learning correction"/>
+            </assert_stdout>
+        </test>
     </tests>
     <help><![CDATA[
 Description
@@ -211,6 +239,25 @@ Error functions:
 - loessErrfun: accepts a matrix of observed transitions, with each transition corresponding to a row (eg. row 2 = A->C) and each column to a quality score (eg. col 31 = Q30). It returns a matrix of estimated error rates of the same shape. Error rates are estimates by a loess fit of the observed rates of each transition as a function of the quality score. Self-transitions (i.e. A->A) are taken to be the left-over probability.
 - noqualErrfun: accepts a matrix of observed transitions, groups together all observed transitions regardless of quality scores, and estimates the error rate for that transition as the observed fraction of those transitions. The effect is that quality scores will be effectively ignored.
 - PacBioErrfun: This function accepts a matrix of observed transitions from PacBio CCS amplicon sequencing data, with each transition corresponding to a row (eg. row 2 = A->C) and each column to a quality score (eg. col 31 = Q30). It returns a matrix of estimated error rates of the same shape. Error rates are estimates by loessErrfun for quality scores 0-92, and individually by the maximum likelihood estimate for the maximum quality score of 93.
+
+Optional NovaSeq post-learning correction
+................................................
+
+**Enforce non-increasing error rates after learning** reproduces the optional
+monotone-decreasing correction used by nf-core/ampliseq 2.11.0. For each
+transition row, each quality's rate is replaced by the maximum rate at that
+quality or any higher quality. This is a reverse cumulative maximum, applied
+after learning. It preserves the observed transitions, input error matrices,
+and convergence history. It modifies every output row, including self-transitions,
+without renormalizing the transition probabilities, matching that pipeline's
+implementation. The output plot displays the corrected model.
+
+This correction is **disabled by default**. It is distinct from choosing a
+binned-quality error estimation function inside the learning loop. Enable it
+only when the analysis calls for this particular transformation.
+
+Reference implementation: `nf-core/ampliseq 2.11.0 novaseq_err_se.r
+<https://github.com/nf-core/ampliseq/blob/2.11.0/bin/novaseq_err_se.r>`_.
 
 @HELP_OVERVIEW@
     ]]></help>
