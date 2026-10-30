@@ -1,6 +1,0 @@
-0	Cyanobacteria
-1.11	Cyanobacteria	Synechococcales
-4.881	Cyanobacteria	Synechococcales	Synechococcus_A
-54.66	Cyanobacteria	Synechococcales	Synechococcus_B
-13.57	Cyanobacteria	Synechococcales	Synechococcus_C
-0.0002124	Cyanobacteria	Synechococcales	Synechococcus_D
