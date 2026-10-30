@@ -121,3 +121,9 @@ The Galaxy method selectors are retained for existing workflows. Preprocessing c
 Cross-PCF emits each unordered cell-type pair once. Grouped LRIC remains directed. Both retain every column returned by LIANA in the H5AD and the tabular output. Existing annulus widths must be a positive integer multiple of the radius step. Angular sampling is no longer used by the analytical null. A nonzero legacy minimum-expressing-cell count must be replaced explicitly with the appropriate expression-proportion filter; the wrapper does not guess that scientific choice. Proportion filters default to zero to retain the previous wrapper's unfiltered default.
 
 Nullable-string serialization is explicitly enabled for all annotated-data outputs. The nullable PBMC regression fixture checks observation IDs, annotation missingness and the LIANA result table. PBMC expression tests use the nonnegative, log-normalized raw matrix rather than the scaled matrix in X. No expression values are clipped to satisfy the new validation.
+
+## Metalinks filters when upgrading to LIANA 2.0.0
+
+Annotation filters (cell location, tissue location, biospecimen, disease, and pathway) are shown only for `Fetch with LIANA`. Data Manager edge TSVs contain only the eight exported edge columns, so cached resources support the shared edge-type, HMDB-ID, UniProt-ID, and source-database filters. Cached Blood, Plasma, and Urine presets are already filtered during installation.
+
+The published `method|biospecimen_location` input moves to `method|metalinks_source|biospecimen_location`. When upgrading an existing `get_metalinks` workflow step, select `Fetch with LIANA` and re-enter its biospecimen filter. The four additional annotation controls introduced during this 2.0.0 update use the same source-specific location. Cached resource selections, shared direct filters, and rank-aggregate workflow parameters retain their paths. No resource table or installed identifier changes are required.
