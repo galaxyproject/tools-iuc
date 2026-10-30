@@ -1,0 +1,149 @@
+<tool id="perseus_filter" name="Perseus Filter Kraken2 Output" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>score and filter Kraken2 classifications using extracted Perseus features</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>perseus --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#set $taxonomy_db_path = $taxonomy_db.fields.path
+
+## `perseus filter` has no --threads option, but its Torch forward pass honours
+## the OpenMP/MKL thread counts, so keep it inside the slots Galaxy allocated.
+export OMP_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+export MKL_NUM_THREADS="\${GALAXY_SLOTS:-1}" &&
+## The data table points at a directory holding taxa.sqlite (and, when ETE3 has
+## already built it, its taxa.sqlite.traverse.pkl cache). Link both into the job
+## directory instead of copying: a full NCBI database is hundreds of MB and this
+## tool runs once per sample. ETE3 opens the database read-write, but its query
+## path only reads; the one write path is update_taxonomy_database, which ETE3
+## runs only for a database older than its DB_VERSION (2 in both ete3 and ete4).
+## The version column of the data table records that schema version, so an ETE3
+## that ever bumps it leaves the mismatch visible there, and the database is then
+## rebuilt with the ETE3 Setup Taxonomy Database tool.
+mkdir -p taxonomy_db &&
+ln -s '$taxonomy_db_path/taxa.sqlite' taxonomy_db/taxa.sqlite &&
+if [ -e '$taxonomy_db_path/taxa.sqlite.traverse.pkl' ]; then
+    ln -s '$taxonomy_db_path/taxa.sqlite.traverse.pkl' taxonomy_db/taxa.sqlite.traverse.pkl;
+fi &&
+mkdir -p feature_shards &&
+tar -xf '$feature_shards' -C feature_shards &&
+perseus filter
+    feature_shards
+    '$kraken_input'
+    perseus_filter_output.tsv
+    taxonomy_db
+    --seed $seed
+#if $output_all:
+    --output-all
+#end if
+&&
+#if $output_all:
+mv perseus_filter_output.tsv '$filtered_output' &&
+mv 'perseus_filter_output.full.tsv' '$all_assignments'
+#else:
+mv perseus_filter_output.tsv '$filtered_output'
+#end if
+    ]]></command>
+    <inputs>
+        <param name="feature_shards" type="data" format="tar" label="Feature shards" help="The tar archive produced by the Perseus Extract Features tool"/>
+        <expand macro="kraken_input_param"/>
+        <expand macro="taxonomy_db_param"/>
+        <param argument="--seed" type="integer" value="667" label="Random seed" help="Random seed used for reproducibility"/>
+        <param argument="--output-all" type="boolean" truevalue="--output-all" falsevalue="" checked="false" label="Output all candidate assignments" help="Report every candidate taxonomic assignment per sequence instead of only the single most likely one"/>
+    </inputs>
+    <outputs>
+        <data name="filtered_output" format="tabular" label="${tool.name} on ${on_string}: filtered classifications"/>
+        <data name="all_assignments" format="tabular" label="${tool.name} on ${on_string}: all candidate assignments">
+            <filter>output_all</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="feature_shards" value="feature_shards.tar" ftype="tar"/>
+            <param name="kraken_input" value="test_kraken.txt" ftype="tabular"/>
+            <param name="taxonomy_db" value="test"/>
+            <param name="seed" value="667"/>
+            <output name="filtered_output">
+                <assert_contents>
+                    <has_text text="perseus_taxid"/>
+                    <has_text text="perseus_taxonomy"/>
+                    <has_text text="chosen_rank"/>
+                    <has_text text="chosen_prob_at_rank"/>
+                    <has_text text="mess_input_1"/>
+                    <has_text text="Sanyastnella coralliicola"/>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- output_all also writes a second, unfiltered table: both must be delivered -->
+        <test expect_num_outputs="2">
+            <param name="feature_shards" value="feature_shards.tar" ftype="tar"/>
+            <param name="kraken_input" value="test_kraken.txt" ftype="tabular"/>
+            <param name="taxonomy_db" value="test"/>
+            <param name="seed" value="667"/>
+            <param name="output_all" value="true"/>
+            <output name="filtered_output">
+                <assert_contents>
+                    <has_text text="perseus_taxid"/>
+                    <has_text text="mess_input_1"/>
+                </assert_contents>
+            </output>
+            <output name="all_assignments">
+                <assert_contents>
+                    <has_text text="perseus_taxid"/>
+                    <has_text text="mess_input_1"/>
+                    <!-- one row per candidate, all 10 sequences are represented -->
+                    <has_n_lines min="100"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+Scores each Kraken2 classification with a trained convolutional neural network and
+combines the model output with lineage information in the installed Perseus taxonomy
+database to assign a confidence probability at every canonical taxonomic rank
+(superkingdom, phylum, class, order, family, genus, species).
+
+The output resembles the input Kraken2 output file without the string of k-mer
+matches, plus these columns:
+
+- `perseus_taxid` - the taxonomic ID assigned by Perseus
+- `perseus_taxonomy` - the taxonomic name assigned by Perseus
+- `chosen_rank` - the final chosen rank assigned by Perseus
+- `chosen_prob_at_rank` - the probability at the final chosen rank
+- `prob_{rank}` - the assignment probability at each canonical rank
+
+With **Report all candidate assignments** enabled, a second tabular output holds one
+row per (sequence, candidate taxon) pair with the per-rank probabilities, before the
+best candidate is chosen.
+
+### Inputs
+
+- **Feature shards**: the tar archive produced by **Perseus Extract Features**.
+- **Kraken2 output file**: the same per-read classification file used for feature
+  extraction.
+- **Random seed**: seed for the deterministic pass over the shards; keep the default
+  to make runs comparable.
+- **ETE3 taxonomy database**: an ETE3 NCBI taxonomy database installed by the
+  **ETE3 Setup Taxonomy Database** data manager.
+
+### Output notes
+
+Both outputs are tabular files **with a header line**, so unlike Kraken2 output they
+cannot simply be concatenated with other Kraken2 results; drop the header (or use
+the column names) when combining files. The other Kraken2 columns are passed through
+unchanged.
+
+## About Perseus
+
+Perseus is a post-processing framework for refining Kraken2 taxonomic
+classifications, with a focus on long-read metagenomics (PacBio HiFi, ONT). It is
+designed to reduce false positive fine-rank calls arising from conserved regions,
+sparse k-mer support, and reference database incompleteness, by backing off
+low-confidence assignments to higher, lineage-consistent ranks.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

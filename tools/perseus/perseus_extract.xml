@@ -1,0 +1,103 @@
+<tool id="perseus_extract" name="Perseus Extract Features" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>extract lineage-aware features from a Kraken2 output file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>perseus --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#set $taxonomy_db_path = $taxonomy_db.fields.path
+
+## The data table points at a directory holding taxa.sqlite (and, when ETE3 has
+## already built it, its taxa.sqlite.traverse.pkl cache). Link both into the job
+## directory instead of copying: a full NCBI database is hundreds of MB and this
+## tool runs once per sample. ETE3 opens the database read-write, but its query
+## path only reads; the one write path is update_taxonomy_database, which ETE3
+## runs only for a database older than its DB_VERSION (2 in both ete3 and ete4).
+## The version column of the data table records that schema version, so an ETE3
+## that ever bumps it leaves the mismatch visible there, and the database is then
+## rebuilt with the ETE3 Setup Taxonomy Database tool.
+mkdir -p taxonomy_db &&
+ln -s '$taxonomy_db_path/taxa.sqlite' taxonomy_db/taxa.sqlite &&
+if [ -e '$taxonomy_db_path/taxa.sqlite.traverse.pkl' ]; then
+    ln -s '$taxonomy_db_path/taxa.sqlite.traverse.pkl' taxonomy_db/taxa.sqlite.traverse.pkl;
+fi &&
+mkdir -p feature_shards &&
+perseus extract
+    '$kraken_input'
+    feature_shards
+    taxonomy_db
+    --min-tax-kmers $min_tax_kmers
+    --threads "\${GALAXY_SLOTS:-1}"
+&&
+test -f feature_shards/manifest.json
+&&
+tar -cf '$feature_shards_output' -C feature_shards .
+    ]]></command>
+    <inputs>
+        <expand macro="kraken_input_param"/>
+        <expand macro="taxonomy_db_param"/>
+        <param argument="--min-tax-kmers" type="integer" value="0" min="0" label="Minimum taxonomic k-mers per sequence" help="Sequences with fewer taxonomic k-mers than this are excluded from the output (0 = include all sequences)"/>
+    </inputs>
+    <outputs>
+        <data name="feature_shards_output" format="tar" label="${tool.name} on ${on_string}: feature shards"/>
+    </outputs>
+    <tests>
+        <!-- default: every sequence is kept (min-tax-kmers 0) -->
+        <test expect_num_outputs="1">
+            <param name="kraken_input" value="test_kraken.txt" ftype="tabular"/>
+            <param name="taxonomy_db" value="test"/>
+            <param name="min_tax_kmers" value="0"/>
+            <output name="feature_shards_output">
+                <assert_contents>
+                    <has_text text="manifest.json"/>
+                    <has_text text="channels"/>
+                    <has_text_matching expression="&quot;min_tax_kmers&quot;:\s*0"/>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- sequences with little taxonomic evidence are dropped -->
+        <test expect_num_outputs="1">
+            <param name="kraken_input" value="test_kraken.txt" ftype="tabular"/>
+            <param name="taxonomy_db" value="test"/>
+            <param name="min_tax_kmers" value="1000"/>
+            <output name="feature_shards_output">
+                <assert_contents>
+                    <has_text text="manifest.json"/>
+                    <has_text_matching expression="&quot;min_tax_kmers&quot;:\s*1000"/>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+Extracts a lineage-aware feature matrix from a Kraken2 output file and writes it as
+a directory of sharded files, which the **Perseus Filter Kraken2 Output** tool
+consumes together with the same Kraken2 output file to compute per-rank confidence
+probabilities.
+
+The output of this tool is a single tar archive containing the shard directory; use
+it directly as the *Feature shards* input of **Perseus Filter Kraken2 Output**.
+
+### Inputs
+
+- **Kraken2 output file**: the per-read classification file produced by Kraken2, i.e.
+  the file with the columns classified/unclassified, sequence ID, taxonomy ID,
+  sequence length and the k-mer LCA mapping. The Kraken2 *report* file is not
+  accepted.
+- **Minimum taxonomic k-mers per sequence**: sequences with less taxonomic evidence
+  than this are dropped before the feature matrix is built; the default of 0 keeps
+  every sequence.
+- **ETE3 taxonomy database**: an ETE3 NCBI taxonomy database installed by the
+  **ETE3 Setup Taxonomy Database** data manager.
+
+## About Perseus
+
+Perseus is a post-processing framework for refining Kraken2 taxonomic
+classifications, with a focus on long-read metagenomics (PacBio HiFi, ONT).
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
