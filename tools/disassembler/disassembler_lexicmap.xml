@@ -1,0 +1,273 @@
+<tool id="disassembler_lexicmap" name="disassembler lexicmap" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>tile LexicMap hits into a codon-checked cohort and collapsed haplotypes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $query.is_of_type('fasta.gz'):
+            gunzip -c '$query' > query.fa &&
+        #else:
+            ln -s '$query' query.fa &&
+        #end if
+        disassembler lexicmap
+            --query query.fa
+            --file '$infile'
+            --out-prefix out/lexicmap
+            --min-cov $min_cov
+            --min-cov-partial $min_cov_partial
+            --min-pident $min_pident
+            --max-internal-stops $max_internal_stops
+            --samples-per-haplotype $samples_per_haplotype
+            #if str($max_records).strip():
+                --max-records $max_records
+            #end if
+            $require_full_length
+            $allow_frameshift_alts
+            #if not $output_options.emit_a2m:
+                --no-a2m
+            #end if
+            $allow_empty
+    ]]></command>
+    <inputs>
+        <param name="infile" type="data" format="tabular" label="LexicMap search results" help="Output of LexicMap Search run with 'Output all columns' on, so the aligned sequences (qseq, sseq) are present. Each genome's hits must be on consecutive lines, as LexicMap writes them."/>
+        <param argument="--query" type="data" format="fasta,fasta.gz" label="Reference CDS" help="The in-frame coding sequence that was searched, optionally gzip-compressed. Only the first record is used; its length defines the coordinate grid every hit is projected onto."/>
+        <param argument="--min-cov" type="float" value="0.80" min="0" max="1" label="Minimum coverage for the full-length cohort" help="Fraction of the reference an accession's merged hits must cover to enter the clean full-length cohort."/>
+        <param argument="--min-cov-partial" type="float" value="0.50" min="0" max="1" label="Minimum coverage for the partial cohort" help="Accessions between this and the full-length gate enter the clean partial cohort. Must not exceed the full-length gate."/>
+        <param argument="--min-pident" type="float" value="60.0" min="0" max="100" label="Minimum percent identity per hit" help="Hits below this identity are dropped before coverage is computed."/>
+        <param argument="--max-internal-stops" type="integer" value="0" min="0" label="Maximum premature stop codons" help="Accessions with more premature stops than this in the CDS body are flagged out of the clean cohort."/>
+        <param argument="--require-full-length" type="boolean" truevalue="--require-full-length" falsevalue="" checked="false" label="Require 100% coverage for the full-length cohort" help="Use complete coverage instead of the minimum coverage above as the full-length gate."/>
+        <param argument="--allow-frameshift-alts" type="boolean" truevalue="--allow-frameshift-alts" falsevalue="" checked="false" label="Keep frameshifted accessions in the clean cohort" help="Let accessions whose indels or frameshifts produce premature stops into the clean cohort anyway."/>
+        <param argument="--samples-per-haplotype" type="integer" value="10" min="1" label="Representative accessions per haplotype" help="Maximum number of accessions listed for each collapsed haplotype in the haplotype table. Does not affect the FASTA outputs."/>
+        <param argument="--max-records" type="integer" value="" min="1" optional="true" label="Stop after N input rows (preview)" help="Process at most N rows of the LexicMap tabular stream, then stop. Useful for sanity-checking the schema and reference choice against a very large tabular dataset before letting a full run go. Leave empty for the full stream."/>
+        <param argument="--allow-empty" type="boolean" truevalue="--allow-empty" falsevalue="" checked="false" label="Succeed even if the clean cohort is empty" help="By default the job fails when no accession passes the gates, so a whole-target miss is not mistaken for a good run."/>
+        <section name="output_options" title="Optional outputs" expanded="false">
+            <param name="emit_clean_accessions" type="boolean" checked="true" label="Clean full-length accessions FASTA" help="One tiled sequence per clean full-length accession. Needed as input to disassembler sieve or msa, and for cohort-frequency heatmaps."/>
+            <param name="emit_expanded_accessions" type="boolean" checked="false" label="Clean full-length + partial accessions FASTA" help="The clean full-length accessions plus the 50-80 percent partial tier."/>
+            <param name="emit_flagged_accessions" type="boolean" checked="true" label="Flagged accessions FASTA" help="Accessions excluded for premature stops or low coverage. Useful for QC."/>
+            <param name="emit_flagged_table" type="boolean" checked="true" label="Flagged accessions table" help="Audit entries for the flagged accessions."/>
+            <param name="emit_cohort_ledger" type="boolean" checked="true" label="Cohort ledger" help="One row per evaluated accession with its coverage, identity, status and tier."/>
+            <param name="emit_a2m" type="boolean" checked="false" label="Clean haplotype alignment (A2M)" help="The clean alignment in A2M format, for protein language models or EVcouplings."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="clean_msa" format="fasta" from_work_dir="out/lexicmap.clean.msa.fasta" label="${tool.name} on ${on_string}: clean haplotype alignment"/>
+        <data name="clean_haplotypes" format="tabular" from_work_dir="out/lexicmap.clean.haplotypes.tsv" label="${tool.name} on ${on_string}: clean haplotype table"/>
+        <data name="summary" format="json" from_work_dir="out/lexicmap.summary.json" label="${tool.name} on ${on_string}: summary"/>
+        <data name="clean_accessions" format="fasta" from_work_dir="out/lexicmap.clean.accessions.fasta" label="${tool.name} on ${on_string}: clean full-length accessions">
+            <filter>output_options['emit_clean_accessions']</filter>
+        </data>
+        <data name="clean_expanded_accessions" format="fasta" from_work_dir="out/lexicmap.clean_expanded.accessions.fasta" label="${tool.name} on ${on_string}: clean full-length and partial accessions">
+            <filter>output_options['emit_expanded_accessions']</filter>
+        </data>
+        <data name="flagged_accessions" format="fasta" from_work_dir="out/lexicmap.flagged.accessions.fasta" label="${tool.name} on ${on_string}: flagged accessions">
+            <filter>output_options['emit_flagged_accessions']</filter>
+        </data>
+        <data name="flagged_table" format="tabular" from_work_dir="out/lexicmap.flagged.tsv" label="${tool.name} on ${on_string}: flagged accession table">
+            <filter>output_options['emit_flagged_table']</filter>
+        </data>
+        <data name="cohort_ledger" format="tabular" from_work_dir="out/lexicmap.cohort_ledger.tsv" label="${tool.name} on ${on_string}: cohort ledger">
+            <filter>output_options['emit_cohort_ledger']</filter>
+        </data>
+        <data name="clean_a2m" format="a2m" from_work_dir="out/lexicmap.clean.a2m" label="${tool.name} on ${on_string}: clean haplotype alignment (A2M)">
+            <filter>output_options['emit_a2m']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Five accessions against a 12 nt CDS: SRR001 tiles two half-length hits, SRR002 is a
+             full-length missense variant, SRR003 has a premature stop, SRR004 covers half the CDS
+             and SRR005 a third. -->
+        <test expect_num_outputs="9">
+            <param name="infile" value="lexicmap_hits.tabular" ftype="tabular"/>
+            <param name="query" value="lexicmap_query.fasta" ftype="fasta"/>
+            <section name="output_options">
+                <param name="emit_expanded_accessions" value="true"/>
+                <param name="emit_a2m" value="true"/>
+            </section>
+            <output name="clean_msa">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                    <has_line line="ATGGTTGAATAA"/>
+                </assert_contents>
+            </output>
+            <output name="clean_haplotypes">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_text text="A2V"/>
+                </assert_contents>
+            </output>
+            <output name="clean_accessions">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="SRR001"/>
+                    <has_text text="SRR002"/>
+                    <not_has_text text="SRR003"/>
+                </assert_contents>
+            </output>
+            <output name="clean_expanded_accessions">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                    <has_text text="SRR004"/>
+                </assert_contents>
+            </output>
+            <output name="flagged_accessions">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="SRR003"/>
+                    <has_text text="SRR005"/>
+                </assert_contents>
+            </output>
+            <output name="flagged_table">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_text text="SRR003"/>
+                </assert_contents>
+            </output>
+            <output name="cohort_ledger">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                    <has_line_matching expression="^SRR001\t1\.0000\t100\.00\tCLEAN_FULL_LENGTH\t.*"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="clean_full_length" value="2"/>
+                    <has_json_property_with_value property="clean_partial" value="1"/>
+                </assert_contents>
+            </output>
+            <output name="clean_a2m">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                    <has_line line="&gt;test_cds/1-12"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="7">
+            <!-- Tolerating one stop admits SRR003. -->
+            <param name="infile" value="lexicmap_hits.tabular" ftype="tabular"/>
+            <param name="query" value="lexicmap_query.fasta" ftype="fasta"/>
+            <param name="max_internal_stops" value="1"/>
+            <output name="clean_accessions">
+                <assert_contents>
+                    <has_n_lines n="6"/>
+                    <has_text text="SRR003"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="clean_full_length" value="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <!-- The partial gate must not exceed the full-length gate; the CLI rejects this. -->
+            <param name="infile" value="lexicmap_hits.tabular" ftype="tabular"/>
+            <param name="query" value="lexicmap_query.fasta" ftype="fasta"/>
+            <param name="min_cov" value="0.5"/>
+            <param name="min_cov_partial" value="0.8"/>
+        </test>
+        <test expect_num_outputs="7">
+            <!-- Gzipped reference: the wrapper decompresses it before the tool runs. -->
+            <param name="infile" value="lexicmap_hits.tabular" ftype="tabular"/>
+            <param name="query" value="lexicmap_query.fasta.gz" ftype="fasta.gz"/>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="clean_full_length" value="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="7">
+            <!-- max_records=2 stops after SRR001's two HSPs. Only SRR001 reaches the
+                 full-length cohort; SRR002..SRR005 are never seen. -->
+            <param name="infile" value="lexicmap_hits.tabular" ftype="tabular"/>
+            <param name="query" value="lexicmap_query.fasta" ftype="fasta"/>
+            <param name="max_records" value="2"/>
+            <output name="clean_accessions">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="SRR001"/>
+                    <not_has_text text="SRR002"/>
+                </assert_contents>
+            </output>
+            <output name="summary">
+                <assert_contents>
+                    <has_json_property_with_value property="clean_full_length" value="1"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+@HELP_SUITE@
+
+-----
+
+What it does
+************
+
+Turns LexicMap search hits of a reference CDS against Logan contigs into a codon-checked cohort of
+accessions and a table of collapsed haplotypes. This is the fast route: it never downloads unitigs.
+The trade-off is that a LexicMap hit is an alignment projected onto the reference, not a walked
+haplotype, so it does not recover intra-host variants. Use **disassembler walker** for those.
+
+For each accession (subject genome) the tool:
+
+1. drops hits below the identity floor,
+2. tiles the remaining hits onto the reference coordinates, merging hits that each cover only part
+   of the gene,
+3. checks the tiled sequence for premature stop codons,
+4. files the accession as clean full-length, clean partial, or flagged (premature stops or low
+   coverage).
+
+Clean full-length sequences are then collapsed into distinct haplotypes and annotated with their
+nucleotide and amino-acid changes against the reference.
+
+-----
+
+Inputs
+******
+
+- **LexicMap search results**: the tabular output of **LexicMap Search**, run with *Output all
+  columns* on so the aligned sequences are present. Each genome's hits must sit on consecutive
+  lines. LexicMap writes them that way. The tool stops with an error if a genome reappears later.
+- **Reference CDS**: the in-frame coding sequence that was searched.
+
+-----
+
+Outputs
+*******
+
+Always written:
+
+- **Clean haplotype alignment**: the reference followed by one sequence per distinct clean
+  haplotype, in reference coordinates. Headers carry counts and frequencies. This is already a
+  reference-coordinate MSA: every row is the reference length, with no gaps and no Ns. Re-running
+  MAFFT on it reproduces it byte-for-byte on strict clean-cohort output, so **disassembler msa** is
+  a no-op on this file and only needs to run for parity with the walker route.
+- **Clean haplotype table**: per haplotype, its count, frequency, identity, mutations, mutation
+  class and representative accessions.
+- **Summary**: cohort counts, coverage and identity distributions, and run statistics.
+
+Toggleable under *Optional outputs* (default on):
+
+- **Clean full-length accessions**: one tiled sequence per clean full-length accession. In the same
+  reference coordinates as the clean haplotype alignment, and ready for **disassembler sieve** (or
+  **disassembler msa**, where the MAFFT pass is the same no-op).
+- **Flagged accessions** and **flagged accession table**: accessions excluded for premature stops or
+  low coverage, with the reason.
+- **Cohort ledger**: one row per evaluated accession with its coverage, identity, status and tier.
+
+Toggleable under *Optional outputs* (default off):
+
+- **Clean full-length and partial accessions**: the clean full-length accessions plus the
+  50-80 percent partial tier.
+- **Clean haplotype alignment (A2M)**: the clean alignment in A2M format, for protein language
+  models or EVcouplings.
+
+    ]]></help>
+    <expand macro="citations">
+        <citation type="doi">10.1101/2024.08.30.610459</citation>
+        <citation type="doi">10.1101/2024.07.30.605881</citation>
+    </expand>
+</tool>
