@@ -1,5 +1,5 @@
 <tool id="cri_calc" name="Composite Resistance Index (CRI) Calculator" version="1.0.3+galaxy0" profile="21.05">
-    <description>for NSCLC Targeted Therapy (Post-ADAURA)</description>
+    <description>Biophysical Risk Stratification and Cohort Scoring for NSCLC Targeted Therapy</description>
     <requirements>
         <requirement type="package" version="1.0.3">spatial-continuum</requirement>
     </requirements>
@@ -46,7 +46,7 @@
                 </param>
             </when>
             <when value="batch">
-                <param name="cohort_table" type="data" format="tabular,tsv,csv" label="Patient Cohort Table" help="Tabular dataset containing patient records with columns: patient_id, histologic_subtype, tp53_status, rb1_status, stromal_desmoplasia" />
+                <param name="cohort_table" type="data" format="tabular,tsv,csv" label="Patient Cohort Table" help="Tabular dataset containing patient records with columns: patient_id, histologic_subtype, tp53_status, rb1_status, stromal_desmoplasia (optional follow-up columns like dfs_months and recurrence_status are preserved for downstream survival analysis)" />
             </when>
         </conditional>
     </inputs>
@@ -92,29 +92,82 @@
 
 **What it does**
 
-The **Composite Resistance Index (CRI)** calculator implements the biophysical reaction-diffusion clinical stratification
-framework for early-stage *EGFR*-mutated non-small cell lung cancer (NSCLC) following 36 months of adjuvant osimertinib (ADAURA trial setting).
+The **Composite Resistance Index (CRI)** calculator is a quantitative precision oncology tool for early-stage *EGFR*-mutated
+non-small cell lung cancer (NSCLC) following 36 months of adjuvant osimertinib (ADAURA trial setting).
 
-**Input Modes**
+It translates physical transport parameters and co-mutational profiles into a calibrated risk metric that stratifies patient
+cohorts into actionable post-ADAURA maintenance tiers.
 
-1. **Single Patient Mode (Bedside Consultation):** Interactive dropdowns for rapid risk tiering during Molecular Tumor Boards.
-2. **Batch Cohort Mode (Tabular Analysis):** Upload a tab-separated (TSV) or comma-separated (CSV) file of an entire clinical patient cohort. The tool parses patient rows with fuzzy column matching (patient_id, histology/pattern, tp53, rb1, stroma) and generates an enriched dataset annotated with individual CRI scores, risk tiers, and treatment recommendations.
+-----
 
-The Bedside CRI formula integrates:
+**Biophysical Calculation Engine**
 
-.. math::
-    CRI = 0.47 \\mathcal{S} + 0.33 \\mathcal{G} + 0.20 \\mathcal{M}
+For each patient in a cohort, the tool computes:
 
-where:
-- :math:`\\mathcal{S}`: Spatial microvascular decoupling score (Solid/Micropapillary = 1.0, Papillary/Acinar = 0.4, Lepidic = 0.0)
-- :math:`\\mathcal{G}`: Genomic co-mutation risk (*EGFR* + *TP53* + *RB1* triple mutant = 1.0, *TP53* or *RB1* = 0.5, pure *EGFR* = 0.0)
-- :math:`\\mathcal{M}`: Microenvironment / Stromal desmoplasia (Dense = 1.0, Moderate = 0.5, Low = 0.0)
+1. **Spatial Decoupling Score (:math:`\\mathcal{S}`):** Derived from histological tumor cord geometry.
+   In solid tumors, drug penetration from microvessels into tumor cords is governed by reaction-diffusion:
 
-**Clinical Decision Output**
+   .. math::
+       C(r) = C_0 \\frac{K_0(\\lambda r)}{K_0(\\lambda r_0)}
 
-- **Tier 1 (CRI < 0.30):** Safe cessation at Month 36. Cured alveolar cords, zero sanctuary shell.
-- **Tier 2 (0.30 <= CRI <= 0.65):** Intermediate risk. Intensified longitudinal ctDNA MRD monitoring every 60 days.
-- **Tier 3 (CRI > 0.65):** High sanctuary risk. Mandatory ongoing treatment (Extended Osimertinib or SG-ADAURA Arm B3 with anti-VEGFR2 Ramucirumab).
+   where :math:`r_0 = 8.0\\ \\mu\\text{m}` is the microvessel radius and :math:`K_0` is the modified Bessel function of the second kind.
+   The effective drug penetration distance is :math:`\\Delta r = 34.1\\ \\mu\\text{m}`.
+
+   - **Lepidic pattern (:math:`\\mathcal{S} = 0.00`):** Single-cell layer along alveolar septa (:math:`r_t \\le 10\\ \\mu\\text{m}`). Tumor cells are directly adjacent to capillaries; 0% sanctuary volume.
+   - **Acinar / Papillary pattern (:math:`\\mathcal{S} = 0.40`):** Cords of intermediate radius (:math:`r_t \\sim 30\\text{-}40\\ \\mu\\text{m}`).
+   - **Solid / Micropapillary pattern (:math:`\\mathcal{S} = 1.00`):** Large avascular expansile nests (:math:`r_t > 100\\ \\mu\\text{m}`). The limited drug penetration leave an unpenetrated outer sanctuary shell (:math:`r > r_{\\text{crit}}`) where persister cells survive.
+
+2. **Genomic Co-Mutation Risk (:math:`\\mathcal{G}`):**
+   - Pure *EGFR* mutant: :math:`\\mathcal{G} = 0.00`
+   - *EGFR* + *TP53* co-mutant (impaired apoptosis): :math:`\\mathcal{G} = 0.50`
+   - *EGFR* + *TP53* + *RB1* triple mutant (lineage plasticity / SCLC transformation risk): :math:`\\mathcal{G} = 1.00`
+
+3. **Stromal Desmoplasia / Interstitial Pressure (:math:`\\mathcal{M}`):**
+   - Loose / normal stroma (normal IFP ~0 mmHg): :math:`\\mathcal{M} = 0.00`
+   - Moderate stroma (IFP 5-15 mmHg): :math:`\\mathcal{M} = 0.50`
+   - Dense desmoplasia (high IFP > 20 mmHg, convective shutdown): :math:`\\mathcal{M} = 1.00`
+
+4. **Composite Resistance Index (CRI):**
+   Integrated vector score weighted by Cox proportional hazards regression:
+
+   .. math::
+       CRI = 0.47 \\mathcal{S} + 0.33 \\mathcal{G} + 0.20 \\mathcal{M}
+
+-----
+
+**Downstream Workflow: Direct Integration with Galaxy Survminer**
+
+In high-throughput cohort workflows, the input dataset typically includes clinical follow-up variables (e.g. disease-free survival time and recurrence event status).
+
+The tool **preserves all existing input columns** and appends 7 quantitative analytical columns:
+``S_score``, ``G_score``, ``M_score``, ``CRI_Score``, ``Risk_Tier``, ``Expected_5yr_DFS``, and ``Actionable_Recommendation``.
+
+This enables seamless downstream chaining into survival analysis tools:
+
+.. code-block:: text
+
+    [Clinical Patient Cohort (TSV)]
+      (with 'dfs_months' & 'recurrence_status')
+                  │
+                  ▼
+     [CRI Calculator (Batch Mode)]
+                  │  Appends CRI_Score & Risk_Tier
+                  ▼
+     [Galaxy Survminer / R Survival]
+       • Time variable:      dfs_months
+       • Status variable:    recurrence_status (0=censored, 1=event)
+       • Explanatory factor: Risk_Tier
+                  │
+                  ▼
+    [Kaplan-Meier Survival Curves & Log-Rank p-value]
+
+-----
+
+**Clinical Risk Stratification Tiers**
+
+- **Tier 1 (CRI < 0.30):** Low risk (expected 5-year DFS > 85%). Zero sanctuary volume; safe osimertinib cessation at Month 36.
+- **Tier 2 (0.30 <= CRI <= 0.65):** Intermediate risk (expected 5-year DFS ~ 55%). Cessation accompanied by intensified serial plasma ctDNA surveillance every 60 days.
+- **Tier 3 (CRI > 0.65):** High risk (expected 5-year DFS < 25%). Viable persister sanctuary; mandatory maintenance extension or anti-angiogenic vascular remodeling (e.g. ramucirumab / SG-ADAURA Arm B3).
     ]]></help>
     <citations>
         <citation type="doi">10.21203/rs.3.rs-11530312/v1</citation>
