@@ -17,18 +17,32 @@
             #set $samestr_db_dir = $out_file.extra_files_path + '/samestr_db/' + $db_value
             mkdir -p '$samestr_db_dir' &&
 
-            #set $source_pkl = $db_path + '/' + $db_key + '.pkl'
-            #set $destination_pkl = $samestr_db_dir + $db_value + '.pkl'
-            cp '$source_pkl' '$destination_pkl' &&
+            ## The MetaPhlAn pkl is only read by `samestr db` to map markers to
+            ## clades; that mapping ends up in db_clades.json/db_taxonomy.tsv, and
+            ## nothing reads the pkl from the built database afterwards. Point at
+            ## the MetaPhlAn copy instead of duplicating it into the output.
+            #set $markers_info = $db_path + '/' + $db_key + '.pkl'
 
-            #set $concatenated_fasta = $samestr_db_dir + '/' + 'mpa_markers.fna'
-            cat '${db_path}/${db_key}'*.fna > '$concatenated_fasta' &&
+            ## MetaPhlAn's installer builds the bowtie2 index and then deletes the
+            ## marker FASTA, so always reconstruct the markers from the bowtie2
+            ## index with bowtie2-inspect. Don't glob for '<dbkey>*.fna': that
+            ## also matches sibling files such as the (possibly empty) viral
+            ## '<dbkey>_VSG.fna', which yields a database without marker positions.
+            ## This is a build-time input as well, so keep it in the job working
+            ## directory rather than in the published database.
+            #set $concatenated_fasta = 'mpa_markers.fna'
+            bowtie2-inspect '${db_path}/${db_key}' > '$concatenated_fasta' &&
+            ## samestr db does not complain about an empty markers FASTA.
+            if [ ! -s '$concatenated_fasta' ]; then
+                echo 'No marker sequences reconstructed from ${db_path}/${db_key}' >&2;
+                exit 1;
+            fi &&
 
             #set $db_version_file = $samestr_db_dir + '/' + $version_file_name
             echo '$db_key' > '$db_version_file' &&
 
             samestr db
-            --markers-info '$destination_pkl'
+            --markers-info '$markers_info'
             --markers-fasta '$concatenated_fasta'
             --db-version '$db_version_file'
             --output-dir '$samestr_db_dir'
@@ -43,13 +57,14 @@
             #set $samestr_db_dir = $out_file.extra_files_path + '/samestr_db/' + $db_value
             mkdir -p '$samestr_db_dir' &&
 
-            #set $markers_info1 = $db_path + '/db_mOTU/db_mOTU_taxonomy_ref-mOTUs.tsv'
-            #set $markers_info2 = $db_path + '/db_mOTU/db_mOTU_taxonomy_meta-mOTUs.tsv'
-            #set $markers_fasta = $db_path + '/db_mOTU/db_mOTU_DB_CEN.fasta'
+            ## motus_db_versioned 'path' is the db_mOTU directory itself, as
+            ## written by the mOTUs data manager, so the markers sit next to it.
+            #set $markers_info1 = $db_path + '/db_mOTU_taxonomy_ref-mOTUs.tsv'
+            #set $markers_info2 = $db_path + '/db_mOTU_taxonomy_meta-mOTUs.tsv'
+            #set $markers_fasta = $db_path + '/db_mOTU_DB_CEN.fasta'
 
             #set $db_version_file = $samestr_db_dir + '/' + $version_file_name
-            cp '$db_path'/db_mOTU/db_mOTU_versions '$db_version_file' &&
-
+            cp '$db_path/db_mOTU_versions' '$db_version_file' &&
 
             samestr db
             --markers-info '$markers_info1' '$markers_info2'
@@ -59,6 +74,9 @@
             &&
 
         #end if
+
+        ## Log the manifest (marker and position counts) of the built database.
+        cat '$samestr_db_dir/db_manifest.json' &&
 
         echo '{
             "data_tables": {
@@ -118,6 +136,10 @@
                     <has_text_matching expression='"version_file": "motus_test"'/>
                 </assert_contents>
             </output>
+            <assert_stdout>
+                <has_text text='"total_n_markers": 2'/>
+                <has_text text='"total_n_positions": 80'/>
+            </assert_stdout>
         </test>
         <test>
             <conditional name="db_source">
@@ -133,6 +155,13 @@
                     <has_text_matching expression='"version_file": "mpa_test_value"' />
                 </assert_contents>
             </output>
+            <!-- test-data has no marker FASTA, only the bowtie2 index and an empty
+                 _VSG.fna decoy; a '<dbkey>*.fna' glob would build a database
+                 with 0 positions. -->
+            <assert_stdout>
+                <has_text text='"total_n_markers": 90'/>
+                <has_text text='"total_n_positions": 112086'/>
+            </assert_stdout>
         </test>
 
     </tests>

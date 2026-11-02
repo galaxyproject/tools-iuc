@@ -1,0 +1,160 @@
+<macros>
+    <token name="@TOOL_VERSION@">0.5.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">25.0</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">impg</requirement>
+        </requirements>
+    </xml>
+    <xml name="version_command">
+        <version_command>impg --version</version_command>
+    </xml>
+    <xml name="stdio">
+        <stdio>
+            <regex match="Failed to allocate" source="stderr" level="fatal_oom"/>
+            <regex match="std::bad_alloc" source="stderr" level="fatal_oom"/>
+            <regex match="Cannot allocate memory" source="stderr" level="fatal_oom"/>
+            <regex match="terminate called after throwing an instance of" source="stderr" level="fatal"/>
+        </stdio>
+    </xml>
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1038/s41592-024-02430-3</citation>
+            <citation type="doi">10.1038/s41587-020-0734-4</citation>
+            <citation type="bibtex">@misc{impg,
+  author       = {Andrea Guarracino and Bryce Kille and Erik Garrison},
+  title        = {impg: implicit pangenome graph},
+  year         = {2025},
+  url          = {https://github.com/pangenome/impg}
+}</citation>
+        </citations>
+    </xml>
+    <!-- Command fragments (Cheetah -> must be tokens) -->
+    <!-- Symlink each input alignment into the working directory so impg can
+         write its '.impg' cache next to it (input datasets are read-only). -->
+    <token name="@SETUP_ALIGNMENTS@"><![CDATA[
+#for $i, $aln in enumerate($alignment)
+    ln -s '$aln' alignment_${i}.paf &&
+#end for
+    ]]></token>
+    <!-- The -a argument listing all symlinked alignment files. -->
+    <token name="@ALIGNMENT_ARGS@"><![CDATA[-a#for $i in range(len($alignment))# alignment_${i}.paf#end for#]]></token>
+    <!-- Symlink sequence files into the working dir with a .fa extension so
+          impg can build its FASTA index (it rejects Galaxy's .dat datasets).
+          Expects a Cheetah variable $sequence_files to be set before use. -->
+    <token name="@SETUP_SEQUENCE_FILES@"><![CDATA[
+#if $sequence_files
+    #for $i, $sf in enumerate($sequence_files)
+        ln -s '$sf' seq_${i}.fa &&
+    #end for
+#end if
+    ]]></token>
+    <token name="@SEQUENCE_FILE_ARGS@"><![CDATA[--sequence-files#for $i in range(len($sequence_files))# seq_${i}.fa#end for#]]></token>
+    <token name="@THREADS@">-t "\${GALAXY_SLOTS:-4}"</token>
+    <!-- Shared input parameters -->
+    <xml name="alignment_input">
+        <param name="alignment" type="data" format="paf,paf.gz" multiple="true" min="1" label="Alignment file(s)" help="One or more pairwise alignment files in PAF format (use 'minimap2 --eqx' or 'wfmash' output). May be bgzipped (.paf.gz). impg builds a reusable '.impg' index next to the input."/>
+    </xml>
+    <xml name="merge_distance_param">
+        <param argument="--merge-distance" type="text" value="1000" label="Merge distance" help="Merge query-gathered ranges separated by at most this many bp. Also the largest internal gap/SV a single query hop can absorb. Accepts k/m/g suffixes (e.g. 50k, 1m). Use 0 to merge only overlapping/touching ranges.">
+            <validator type="regex" message="A non-negative integer, optionally followed by k, m, or g (e.g. 1000, 50k, 1m)">^[0-9]+[kKmMgG]?$</validator>
+        </param>
+    </xml>
+    <xml name="target_region_conditional">
+        <conditional name="query_region">
+            <param name="mode" type="select" label="Query region source">
+                <option value="single" selected="true">Single target range</option>
+                <option value="bed">BED file of regions</option>
+            </param>
+            <when value="single">
+                <param name="target_range" type="text" value="" label="Target range" help="Format 'seq_name:start-end', e.g. 'chr1:1000-2000'. The split is on the *last* colon, so names that already contain coordinates (e.g. 'grch38#chr6:31972046-32055647') need an explicit trailing sub-range like 'grch38#chr6:31972046-32055647:0-10000'.">
+                    <validator type="regex" message="Use the format seq_name:start-end with non-negative integers">^[^:]+:[0-9]+-[0-9]+$</validator>
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value=":"/>
+                            <add value="-"/>
+                            <add value="#"/>
+                            <add value="_"/>
+                            <add value="."/>
+                            <add value="|"/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+            <when value="bed">
+                <param name="target_bed" type="data" format="bed" label="BED file of target regions"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="sequence_files_param">
+        <param name="sequence_files" type="data" format="fasta,fasta.gz" multiple="true" optional="true" label="Sequence files" help="Source FASTA(s) (optionally gzipped) for the sequences referenced in the alignment. Required for fasta / gfa / maf / vcf output."/>
+    </xml>
+    <xml name="transitive_section">
+        <section name="transitive" title="Transitive queries" expanded="false">
+            <param argument="--transitive" type="boolean" truevalue="--transitive" falsevalue="" checked="false" label="Walk transitive closure" help="Find everything aligned to the initial result, recursively (BFS by default)."/>
+            <param argument="--transitive-dfs" type="boolean" truevalue="--transitive-dfs" falsevalue="" checked="false" label="Use DFS instead of BFS" help="Depth-first search returns fewer, less overlapping results but is slower."/>
+            <param argument="--max-depth" type="integer" value="2" min="0" label="Max recursion depth" help="Maximum recursion depth for transitive overlaps (0 = no limit)."/>
+            <param argument="--min-transitive-len" type="integer" value="101" min="0" label="Min transitive region size" help="Minimum region size (bp) to consider for transitive queries."/>
+            <param argument="--min-distance-between-ranges" type="integer" value="10" min="0" label="Min distance between transitive ranges" help="Minimum distance (bp) between transitive ranges on the same sequence."/>
+        </section>
+    </xml>
+    <!-- Shared by query / refine / similarity (all expose the same filter set).
+         partition has a smaller flag set and defines its own filtering inline. -->
+    <xml name="filtering_section">
+        <section name="filtering" title="Filtering and merging" expanded="false">
+            <param argument="--min-result-identity" type="float" value="" optional="true" min="0" max="1" label="Min result identity" help="Minimum gap-compressed identity threshold (0.0-1.0) for reported results."/>
+            <param argument="--min-output-length" type="integer" value="" optional="true" min="0" label="Min output length" help="Filter results shorter than this length (bp)."/>
+            <param argument="--subset-sequence-list" type="data" format="txt,tabular" optional="true" label="Subset sequence list" help="Restrict results to the sequence names listed in this file (one per line). Also filters transitive intermediates."/>
+            <param argument="--consider-strandness" type="boolean" truevalue="--consider-strandness" falsevalue="" checked="false" label="Consider strandness when merging" help="Keep strands separate while merging output intervals (default merges strands for bed/gfa/maf)."/>
+            <param argument="--no-merge" type="boolean" truevalue="--no-merge" falsevalue="" checked="false" label="Disable merging" help="Explicitly disable merging of gathered ranges before output."/>
+        </section>
+    </xml>
+    <xml name="advanced_index_section">
+        <section name="index_opts" title="Index and alignment options" expanded="false">
+            <param argument="--index-mode" type="select" label="Index mode">
+                <option value="auto" selected="true">auto (single, per-file for &gt;= 100 files)</option>
+                <option value="single">single (one combined index)</option>
+                <option value="per-file">per-file (one index per alignment file)</option>
+            </param>
+            <param argument="--force-reindex" type="boolean" truevalue="--force-reindex" falsevalue="" checked="false" label="Force rebuild index" help="Rebuild the '.impg' index even if it already exists and is up-to-date."/>
+            <param argument="--unidirectional" type="boolean" truevalue="--unidirectional" falsevalue="" checked="false" label="Unidirectional interpretation" help="Disable bidirectional alignment interpretation. By default every A-&gt;B alignment creates an implicit B-&gt;A reverse mapping."/>
+            <param argument="--trace-spacing" type="integer" value="100" min="1" label="Trace spacing" help="Trace spacing for .1aln/.tpa alignment files (used when converting tracepoints to CIGAR). Ignored for plain PAF."/>
+        </section>
+    </xml>
+    <xml name="coordinate_options_section">
+        <section name="coords" title="Coordinate options" expanded="false">
+            <param argument="--original-sequence-coordinates" type="boolean" truevalue="--original-sequence-coordinates" falsevalue="" checked="false" label="Use original-sequence coordinates" help="Update coordinates to the original sequences when input sequences are subsequences named 'seq_name:start-end'. Applies to bed, bedpe, and paf output."/>
+        </section>
+    </xml>
+    <!-- Cheetah snippet rendering the shared filtering/merging command flags. -->
+    <token name="@CMD_MERGE_DISTANCE@"><![CDATA[
+        -d '$merge_distance'
+        #if str($filtering.min_result_identity).strip()
+            --min-result-identity $filtering.min_result_identity
+        #end if
+        #if str($filtering.min_output_length).strip()
+            -l $filtering.min_output_length
+        #end if
+        #if $filtering.subset_sequence_list
+            --subset-sequence-list '$filtering.subset_sequence_list'
+        #end if
+        $filtering.consider_strandness
+        $filtering.no_merge
+    ]]></token>
+    <token name="@CMD_TRANSITIVE@"><![CDATA[
+        $transitive.transitive
+        $transitive.transitive_dfs
+        #if str($transitive.transitive) != ""
+            -m $transitive.max_depth
+            --min-transitive-len $transitive.min_transitive_len
+            --min-distance-between-ranges $transitive.min_distance_between_ranges
+        #end if
+    ]]></token>
+    <token name="@CMD_INDEX_OPTS@"><![CDATA[
+        --index-mode $index_opts.index_mode
+        $index_opts.force_reindex
+        $index_opts.unidirectional
+        --trace-spacing $index_opts.trace_spacing
+    ]]></token>
+</macros>

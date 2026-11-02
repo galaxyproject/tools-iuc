@@ -1,0 +1,287 @@
+<tool id="pixy" name="pixy" version="@TOOL_VERSION@+@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Unbiased estimates of pi, dxy, fst, Watterson's theta, and Tajima's D from VCFs with invariant sites</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive">
+    <![CDATA[
+        ln -s '$vcf' input.vcf.gz &&
+        cp '${vcf.metadata.tabix_index}' input.vcf.gz.tbi &&
+        pixy
+            --stats #for $s in str($stats).split(',')#$s #end for#
+            --vcf input.vcf.gz
+            --populations '$populations'
+            #if str($windowing.windowing_type) == 'window_size':
+                --window_size $windowing.window_size
+            #else:
+                --bed_file '$windowing.bed_file'
+            #end if
+            --output_folder pixy_output
+            --output_prefix pixy
+            #if $chromosomes:
+                --chromosomes '$chromosomes'
+            #end if
+            #if $interval_start:
+                --interval_start $interval_start
+            #end if
+            #if $interval_end:
+                --interval_end $interval_end
+            #end if
+            --n_cores "\${GALAXY_SLOTS:-1}"
+            --chunk_size "\${PIXY_CHUNK_SIZE:-100000}"
+            #if $sites_file:
+                --sites_file '$sites_file'
+            #end if
+            #if 'fst' in str($stats):
+                --fst_type $fst_options.fst_type
+                $fst_options.fst_components
+                $fst_options.fst_biallelic
+            #end if
+            #if 'tajima_d' in str($stats):
+                $advanced.tajima_components
+            #end if
+            $advanced.include_multiallelic_snps
+            $advanced.bypass_invariant_check
+            #if $callable_sites.wisp_bed:
+                --wisp_bed '$callable_sites.wisp_bed'
+            #end if
+            $advanced.gvcf
+            #if $advanced.gvcf and $advanced.gvcf_max_block_size:
+                --gvcf_max_block_size $advanced.gvcf_max_block_size
+            #end if
+    ]]>
+    </command>
+    <inputs>
+        <param name="stats" type="select" multiple="true" label="Statistics to calculate" help="Select one or more population genetics statistics">
+            <option value="pi">pi (nucleotide diversity within populations)</option>
+            <option value="dxy">dxy (divergence between populations)</option>
+            <option value="fst">fst (fixation index)</option>
+            <option value="watterson_theta">Watterson's theta</option>
+            <option value="tajima_d">Tajima's D</option>
+        </param>
+        <param name="vcf" type="data" format="vcf_bgzip" label="Input VCF" help="Bgzipped and tabix-indexed VCF with invariant sites. Required for unbiased estimates."/>
+        <param name="populations" type="data" format="tabular" label="Populations file" help="Headerless tab-separated file with columns: SampleID, Population"/>
+        <conditional name="windowing">
+            <param name="windowing_type" type="select" label="Windowing method">
+                <option value="window_size" selected="true">Fixed window size</option>
+                <option value="bed_file">BED file (heterogeneous windows)</option>
+            </param>
+            <when value="window_size">
+                <param name="window_size" type="integer" value="100" min="1" label="Window size (bp)" help="Window size in base pairs for calculating statistics"/>
+            </when>
+            <when value="bed_file">
+                <param name="bed_file" type="data" format="bed" label="BED file" help="Headerless BED file with columns: chrom, chromStart, chromEnd"/>
+            </when>
+        </conditional>
+        <param name="chromosomes" type="text" value="" optional="true" label="Chromosomes" help="Comma-separated list of chromosomes (e.g. '1,2,X'). Defaults to all chromosomes in the VCF."/>
+        <param name="interval_start" type="integer" value="" optional="true" label="Interval start" help="Only valid for a single chromosome. Defaults to 1."/>
+        <param name="interval_end" type="integer" value="" optional="true" label="Interval end" help="Only valid for a single chromosome. Defaults to the last position."/>
+        <param name="sites_file" type="data" format="tabular" optional="true" label="Sites file" help="Headerless tab-separated file with columns: CHROM, POS. Restricts calculation to specific sites."/>
+        <section name="fst_options" title="FST options">
+            <param name="fst_type" type="select" value="wc" label="FST estimator">
+                <option value="wc">Weir &amp; Cockerham (1984)</option>
+                <option value="hudson">Hudson (1992)</option>
+            </param>
+            <param name="fst_components" type="boolean" truevalue="--fst_components" falsevalue="" checked="false" label="Include FST components" help="Output the numerator and denominator components of the FST estimator"/>
+            <param name="fst_biallelic" type="boolean" truevalue="--fst_biallelic" falsevalue="" checked="false" label="Restrict FST to biallelic sites" help="Only affects Hudson FST with --include_multiallelic_snps. WC FST is always biallelic. Excluded sites still contribute to pi and dxy."/>
+        </section>
+        <section name="callable_sites" title="Callable sites (variants-only VCF)">
+            <param name="wisp_bed" type="data" format="bed" optional="true" label="Wisp-format callable-sites BED" help="Must be bgzipped and tabix-indexed. VCF is treated as variants-only with denominators from this mask. Incompatible with --gvcf. See https://github.com/samuk-lab/wisp"/>
+        </section>
+        <section name="advanced" title="Advanced options">
+            <param name="tajima_components" type="boolean" truevalue="--tajima_components" falsevalue="" checked="false" label="Include Tajima's D components" help="Output aggregation components for summing Tajima's D across windows"/>
+            <param name="include_multiallelic_snps" type="boolean" truevalue="--include_multiallelic_snps" falsevalue="" checked="false" label="Include multiallelic SNPs" help="Include multiallelic SNPs in calculations (default: excluded)"/>
+            <param name="bypass_invariant_check" type="boolean" truevalue="--bypass_invariant_check" falsevalue="" checked="false" label="Bypass invariant site check" help="Allow computation without invariant sites. Use with extreme caution — will produce biased estimates. Prefer --wisp_bed for variants-only VCFs."/>
+            <param name="gvcf" type="boolean" truevalue="--gvcf" falsevalue="" checked="false" label="Input is GVCF" help="Treat input VCF as a joint-called GVCF (GATK format with ALT=&lt;NON_REF&gt; blocks). Incompatible with wisp BED."/>
+            <param name="gvcf_max_block_size" type="integer" value="" optional="true" label="GVCF max block size (bp)" help="Maximum expected GVCF block length (default: 100000)."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="pi_output" format="tabular" label="${tool.name} pi on ${on_string}" from_work_dir="pixy_output/pixy_pi.txt">
+            <filter>'pi' in str(stats)</filter>
+        </data>
+        <data name="dxy_output" format="tabular" label="${tool.name} dxy on ${on_string}" from_work_dir="pixy_output/pixy_dxy.txt">
+            <filter>'dxy' in str(stats)</filter>
+        </data>
+        <data name="fst_output" format="tabular" label="${tool.name} fst on ${on_string}" from_work_dir="pixy_output/pixy_fst.txt">
+            <filter>'fst' in str(stats)</filter>
+        </data>
+        <data name="watterson_output" format="tabular" label="${tool.name} watterson_theta on ${on_string}" from_work_dir="pixy_output/pixy_watterson_theta.txt">
+            <filter>'watterson_theta' in str(stats)</filter>
+        </data>
+        <data name="tajima_output" format="tabular" label="${tool.name} tajima_d on ${on_string}" from_work_dir="pixy_output/pixy_tajima_d.txt">
+            <filter>'tajima_d' in str(stats)</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="stats" value="pi,dxy,fst"/>
+            <param name="vcf" value="haploid_test.vcf.gz" ftype="vcf_bgzip"/>
+            <param name="populations" value="haploid_populations.txt" ftype="tabular"/>
+            <conditional name="windowing">
+                <param name="windowing_type" value="window_size"/>
+                <param name="window_size" value="100"/>
+            </conditional>
+            <section name="fst_options">
+                <param name="fst_type" value="hudson"/>
+            </section>
+            <output name="pi_output">
+                <assert_contents>
+                    <has_text text="avg_pi"/>
+                    <has_text_matching expression="A\tchr1\t1\t100\t0\t99\t0\t3978\t477"/>
+                    <has_n_lines n="81"/>
+                </assert_contents>
+            </output>
+            <output name="dxy_output">
+                <assert_contents>
+                    <has_text text="avg_dxy"/>
+                    <has_text_matching expression="A\tB\tchr1\t1\t100\t0\t99\t0\t8910\t990"/>
+                    <has_n_lines n="41"/>
+                </assert_contents>
+            </output>
+            <output name="fst_output">
+                <assert_contents>
+                    <has_text text="avg_hudson_fst"/>
+                    <has_text_matching expression="A\tB\tchr1\t201\t300\t0\.125\t1"/>
+                    <has_n_lines n="31"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="stats" value="watterson_theta,tajima_d"/>
+            <param name="vcf" value="haploid_test.vcf.gz" ftype="vcf_bgzip"/>
+            <param name="populations" value="haploid_populations.txt" ftype="tabular"/>
+            <conditional name="windowing">
+                <param name="windowing_type" value="window_size"/>
+                <param name="window_size" value="100"/>
+            </conditional>
+            <output name="watterson_output">
+                <assert_contents>
+                    <has_text text="avg_watterson_theta"/>
+                    <has_text_matching expression="A\tchr1\t1\t100\t0\t99\t0\t0\t93\.7"/>
+                    <has_n_lines n="81"/>
+                </assert_contents>
+            </output>
+            <output name="tajima_output">
+                <assert_contents>
+                    <has_text text="tajima_d"/>
+                    <has_text_matching expression="B\tchr1\t201\t300\t0\.15175996065494"/>
+                    <has_n_lines n="81"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="stats" value="pi"/>
+            <param name="vcf" value="haploid_test.vcf.gz" ftype="vcf_bgzip"/>
+            <param name="populations" value="haploid_populations.txt" ftype="tabular"/>
+            <conditional name="windowing">
+                <param name="windowing_type" value="bed_file"/>
+                <param name="bed_file" value="haploid_windows.bed" ftype="bed"/>
+            </conditional>
+            <output name="pi_output">
+                <assert_contents>
+                    <has_text text="avg_pi"/>
+                    <has_text_matching expression="A\tchr1\t2\t300\t0\t292\t0\t11763\t1377"/>
+                    <has_text_matching expression="B\tchr1\t2\t300\t0\.0011775590882328\t292\t14\t11889\t1251"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="stats" value="pi,dxy,fst"/>
+            <param name="vcf" value="haploid_test.vcf.gz" ftype="vcf_bgzip"/>
+            <param name="populations" value="haploid_populations.txt" ftype="tabular"/>
+            <param name="chromosomes" value="chr1"/>
+            <param name="interval_start" value="1"/>
+            <param name="interval_end" value="500"/>
+            <conditional name="windowing">
+                <param name="windowing_type" value="window_size"/>
+                <param name="window_size" value="100"/>
+            </conditional>
+            <section name="fst_options">
+                <param name="fst_type" value="hudson"/>
+            </section>
+            <output name="pi_output">
+                <assert_contents>
+                    <has_text text="avg_pi"/>
+                    <has_text_matching expression="A\tchr1\t1\t100\t0\t99\t0\t3978\t477"/>
+                    <has_n_lines n="11"/>
+                </assert_contents>
+            </output>
+            <output name="dxy_output">
+                <assert_contents>
+                    <has_text text="avg_dxy"/>
+                    <has_text_matching expression="A\tB\tchr1\t1\t100\t0\t99\t0\t8910\t990"/>
+                    <has_n_lines n="6"/>
+                </assert_contents>
+            </output>
+            <output name="fst_output">
+                <assert_contents>
+                    <has_text text="avg_hudson_fst"/>
+                    <has_text_matching expression="A\tB\tchr1\t201\t300\t0\.125\t1"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="stats" value="pi,dxy,fst"/>
+            <param name="vcf" value="diploid_test.vcf.gz" ftype="vcf_bgzip"/>
+            <param name="populations" value="diploid_populations.txt" ftype="tabular"/>
+            <conditional name="windowing">
+                <param name="windowing_type" value="window_size"/>
+                <param name="window_size" value="100"/>
+            </conditional>
+            <section name="fst_options">
+                <param name="fst_type" value="wc"/>
+            </section>
+            <output name="pi_output">
+                <assert_contents>
+                    <has_text text="avg_pi"/>
+                    <has_text_matching expression="BFS\tX\t1\t100\t0\t100\t0\t2800\t0"/>
+                    <has_n_lines n="41"/>
+                </assert_contents>
+            </output>
+            <output name="dxy_output">
+                <assert_contents>
+                    <has_text text="avg_dxy"/>
+                    <has_text_matching expression="BFS\tKES\tX\t101\t200\t0\.00625\t100\t40\t6400\t0"/>
+                    <has_n_lines n="21"/>
+                </assert_contents>
+            </output>
+            <output name="fst_output">
+                <assert_contents>
+                    <has_text text="avg_wc_fst"/>
+                    <has_text_matching expression="BFS\tKES\tX\t101\t200\t0\.6\t1"/>
+                    <has_n_lines n="6"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+    <![CDATA[
+        **pixy**: Unbiased estimates of pi, dxy, fst, Watterson's theta, and Tajima's D from VCFs with invariant sites.
+
+        When invariant sites are excluded from a VCF, estimates of pi, dxy, and fst become biased because the denominator (total callable sites) is unknown. pixy requires all-sites VCFs to produce unbiased estimates.
+
+        **Requirements:**
+        - Input VCF must be bgzipped and tabix-indexed
+        - VCF must contain invariant sites (unless using a wisp BED or --bypass_invariant_check)
+        - Populations file: headerless tab-separated, columns [SampleID, Population]
+
+        **Variants-only VCFs:**
+        - Use a wisp-format callable-sites BED to provide per-window denominators
+        - Or use --bypass_invariant_check (will produce biased estimates)
+        - Or use --gvcf for GATK GVCF inputs (incompatible with wisp BED)
+
+        **Statistics:**
+        - **pi**: Nucleotide diversity within populations
+        - **dxy**: Divergence between populations
+        - **fst**: Fixation index (Weir & Cockerham or Hudson estimator)
+        - **Watterson's theta**: Population mutation rate
+        - **Tajima's D**: Neutrality test
+    ]]>
+    </help>
+    <expand macro="citations"/>
+</tool>
