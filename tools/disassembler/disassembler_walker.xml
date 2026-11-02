@@ -6,16 +6,41 @@
     <expand macro="walker_requirements"/>
     <version_command>logan-walker --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
-        ## Worst-case resident memory is (4 queued + fetch workers + compute workers)
-        ## compressed payloads of up to --max-size-mb each. Compute workers follow the
-        ## job's slots; fetch workers are trimmed so that bound fits in GALAXY_MEMORY_MB
-        ## when the job runner sets it.
+        ## Worst-case resident memory of the pinned walker is
+        ##     (4 queued + fetch workers + compute workers) x --max-size-mb
+        ## plus roughly 43 MB per compute worker for the CSR graph; see
+        ## Config::peak_compressed_buffers and max_compressed_resident_bytes in the
+        ## walker source. The 4 queued buffers are fixed there, so the floor is six
+        ## payload buffers however few workers we ask for: on a small allocation,
+        ## trimming workers cannot get under the budget on its own and the payload cap
+        ## has to come down with them. (With 4 slots, 4096 MB and the 1024 MB default,
+        ## one fetch worker still bounds at (4+1+4) x 1024 = 9216 MB.) So trim in that
+        ## order, fetch workers first, then compute workers, then the cap, and keep a
+        ## fifth of the allocation back for GraphAligner, transient growth inside the
+        ## parser and allocator slack.
         workers=\${GALAXY_SLOTS:-1} &&
         fetch_workers=\$workers &&
+        max_size_mb=\${DISASSEMBLER_WALKER_MAX_SIZE_MB} &&
         if [ -n "\${GALAXY_MEMORY_MB:-}" ]; then
-            fit=\$(( GALAXY_MEMORY_MB / \${DISASSEMBLER_WALKER_MAX_SIZE_MB} - 4 - workers ));
+            budget=\$(( GALAXY_MEMORY_MB * 4 / 5 ));
+            fit=\$(( (budget - 43 * workers) / max_size_mb - 4 - workers ));
             if [ "\$fit" -lt "\$fetch_workers" ]; then fetch_workers=\$fit; fi;
-            if [ "\$fetch_workers" -lt 1 ]; then fetch_workers=1; fi;
+            if [ "\$fetch_workers" -lt 1 ]; then
+                fetch_workers=1;
+                fit=\$(( (budget - 5 * max_size_mb) / (max_size_mb + 43) ));
+                if [ "\$fit" -lt "\$workers" ]; then workers=\$fit; fi;
+                if [ "\$workers" -lt 1 ]; then
+                    workers=1;
+                    max_size_mb=\$(( (budget - 43) / 6 ));
+                fi;
+            fi;
+            if [ "\$max_size_mb" -lt 64 ]; then
+                echo "disassembler walker: GALAXY_MEMORY_MB=\${GALAXY_MEMORY_MB} is too small to run safely. The walker keeps at least six payload buffers resident, so even a 64 MB cap needs roughly 500 MB. Raise the job's memory allocation, or lower DISASSEMBLER_WALKER_MAX_SIZE_MB for this destination in job_conf.yml." 1>&2;
+                exit 1;
+            fi;
+            if [ "\$workers" -ne "\${GALAXY_SLOTS:-1}" ] || [ "\$max_size_mb" -ne "\${DISASSEMBLER_WALKER_MAX_SIZE_MB}" ]; then
+                echo "disassembler walker: trimmed to \$workers compute and \$fetch_workers fetch worker(s) with a \${max_size_mb} MB payload cap, to stay inside GALAXY_MEMORY_MB=\${GALAXY_MEMORY_MB}. Accessions larger than the cap are skipped." 1>&2;
+            fi;
         fi &&
 
         ## The walker names the reference after its file stem (summary file, multi-anchor
@@ -45,7 +70,7 @@
             --scratch-dir walker_scratch
             --workers "\$workers"
             --fetch-workers "\$fetch_workers"
-            --max-size-mb "\${DISASSEMBLER_WALKER_MAX_SIZE_MB}"
+            --max-size-mb "\$max_size_mb"
             --min-cov $min_cov
             --prune-frac $prune_frac
             $prefer_majority
