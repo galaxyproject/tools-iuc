@@ -65,14 +65,14 @@ echo '$a' >> abund_list &&
     #end if
 #end if
 
-## in case of reassembly the IBDA out and err is appended
-## to differentiate this a header is added also befor the
-## MaxBin2 outputs
+## Separate MaxBin2's diagnostics from the IDBA reassembly diagnostics printed below.
 #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
 echo "==== MaxBin2 stdout ====" &&
 echo "==== MaxBin2 stderr ====" 1>&2 &&
 #end if
 
+## Capture stdout and stderr separately so we can inspect the no-bin diagnostic.
+## pipefail also makes a failed FASTA decompression/read fail the recovery pipeline.
 { set -o pipefail ; run_MaxBin.pl
     -contig '$contig'
     -out out
@@ -90,18 +90,26 @@ echo "==== MaxBin2 stderr ====" 1>&2 &&
     -thread \${GALAXY_SLOTS:-1}
     > maxbin.stdout 2> maxbin.stderr ;
 maxbin_rc=\$? ;
+## Keep the original diagnostics visible in Galaxy after saving MaxBin2's exit code.
 cat maxbin.stdout && cat maxbin.stderr >&2 &&
 if [ "\$maxbin_rc" -eq 0 ]; then
     true ;
+## Recover only the known insufficient-marker outcome: exit 255, the exact final
+## stdout line, no non-whitespace stderr, and no partially produced bin FASTAs.
+## A matching message alone must not hide another error or an incomplete run.
 elif [ "\$maxbin_rc" -eq 255 ]
     && tail -n 1 maxbin.stdout | grep -Fxq 'Marker gene search reveals that the dataset cannot be binned (the medium of marker gene number <= 1). Program stop.'
     && ! grep -q '[^[:space:]]' maxbin.stderr
     && ! compgen -G 'out.[0-9]*.fasta' > /dev/null ; then
+    ## Preserve every input contig. Read compressed FASTA with gzip, plain FASTA with cat.
     #if $contig.ext.endswith('.gz')
     gzip -cd '$contig'
     #else
     cat '$contig'
     #end if
+    ## Buffer each FASTA record and count its sequence bases. Contigs meeting the
+    ## minimum length go to noclass; shorter ones go to tooshort. Emit the last
+    ## record at EOF, and create both files even when one has no records.
     | awk -v minimum='$adv.min_contig_length' '
         function emit() {
             if (record != "") {
@@ -114,21 +122,25 @@ elif [ "\$maxbin_rc" -eq 255 ]
         { record = record \$0 "\n"; if (\$0 !~ /^>/) { sequence = \$0; gsub(/[[:space:]]/, "", sequence); length_bp += length(sequence); } }
         END { emit(); }
     '
+    ## Create the expected empty outputs and a valid empty marker archive.
+    ## Do not create any bin FASTAs: Galaxy will discover an empty bin collection.
     && touch out.summary out.marker out.marker.pdf
     && tar -czf out.marker_of_each_bin.tar.gz --files-from /dev/null
+    ## Reassembly has additional declared outputs, which must also exist when empty.
     #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
     && mkdir -p out.reassem
     && touch out.reassem/out.summary out.reassem/out.reads.noclass out.reassem/N50.txt
     #end if
     && echo 'No bins recovered: insufficient marker genes; returning an empty bin collection.' >&2 ;
 else
+    ## All other failures keep MaxBin2's original nonzero exit code.
     exit "\$maxbin_rc" ;
 fi ; }
 && tar -xzf out.marker_of_each_bin.tar.gz
 
-## redirect the idba out and err file content to stdout and err
-## since this is also wanted in case the error case ';' is used here to
-## separate commands
+## Print any available IDBA diagnostics without replacing the preceding command's
+## exit status with the status of echo/cat. The semicolon allows diagnostics after
+## a failed archive extraction as well as after success.
 #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
 ; maxbin_rc=\$? ; echo "==== IDBA stdout ===="
 && if [[ -f out.idba.out ]]; then cat out.idba.out; fi
