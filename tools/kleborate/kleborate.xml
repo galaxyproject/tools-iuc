@@ -1,143 +1,239 @@
-<tool id="kleborate" name="Kleborate" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
-    <description>screen genome assemblies of Klebsiella pneumoniae</description>
+<tool id="kleborate" name="Kleborate" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>screen genome assemblies of Klebsiella and Escherichia</description>
     <macros>
         <token name="@TOOL_VERSION@">3.3.0b1</token>
         <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.1</token>
+        <xml name="species_thresholds">
+            <section name="advanced" title="Advanced options" expanded="false">
+                <param argument="--general__species_strong" type="float" min="0" max="1" value="0.02" label="Mash distance threshold for a strong species match"/>
+                <param argument="--general__species_weak" type="float" min="0" max="1" value="0.04" label="Mash distance threshold for a weak species match"/>
+                <param argument="--trim_headers" type="boolean" truevalue="--trim_headers" falsevalue="" checked="true" label="Trim module names from column headers?" help="If disabled, every column of the full results table is prefixed with its module name (e.g. kpsc__mlst__ST)"/>
+            </section>
+        </xml>
     </macros>
     <xrefs>
         <xref type="bio.tools">kleborate</xref>
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">kleborate</requirement>
-        <requirement type="package" version="3.3.2">kaptive</requirement>
     </requirements>
     <version_command>kleborate --version</version_command>
     <command detect_errors="aggressive"><![CDATA[
+#import re
 
-## Symlink input files for human-readable names in output table
+mkdir input &&
+## Symlink input files for human-readable strain names in the output tables
+#set $inputs = []
 #for $a in $assemblies
-  ln -s '$a' '$a.element_identifier' &&
+    #set $name = re.sub(r'[^\w\-.]', '_', str($a.element_identifier))
+    ln -s '$a' 'input/$name' &&
+    #silent $inputs.append('input/' + $name)
 #end for
 
 kleborate
-    $resistance
-    -o '$outfile'
-    #if $kaptive_k
-        $kaptive_k
-        --kaptive_k_outfile '$kaptive_k_outfile'
+    -t "\${GALAXY_SLOTS:-1}"
+    -o out
+    $sc.advanced.trim_headers
+    -m 'general__species${',' + str($sc.modules) if $sc.modules else ''}'
+    #if $sc.type == 'kpsc'
+        --kpsc__amr_min_identity $sc.amr.kpsc__amr_min_identity
+        --kpsc__amr_min_coverage $sc.amr.kpsc__amr_min_coverage
+        --kpsc__amr_min_spurious_identity $sc.amr.kpsc__amr_min_spurious_identity
+        --kpsc__amr_min_spurious_coverage $sc.amr.kpsc__amr_min_spurious_coverage
     #end if
-    #if $kaptive_o
-        $kaptive_o
-        --kaptive_o_outfile '$kaptive_o_outfile'
-    #end if
-    #if $min_identity
-        --min_identity $min_identity
-    #end if
-    #if $min_coverage
-        --min_coverage $min_coverage
-    #end if
-    #if $min_spurious_identity
-        --min_spurious_identity $min_spurious_identity
-    #end if
-    #if $min_spurious_coverage
-        --min_spurious_coverage $min_spurious_coverage
-    #end if
-    --assemblies
-    #for $a in $assemblies
-    '$a.element_identifier'
+    --general__species_strong $sc.advanced.general__species_strong
+    --general__species_weak $sc.advanced.general__species_weak
+    -a
+    #for $i in $inputs
+        '$i'
     #end for
-    1> '$concise'
+    > '$concise' &&
+mv out/general__species_output.txt '$results'
     ]]></command>
 
     <inputs>
-        <param argument="--assemblies" type="data" format="fasta" multiple="true" label="FASTA file(s) of assemblies" help="you may provide multiple assemblies for screening"/>
-
-        <param argument="--resistance" type="select" label="Turn on resistance genes screening?">
-            <option value="">no</option>
-            <option value="--resistance" selected="true">yes</option>
-        </param>
-
-        <param argument="--kaptive_k" type="boolean" truevalue="--kaptive_k" falsevalue="" checked="false" label="Turn on screening of K loci?" help="Screen for capsule synthesis loci (K-loci) using the 'Kaptive' tool"/>
-        <param argument="--kaptive_o" type="boolean" truevalue="--kaptive_o" falsevalue="" checked="false" label="Turn on screening of O loci?" help="Screen for lipopolysaccharide loci (O-loci) using the 'Kaptive' tool" />
-
-        <param argument="--min_identity" type="integer" min="0" max="100" value="90" label="Minimum alignment percent identity for main results" help="Must be a value between 0 and 100" />
-        <param argument="--min_coverage" type="integer" min="0" max="100" value="80" label="Minimum alignment percent coverage for main results" help="Must be a value between 0 and 100" />
-        <param argument="--min_spurious_identity" type="integer" min="0" max="100" value="80" label="Minimum alignment percent identity for spurious results" help="Must be a value between 0 and 100" />
-        <param argument="--min_spurious_coverage" type="integer" min="0" max="100" value="40" label="Minimum alignment percent coverage for spurious results" help="Must be a value between 0 and 100"/>
+        <param argument="--assemblies" type="data" format="fasta" multiple="true" label="FASTA file(s) of assemblies" help="You may provide multiple assemblies for screening"/>
+        <conditional name="sc">
+            <param name="type" type="select" label="Species complex" help="Selects which set of typing modules is available. Species detection is always run.">
+                <option value="kpsc" selected="true">Klebsiella pneumoniae species complex (KpSC)</option>
+                <option value="kosc">Klebsiella oxytoca species complex (KoSC)</option>
+                <option value="escherichia">Escherichia coli / Shigella</option>
+            </param>
+            <when value="kpsc">
+                <param name="modules" type="select" multiple="true" optional="true" display="checkboxes" label="Modules to run">
+                    <option value="general__contig_stats" selected="true">Assembly contig statistics and QC</option>
+                    <option value="kpsc__mlst" selected="true">Chromosomal MLST</option>
+                    <option value="klebsiella__ybst" selected="true">Yersiniabactin (ybt) MLST</option>
+                    <option value="klebsiella__cbst" selected="true">Colibactin (clb) MLST</option>
+                    <option value="klebsiella__abst" selected="true">Aerobactin (iuc) MLST</option>
+                    <option value="klebsiella__smst" selected="true">Salmochelin (iro) MLST</option>
+                    <option value="klebsiella__rmst" selected="true">RmpADC MLST and expression status</option>
+                    <option value="kpsc__virulence_score" selected="true">Virulence score</option>
+                    <option value="klebsiella__rmpa2" selected="true">rmpA2 typing</option>
+                    <option value="klebsiella__peg-344" selected="true">peg-344 typing</option>
+                    <option value="kpsc__amr" selected="true">Acquired AMR genes and mutations</option>
+                    <option value="kpsc__resistance_score" selected="true">Resistance score</option>
+                    <option value="kpsc__resistance_class_count" selected="true">Resistance class count</option>
+                    <option value="kpsc__resistance_gene_count" selected="true">Resistance gene count</option>
+                    <option value="kpsc__cipro_prediction" selected="true">Ciprofloxacin resistance prediction</option>
+                    <option value="kpsc__wzi" selected="true">wzi typing</option>
+                    <option value="kpsc__kaptive" selected="true">K and O locus typing (Kaptive)</option>
+                    <option value="kpsc__mrk" selected="true">mrk operon MLST</option>
+                </param>
+                <section name="amr" title="AMR detection thresholds" expanded="false">
+                    <param argument="--kpsc__amr_min_identity" type="float" min="0" max="100" value="90" label="Minimum alignment percent identity for AMR results"/>
+                    <param argument="--kpsc__amr_min_coverage" type="float" min="0" max="100" value="80" label="Minimum alignment percent coverage for AMR results"/>
+                    <param argument="--kpsc__amr_min_spurious_identity" type="float" min="0" max="100" value="80" label="Minimum alignment percent identity for spurious AMR results"/>
+                    <param argument="--kpsc__amr_min_spurious_coverage" type="float" min="0" max="100" value="40" label="Minimum alignment percent coverage for spurious AMR results"/>
+                </section>
+                <expand macro="species_thresholds"/>
+            </when>
+            <when value="kosc">
+                <param name="modules" type="select" multiple="true" optional="true" display="checkboxes" label="Modules to run">
+                    <option value="general__contig_stats" selected="true">Assembly contig statistics and QC</option>
+                    <option value="kosc__mlst" selected="true">Chromosomal MLST</option>
+                    <option value="klebsiella__ybst" selected="true">Yersiniabactin (ybt) MLST</option>
+                    <option value="klebsiella__cbst" selected="true">Colibactin (clb) MLST</option>
+                    <option value="klebsiella__abst" selected="true">Aerobactin (iuc) MLST</option>
+                    <option value="klebsiella__smst" selected="true">Salmochelin (iro) MLST</option>
+                    <option value="kosc__kaptive" selected="true">K and O locus typing (Kaptive)</option>
+                </param>
+                <expand macro="species_thresholds"/>
+            </when>
+            <when value="escherichia">
+                <param name="modules" type="select" multiple="true" optional="true" display="checkboxes" label="Modules to run">
+                    <option value="general__contig_stats" selected="true">Assembly contig statistics and QC</option>
+                    <option value="escherichia__mlst_achtman" selected="true">MLST (Achtman scheme)</option>
+                    <option value="escherichia__mlst_pasteur">MLST (Pasteur scheme)</option>
+                    <option value="escherichia__pathovar" selected="true">Pathotype prediction</option>
+                    <option value="escherichia__mlst_lee" selected="true">LEE pathogenicity island MLST</option>
+                    <option value="escherichia__pks" selected="true">pks (colibactin) island detection</option>
+                    <option value="escherichia__ezclermont" selected="true">Clermont phylotyping (EzClermont)</option>
+                    <option value="escherichia__stxtyper" selected="true">Shiga toxin typing (StxTyper)</option>
+                    <option value="escherichia__ectyper" selected="true">O/H serotyping (ECTyper)</option>
+                    <option value="escherichia__kaptive" selected="true">Group 2 and 3 capsule (K) locus typing (Kaptive)</option>
+                </param>
+                <expand macro="species_thresholds"/>
+            </when>
+        </conditional>
     </inputs>
 
     <outputs>
-        <data name="concise" format="tabular" label="${tool.name} on ${on_string}: Concise Results" />
-        <data name="outfile" format="tabular" label="${tool.name} on ${on_string}: Full Results" />
-        <data name="kaptive_k_outfile" format="tabular" label="${tool.name} on ${on_string}: K-loci screening results" >
-            <filter>kaptive_k</filter>
-        </data>
-        <data name="kaptive_o_outfile" format="tabular" label="${tool.name} on ${on_string}: O-loci screening results" >
-            <filter>kaptive_o</filter>
-        </data>
+        <data name="concise" format="tabular" label="${tool.name} on ${on_string}: Concise Results"/>
+        <data name="results" format="tabular" label="${tool.name} on ${on_string}: Full Results"/>
     </outputs>
 
     <tests>
-        <test expect_num_outputs="4"><!-- test with resistance, kaptive k and kaptive o outputs -->
-            <param name="assemblies" value="KP011_S63.scfd.fasta,KP012_S64.scfd.fasta" />
-            <param name="resistance" value="--resistance"/>
-            <param name="kaptive_k" value="--kaptive_k"/>
-            <param name="kaptive_o" value="--kaptive_o"/>
-            <output name="concise" ftype="tabular" file="Kleborate_concise_results.txt" />
-            <output name="outfile" ftype="tabular" file="Kleborate_results.txt" />
-            <output name="kaptive_k_outfile" ftype="tabular" file="Kleborate_kaptive_k_results.txt" />
-            <output name="kaptive_o_outfile" ftype="tabular" file="Kleborate_kaptive_o_results.txt" />
+        <!-- KpSC with all default modules -->
+        <test expect_num_outputs="2">
+            <param name="assemblies" value="KP011_S63.scfd.fasta,KP012_S64.scfd.fasta"/>
+            <conditional name="sc">
+                <param name="type" value="kpsc"/>
+            </conditional>
+            <output name="concise" ftype="tabular" file="Kleborate_concise_results.txt" sort="true"/>
+            <output name="results" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_n_columns n="135"/>
+                    <has_text text="peg-344"/>
+                    <has_text text="RmpADC_status"/>
+                    <has_text text="mrkST"/>
+                    <has_text text="ST925"/>
+                    <has_text text="tet(D)"/>
+                    <has_text text="KL111"/>
+                    <has_text text="OL12"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="2"><!-- test without extra options -->
-            <param name="assemblies" value="KP011_S63.scfd.fasta,KP012_S64.scfd.fasta" />
-            <param name="resistance" value=""/>
-            <param name="kaptive_k" value=""/>
-            <param name="kaptive_o" value=""/>
-            <output name="concise" ftype="tabular" file="Kleborate_concise_results_vanilla.txt" />
-            <output name="outfile" ftype="tabular" file="Kleborate_results_vanilla.txt" />
+        <!-- KpSC with a module subset and untrimmed headers -->
+        <test expect_num_outputs="2">
+            <param name="assemblies" value="KP011_S63.scfd.fasta,KP012_S64.scfd.fasta"/>
+            <conditional name="sc">
+                <param name="type" value="kpsc"/>
+                <param name="modules" value="kpsc__mlst,kpsc__wzi"/>
+                <section name="advanced">
+                    <param name="trim_headers" value="false"/>
+                </section>
+            </conditional>
+            <output name="concise" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_text text="ST45-4LV"/>
+                </assert_contents>
+            </output>
+            <output name="results" ftype="tabular" file="Kleborate_results_subset.txt" sort="true"/>
         </test>
-
+        <!-- KoSC -->
+        <test expect_num_outputs="2">
+            <param name="assemblies" value="KP011_S63.scfd.fasta,KP012_S64.scfd.fasta"/>
+            <conditional name="sc">
+                <param name="type" value="kosc"/>
+            </conditional>
+            <output name="concise" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_text text="KP012_S64.scfd"/>
+                </assert_contents>
+            </output>
+            <output name="results" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_n_columns n="78"/>
+                    <has_text text="clonal_complex"/>
+                    <has_text text="KL88"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Escherichia -->
+        <test expect_num_outputs="2">
+            <param name="assemblies" value="KP011_S63.scfd.fasta"/>
+            <conditional name="sc">
+                <param name="type" value="escherichia"/>
+            </conditional>
+            <output name="concise" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="ST_Achtman"/>
+                </assert_contents>
+            </output>
+            <output name="results" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="69"/>
+                    <has_text text="Clermont_type"/>
+                    <has_text text="KL180"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
 
     <help><![CDATA[
 **What it does**
 
-Kleborate is a tool to screen genome assemblies of Klebsiella pneumoniae and the Klebsiella pneumoniae species complex (KpSC) for:
+Kleborate screens genome assemblies of *Klebsiella pneumoniae* species complex (KpSC), *Klebsiella oxytoca* species complex (KoSC) and *Escherichia coli* / *Shigella* for:
 
-- MLST sequence type
-- species (e.g. K. pneumoniae, K. quasipneumoniae, K. variicola, etc.)
-- ICEKp associated virulence loci: yersiniabactin (ybt), colibactin (clb), salmochelin (iro), hypermucoidy (rmpA)
-- virulence plasmid associated loci: salmochelin (iro), aerobactin (iuc), hypermucoidy (rmpA, rmpA2)
-- antimicrobial resistance determinants: acquired genes, SNPs, gene truncations and intrinsic β-lactamases
-- K (capsule) and O antigen (LPS) serotype prediction, via wzi alleles and Kaptive
+- species (Mash-based) and assembly quality metrics
+- MLST sequence types (chromosomal, and for KpSC also the *mrk* operon)
+- virulence loci: yersiniabactin (ybt), colibactin (clb), aerobactin (iuc), salmochelin (iro), RmpADC (with predicted expression status), rmpA2 and peg-344
+- antimicrobial resistance determinants (KpSC): acquired genes, SNPs, gene truncations, intrinsic β-lactamases and ciprofloxacin resistance prediction
+- K (capsule) and O antigen (LPS) locus typing via wzi alleles and Kaptive
+- for *E. coli*: Achtman/Pasteur MLST, pathotype, LEE MLST, pks island, Clermont phylotype, Shiga toxin type, O:H serotype and group 2/3 capsule loci
 
-For Klebsiella species outside of the KpSC, Kleborate will accurately determine the species and will report the presence of any accessory genes detected (AMR, virulence, K & O types); however species-focused markers (mutational resistance, MLST) and divergent forms of the virulence, K and O loci will not be reported.
+Choose the species complex that matches your assemblies and select the modules to run (if none are selected, only species detection is run). Species detection is always run and reported, but modules run regardless of the species detected, so check the *species* column.
 
-More information can be found on the Kleborate `wiki`_.
+More information can be found in the Kleborate documentation_.
 
-.. _wiki: https://github.com/katholt/Kleborate/wiki
-
+.. _documentation: https://kleborate.readthedocs.io
 
 **Outputs**
 
-Kleborate outputs the following concise results table (in this example with with resistance and K-loci screening enabled):
-
-=============== ===================== ===== =============== ============== ===== ========== ==== ========== ==== =========== ===== =========================== ========= ============ ====== ==========
-strain           species               ST   virulence_score Yersiniabactin YbST  Colibactin CbST Aerobactin AbST Salmochelin SmST  RmpADC                      RmST      rmpA2        wzi    K_locus
---------------- --------------------- ----- --------------- -------------- ----- ---------- ---- ---------- ---- ----------- ----- --------------------------- --------- ------------ ------ ----------
-GCF_002248955.1 Klebsiella pneumoniae ST15  0               -              0     -          0    -          0    -           0     -                           0         -            wzi29  KL106
-GCF_003095495.1 Klebsiella pneumoniae ST258 0               -              0     -          0    -          0    -           0     -                           0         -            wzi154 KL107
-GCF_000009885.1 Klebsiella pneumoniae ST23  4               ybt 2;ICEKp1   326   -          0    iuc 1      1    iro 1,iro 3 19,18 rmp 3; ICEKp1,rmp 1; KpVP-1 30-1LV,26 rmpA2_3-47%  wzi1   KL1
-GCF_900501255.1 Klebsiella pneumoniae ST86  3               -              0     -          0    iuc 1      1    iro 1       1     rmp 1; KpVP-1               26        rmpA2_9*-50% wzi2   KL2 (KL30)
-=============== ===================== ===== =============== ============== ===== ========== ==== ========== ==== =========== ===== =========================== ========= ============ ====== ==========
-
-
-Additional details can be found in the full results table, and the Kaptive screening of K-loci and O-loci each generate additional output tables.
+- Concise results: one line per assembly, with key typing results.
+- Full results: one line per assembly, with all columns of the selected modules (including Kaptive K and O locus results).
 
 **Scores**
 
-Kleborate outputs a simple categorical virulence score, and if resistance screening is enabled, an antimicrobial resistance score as well. These scores provide a rough categorisation of the strains to facilitate monitoring resistance-virulence convergence.
-Virulence score
+Kleborate outputs a simple categorical virulence score and, if AMR screening is enabled, an antimicrobial resistance score (KpSC only).
 
 The virulence score ranges from 0 to 5:
 
@@ -148,9 +244,6 @@ The virulence score ranges from 0 to 5:
 - 4 = aerobactin with yersiniabactin (without colibactin)
 - 5 = yersiniabactin, colibactin and aerobactin
 
-Note neither the salmochelin (iro) locus nor rmpADC are explicitly considered in the virulence score, for simplicity. The iro and rmpADC loci typically appear alongside the aerobactin (iuc) locus on the Kp virulence plasmids, and so presence of iuc (score of 3-5) generally implies presence of iro and rmpADC. However we prioritise iuc in the calculation of the score, as aerobactin is specifically associated with growth in blood and is a stronger predictor of the hypervirulence phenotype (see this review). The iro and rmpADC loci are also occasionally present with ybt, in the ICEKp variant - ICEKp1, but this will still score 1.
-Resistance score
-
 The resistance score ranges from 0 to 3:
 
 - 0 = no ESBL, no carbapenemase (regardless of colistin resistance)
@@ -158,24 +251,9 @@ The resistance score ranges from 0 to 3:
 - 2 = Carbapenemase without colistin resistance (regardless of ESBL genes or OmpK mutations)
 - 3 = Carbapenemase with colistin resistance (regardless of ESBL genes or OmpK mutations)
 
-
-**Confidence**
-
-Kaptive K and O loci screening will indicate the best matching locus and types, and its confidence in the match:
-
-- Perfect = the locus was found in a single piece with 100% coverage and 100% identity to the reference.
-- Very high = the locus was found in a single piece with ≥99% coverage and ≥95% identity, with no missing genes and no extra genes.
-- High = the locus was found in a single piece with ≥99% coverage, with ≤ 3 missing genes and no extra genes.
-- Good = the locus was found in a single piece or with ≥95% coverage, with ≤ 3 missing genes and ≤ 1 extra genes.
-- Low = the locus was found in a single piece or with ≥90% coverage, with ≤ 3 missing genes and ≤ 2 extra genes.
-- None = did not qualify for any of the above.
-
-
 **Spurious hits**
 
-The default criteria for detection of virulence and resistance genes targeted for genotyping in Kleborate are minimum nucleotide identity ≥90% and minimum nucleotide sequence coverage ≥80% (these parameters can be changed in the tool settings).
-
-To alert users to the possibility that target genes may be missed because of contig breaks or other assembly quality issues, Kleborate will also report the presence of 'spurious' BLAST hits that pass more relaxed criteria (default ≥80% identity, ≥40% coverage), in the dedicated columns spurious_virulence_hits and spurious_resistance_hits.
+The default criteria for detection of AMR genes are minimum nucleotide identity ≥90% and coverage ≥80%. To alert users to genes that may be missed because of contig breaks or other assembly issues, Kleborate also reports 'spurious' hits that pass more relaxed criteria (default ≥80% identity, ≥40% coverage) in the *spurious_resistance_hits* column.
     ]]></help>
 
     <citations>
