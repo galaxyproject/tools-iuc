@@ -1,0 +1,114 @@
+<tool id="mgnify_pipelines_toolkit_remove_ambiguous_reads" name="MGnify: Remove ambiguous reads" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="@LICENSE@">
+    <description>Remove reads with ambiguous bases (Ns) or shorter than 100bp prior to DADA2</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creators"/>
+    <expand macro="requirements"/>
+    <command detect_errors="aggressive"><![CDATA[
+## The toolkit script opens inputs with fileinput.hook_compressed, i.e. gzip only
+## when the file NAME ends in .gz. Upstream inputs may arrive as gzipped or plain
+## fastq regardless of their declared Galaxy datatype (e.g. seqkit_grep writes
+## plain fastq on stdout even for .gz input), so prepare the inputs by content:
+## decompress when the payload is gzip, otherwise pass through under a plain name.
+#if $input_type.type == "paired_collection"
+    ln -sf '$input_type.input.forward' fwd_in.dat &&
+    ln -sf '$input_type.input.reverse' rev_in.dat &&
+    if gunzip -t fwd_in.dat 2>/dev/null; then gunzip -c fwd_in.dat > fwd_plain.fastq; else ln -sf fwd_in.dat fwd_plain.fastq; fi &&
+    if gunzip -t rev_in.dat 2>/dev/null; then gunzip -c rev_in.dat > rev_plain.fastq; else ln -sf rev_in.dat rev_plain.fastq; fi &&
+    remove_ambiguous_reads -f fwd_plain.fastq -r rev_plain.fastq -s sample
+#else if $input_type.type == "paired_lists"
+    ln -sf '$input_type.input_f' fwd_in.dat &&
+    ln -sf '$input_type.input_r' rev_in.dat &&
+    if gunzip -t fwd_in.dat 2>/dev/null; then gunzip -c fwd_in.dat > fwd_plain.fastq; else ln -sf fwd_in.dat fwd_plain.fastq; fi &&
+    if gunzip -t rev_in.dat 2>/dev/null; then gunzip -c rev_in.dat > rev_plain.fastq; else ln -sf rev_in.dat rev_plain.fastq; fi &&
+    remove_ambiguous_reads -f fwd_plain.fastq -r rev_plain.fastq -s sample
+#else
+    ln -sf '$input_type.input' input_in.dat &&
+    if gunzip -t input_in.dat 2>/dev/null; then gunzip -c input_in.dat > input_plain.fastq; else ln -sf input_in.dat input_plain.fastq; fi &&
+    remove_ambiguous_reads -f input_plain.fastq -s sample
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_type">
+            <param name="type" type="select" label="Read type">
+                <option value="single">Single-end reads</option>
+                <option value="paired_collection" selected="true">Paired-end collection</option>
+                <option value="paired_lists">Paired-end lists (forward + reverse)</option>
+            </param>
+            <when value="single">
+                <param name="input" type="data" format="fastqsanger.gz" label="Single-end reads" help="fastq.gz dataset"/>
+            </when>
+            <when value="paired_collection">
+                <param name="input" type="data_collection" collection_type="paired" format="fastqsanger.gz" label="Paired-end reads" help="Paired fastq.gz collection"/>
+            </when>
+            <when value="paired_lists">
+                <param name="input_f" type="data" format="fastqsanger.gz" label="Forward reads (list)" help="Forward mates as a list collection"/>
+                <param name="input_r" type="data" format="fastqsanger.gz" label="Reverse reads (list)" help="Reverse mates as a list collection"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="noambig_1" format="fastqsanger.gz" from_work_dir="sample_noambig_1.fastq.gz" label="${tool.name} on ${on_string}: filtered forward reads">
+            <filter>input_type["type"] in ("paired_collection", "paired_lists")</filter>
+        </data>
+        <data name="noambig_2" format="fastqsanger.gz" from_work_dir="sample_noambig_2.fastq.gz" label="${tool.name} on ${on_string}: filtered reverse reads">
+            <filter>input_type["type"] in ("paired_collection", "paired_lists")</filter>
+        </data>
+        <data name="noambig" format="fastqsanger.gz" from_work_dir="sample_noambig.fastq.gz" label="${tool.name} on ${on_string}: filtered reads">
+            <filter>input_type["type"] == "single"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_type|type" value="paired_collection"/>
+            <param name="input_type|input">
+                <collection type="paired">
+                    <element name="forward" value="rar_pe_1.fastq.gz" ftype="fastqsanger.gz"/>
+                    <element name="reverse" value="rar_pe_2.fastq.gz" ftype="fastqsanger.gz"/>
+                </collection>
+            </param>
+            <output name="noambig_1" file="rar_pe_expected_1.fastq" ftype="fastqsanger.gz" decompress="true"/>
+            <output name="noambig_2" file="rar_pe_expected_2.fastq" ftype="fastqsanger.gz" decompress="true"/>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_type|type" value="paired_lists"/>
+            <param name="input_type|input_f" value="rar_pe_1.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="input_type|input_r" value="rar_pe_2.fastq.gz" ftype="fastqsanger.gz"/>
+            <output name="noambig_1" file="rar_pe_expected_1.fastq" ftype="fastqsanger.gz" decompress="true"/>
+            <output name="noambig_2" file="rar_pe_expected_2.fastq" ftype="fastqsanger.gz" decompress="true"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input_type|type" value="single"/>
+            <param name="input_type|input" value="rar_se.fastq.gz" ftype="fastqsanger.gz"/>
+            <output name="noambig" file="rar_se_expected.fastq" ftype="fastqsanger.gz" decompress="true"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**Remove ambiguous reads**
+----------------------------
+
+Removes reads that would break or bias **DADA2** inference, prior to running DADA2
+(as done by the MGnify amplicon analysis pipeline).
+
+A read pair is removed when either mate:
+
+- contains **ambiguous bases (N)**, or
+- is shorter than **100 bases**
+
+Inputs
+------
+- Paired-end fastq.gz collection, or a single-end fastq.gz dataset
+
+Outputs
+-------
+- Filtered reads in bgzf-compressed fastq format (``*_noambig*.fastq.gz``)
+
+Notes
+-----
+- Reads shorter than 100bp are always dropped; make sure upstream quality trimming
+  (e.g. fastp with ``-l 100``) leaves enough reads.
+- Output order matches the input read order.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
