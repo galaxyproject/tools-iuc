@@ -21,7 +21,6 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@MAXBIN_VERSION@">maxbin2</requirement>
-        <requirement type="package" version="3.12">python</requirement>
     </requirements>
     <version_command><![CDATA[run_MaxBin.pl -version | head -n 1]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
@@ -74,7 +73,7 @@ echo "==== MaxBin2 stdout ====" &&
 echo "==== MaxBin2 stderr ====" 1>&2 &&
 #end if
 
-python '$__tool_directory__/scripts/run_maxbin.py'
+{ set -o pipefail ; run_MaxBin.pl
     -contig '$contig'
     -out out
 #if $assembly.inputs.type == 'reads':
@@ -89,7 +88,42 @@ python '$__tool_directory__/scripts/run_maxbin.py'
     $output.plotmarker
     -markerset $output.markerset
     -thread \${GALAXY_SLOTS:-1}
-
+    > maxbin.stdout 2> maxbin.stderr ;
+maxbin_rc=\$? ;
+cat maxbin.stdout && cat maxbin.stderr >&2 &&
+if [ "\$maxbin_rc" -eq 0 ]; then
+    true ;
+elif [ "\$maxbin_rc" -eq 255 ]
+    && tail -n 1 maxbin.stdout | grep -Fxq 'Marker gene search reveals that the dataset cannot be binned (the medium of marker gene number <= 1). Program stop.'
+    && ! grep -q '[^[:space:]]' maxbin.stderr
+    && ! compgen -G 'out.[0-9]*.fasta' > /dev/null ; then
+    #if $contig.ext.endswith('.gz')
+    gzip -cd '$contig'
+    #else
+    cat '$contig'
+    #end if
+    | awk -v minimum='$adv.min_contig_length' '
+        function emit() {
+            if (record != "") {
+                destination = length_bp >= minimum ? "out.noclass" : "out.tooshort";
+                printf "%s", record > destination;
+            }
+        }
+        BEGIN { printf "" > "out.noclass"; printf "" > "out.tooshort"; }
+        /^>/ { emit(); record = ""; length_bp = 0; }
+        { record = record \$0 "\n"; if (\$0 !~ /^>/) { sequence = \$0; gsub(/[[:space:]]/, "", sequence); length_bp += length(sequence); } }
+        END { emit(); }
+    '
+    && touch out.summary out.marker out.marker.pdf
+    && tar -czf out.marker_of_each_bin.tar.gz --files-from /dev/null
+    #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
+    && mkdir -p out.reassem
+    && touch out.reassem/out.summary out.reassem/out.reads.noclass out.reassem/N50.txt
+    #end if
+    && echo 'No bins recovered: insufficient marker genes; returning an empty bin collection.' >&2 ;
+else
+    exit "\$maxbin_rc" ;
+fi ; }
 && tar -xzf out.marker_of_each_bin.tar.gz
 
 ## redirect the idba out and err file content to stdout and err
