@@ -123,7 +123,7 @@ def fetch_md5sums(checksum_url):
 
 
 def expected_md5(url, checksum_cache, md5sums_cache):
-    """Return ``(relative path, md5)`` published for ``url``, or None.
+    """Return ``(relative path, md5, checksum url)`` published for ``url``.
 
     Files for which the data source does not publish a checksum (e.g. the
     mockup database used for testing) yield None.
@@ -145,7 +145,7 @@ def expected_md5(url, checksum_cache, md5sums_cache):
     if path.startswith(base + "/"):
         relpath = path[len(base) + 1 :]
         if relpath in md5sums:
-            return relpath, md5sums[relpath]
+            return relpath, md5sums[relpath], checksum_url
     # fall back to a unique match of the file name
     basename = posixpath.basename(path)
     candidates = {
@@ -154,7 +154,8 @@ def expected_md5(url, checksum_cache, md5sums_cache):
         if posixpath.basename(relpath) == basename
     }
     if len(set(candidates.values())) == 1:
-        return next(iter(candidates.items()))
+        relpath, md5sum = next(iter(candidates.items()))
+        return relpath, md5sum, checksum_url
     return None
 
 
@@ -350,19 +351,22 @@ def download(release, meta, test, out_file):
     def download_verified(url):
         """Download url, verifying it against the checksum of the data source.
 
-        Returns the local path of the installed file and the md5 sum used for
-        verification (None if the data source publishes no checksum).
+        Reports whether a remote checksum was used and returns the local path of
+        the installed file and the md5 sum used for verification (None if the
+        data source publishes no checksum).
         """
+        filename = posixpath.basename(urlparse(url).path)
         expected = expected_md5(url, checksum_cache, md5sums_cache)
         if expected is None:
             print(
-                f"No checksum published for {url}, skipping verification",
-                file=sys.stderr,
+                f"No remote MD5 sum available for {filename}: "
+                "download not verified"
             )
             return url_download(url, target_directory, meta), None
-        relpath, md5sum = expected
-        print(f"Verifying {relpath} (md5: {md5sum})")
-        return url_download(url, target_directory, meta, md5sum=md5sum), md5sum
+        _, md5sum, checksum_url = expected
+        file_path = url_download(url, target_directory, meta, md5sum=md5sum)
+        print(f"Remote MD5 sum used for {filename}: {md5sum} (from {checksum_url})")
+        return file_path, md5sum
 
     # download taxonomy metadata tables
     if meta:
