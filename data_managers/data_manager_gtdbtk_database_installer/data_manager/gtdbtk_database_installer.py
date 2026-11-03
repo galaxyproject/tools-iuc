@@ -53,8 +53,6 @@ urls = {
 CHECKSUM_FILE_NAMES = ("MD5SUM.txt", "MD5SUM")
 # Number of directory levels to search upwards for a checksum file
 CHECKSUM_SEARCH_LEVELS = 5
-# Number of hex digits of the checksum appended to the data table value
-CHECKSUM_SUFFIX_LENGTH = 16
 
 # Test fixtures: a miniature database (1.7 kB), one without and one with a
 # published MD5 sum (https://zenodo.org/records/23918153/files/MD5SUM.txt).
@@ -300,28 +298,10 @@ def url_download(url, target_directory, meta, md5sum=None):
         return target_directory
 
 
-def value_with_checksum(value, md5sums):
-    """Return the data table value, suffixed with the checksum(s) of the files.
-
-    The checksum(s) of the downloaded file(s) are appended to the value, e.g.
-    ``full_database_release_232_md5_25a59e0352b1fd15``, such that the value
-    identifies the exact content of the local installation. The value is also
-    used as directory name, hence only alphanumeric characters, ``_`` and ``-``
-    are used. If no checksum is available for any of the files the plain value
-    is used.
-    """
-    if not md5sums or any(md5sum is None for md5sum in md5sums):
-        return value
-    checksum = "-".join(
-        md5sum[:CHECKSUM_SUFFIX_LENGTH] for md5sum in md5sums
-    )
-    return f"{value}_md5_{checksum}"
-
-
-def create_data_manager_entry(database_name, release, file_path, md5sums=None):
+def create_data_manager_entry(database_name, release, file_path):
     data_manager_entry = {}
-    data_manager_entry["value"] = value_with_checksum(
-        f"{database_name.replace(' ', '_').lower()}_release_{release}", md5sums
+    data_manager_entry["value"] = (
+        f"{database_name.replace(' ', '_').lower()}_release_{release}"
     )
     if release == "mocked_232":
         data_manager_entry["name"] = "Mocked GTBD DB (232)"
@@ -357,9 +337,8 @@ def download(release, meta, test, out_file):
     def download_verified(url):
         """Download url, verifying it against the checksum of the data source.
 
-        Reports whether a remote checksum was used and returns the local path of
-        the installed file and the md5 sum used for verification (None if the
-        data source publishes no checksum).
+        Reports which checksum was used, and returns the local path of the
+        installed file.
         """
         filename = posixpath.basename(urlparse(url).path)
         expected = expected_md5(url, checksum_cache, md5sums_cache)
@@ -368,30 +347,25 @@ def download(release, meta, test, out_file):
                 f"No remote MD5 sum available for {filename}: "
                 "download not verified"
             )
-            return url_download(url, target_directory, meta), None
+            return url_download(url, target_directory, meta)
         _, md5sum, checksum_url = expected
         file_path = url_download(url, target_directory, meta, md5sum=md5sum)
         print(f"Remote MD5 sum used for {filename}: {md5sum} (from {checksum_url})")
-        return file_path, md5sum
+        return file_path
 
     # download taxonomy metadata tables
     if meta:
-        url = urls[release]["meta_ar"]
-        _, md5_ar = download_verified(url)
-        url = urls[release]["meta_bac"]
-        file_path, md5_bac = download_verified(url)
+        download_verified(urls[release]["meta_ar"])
+        file_path = download_verified(urls[release]["meta_bac"])
 
         data_manager_json["data_tables"]["gtdbtk_database_metadata_versioned"] = [
-            create_data_manager_entry(
-                "Metadata Tables", release, file_path, [md5_ar, md5_bac]
-            )
+            create_data_manager_entry("Metadata Tables", release, file_path)
         ]
     # download the full DB
     else:
-        url = urls[release]["full"]
-        file_path, md5sum = download_verified(url)
+        file_path = download_verified(urls[release]["full"])
         data_manager_json["data_tables"]["gtdbtk_database_versioned"] = [
-            create_data_manager_entry("Full Database", release, file_path, [md5sum])
+            create_data_manager_entry("Full Database", release, file_path)
         ]
 
     # store in dedicated metadata table
