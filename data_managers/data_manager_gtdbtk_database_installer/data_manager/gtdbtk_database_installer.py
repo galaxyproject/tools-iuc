@@ -56,6 +56,14 @@ CHECKSUM_SEARCH_LEVELS = 5
 # Number of hex digits of the checksum appended to the data table value
 CHECKSUM_SUFFIX_LENGTH = 16
 
+# Test fixtures: a miniature database (1.7 kB), one without and one with a
+# published MD5 sum (https://zenodo.org/records/23918153/files/MD5SUM.txt).
+# In test mode release 232 uses the fixture with MD5 sum, all other releases the
+# one without, such that both cases are covered by the tests.
+TEST_DB_URL = "https://zenodo.org/records/13734217/files/release220-test.tar.gz"
+TEST_DB_URL_MD5 = "https://zenodo.org/records/23918153/files/release220-test.tar.gz"
+TEST_DB_URLS = {"232": TEST_DB_URL_MD5}
+
 
 def is_urlfile(url):
     # Check if online file exists
@@ -333,10 +341,8 @@ def download(release, meta, test, out_file):
     os.makedirs(target_directory)
 
     if test:
-        # switch the DB to use the test case
-        urls[release][
-            "full"
-        ] = "https://zenodo.org/records/13734217/files/release220-test.tar.gz"
+        # switch the DB to use one of the test cases
+        urls[release]["full"] = TEST_DB_URLS.get(release, TEST_DB_URL)
 
         # make use of the test to check if all urls exists
         for _version, items in urls.items():
