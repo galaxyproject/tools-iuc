@@ -1,5 +1,5 @@
 <tool id="chopper" name="Chopper" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>Filtering and trimming of long reads.</description>
+    <description>Filtering and trimming of long reads (FASTQ or unaligned BAM).</description>
     <macros>
         <token name="@TOOL_VERSION@">0.15.0</token>
         <token name="@VERSION_SUFFIX@">0</token>
@@ -59,13 +59,24 @@
     #end if
  #end if
 
+ #if $extra_trim.trim_poly_tails
+    --trim-poly-tails $extra_trim.trim_poly_tails
+ #end if
+ $extra_trim.update_mods
+
  ##output capture
  #if $output_params.inverse == "yes"
     $output_params.inverse
- #end if 
+ #end if
 
-
- #if str($input.ext).endswith("gz")
+ #set $of = str($output_params.output_format)
+ #if $of == "fastqsanger"
+    --output-format fastq > $fq_filt
+ #else if $of == "fastqsanger.gz"
+    --output-format fastq | gzip > $fq_filt
+ #else if $of == "unsorted.bam"
+    --output-format bam > $fq_filt
+ #else if str($input.ext).endswith("gz")
     | gzip > $fq_filt
  #else
     > $fq_filt
@@ -73,7 +84,7 @@
 
  ]]></command>
     <inputs>
-        <param argument="--input" type="data" label="FASTQ file to check" format="fastqsanger.gz,fastqsanger" />
+        <param argument="--input" type="data" label="Reads to filter" format="fastqsanger.gz,fastqsanger,unsorted.bam" help="FASTQ or unaligned BAM (e.g. as produced by dorado)."/>
         <param argument="--contam" type="data" format="fasta" optional="True" label="Reference FASTA" help="FASTA file with reference to check potential contaminants against."/>    
 
         <section name="option_params" title="Optional Parameters" expanded="True">
@@ -108,12 +119,28 @@
                 <param argument="--split-window" type="integer" value="1" min="1" label="Split window" help="Minimum number of consecutive sub-cutoff bases required to split a read."/>
             </when>
         </conditional>
+        <section name="extra_trim" title="Additional trimming" expanded="False">
+            <param argument="--trim-poly-tails" type="integer" optional="true" min="1" label="Trim poly(A) tails and poly(T) heads of at least this length" help="Removes a poly(T) head and a poly(A) tail (up to 20% other bases allowed) that reach the read end. Leave empty to disable; 10 is chopper's default minimum length. Remove adapters and primers first. Applied after the trimming approach above."/>
+            <param argument="--update-mods" type="boolean" checked="false" truevalue="--update-mods" falsevalue="" label="Update base modification tags" help="Recompute MM/ML/MN tags so they match the trimmed read. Requires unaligned BAM input, or FASTQ written with 'samtools fastq -T MM,ML,MN'."/>
+        </section>
         <section name="output_params" title="Output Parameters" expanded="False">
             <param argument="--inverse" type="boolean" checked="false" truevalue="--inverse" falsevalue="" label="Output the opposite of the normal results" help="Reverse the output results (aka, the 'failed reads')"/>
+            <param argument="--output-format" type="select" label="Output format">
+                <option value="" selected="true">Same as input</option>
+                <option value="fastqsanger">FASTQ</option>
+                <option value="fastqsanger.gz">FASTQ (gzip compressed)</option>
+                <option value="unsorted.bam">Unaligned BAM</option>
+            </param>
         </section>
     </inputs>
     <outputs>
-	    <data name="fq_filt" format_source="input" label="${tool.name} on ${on_string}" />
+	    <data name="fq_filt" format_source="input" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output_params.output_format" value="fastqsanger" format="fastqsanger"/>
+                <when input="output_params.output_format" value="fastqsanger.gz" format="fastqsanger.gz"/>
+                <when input="output_params.output_format" value="unsorted.bam" format="unsorted.bam"/>
+            </change_format>
+        </data>
     </outputs>
     <tests>
         <!-- 1) -->
@@ -240,12 +267,87 @@
                 <has_text text="Kept 4 reads out of 3 reads"/>
             </assert_stderr>
         </test>
+        <!-- 9) unaligned BAM input, output stays BAM -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="unsorted.bam" value="wrapping_as_sanger.unaligned.bam"/>
+            <section name="option_params">
+                <param name="maxlength" value="136"/>
+            </section>
+            <output name="fq_filt" ftype="unsorted.bam">
+                <assert_contents>
+                    <has_size min="1"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kept 2 reads out of 3 reads"/>
+            </assert_stderr>
+        </test>
+        <!-- 10) unaligned BAM input converted to FASTQ -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="unsorted.bam" value="wrapping_as_sanger.unaligned.bam"/>
+            <section name="option_params">
+                <param name="maxlength" value="136"/>
+            </section>
+            <section name="output_params">
+                <param name="output_format" value="fastqsanger"/>
+            </section>
+            <output name="fq_filt" ftype="fastqsanger">
+                <assert_contents>
+                    <not_has_text text="@SRR014849.203935"/>
+                    <has_text text="@SRR014849.50939"/>
+                    <has_text text="@SRR014849.110027"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 11) FASTQ input converted to unaligned BAM -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="fastqsanger" value="wrapping_as_sanger.fastqsanger"/>
+            <section name="output_params">
+                <param name="output_format" value="unsorted.bam"/>
+            </section>
+            <output name="fq_filt" ftype="unsorted.bam">
+                <assert_contents>
+                    <has_size min="1"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kept 3 reads out of 3 reads"/>
+            </assert_stderr>
+        </test>
+        <!-- 12) poly(A) tail / poly(T) head trimming -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="fastqsanger" value="polyA.fastq"/>
+            <section name="extra_trim">
+                <param name="trim_poly_tails" value="10"/>
+            </section>
+            <output name="fq_filt" ftype="fastqsanger">
+                <assert_contents>
+                    <has_line line="ACGTTGCAGGCTAGCATCGATCGGATCCTAGGCTTACGATCGATGCATGCCGTAGCTAGT"/>
+                    <has_line line="GGCATCGTACGATCGTAGCTAGCTTGACGATCGGCTAGCATGCATCGGATCGATCGTACGC"/>
+                    <not_has_text text="AAAAAAAAAA"/>
+                    <not_has_text text="TTTTTTTTTT"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="Kept 3 reads out of 3 reads"/>
+            </assert_stderr>
+        </test>
     </tests>
     <help><![CDATA[
 **Chopper**
 
-Rust implementation of NanoFilt+NanoLyse, both originally written in Python. This tool, intended for long read sequencing such as PacBio or ONT, filters and trims a fastq file.
+Rust implementation of NanoFilt+NanoLyse, both originally written in Python. This tool, intended for long read sequencing such as PacBio or ONT, filters and trims a FASTQ or unaligned BAM file (such as the default output of dorado).
 Filtering is done on average read quality, minimal or maximal read length, and GC content, while printing the reads passing the filter.
+
+**Input and output formats**
+
+By default the output has the same format as the input. Use *Output format* to convert between them:
+
+- BAM to FASTQ writes every BAM tag as a tab-separated SAM field after the read name (like ``samtools fastq -T '*'``).
+- FASTQ to BAM turns such fields back into typed tags.
+- BAM to BAM keeps the input header and all tags, adding a ``@PG`` line.
+
+Aligned, secondary, supplementary or paired BAM records are rejected.
 
 **Trimming**
 
@@ -255,6 +357,11 @@ Trimming is opt-in via the *Trimming approach* selector and is applied after the
 - **Trim by quality** (``--trim-approach trim-by-quality``): trim low-quality bases from both ends until a base with quality ≥ the ``--cutoff`` Q-score is reached.
 - **Best read segment** (``--trim-approach best-read-segment``): keep only the highest-quality segment of each read, based on ``--cutoff``.
 - **Split by low quality** (``--trim-approach split-by-low-quality``): split reads at low-quality stretches and output the high-quality parts. A read is only split once a run of consecutive sub-``--cutoff`` bases reaches the ``--split-window`` length (default 1); shorter dips are tolerated and kept inside the segment, while leading and trailing low-quality bases are still trimmed.
+
+**Additional trimming**
+
+- **Poly(A)/poly(T) trimming** (``--trim-poly-tails``): removes a poly(T) head and a poly(A) tail of at least the given length, allowing up to 20% other bases. Tails must reach the read end, so remove adapters and primers first. It is applied after the trimming approach above.
+- **Update base modification tags** (``--update-mods``): recomputes MM/ML/MN tags so the modification calls still match the trimmed read.
 
 Compared to the Python implementation the scope is to deliver the same results, almost the same functionality, at much faster execution times. At the moment this tool does not support filtering using a sequencing_summary file.
 
