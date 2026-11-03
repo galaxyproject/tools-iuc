@@ -1,0 +1,120 @@
+<tool id="haplotype_pyeuk" name="PyEuk cluster (current)" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>wIBS distance, cluster sweep, and graphical HTML report</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <required_files>
+        <include path="pyeuk_cluster.py"/>
+    </required_files>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+mkdir -p wrk && export TMPDIR="\$(pwd)/wrk" &&
+python '$__tool_directory__/pyeuk_cluster.py'
+    --sheet '$sheet'
+    --matrix-out '$distance_matrix'
+    --clusters-out '$clusters'
+    --sweep-out '$sweep'
+    --report-out '$report'
+    --n-boot $advanced.n_boot
+    --linkage-method $advanced.linkage_method
+    --report-flavor $advanced.report_flavor
+    --report-theme $advanced.report_theme
+    --min-completeness $advanced.min_completeness
+    --k-min $advanced.k_min
+    --k-max $advanced.k_max
+    --report-excluded $advanced.report_excluded
+    --project-psd $advanced.project_psd
+    --cut $advanced.cut
+    #if str($advanced.linkage_threshold).strip() != ''
+    --linkage-threshold $advanced.linkage_threshold
+    #end if
+    ]]></command>
+    <inputs>
+        <param name="sheet" type="data" format="tabular" label="Haplotype sheet"/>
+        <section name="advanced" title="Advanced" expanded="false">
+            <param argument="--min-completeness" type="float" value="0.1" min="0.0" max="1.0" label="Minimum locus completeness" help="Minimum fraction of loci a specimen must have called to enter the matrix."/>
+            <param argument="--k-min" type="integer" value="2" min="2" label="k min" help="Smallest cluster count to consider."/>
+            <param argument="--k-max" type="integer" value="50" min="2" label="k max" help="Largest cluster count to consider."/>
+            <param argument="--project-psd" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Project distances onto the PSD cone" help="Project the distance matrix onto the PSD cone. Off by default; leave off with count, turn on with distance."/>
+            <param argument="--cut" type="select" label="How to cut the tree" help="How to cut the tree. count for a closed investigation; distance for surveillance, where unrelated specimens stay as singletons.">
+                <option value="count" selected="true">Cluster count (merge-height gap)</option>
+                <option value="distance">Distance threshold (linkage)</option>
+            </param>
+            <param argument="--linkage-threshold" type="float" value="" optional="true" label="Distance to cut at" help="Dissimilarity to cut at in distance mode. Leave empty to calibrate from the data."/>
+            <param argument="--report-excluded" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Report excluded specimens" help="List specimens excluded on completeness as cluster -1."/>
+            <param argument="--n-boot" type="integer" value="200" min="20" max="2000" label="Bootstrap resamples (sweep confidence)" help="Bootstrap resamples for branch support in the sweep."/>
+            <param argument="--linkage-method" type="select" label="Linkage method" help="Linkage for the tree. ward by default; single follows transmission chains.">
+                <option value="ward" selected="true">ward</option>
+                <option value="single">single</option>
+                <option value="average">average</option>
+                <option value="complete">complete</option>
+            </param>
+            <param argument="--report-flavor" type="select" label="Report layout" help="Layout of the HTML report.">
+                <option value="dashboard" selected="true">dashboard (tiles + tree + sweep + heatmap)</option>
+                <option value="clinical">clinical (single-page verdict)</option>
+                <option value="narrative">narrative (prose walkthrough)</option>
+            </param>
+            <param argument="--report-theme" type="select" label="Report theme" help="Report theme. galaxy uses no external assets; studio links Google Fonts.">
+                <option value="galaxy" selected="true">galaxy (embeddable)</option>
+                <option value="studio">studio (Google Fonts)</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="distance_matrix" format="tabular" label="${tool.name} on ${on_string}: distance matrix"/>
+        <data name="clusters" format="tabular" label="${tool.name} on ${on_string}: clusters"/>
+        <data name="sweep" format="json" label="${tool.name} on ${on_string}: Cluster sweep (JSON)"/>
+        <data name="report" format="html" label="${tool.name} on ${on_string}: dashboard report"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <param name="sheet" value="sheet.tsv"/>
+            <section name="advanced">
+                <param name="k_max" value="3"/>
+            </section>
+            <output name="clusters">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_text text="Seq_ID&#9;Assigned_cluster"/>
+                    <has_text text="SpecA"/>
+                    <has_text text="SpecB"/>
+                    <has_text text="SpecC"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Runs the distance and the clustering in one step: it takes a haplotype sheet and returns the
+pairwise wIBS distance matrix, a cluster assignment, a stability sweep, and an HTML report.
+
+**Distance.** Pairwise heterozygosity-weighted identity-by-state, computed over the windows
+called in both specimens, weighting each haplotype by its expected heterozygosity ``2p(1-p)``
+and dividing by locus ploidy. See the standalone PyEuk distance tool for the full definition.
+
+**Clustering.** Agglomerative hierarchical clustering under Ward's minimum-variance criterion,
+then one of two modes:
+
+* **count** -- selects a cluster number k from the largest merge-height gap, subject to a
+  relative gap of at least 0.22 and a minimum cluster size of ``max(2, min(5, floor(0.10 n)))``.
+  Specimens in sub-threshold clusters stay unassigned. For a closed investigation where every
+  accepted specimen belongs to a group and pairs of two are uninformative.
+* **distance** -- cuts the tree at an absolute dissimilarity without choosing k, leaving
+  unrelated specimens as singletons. For surveillance, where forcing singletons into a low k
+  invents linkage. Without labels the cut is the 5th percentile of pairwise distances; with
+  labelled pairs it is ``median + 3 x 1.4826 x MAD`` of the within-cluster distances.
+
+**Sweep.** Partition stability is assessed by subsampling 85% of specimens without replacement
+over 200 resamples and accumulating pairwise co-assignment. A pair is decisively resolved when
+``|2p - 1| >= 0.5``; stable cores are connected components of pairs co-assigned at least 90% of
+the time. Candidate k are judged by the merge-height gap knee, silhouette width, and the gap
+statistic; when they agree the partition is reported as determined, otherwise a stability range
+``[k_min, k_max]`` is reported instead of a forced point estimate.
+
+Choose the mode from study design, not organism: the two are not interchangeable, and no
+label-free test reliably tells an outbreak cohort from a surveillance one.
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

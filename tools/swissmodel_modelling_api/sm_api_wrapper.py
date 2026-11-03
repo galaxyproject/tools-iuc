@@ -10,6 +10,23 @@ from urllib.parse import urlsplit
 import requests
 
 
+def _api_error_detail(response, max_len=2000):
+    """Return the error message the SWISS-MODEL API sent with a response.
+
+    The API explains why a request was rejected (e.g. an invalid target
+    sequence) in the response body; without it, users only see a status code.
+    """
+    try:
+        detail = json.dumps(response.json(), indent=2)
+    except ValueError:
+        detail = response.text.strip()
+    if not detail:
+        return ""
+    if len(detail) > max_len:
+        detail = detail[:max_len] + "... [truncated]"
+    return f"\nResponse from SWISS-MODEL:\n{detail}"
+
+
 class _SmApiWhisperer:
     """Parent class for talking to the SWISS-MODEL API."""
 
@@ -45,6 +62,7 @@ class _SmApiWhisperer:
         if response.ok is not True:
             raise RuntimeError(
                 f"Submitting modelling job failed ({response.status_code})"
+                + _api_error_detail(response)
             )
         self.project_id = response.json()["project_id"]
 
@@ -96,6 +114,7 @@ class _SmApiWhisperer:
                 raise RuntimeError(
                     f"Fetching {file_type} output failed ("
                     + f"{response.status_code})."
+                    + _api_error_detail(response)
                 )
             try:
                 os.mkdir(os.path.join(outdir, file_type))
