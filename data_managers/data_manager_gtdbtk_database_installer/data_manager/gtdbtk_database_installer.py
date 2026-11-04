@@ -149,7 +149,7 @@ def expected_md5(url, checksum_cache, md5sums_cache):
     base = posixpath.dirname(urlparse(checksum_url).path)
     # checksum files list paths relative to their own directory
     if path.startswith(base + "/"):
-        relpath = path[len(base) + 1 :]
+        relpath = path[len(base) + 1:]
         if relpath in md5sums:
             return relpath, md5sums[relpath], checksum_url
     # fall back to a unique match of the file name
