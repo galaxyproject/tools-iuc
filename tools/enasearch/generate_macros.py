@@ -89,6 +89,18 @@ def write_taxonomy_results():
     return s
 
 
+def format_option(value, description, used):
+    """
+    Format an option, falling back to the value if no description is available
+    and disambiguating descriptions that are used more than once
+    """
+    text = description or value
+    if text in used:
+        text = "%s (%s)" % (text, value)
+    used.add(text)
+    return '%s<option value="%s">%s</option>\n' % (2 * spaces, value, text)
+
+
 def write_result_parameters(fts=False):
     """
     Write the parameters that are dependant of results
@@ -139,7 +151,7 @@ def write_result_parameters(fts=False):
         sf = enasearch.get_sortable_fields(r)
         ff = res[r]['filter_fields']
         s += '%s<when value="%s">\n' % (3 * spaces, r)
-        if not fts:
+        if not fts and ff:
             s += '%s<repeat name="queries" title="Add a query">\n' % (4 * spaces)
             # Add combination operator
             s += '%s<param name="combination_operation" type="select" label="Combination operation">\n' % (5 * spaces)
@@ -149,8 +161,9 @@ def write_result_parameters(fts=False):
             s += '%s</param>\n' % (5 * spaces)
             s += '%s<conditional name="filter_field">\n' % (5 * spaces)
             s += '%s<param name="field" type="select" label="Field to query">\n' % (6 * spaces)
+            used = set()
             for f in ff:
-                s += '%s<option value="%s">%s</option>\n' % (7 * spaces, f, ff[f]['description'])
+                s += 7 * spaces + format_option(f, ff[f]['description'], used)
             s += '%s</param>\n' % (6 * spaces)
             for f in ff:
                 # Add the correct parameter given the type of field
@@ -181,10 +194,12 @@ def write_result_parameters(fts=False):
                     for f in res[r]['returnable_fields']:
                         s += '%s<option value="%s">%s</option>\n' % (7 * spaces, f, f)
                     s += '%s</param>\n' % (6 * spaces)
-                    s += '%s<param argument="--sortfields" type="select" optional="true" multiple="true" label="Fields to sort the results">\n' % (6 * spaces)
-                    for f in sf:
-                        s += '%s<option value="%s">%s</option>\n' % (7 * spaces, f, sf[f]['description'])
-                    s += '%s</param>\n' % (6 * spaces)
+                    if sf:
+                        s += '%s<param argument="--sortfields" type="select" optional="true" multiple="true" label="Fields to sort the results">\n' % (6 * spaces)
+                        used = set()
+                        for f in sf:
+                            s += 7 * spaces + format_option(f, sf[f]['description'], used)
+                        s += '%s</param>\n' % (6 * spaces)
                 s += '%s</when>\n' % (5 * spaces)
             else:
                 s += '/>\n'
