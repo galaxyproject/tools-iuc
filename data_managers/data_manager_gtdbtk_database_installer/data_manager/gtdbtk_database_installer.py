@@ -39,7 +39,7 @@ urls = {
         "meta_ar": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/ar53_metadata_r226.tsv.gz",
         "meta_bac": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/bac120_metadata_r226.tsv.gz",
     },
-    "232": {
+    "232.0": {
         "full": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz",
         "meta_ar": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/ar53_metadata_r232.tsv.gz",
         "meta_bac": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/bac120_metadata_r232.tsv.gz",
@@ -60,7 +60,7 @@ CHECKSUM_SEARCH_LEVELS = 5
 # one without, such that both cases are covered by the tests.
 TEST_DB_URL = "https://zenodo.org/records/13734217/files/release220-test.tar.gz"
 TEST_DB_URL_MD5 = "https://zenodo.org/records/23918153/files/release220-test.tar.gz"
-TEST_DB_URLS = {"232": TEST_DB_URL_MD5}
+TEST_DB_URLS = {"232.0": TEST_DB_URL_MD5}
 
 
 def is_urlfile(url):
@@ -298,6 +298,17 @@ def url_download(url, target_directory, meta, md5sum=None):
         return target_directory
 
 
+def version_of(release):
+    """Return the version of a release, i.e. the release without minor version.
+
+    The keys of the ``urls`` table are the releases as GTDB names their download
+    directories (e.g. ``232.0``). This is used for the value and the name of the
+    data table entry, but the GTDB-Tk tools filter on the plain release (e.g.
+    ``232``), which GTDB keeps stable when it republishes the files of a release.
+    """
+    return release.split(".")[0]
+
+
 def create_data_manager_entry(database_name, release, file_path):
     data_manager_entry = {}
     data_manager_entry["value"] = (
@@ -308,7 +319,7 @@ def create_data_manager_entry(database_name, release, file_path):
     else:
         data_manager_entry["name"] = f"{database_name} - release {release}"
     data_manager_entry["path"] = file_path
-    data_manager_entry["version"] = release
+    data_manager_entry["version"] = version_of(release)
     return data_manager_entry
 
 
