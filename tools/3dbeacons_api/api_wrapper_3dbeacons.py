@@ -1,10 +1,13 @@
 """Wrapper for the 3D-Beacons API."""
 
 import argparse
+import collections
 import csv
+import functools
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -329,17 +332,93 @@ def _assemble_call(
     return url, params
 
 
-def _send_request(call, params):
-    """Send a request to the 3D-Beacons API and wait for the response."""
-    response = requests.get(
-        call,
-        headers={"Accept": "application/json"},
-        params=params,
-        timeout=360,
-    )
-    response.raise_for_status()
+class _TransientError(Exception):
+    """A request failed in a way that may go away when trying again."""
 
-    return response.json()
+
+class _UnreachableError(Exception):
+    """A server could not be reached for too long."""
+
+
+class _DownloadError(Exception):
+    """A model file could not be downloaded."""
+
+
+def _send(url, **kwargs):
+    """Send a GET request, raise _TransientError for failures to retry."""
+    # HTTP status codes worth retrying, usually the server being overloaded
+    # or down for maintenance
+    retry_status_codes = (429, 500, 502, 503, 504)
+    try:
+        # callers pass the timeout in kwargs
+        response = requests.get(  # pylint: disable=missing-timeout
+            url, **kwargs
+        )
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ContentDecodingError,
+    ) as exc:
+        raise _TransientError(type(exc).__name__) from exc
+    if response.status_code in retry_status_codes:
+        raise _TransientError(f"HTTP {response.status_code}")
+
+    return response
+
+
+def _retry(send, what, outage_max):
+    """Call send() again and again while it raises _TransientError.
+
+    Raises _UnreachableError when the server could not be reached for
+    outage_max seconds. Messages must not contain "error:" or "exception:",
+    Galaxy would mark the job as failed even if a retry succeeds.
+    """
+    # Seconds to wait before trying a failed request again
+    wait_retry = 31
+    failing_since = None
+    while True:
+        try:
+            return send()
+        except _TransientError as exc:
+            if failing_since is None:
+                failing_since = time.monotonic()
+            if time.monotonic() - failing_since > outage_max:
+                raise _UnreachableError(
+                    f"could not reach the server while {what} for "
+                    + f"{outage_max // 60} minutes ({exc})"
+                ) from exc
+            print(
+                f"Could not reach the server while {what} ({exc}), "
+                + f"trying again in {wait_retry} s",
+                file=sys.stderr,
+            )
+            time.sleep(wait_retry)
+
+
+class _FailedDownloads:
+    """Keep track of models that could not be downloaded."""
+
+    # pylint: disable=too-few-public-methods
+
+    def __init__(self):
+        # providers whose server could not be reached, skipped from then on
+        self.unreachable = set()
+        self.per_provider = collections.Counter()
+
+    def report(self):
+        """Print a summary of the models not downloaded."""
+        if not self.per_provider:
+            return
+        print(
+            f"{sum(self.per_provider.values())} model(s) could not be "
+            + "downloaded: "
+            + ", ".join(
+                f"{provider} ({count})"
+                for provider, count in sorted(self.per_provider.items())
+            ),
+            file=sys.stderr,
+        )
 
 
 _TRANSLATE_TABLE = str.maketrans(".:", "__")
@@ -348,7 +427,7 @@ _TRANSLATE_TABLE = str.maketrans(".:", "__")
 def _make_coordfile_name(mdl_info):
     """Assemble a name for a coordinate file."""
     # some providers deliver non-unique file name, use model identifier instead
-    if mdl_info["provider"].upper() in ("SWISS-MODEL",):
+    if mdl_info["provider"].upper() in ("SWISS-MODEL", "PED"):
         mdl_id = mdl_info["model_identifier"].translate(_TRANSLATE_TABLE)
     else:
         mdl_id = str(Path(urlsplit(mdl_info["model_url"]).path).name)
@@ -356,8 +435,10 @@ def _make_coordfile_name(mdl_info):
         f"{mdl_info['provider']}__{mdl_info['model_format'].upper()}"
         + f"__{mdl_id}"
     )
-    # make sure file has an extension
-    if not fname.suffix:
+    # make sure file has a lowercase extension, Galaxy discovers files by it
+    if fname.suffix:
+        fname = fname.with_suffix(fname.suffix.lower())
+    else:
         if mdl_info["model_format"].upper() == "MMCIF":
             fname = fname.with_suffix(".cif")
         else:
@@ -370,16 +451,25 @@ def _make_coordfile_name(mdl_info):
 
 
 def _fetch_file(mdl_info, outdir):
-    response = requests.get(mdl_info["model_url"], timeout=360)
-    response.raise_for_status()
+    """Download a model file, raise _DownloadError if that does not work."""
+    # Give up on a provider when its server can not be reached for this many
+    # seconds
+    outage_max = 5 * 60
     fname, mid = _make_coordfile_name(mdl_info)
+    response = _retry(
+        functools.partial(_send, mdl_info["model_url"], timeout=360),
+        f"downloading {mdl_info['model_url']}",
+        outage_max,
+    )
+    if not response.ok:
+        raise _DownloadError(f"HTTP {response.status_code} {response.reason}")
     with open(outdir / fname, "wb") as mfh:
         for chunk in response.iter_content(chunk_size=8192):
             mfh.write(chunk)
     return Path(mid).stem
 
 
-def _collect_results(response, output_dir):
+def _collect_results(response, output_dir, failed):
     """Get JSON data and coordinate files."""
     # write entry info as JSON
     out_path = output_dir / "INFO"
@@ -390,13 +480,50 @@ def _collect_results(response, output_dir):
         encoding="utf8",
     ) as jfh:
         json.dump(response["uniprot_entry"], jfh)
-    # get coordinate files & per file a summary JSON
+    # get coordinate files & per file a summary JSON, a failing provider must
+    # not stop fetching models from the others
     for mdl in response["structures"]:
         mdl = mdl["summary"]
+        provider = mdl["provider"]
+        if provider in failed.unreachable:
+            print(
+                f"Skipping model '{mdl['model_identifier']}' from {provider}, "
+                + "its server could not be reached before",
+                file=sys.stderr,
+            )
+            failed.per_provider[provider] += 1
+            continue
         # coordinate file
         out_path = output_dir / "MODELS"
         out_path.mkdir(parents=True, exist_ok=True)
-        mid = _fetch_file(mdl, out_path)
+        try:
+            mid = _fetch_file(mdl, out_path)
+        except _UnreachableError as exc:
+            print(
+                f"Giving up on {provider}, {exc}, skipping its remaining "
+                + "models",
+                file=sys.stderr,
+            )
+            failed.unreachable.add(provider)
+            failed.per_provider[provider] += 1
+            continue
+        except _DownloadError as exc:
+            print(
+                f"Could not download model '{mdl['model_identifier']}' from "
+                + f"{provider} ({exc}), {mdl['model_url']}; exclude "
+                + f"{provider} if this keeps happening",
+                file=sys.stderr,
+            )
+            failed.per_provider[provider] += 1
+            continue
+        except NotImplementedError as exc:
+            print(
+                f"Skipping model '{mdl['model_identifier']}' from "
+                + f"{provider}: {exc}",
+                file=sys.stderr,
+            )
+            failed.per_provider[provider] += 1
+            continue
         # summary file in SUMMARIES/provider/
         summaries_path = output_dir / "SUMMARIES"
         summaries_path.mkdir(parents=True, exist_ok=True)
@@ -416,9 +543,12 @@ def _run_query(
     template,
     sequence_range,
     uniprot_checksum,
+    failed,
 ):
     """Try to fetch entry data"""
     # pylint: disable=too-many-positional-arguments,too-many-arguments
+    # Give up when the 3D-Beacons API can not be reached for this many seconds
+    api_outage_max = 60 * 60
     call, api_params = _assemble_call(
         qualifier,
         provider,
@@ -428,16 +558,44 @@ def _run_query(
         uniprot_checksum,
     )
     try:
-        response = _send_request(call, api_params)
-    except requests.exceptions.HTTPError:  # Entry not found
-        pass
-    else:
-        _collect_results(response, out_dir)
+        response = _retry(
+            functools.partial(
+                _send,
+                call,
+                headers={"Accept": "application/json"},
+                params=api_params,
+                timeout=360,
+            ),
+            f"querying 3D-Beacons for '{qualifier}'",
+            api_outage_max,
+        )
+    except _UnreachableError as exc:
+        print(
+            f"3D-Beacons seems to be temporarily unavailable, {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+    # 3D-Beacons answers 404 for unknown entries and when no model matches the
+    # filters, both are a valid result, not a failure
+    if response.status_code == 404:
+        print(f"No models found for '{qualifier}' with the given filters")
+        return
+    if not response.ok:
+        # leave out the response text, it may contain "error:" which makes
+        # Galaxy fail the job
+        print(
+            f"3D-Beacons rejected the query for '{qualifier}' (HTTP "
+            + f"{response.status_code} {response.reason}), skipping it",
+            file=sys.stderr,
+        )
+        return
+    _collect_results(response.json(), out_dir, failed)
 
 
 def _main():
     """Run as script."""
     opts = _parse_args()
+    failed = _FailedDownloads()
 
     if opts.mode == "batch":
         # Batch mode: process TSV file (streaming, memory efficient)
@@ -454,6 +612,7 @@ def _main():
                 params.get("template"),
                 params.get("sequence_range"),
                 params.get("uniprot_checksum"),
+                failed,
             )
 
         if not queries_processed:
@@ -469,8 +628,10 @@ def _main():
             opts.template,
             opts.sequence_range,
             opts.uniprot_checksum,
+            failed,
         )
 
+    failed.report()
     sys.exit(0)
 
 
