@@ -1,4 +1,4 @@
-<tool id="rna_starsolo" name="RNA STARSolo" version="@TOOL_VERSION@+galaxy2" profile="@PROFILE@" license="MIT">
+<tool id="rna_starsolo" name="RNA STARSolo" version="@TOOL_VERSION@+galaxy3" profile="@PROFILE@" license="MIT">
     <description>mapping, demultiplexing and gene quantification for single cell RNA-seq</description>
     <macros>
         <import>macros.xml</import>
@@ -99,8 +99,17 @@
         --varVCFfile '$solo.wasp_conditional.varVCFfile'
     #end if
 
+    #set $soloFeatures = [sf.replace('$', '') for sf in str($solo.soloFeatures).split(',')]
+    #if 'Velocyto' in $soloFeatures and 'Gene' not in $soloFeatures:
+        ## To make Velocyto work it requires Gene to be part of the soloFeatures
+        $soloFeatures.append('Gene')
+    #end if
+
     --soloStrand $solo.soloStrand
-    --soloFeatures $solo.soloFeatures
+    --soloFeatures
+    #for solof in $soloFeatures:
+        $solof
+    #end for
     --soloUMIdedup $sc.umidedup.soloUMIdedup
     #if str($sc.umidedup.soloUMIdedup) == "1MM_CR":
         --soloUMIfiltering $sc.umidedup.soloUMIfiltering
@@ -140,14 +149,13 @@
 
     ##outWig:
     @OUTWIG@
-    ## Rename the the selected features directory
-    #if $solo.soloFeatures == 'Gene Velocyto'
-        && mv Solo.out/Velocyto Solo.out/soloFeatures
-    #else
-        && mv Solo.out/${solo.soloFeatures} Solo.out/soloFeatures
-    #end if
+    
     ## put the barcodes and features stats into a single file
-    && cat <(echo "Barcodes:") Solo.out/Barcodes.stats <(echo "Genes:") Solo.out/soloFeatures/Features.stats > '${output_stats}'
+    && cat <(echo "Barcodes:") Solo.out/Barcodes.stats > '${output_stats}'
+
+    #for $solof in $soloFeatures:
+        && cat <(echo "$solof:") Solo.out/"$solof"/Features.stats >> '${output_stats}'
+    #end for
 
     #if "CB" in $tag_names or "UB" in $tag_names or str($outWig.outWigType) != 'None':
         ## recompress BAM output for smaller file size
@@ -356,13 +364,20 @@
                 <option value="Forward" selected="true" >Read strand same as the original RNA molecule</option>
                 <option value="Reverse" >Read strand opposite to the original RNA molecule</option>
             </param>
-            <param argument="--soloFeatures" type="select" label="Collect UMI counts for these genomic features" >
-                <option value="Gene" selected="true">Gene: Count reads matching the Gene Transcript</option>
+            <param argument="--soloFeatures" type="select" multiple="true" label="Collect UMI counts for these genomic features" optional="false" >
+                <!-- The real values do not have a '$' at the end but
+                        - Galaxy pre 26.2 converts multiple select to string
+                        - Galaxy post 26.2 converts multiple select to string
+                        - the outputs are filtered based on these values
+                        - Some options string are contained within other. For example, "Gene" is in "GeneFull".
+                     Adding a '$' is a trick to make this wrapper compatible both to pre 26.2 and post 26.2 by filtering outputs with 'Gene$' in soloFeatures only matches the 'Gene$' option not the 'GeneFull' -->
+                <option value="Gene$" selected="true">Gene: Count reads matching the Gene Transcript</option>
                 <option value="SJ" >Splice Junctions: Count reads at exon-intron junctions</option>
-                <option value="GeneFull" >Full: Count all reads overlapping genes' exons and introns</option>
-                <option value="GeneFull_ExonOverIntron" >Full: Count all reads overlapping genes' exons and introns: prioritize 100% overlap with exons</option>
-                <option value="GeneFull_Ex50pAS" >Full: Count all reads overlapping genes' exons and introns: prioritize 50% overlap with exons. Do not count reads with 100% exonic overlap in the antisense direction.</option>
-                <option value="Gene Velocyto">Velocyto: calculate spliced, unspliced, and ambiguous counts per cell per gene similar to the velocyto tool</option>
+                <option value="GeneFull$" >GeneFull: Count all reads overlapping genes' exons and introns</option>
+                <option value="GeneFull_ExonOverIntron" >GeneFull ExonOverIntron: Count all reads overlapping genes' exons and introns: prioritize 100% overlap with exons</option>
+                <option value="GeneFull_Ex50pAS" >GeneFull Ex50pAS: Count all reads overlapping genes' exons and introns: prioritize 50% overlap with exons. Do not count reads with 100% exonic overlap in the antisense direction.</option>
+                <option value="Velocyto">Velocyto: calculate spliced, unspliced, and ambiguous counts per cell per gene similar to the velocyto tool</option>
+                <sanitizer sanitize="false"/>
             </param>
             <expand macro="wasp"/>
             <conditional name="filter" >
@@ -445,69 +460,166 @@
             <expand macro="dbKeyActions" />
         </data>
 -->
-        <!-- soloCellFilter set to None, if SJ is selected for soloFeatures -->
-        <data format="tsv" name="output_genes" label="${tool.name} on ${on_string}: Genes raw"
-              from_work_dir="Solo.out/soloFeatures/raw/features.tsv" >
-              <filter>solo['filter']['output_raw'] or solo['soloFeatures'] == "SJ" </filter>
+        <!-- SoloFeatures: Gene -->
+        <data format="tsv" name="output_genes" label="${tool.name} on ${on_string} Gene quantification raw: Genes"
+              from_work_dir="Solo.out/Gene/raw/features.tsv" >
+              <filter>solo['filter']['output_raw'] and "Gene$" in solo['soloFeatures'] </filter>
         </data>
-        <data format="tsv" name="output_genes_filtered" label="${tool.name} on ${on_string}: Genes filtered"
-              from_work_dir="Solo.out/soloFeatures/filtered/features.tsv" >
-              <filter>solo['filter']['filter_type'] != "no_filter" and solo['soloFeatures'] != "SJ" </filter>
+        <data format="tsv" name="output_barcodes" label="${tool.name} on ${on_string} Gene quantification raw: Barcodes"
+              from_work_dir="Solo.out/Gene/raw/barcodes.tsv" >
+              <filter>solo['filter']['output_raw'] and "Gene$" in solo['soloFeatures'] </filter>
         </data>
-        <data format="tsv" name="output_barcodes" label="${tool.name} on ${on_string}: Barcodes raw"
-              from_work_dir="Solo.out/soloFeatures/raw/barcodes.tsv" >
-              <filter>solo['filter']['output_raw'] or solo['soloFeatures'] == "SJ" </filter>
-        </data>
-        <data format="tsv" name="output_barcodes_filtered" label="${tool.name} on ${on_string}: Barcodes filtered"
-              from_work_dir="Solo.out/soloFeatures/filtered/barcodes.tsv" >
-              <filter>solo['filter']['filter_type'] != "no_filter" and solo['soloFeatures'] != "SJ" </filter>
-        </data>
-        <data format="mtx" name="output_matrix" label="${tool.name} on ${on_string}: Matrix Gene Counts raw"
-              from_work_dir="Solo.out/soloFeatures/raw/matrix.mtx" >
-            <filter>solo['soloFeatures'] == "Gene" and solo['filter']['output_raw'] </filter>
+        <data format="mtx" name="output_matrix" label="${tool.name} on ${on_string} Gene quantification raw: Matrix"
+              from_work_dir="Solo.out/Gene/raw/matrix.mtx" >
+              <filter>solo['filter']['output_raw'] and "Gene$" in solo['soloFeatures'] </filter>
             <expand macro="dbKeyActions" />
         </data>
-        <data format="mtx" name="output_matrix_filtered" label="${tool.name} on ${on_string}: Matrix Gene Counts filtered"
-              from_work_dir="Solo.out/soloFeatures/filtered/matrix.mtx" >
-            <filter>solo['soloFeatures'] == "Gene" and solo['filter']['filter_type'] != "no_filter" </filter>
+        <data format="tsv" name="output_genes_filtered" label="${tool.name} on ${on_string} Gene quantification filtered: Genes"
+              from_work_dir="Solo.out/Gene/filtered/features.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "Gene$" in solo['soloFeatures']</filter>
+        </data>
+        <data format="tsv" name="output_barcodes_filtered" label="${tool.name} on ${on_string} Gene quantification filtered: Barcodes"
+              from_work_dir="Solo.out/Gene/filtered/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "Gene$" in solo['soloFeatures']</filter>
+        </data>
+        <data format="mtx" name="output_matrix_filtered" label="${tool.name} on ${on_string} Gene quantification filtered: Matrix"
+              from_work_dir="Solo.out/Gene/filtered/matrix.mtx" >
+            <filter>solo['filter']['filter_type'] != "no_filter" and "Gene$" in solo['soloFeatures']</filter>
             <expand macro="dbKeyActions" />
         </data>
-        <data format="mtx" name="output_matrixSJ" label="${tool.name} on ${on_string}: Matrix Splice Junction Counts"
-              from_work_dir="Solo.out/soloFeatures/raw/matrix.mtx" >
-            <filter>solo['soloFeatures'] == "SJ" </filter>
+        <!-- SoloFeatures: SJ -->
+        <data format="tsv" name="output_genes_sj" label="${tool.name} on ${on_string} Splice Junctions quantification raw: Genes"
+              from_work_dir="Solo.out/SJ/raw/features.tsv" >
+              <filter>"SJ" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_sj" label="${tool.name} on ${on_string} Splice Junctions quantification raw: Barcodes"
+              from_work_dir="Solo.out/SJ/raw/barcodes.tsv" >
+              <filter>"SJ" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_sj" label="${tool.name} on ${on_string} Splice Junctions quantification raw: Matrix"
+              from_work_dir="Solo.out/SJ/raw/matrix.mtx" >
+            <filter>"SJ" in solo['soloFeatures'] </filter>
             <expand macro="dbKeyActions" />
         </data>
-        <data format="mtx" name="output_matrixGeneFull" label="${tool.name} on ${on_string}: Matrix Full Gene Counts raw"
-              from_work_dir="Solo.out/soloFeatures/raw/matrix.mtx" >
-            <filter>"GeneFull" in solo['soloFeatures'] and solo['filter']['output_raw'] </filter>
+        <!-- SoloFeatures: GeneFull -->
+        <data format="tsv" name="output_genes_genefull" label="${tool.name} on ${on_string} GeneFull quantification raw: Genes"
+              from_work_dir="Solo.out/GeneFull/raw/features.tsv" >
+              <filter>solo['filter']['output_raw'] and "GeneFull$" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_genefull" label="${tool.name} on ${on_string} GeneFull quantification raw: Barcodes"
+              from_work_dir="Solo.out/GeneFull/raw/barcodes.tsv" >
+              <filter>solo['filter']['output_raw'] and "GeneFull$" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_genefull" label="${tool.name} on ${on_string} GeneFull quantification raw: Matrix"
+              from_work_dir="Solo.out/GeneFull/raw/matrix.mtx" >
+            <filter>solo['filter']['output_raw'] and "GeneFull$" in solo['soloFeatures'] </filter>
             <expand macro="dbKeyActions" />
         </data>
-        <data format="mtx" name="output_matrixGeneFull_filtered" label="${tool.name} on ${on_string}: Matrix Full Gene Counts filtered"
-              from_work_dir="Solo.out/soloFeatures/filtered/matrix.mtx" >
-            <filter>"GeneFull" in solo['soloFeatures'] and solo['filter']['filter_type'] != "no_filter" </filter>
+        <data format="tsv" name="output_genes_genefull_filtered" label="${tool.name} on ${on_string} GeneFull quantification filtered: Genes"
+              from_work_dir="Solo.out/GeneFull/filtered/features.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull$" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_genefull_filtered" label="${tool.name} on ${on_string} GeneFull quantification filtered: Barcodes"
+              from_work_dir="Solo.out/GeneFull/filtered/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull$" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_genefull_filtered" label="${tool.name} on ${on_string} GeneFull quantification filtered: Matrix"
+              from_work_dir="Solo.out/GeneFull/filtered/matrix.mtx" >
+            <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull$" in solo['soloFeatures'] </filter>
             <expand macro="dbKeyActions" />
         </data>
-        <collection name="output_matricesVelocyto" type="list" label="${tool.name} on ${on_string}: Velocyto-like matrices raw">
-            <filter>"Gene Velocyto" in solo['soloFeatures'] and solo['filter']['output_raw']</filter>
-            <data format="mtx" name="ambiguous" from_work_dir="Solo.out/soloFeatures/raw/ambiguous.mtx">
+        <!-- SoloFeatures: GeneFull_ExonOverIntron -->
+        <data format="tsv" name="output_genes_genefulleoi" label="${tool.name} on ${on_string} GeneFull ExonOverIntron quantification raw: Genes"
+              from_work_dir="Solo.out/GeneFull_ExonOverIntron/raw/features.tsv" >
+              <filter>solo['filter']['output_raw'] and "GeneFull_ExonOverIntron" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_genefulleoi" label="${tool.name} on ${on_string} GeneFull ExonOverIntron quantification raw: Barcodes"
+              from_work_dir="Solo.out/GeneFull_ExonOverIntron/raw/barcodes.tsv" >
+              <filter>solo['filter']['output_raw'] and "GeneFull_ExonOverIntron" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_genefulleoi" label="${tool.name} on ${on_string} GeneFull ExonOverIntron quantification raw: Matrix"
+              from_work_dir="Solo.out/GeneFull_ExonOverIntron/raw/matrix.mtx" >
+            <filter>solo['filter']['output_raw'] and "GeneFull_ExonOverIntron" in solo['soloFeatures'] </filter>
+            <expand macro="dbKeyActions" />
+        </data>
+        <data format="tsv" name="output_genes_genefulleoi_filtered" label="${tool.name} on ${on_string} GeneFull ExonOverIntron quantification filtered: Genes"
+              from_work_dir="Solo.out/GeneFull_ExonOverIntron/filtered/features.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull_ExonOverIntron" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_genefulleoi_filtered" label="${tool.name} on ${on_string} GeneFull ExonOverIntron quantification filtered: Barcodes"
+              from_work_dir="Solo.out/GeneFull_ExonOverIntron/filtered/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull_ExonOverIntron" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_genefulleoi_filtered" label="${tool.name} on ${on_string} GeneFull ExonOverIntron quantification filtered: Matrix"
+              from_work_dir="Solo.out/GeneFull_ExonOverIntron/filtered/matrix.mtx" >
+            <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull_ExonOverIntron" in solo['soloFeatures'] </filter>
+            <expand macro="dbKeyActions" />
+        </data>
+        <!-- SoloFeatures: GeneFull_Ex50pAS -->
+        <data format="tsv" name="output_genes_genefullex50pas" label="${tool.name} on ${on_string} GeneFull Ex50pAS quantification raw: Genes"
+              from_work_dir="Solo.out/GeneFull_Ex50pAS/raw/features.tsv" >
+              <filter>solo['filter']['output_raw'] and "GeneFull_Ex50pAS" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_genefullex50pas" label="${tool.name} on ${on_string} GeneFull Ex50pAS quantification raw: Barcodes"
+              from_work_dir="Solo.out/GeneFull_Ex50pAS/raw/barcodes.tsv" >
+              <filter>solo['filter']['output_raw'] and "GeneFull_Ex50pAS" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_genefullex50pas" label="${tool.name} on ${on_string} GeneFull Ex50pAS quantification raw: Matrix"
+              from_work_dir="Solo.out/GeneFull_Ex50pAS/raw/matrix.mtx" >
+            <filter>solo['filter']['output_raw'] and "GeneFull_Ex50pAS" in solo['soloFeatures'] </filter>
+            <expand macro="dbKeyActions" />
+        </data>
+        <data format="tsv" name="output_genes_genefullex50pas_filtered" label="${tool.name} on ${on_string} GeneFull Ex50pAS quantification filtered: Genes"
+              from_work_dir="Solo.out/GeneFull_Ex50pAS/filtered/features.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull_Ex50pAS" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_genefullex50pas_filtered" label="${tool.name} on ${on_string} GeneFull Ex50pAS quantification filtered: Barcodes"
+              from_work_dir="Solo.out/GeneFull_Ex50pAS/filtered/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull_Ex50pAS" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="mtx" name="output_matrix_genefullex50pas_filtered" label="${tool.name} on ${on_string} GeneFull Ex50pAS quantification filtered: Matrix"
+              from_work_dir="Solo.out/GeneFull_Ex50pAS/filtered/matrix.mtx" >
+            <filter>solo['filter']['filter_type'] != "no_filter" and "GeneFull_Ex50pAS" in solo['soloFeatures'] </filter>
+            <expand macro="dbKeyActions" />
+        </data>
+        <!-- SoloFeatures: Velocyto -->
+        <data format="tsv" name="output_genes_velo" label="${tool.name} on ${on_string} Velocyto quantification raw: Genes"
+              from_work_dir="Solo.out/Velocyto/raw/features.tsv" >
+              <filter>solo['filter']['output_raw'] and "Velocyto" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_velo" label="${tool.name} on ${on_string} Velocyto quantification raw: Barcodes"
+              from_work_dir="Solo.out/Velocyto/raw/barcodes.tsv" >
+              <filter>solo['filter']['output_raw'] and "Velocyto" in solo['soloFeatures'] </filter>
+        </data>
+        <collection name="output_matricesVelocyto" type="list" label="${tool.name} on ${on_string} Velocyto quantification raw: Matrices">
+            <filter>solo['filter']['output_raw'] and "Velocyto" in solo['soloFeatures']</filter>
+            <data format="mtx" name="ambiguous" from_work_dir="Solo.out/Velocyto/raw/ambiguous.mtx">
                 <expand macro="dbKeyActions" />
             </data>
-            <data format="mtx" name="spliced" from_work_dir="Solo.out/soloFeatures/raw/spliced.mtx">
+            <data format="mtx" name="spliced" from_work_dir="Solo.out/Velocyto/raw/spliced.mtx">
                 <expand macro="dbKeyActions" />
             </data>
-            <data format="mtx" name="unspliced" from_work_dir="Solo.out/soloFeatures/raw/unspliced.mtx">
+            <data format="mtx" name="unspliced" from_work_dir="Solo.out/Velocyto/raw/unspliced.mtx">
                 <expand macro="dbKeyActions" />
             </data>
         </collection>
-        <collection name="output_matricesVelocyto_filtered" type="list" label="${tool.name} on ${on_string}: Velocyto-like matrices filtered">
-            <filter>"Gene Velocyto" in solo['soloFeatures'] and solo['filter']['filter_type'] != "no_filter"</filter>
-            <data format="mtx" name="ambiguous" from_work_dir="Solo.out/soloFeatures/filtered/ambiguous.mtx">
+        <data format="tsv" name="output_genes_velo_filtered" label="${tool.name} on ${on_string} Velocyto quantification filtered: Genes"
+              from_work_dir="Solo.out/Velocyto/filtered/features.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "Velocyto" in solo['soloFeatures'] </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_velo_filtered" label="${tool.name} on ${on_string} Velocyto quantification filtered: Barcodes"
+              from_work_dir="Solo.out/Velocyto/filtered/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and "Velocyto" in solo['soloFeatures'] </filter>
+        </data>
+        <collection name="output_matricesVelocyto_filtered" type="list" label="${tool.name} on ${on_string} Velocyto quantification filtered: matrices">
+            <filter>solo['filter']['filter_type'] != "no_filter" and "Velocyto" in solo['soloFeatures'] </filter>
+            <data format="mtx" name="ambiguous" from_work_dir="Solo.out/Velocyto/filtered/ambiguous.mtx">
                 <expand macro="dbKeyActions" />
             </data>
-            <data format="mtx" name="spliced" from_work_dir="Solo.out/soloFeatures/filtered/spliced.mtx">
+            <data format="mtx" name="spliced" from_work_dir="Solo.out/Velocyto/filtered/spliced.mtx">
                 <expand macro="dbKeyActions" />
             </data>
-            <data format="mtx" name="unspliced" from_work_dir="Solo.out/soloFeatures/filtered/unspliced.mtx">
+            <data format="mtx" name="unspliced" from_work_dir="Solo.out/Velocyto/filtered/unspliced.mtx">
                 <expand macro="dbKeyActions" />
             </data>
         </collection>
@@ -559,7 +671,7 @@
                     <param name="filter_type" value="no_filter" />
                 </conditional>
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
                 <param name="quantModeGene" value="true" />
                 <conditional name="wasp_conditional">
                     <param name="waspOutputMode" value="wasp_mode"/>
@@ -631,7 +743,7 @@
             </conditional>
             <section name="solo" >
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
                 <param name="outSAMunmapped" value="true" />
             </section>
             <output name="output_barcodes_filtered" >
@@ -695,7 +807,7 @@
             </conditional>
             <section name="solo" >
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
             </section>
             <output name="output_barcodes_filtered" >
                 <assert_contents>
@@ -741,7 +853,7 @@
             </conditional>
             <section name="solo" >
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
             </section>
             <conditional name="outWig">
                 <param name="outWigType" value="bedGraph" />
@@ -787,7 +899,7 @@
             </conditional>
             <section name="solo" >
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="GeneFull" />
+                <param name="soloFeatures" value="GeneFull$" />
                 <conditional name="filter">
                     <param name="filter_type" value="topcells" />
                     <param name="n_cells" value="5" />
@@ -795,7 +907,7 @@
                 </conditional>
                 <param name="soloOutFormatFeaturesGeneField3" value="Dummy Text" />
             </section>
-            <output name="output_barcodes_filtered" >
+            <output name="output_barcodes_genefull_filtered" >
                 <assert_contents>
                     <!-- first and last line -->
                     <has_line line="AGACGTTCAAGGCTCC" />
@@ -803,21 +915,21 @@
                     <has_n_lines n="6" />
                 </assert_contents>
             </output>
-            <output name="output_genes_filtered" >
+            <output name="output_genes_genefull_filtered" >
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Dummy\s+Text" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Dummy\s+Text" />
                     <has_n_lines n="14" />
                 </assert_contents>
             </output>
-            <output name="output_matrixGeneFull_filtered" >
+            <output name="output_matrix_genefull_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+6\s+14" />
                     <has_line_matching expression="10\s+6\s+1" />
                     <has_n_lines n="17" />
                 </assert_contents>
             </output>
-            <output name="output_barcodes" >
+            <output name="output_barcodes_genefull" >
                 <assert_contents>
                     <!-- first and last line -->
                     <has_line line="AAACCTGAGCGCTCCA" />
@@ -825,14 +937,14 @@
                     <has_n_lines n="394" />
                 </assert_contents>
             </output>
-            <output name="output_genes">
+            <output name="output_genes_genefull">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Dummy\s+Text" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Dummy\s+Text" />
                     <has_n_lines n="14" />
                 </assert_contents>
             </output>
-            <output name="output_matrixGeneFull" >
+            <output name="output_matrix_genefull" >
                 <assert_contents>
                     <has_line_matching expression="14\s+394\s+195" />
                     <has_line_matching expression="3\s+1\s+1" />
@@ -880,7 +992,7 @@
                     <param name="simN" value="10000" />
                 </conditional>
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
             </section>
             <output name="output_barcodes_filtered">
                 <assert_contents>
@@ -1127,7 +1239,7 @@
                     <param name="filter_type" value="no_filter" />
                 </conditional>
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
                 <param name="outSAMattributes" value="NH,HI,AS,nM,GX,GN,CB,UB" />
             </section>
             <output name="output_barcodes" >
@@ -1199,7 +1311,7 @@
                 </conditional>
                 <param name="soloOutFormatFeaturesGeneField3" value="Dummy Text" />
             </section>
-            <output name="output_barcodes" >
+            <output name="output_barcodes_genefulleoi" >
                 <assert_contents>
                     <!-- first and last line -->
                     <has_line line="AAACCTGAGCGCTCCA" />
@@ -1207,14 +1319,14 @@
                     <has_n_lines n="394" />
                 </assert_contents>
             </output>
-            <output name="output_genes" >
+            <output name="output_genes_genefulleoi" >
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Dummy\s+Text" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Dummy\s+Text" />
                     <has_n_lines n="14" />
                 </assert_contents>
             </output>
-            <output name="output_matrixGeneFull" >
+            <output name="output_matrix_genefulleoi" >
                 <assert_contents>
                     <has_line_matching expression="14\s+394\s+104" />
                     <has_line_matching expression="10\s+2\s+1" />
@@ -1253,7 +1365,7 @@
                     <param name="filter_type" value="no_filter" />
                 </conditional>
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
                 <param name="quantModeGene" value="true" />
             </section>
             <output name="output_barcodes" >
@@ -1295,7 +1407,7 @@
             </output>
         </test>
         <test expect_num_outputs="10">
-            <!-- test 12 -->
+            <!-- test 12 Velocyto -->
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -1323,7 +1435,7 @@
                     <param name="filter_type" value="no_filter" />
                 </conditional>
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene Velocyto" />
+                <param name="soloFeatures" value="Velocyto" />
                 <param name="quantModeGene" value="true" />
             </section>
             <output_collection name="output_matricesVelocyto" type="list" count="3">
@@ -1343,7 +1455,7 @@
                     </assert_contents>
                 </element>
             </output_collection>
-            <output name="output_barcodes" >
+            <output name="output_barcodes_velo" >
                 <assert_contents>
                     <!-- first and last line -->
                     <has_line line="AAACCTGAGCGCTCCA" />
@@ -1351,7 +1463,7 @@
                     <has_n_lines n="394" />
                 </assert_contents>
             </output>
-            <output name="output_genes">
+            <output name="output_genes_velo">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
@@ -1403,7 +1515,7 @@
             </conditional>
             <section name="solo" >
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene Velocyto" />
+                <param name="soloFeatures" value="Velocyto" />
                 <param name="quantModeGene" value="true" />
             </section>
             <output_collection name="output_matricesVelocyto_filtered" type="list" count="3">
@@ -1423,9 +1535,24 @@
                     </assert_contents>
                 </element>
             </output_collection>
+            <output name="output_barcodes_velo_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AGACGTTCAAGGCTCC" />
+                    <has_line line="GTACGTAGTATCAGTC" />
+                    <has_n_lines n="3" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_velo_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="7">
-            <!-- test 14 -->
+            <!-- test 14 wasp -->
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -1453,7 +1580,7 @@
                     <param name="filter_type" value="no_filter" />
                 </conditional>
                 <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
+                <param name="soloFeatures" value="Gene$" />
                 <param name="quantModeGene" value="true" />
                 <conditional name="wasp_conditional">
                     <param name="waspOutputMode" value="wasp_mode"/>
@@ -1505,6 +1632,331 @@
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+0\s+0\s+0" />
                     <has_line_matching expression="ENSG00000275464\s+5\s+0\s+5" />
+                </assert_contents>
+                <metadata name="column_names" value="GeneID,Counts_unstrand,Counts_firstStrand,Counts_secondStrand" />
+            </output>
+        </test>
+        <test expect_num_outputs="43">
+            <!-- test 15 all SoloFeatures -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="Cv3" />
+                </conditional>
+                <conditional name="umidedup">
+                    <param name="soloUMIdedup" value="1MM_All" />
+                </conditional>
+            </conditional>
+            <section name="solo" >
+                <conditional name="filter">
+                    <param name="output_raw" value="true" />
+                </conditional>
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene$,SJ,GeneFull$,GeneFull_ExonOverIntron,GeneFull_Ex50pAS,Velocyto" />
+                <param name="quantModeGene" value="true" />
+            </section>
+            <output name="output_log">
+                <assert_contents>
+                    <has_line_matching expression="\s+Number of input reads\s+|\s+15447"/>
+                    <has_n_lines n="37"/>
+                </assert_contents>
+            </output>
+            <output name="output_barcodes" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+7" />
+                    <has_line_matching expression="4\s+381\s+1" />
+                    <has_n_lines n="10" />
+                </assert_contents>
+            </output>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="ACACCGGTCTAACGGT" />
+                    <has_line line="TTCTCAATCCACGTTC" />
+                    <has_n_lines n="7" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+7\s+7" />
+                    <has_line_matching expression="4\s+7\s+1" />
+                    <has_n_lines n="10" />
+                </assert_contents>
+            </output>
+            <output name="output_barcodes_sj" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_sj">
+                <assert_contents>
+                    <has_line_matching expression="21\s+6989\s+15344\s+1\s+1\s+0\s+0\s+1\s+40" />
+                    <has_line_matching expression="21\s+566350\s+570971\s+1\s+1\s+0\s+0\s+1\s+18" />
+                    <has_n_lines n="417" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_sj" >
+                <assert_contents>
+                    <has_line_matching expression="417\s+394\s+61" />
+                    <has_line_matching expression="387\s+390\s+1" />
+                    <has_n_lines n="64" />
+                </assert_contents>
+            </output>
+            <output name="output_barcodes_genefull" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_genefull">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_genefull" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+195" />
+                    <has_line_matching expression="2\s+390\s+1" />
+                    <has_n_lines n="198" />
+                </assert_contents>
+            </output>
+            <output name="output_barcodes_genefull_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTACTGCAGTGGAGT" />
+                    <has_n_lines n="155" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_genefull_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_genefull_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+155\s+195" />
+                    <has_line_matching expression="2\s+155\s+1" />
+                    <has_n_lines n="198" />
+                </assert_contents>
+            </output> 
+            <output name="output_barcodes_genefulleoi" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_genefulleoi">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_genefulleoi" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+104" />
+                    <has_line_matching expression="2\s+386\s+1" />
+                    <has_n_lines n="107" />
+                </assert_contents>
+            </output>
+            <output name="output_barcodes_genefulleoi_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACGGGGTTTGTGTG" />
+                    <has_line line="TTGAACGCACGAAAGC" />
+                    <has_n_lines n="99" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_genefulleoi_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_genefulleoi_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+99\s+104" />
+                    <has_line_matching expression="2\s+99\s+1" />
+                    <has_n_lines n="107" />
+                </assert_contents>
+            </output> 
+            <output name="output_barcodes_genefullex50pas" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_genefullex50pas">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_genefullex50pas" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+104" />
+                    <has_line_matching expression="2\s+386\s+1" />
+                    <has_n_lines n="107" />
+                </assert_contents>
+            </output>
+            <output name="output_barcodes_genefullex50pas_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACGGGGTTTGTGTG" />
+                    <has_line line="TTGAACGCACGAAAGC" />
+                    <has_n_lines n="99" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_genefullex50pas_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_genefullex50pas_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+99\s+104" />
+                    <has_line_matching expression="2\s+99\s+1" />
+                    <has_n_lines n="107" />
+                </assert_contents>
+            </output> 
+            <output_collection name="output_matricesVelocyto" type="list" count="3">
+                <element name="ambiguous" ftype="mtx">
+                    <assert_contents>
+                        <has_n_lines n="39"/>
+                    </assert_contents>
+                </element>
+                <element name="spliced" ftype="mtx">
+                    <assert_contents>
+                        <has_n_lines n="39"/>
+                    </assert_contents>
+                </element>
+                <element name="unspliced" ftype="mtx">
+                    <assert_contents>
+                        <has_n_lines n="39"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="output_barcodes_velo" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_velo">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output_collection name="output_matricesVelocyto_filtered" type="list" count="3">
+                <element name="ambiguous" ftype="mtx">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                    </assert_contents>
+                </element>
+                <element name="spliced" ftype="mtx">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                    </assert_contents>
+                </element>
+                <element name="unspliced" ftype="mtx">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="output_barcodes_velo_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AGACGTTCAAGGCTCC" />
+                    <has_line line="GTACGTAGTATCAGTC" />
+                    <has_n_lines n="3" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_velo_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_stats" >
+                <assert_contents>
+                    <has_line_matching expression="\s+yesWLmatchExact\s+6204" />
+                    <has_line_matching expression="\s+noUnmapped\s+5823" />
+                    <has_line_matching expression="\s+yesUMIs\s+8" />
+                    <has_line line="Barcodes:" />
+                    <has_line line="Gene:" />
+                    <has_line line="Velocyto:" />
+                    <has_line line="SJ:" />
+                    <has_line line="GeneFull:" />
+                </assert_contents>
+            </output>
+            <output name="output_BAM">
+                <assert_contents>
+                    <has_size value="134389" delta="10000" />
+                </assert_contents>
+            </output>
+            <output name="reads_per_gene" >
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+0\s+0\s+0" />
+                    <has_line_matching expression="ENSG00000275464\s+38\s+1\s+40" />
                 </assert_contents>
                 <metadata name="column_names" value="GeneID,Counts_unstrand,Counts_firstStrand,Counts_secondStrand" />
             </output>

@@ -2,12 +2,13 @@
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
+import posixpath
 import shutil
 import sys
 import tarfile
-from datetime import date
 from urllib.parse import urlparse
 from urllib.request import HTTPError, Request, urlopen
 
@@ -38,24 +39,130 @@ urls = {
         "meta_ar": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/ar53_metadata_r226.tsv.gz",
         "meta_bac": "https://data.ace.uq.edu.au/public/gtdb/data/releases/release226/226.0/bac120_metadata_r226.tsv.gz",
     },
-    "232": {
+    "232.0": {
         "full": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz",
         "meta_ar": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/ar53_metadata_r232.tsv.gz",
         "meta_bac": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/bac120_metadata_r232.tsv.gz",
     },
-    "mocked": {
+    "mocked_232": {
         "full": "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/mockup_db/r232_mockup.tar.gz",
     },
 }
+
+# Name of the checksum files published by GTDB in the release directories
+CHECKSUM_FILE_NAMES = ("MD5SUM.txt", "MD5SUM")
+# Number of directory levels to search upwards for a checksum file
+CHECKSUM_SEARCH_LEVELS = 5
+
+# Test fixtures: a miniature database (1.7 kB), one without and one with a
+# published MD5 sum (https://zenodo.org/records/23918153/files/MD5SUM.txt).
+# In test mode release 232 uses the fixture with MD5 sum, all other releases the
+# one without, such that both cases are covered by the tests.
+TEST_DB_URL = "https://zenodo.org/records/13734217/files/release220-test.tar.gz"
+TEST_DB_URL_MD5 = "https://zenodo.org/records/23918153/files/release220-test.tar.gz"
+TEST_DB_URLS = {"232.0": TEST_DB_URL_MD5}
 
 
 def is_urlfile(url):
     # Check if online file exists
     try:
         r = urlopen(url)  # response
-        return r.getcode() < 400
+        try:
+            return r.getcode() < 400
+        finally:
+            r.close()
     except HTTPError:
         return False
+
+
+def find_checksum_url(url, cache):
+    """Return the URL of the MD5 checksum file that covers ``url`` (or None).
+
+    GTDB publishes MD5 sums in the root directory of each release, e.g.
+    .../releases/release232/232.0/MD5SUM.txt, while the files themselves may
+    live in sub directories. Hence, we probe ``url``'s directory and its
+    parents. Results are cached per directory to avoid repeated requests.
+    """
+    url_parts = urlparse(url)
+    directory = posixpath.dirname(url_parts.path)
+    for _ in range(CHECKSUM_SEARCH_LEVELS):
+        if directory in cache:
+            found = cache[directory]
+        else:
+            found = None
+            for filename in CHECKSUM_FILE_NAMES:
+                candidate = url_parts._replace(
+                    path=posixpath.join(directory, filename)
+                ).geturl()
+                if is_urlfile(candidate):
+                    found = candidate
+                    break
+            cache[directory] = found
+        if found:
+            return found
+        parent = posixpath.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return None
+
+
+def fetch_md5sums(checksum_url):
+    """Return a {relative file path: md5} mapping from a checksum file."""
+    md5sums = {}
+    with urlopen(Request(checksum_url)) as fh:
+        content = fh.read().decode("utf-8", errors="replace")
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        md5sum, filename = fields[0], fields[-1]
+        if filename.startswith("*"):  # binary mode marker written by md5sum
+            filename = filename[1:]
+        if filename.startswith("./"):
+            filename = filename[2:]
+        md5sums[filename] = md5sum.lower()
+    return md5sums
+
+
+def expected_md5(url, checksum_cache, md5sums_cache):
+    """Return ``(relative path, md5, checksum url)`` published for ``url``.
+
+    Files for which the data source does not publish a checksum (e.g. the
+    mockup database used for testing) yield None.
+    """
+    checksum_url = find_checksum_url(url, checksum_cache)
+    if checksum_url is None:
+        return None
+    if checksum_url not in md5sums_cache:
+        try:
+            md5sums_cache[checksum_url] = fetch_md5sums(checksum_url)
+        except Exception as e:  # checksums are a bonus, do not fail on them
+            print(f"Could not read {checksum_url}: {e}", file=sys.stderr)
+            md5sums_cache[checksum_url] = {}
+    md5sums = md5sums_cache[checksum_url]
+
+    path = urlparse(url).path
+    base = posixpath.dirname(urlparse(checksum_url).path)
+    # checksum files list paths relative to their own directory
+    if path.startswith(base + "/"):
+        relpath = path[len(base) + 1:]
+        if relpath in md5sums:
+            return relpath, md5sums[relpath], checksum_url
+    # fall back to a unique match of the file name
+    basename = posixpath.basename(path)
+    candidates = {
+        relpath: md5sum
+        for relpath, md5sum in md5sums.items()
+        if posixpath.basename(relpath) == basename
+    }
+    if len(set(candidates.values())) == 1:
+        relpath, md5sum = next(iter(candidates.items()))
+        return relpath, md5sum, checksum_url
+    return None
 
 
 def extract_tar_iteratively(tarball, target_directory):
@@ -112,7 +219,7 @@ def extract_tar_iteratively(tarball, target_directory):
                     os.link(member.linkname, target_link)
 
 
-def url_download(url, target_directory, meta):
+def url_download(url, target_directory, meta, md5sum=None):
 
     # download the url
     url_parts = urlparse(url)
@@ -121,6 +228,7 @@ def url_download(url, target_directory, meta):
     )
     src = None
     dst = None
+    md5 = hashlib.md5()
     try:
         req = Request(url)
         src = urlopen(req)
@@ -128,6 +236,7 @@ def url_download(url, target_directory, meta):
             while True:
                 chunk = src.read(2**16)  # Read in 64 KB chunks instead of 1 KB
                 if chunk:
+                    md5.update(chunk)
                     dst.write(chunk)
                 else:
                     break
@@ -136,6 +245,14 @@ def url_download(url, target_directory, meta):
     finally:
         if src is not None:
             src.close()
+
+    # verify the download against the checksum published by GTDB
+    if md5sum is not None and md5.hexdigest() != md5sum:
+        os.remove(tarball)
+        sys.exit(
+            f"Checksum mismatch for {url}: expected {md5sum} but found "
+            f"{md5.hexdigest()}. The file has not been installed."
+        )
 
     # extract the metadata
     if meta:
@@ -181,18 +298,28 @@ def url_download(url, target_directory, meta):
         return target_directory
 
 
+def version_of(release):
+    """Return the version of a release, i.e. the release without minor version.
+
+    The keys of the ``urls`` table are the releases as GTDB names their download
+    directories (e.g. ``232.0``). This is used for the value and the name of the
+    data table entry, but the GTDB-Tk tools filter on the plain release (e.g.
+    ``232``), which GTDB keeps stable when it republishes the files of a release.
+    """
+    return release.split(".")[0]
+
+
 def create_data_manager_entry(database_name, release, file_path):
-    time = date.today().strftime("%Y-%m-%d")
     data_manager_entry = {}
     data_manager_entry["value"] = (
-        f"{database_name.replace(' ', '_').lower()}_release_{release}_downloaded_{time}"
+        f"{database_name.replace(' ', '_').lower()}_release_{release}"
     )
     if release == "mocked_232":
         data_manager_entry["name"] = "Mocked GTBD DB (232)"
     else:
-        data_manager_entry["name"] = f"{database_name} - release {release} ({time})"
+        data_manager_entry["name"] = f"{database_name} - release {release}"
     data_manager_entry["path"] = file_path
-    data_manager_entry["version"] = release
+    data_manager_entry["version"] = version_of(release)
     return data_manager_entry
 
 
@@ -205,10 +332,8 @@ def download(release, meta, test, out_file):
     os.makedirs(target_directory)
 
     if test:
-        # switch the DB to use the test case
-        urls[release][
-            "full"
-        ] = "https://zenodo.org/records/13734217/files/release220-test.tar.gz"
+        # switch the DB to use one of the test cases
+        urls[release]["full"] = TEST_DB_URLS.get(release, TEST_DB_URL)
 
         # make use of the test to check if all urls exists
         for _version, items in urls.items():
@@ -217,20 +342,39 @@ def download(release, meta, test, out_file):
 
     data_manager_json = {"data_tables": {}}
 
+    checksum_cache = {}
+    md5sums_cache = {}
+
+    def download_verified(url):
+        """Download url, verifying it against the checksum of the data source.
+
+        Reports which checksum was used, and returns the local path of the
+        installed file.
+        """
+        filename = posixpath.basename(urlparse(url).path)
+        expected = expected_md5(url, checksum_cache, md5sums_cache)
+        if expected is None:
+            print(
+                f"No remote MD5 sum available for {filename}: "
+                "download not verified"
+            )
+            return url_download(url, target_directory, meta)
+        _, md5sum, checksum_url = expected
+        file_path = url_download(url, target_directory, meta, md5sum=md5sum)
+        print(f"Remote MD5 sum used for {filename}: {md5sum} (from {checksum_url})")
+        return file_path
+
     # download taxonomy metadata tables
     if meta:
-        url = urls[release]["meta_ar"]
-        url_download(url, target_directory, meta)
-        url = urls[release]["meta_bac"]
-        file_path = url_download(url, target_directory, meta)
+        download_verified(urls[release]["meta_ar"])
+        file_path = download_verified(urls[release]["meta_bac"])
 
         data_manager_json["data_tables"]["gtdbtk_database_metadata_versioned"] = [
             create_data_manager_entry("Metadata Tables", release, file_path)
         ]
     # download the full DB
     else:
-        url = urls[release]["full"]
-        file_path = url_download(url, target_directory, meta)
+        file_path = download_verified(urls[release]["full"])
         data_manager_json["data_tables"]["gtdbtk_database_versioned"] = [
             create_data_manager_entry("Full Database", release, file_path)
         ]
