@@ -8,15 +8,36 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-@CMD@
+#if $adata.ext == 'h5mu':
+ln -s '$adata' 'input_mudata.h5mu' &&
+#else:
+ln -s '$adata' 'input_anndata.h5ad' &&
+#end if
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output' &&
+ls . >> '$hidden_output' &&
+touch 'anndata_info.txt' &&
+cat 'anndata_info.txt' @CMD_PRETTIFY_STDOUT@
     ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
-@CMD_READ_INPUTS@
+import mudata as mu
+#if $adata.ext == 'h5mu':
+mdata = mu.read_h5mu('input_mudata.h5mu')
+#if str($method.method) != 'mdata_to_anndata':
+raise ValueError('MuData input is supported only by mdata_to_anndata in this Galaxy tool.')
+#end if
+#else:
+#if str($method.method) == 'get_lric_auc':
+adata = sc.read_h5ad('input_anndata.h5ad', backed='r')
+#else:
+adata = sc.read_h5ad('input_anndata.h5ad')
+#end if
+#end if
 
 #if str($method.method) == 'spatial_neighbors'
-li.ut.spatial_neighbors(
+li.pp.spatial_neighbors(
     adata=adata,
 #if str($method.bandwidth) != ''
     bandwidth=$method.bandwidth,
@@ -33,21 +54,22 @@ li.ut.spatial_neighbors(
 adata.write_h5ad('anndata.h5ad', compression='gzip')
 
 #else if str($method.method) == 'obsm_to_adata'
-new_adata = li.ut.obsm_to_adata(
+new_adata = li.pp.obsm_to_adata(
     adata=adata,
     obsm_key='$method.obsm_key')
 new_adata.write_h5ad('anndata.h5ad', compression='gzip')
+print(f"obsm_to_adata_shape={new_adata.n_obs}x{new_adata.n_vars}")
 
 #else if str($method.method) == 'get_factor_scores'
-factor_scores = li.ut.get_factor_scores(
+factor_scores = li.ms.get_factor_scores(
     adata=adata,
     obsm_key='$method.obsm_key')
 factor_scores.to_csv('factor_scores.tsv', sep='\t', index=True)
 
 #else if str($method.method) == 'get_variable_loadings'
-loadings = li.ut.get_variable_loadings(
+loadings = li.ms.get_variable_loadings(
     adata=adata,
-    varm_key='$method.varm_key')
+    varm_key='$method.varm_key',
     #if str($method.view_sep) != ''
     view_sep='$method.view_sep',
     #end if
@@ -57,19 +79,129 @@ loadings = li.ut.get_variable_loadings(
     #if str($method.variable_sep) != ''
     variable_sep='$method.variable_sep',
     #end if
+)
 loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
+
+#else if str($method.method) == 'expand_coordinates'
+expanded_adata = li.pp.expand_coordinates(
+    adata=adata,
+    sample_key='$method.sample_key',
+    spatial_key='$method.spatial_key',
+    #if str($method.n_cols) != ''
+    n_cols=$method.n_cols,
+    #end if
+    margin=$method.margin)
+expanded_adata.write_h5ad('anndata.h5ad', compression='gzip')
+
+#else if str($method.method) == 'mdata_to_anndata'
+converted = li.ms.mdata_to_anndata(
+    mdata=mdata,
+    x_mod='$method.x_mod',
+    y_mod='$method.y_mod',
+#if str($method.x_layer) != '':
+    x_layer='$method.x_layer',
+#end if
+#if str($method.y_layer) != '':
+    y_layer='$method.y_layer',
+#end if
+    x_use_raw=$method.x_use_raw,
+    y_use_raw=$method.y_use_raw,
+    verbose=False)
+converted.write_h5ad('anndata.h5ad', compression='gzip')
+print(f"mdata_to_anndata_shape={converted.n_obs}x{converted.n_vars}")
+
+#else if str($method.method) == 'spatial_pair_proximity'
+proximity = li.pp.spatial_pair_proximity(
+    adata=adata,
+    groupby='$method.groupby',
+    spatial_key='$method.spatial_key',
+    bandwidth=$method.bandwidth,
+#if str($method.contact_bandwidth) != '':
+    contact_bandwidth=$method.contact_bandwidth,
+#end if
+    min_cells_in_proximity=$method.min_cells_in_proximity,
+    trim_fraction=$method.trim_fraction,
+    kernel='$method.kernel',
+    verbose=False)
+proximity.to_csv('spatial_pair_proximity.tsv', sep='\t', index=False)
+print(f"spatial_pair_proximity_rows={len(proximity)}")
+
+#else if str($method.method) == 'interpolate_adata'
+reference = sc.read_h5ad('$method.reference')
+interpolated = li.pp.interpolate_adata(
+    target=adata,
+    reference=reference,
+    spatial_key='$method.spatial_key',
+#if str($method.layer) != '':
+    layer='$method.layer',
+#end if
+    use_raw=$method.use_raw,
+    method='$method.interpolation_method',
+    fill_value=$method.fill_value,
+    verbose=False)
+values = interpolated.X.toarray() if hasattr(interpolated.X, 'toarray') else np.asarray(interpolated.X)
+print(f"interpolate_numeric_mean={float(np.nanmean(values)):.8f}")
+interpolated.write_h5ad('anndata.h5ad', compression='gzip')
+
+#else if str($method.method) == 'query_bandwidth'
+if $method.start >= $method.end:
+    raise ValueError('Minimum bandwidth must be smaller than maximum bandwidth')
+coordinates = np.asarray(adata.obsm['$method.spatial_key'])
+#if str($method.reference_settings.reference_selector) == 'reference':
+reference_adata = sc.read_h5ad('$method.reference_settings.reference')
+reference_coordinates = np.asarray(reference_adata.obsm['$method.reference_settings.reference_spatial_key'])
+#else:
+reference_coordinates = None
+#end if
+fig, bandwidth_data = li.pp.query_bandwidth(
+    coordinates=coordinates,
+    start=$method.start,
+    end=$method.end,
+    interval_n=$method.interval_n,
+    reference=reference_coordinates)
+bandwidth_data.to_csv('bandwidth.tsv', sep='\t', index=False)
+if hasattr(fig, 'save'):
+    fig.save('bandwidth.$method.format', dpi=150)
+elif hasattr(fig, 'savefig'):
+    fig.savefig('bandwidth.$method.format', dpi=150, bbox_inches='tight')
+else:
+    raise TypeError('query_bandwidth returned an unsupported figure object')
+print(f"query_bandwidth_rows={len(bandwidth_data)}")
+
+#else if str($method.method) == 'get_lric_auc'
+lric_auc = li.mt.get_lric_auc(
+    adata=adata,
+    uns_key='$method.uns_key',
+#if str($method.max_dist) != '':
+    max_dist=$method.max_dist,
+#end if
+#if str($method.transform) == 'identity':
+    transform_fn=lambda values: values,
+#else if str($method.transform) == 'log2':
+    transform_fn=np.log2,
+#end if
+    min_bins=$method.min_bins,
+    verbose=False)
+lric_auc.to_csv('lric_auc.tsv', sep='\t', index=False)
+adata.file.close()
 
 #end if
         ]]></configfile>
     </configfiles>
     <inputs>
-        <expand macro="inputs_anndata"/>
+        <expand macro="inputs_anndata_or_mudata" HELP="AnnData is required except for mdata_to_anndata, which requires MuData."/>
         <conditional name="method">
             <param name="method" type="select" label="Method">
                 <option value="spatial_neighbors">spatial_neighbors - Generate spatial connectivity weights</option>
                 <option value="obsm_to_adata">obsm_to_adata - Extract obsm to new AnnData</option>
                 <option value="get_factor_scores">get_factor_scores - Extract factor scores</option>
                 <option value="get_variable_loadings">get_variable_loadings - Extract variable loadings</option>
+                <option value="expand_coordinates">expand_coordinates - Arrange multiple spatial samples on a non-overlapping grid</option>
+                <option value="mdata_to_anndata">mdata_to_anndata - Combine two MuData modalities into one AnnData object</option>
+                <option value="spatial_pair_proximity">spatial_pair_proximity - Summarize spatial proximity between populations</option>
+                <option value="interpolate_adata">interpolate_adata - Interpolate reference expression onto target coordinates</option>
+                <option value="get_lric_auc">get_lric_auc - Summarize spatial interaction curves</option>
+                <option value="query_bandwidth">query_bandwidth - Inspect expected spatial neighbourhood size</option>
             </param>
             <when value="spatial_neighbors">
                 <param argument="bandwidth" type="float" value="" optional="true" label="Kernel bandwidth" help="Bandwidth controlling spatial weight decay over distance. Empty = auto-computed from median nearest neighbor distance. Larger values = smoother weighting."/>
@@ -87,39 +219,142 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
                 <expand macro="param_spatial_key"/>
                 <param argument="key_added" type="text" value="spatial" label="Output key in adata.obsp" help="Key in adata.obsp where connectivity matrix will be stored. Default: 'spatial'.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="output connectivity key"/>
                 </param>
             </when>
             <when value="obsm_to_adata">
                 <param argument="obsm_key" type="text" value="" label="obsm key to extract" help="Key in adata.obsm to extract as new AnnData object. E.g., 'X_mofa', 'X_pca', 'X_embedding'.">
                     <expand macro="sanitize_query"/>
-                    <validator type="empty_field" message="obsm_key is required"/>
+                    <expand macro="validator_required_key" FIELD="obsm key"/>
                 </param>
             </when>
             <when value="get_factor_scores">
                 <param argument="obsm_key" type="text" value="X_mofa" label="Factor scores obsm key" help="Key in adata.obsm containing factor/latent variable scores (e.g., 'X_mofa', 'NMF_W'). Cells x Factors matrix.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="factor-score obsm key"/>
                 </param>
             </when>
             <when value="get_variable_loadings">
                 <param argument="varm_key" type="text" value="" label="Variable loadings varm key" help="Key in adata.varm containing variable/feature loadings (e.g., 'NMF_H', 'LFs', 'PCs'). Variables x Factors matrix.">
                     <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="variable-loadings varm key"/>
                 </param>
-                <param argument="view_sep" type="text" value="" label="View separator" help="Separator between views in variable names (default ':'). Used for multi-view data."/>
-                <param argument="pair_sep" type="text" value="" label="Pair separator" help="Separator between interacting entities (default '&amp;'). Example: ligand&amp;receptor."/>
-                <param argument="variable_sep" type="text" value="" label="Variable separator" help="Separator between subcomponents of variables (default '^')."/>
+                <param argument="view_sep" type="text" value="" label="View separator" help="Optional separator between view and variable names. Leave empty to keep names unchanged.">
+                    <expand macro="validator_optional_separator" FIELD="view separator"/>
+                </param>
+                <param argument="pair_sep" type="text" value="" label="Pair separator" help="Optional separator used to split pair names. Leave empty to keep names unchanged.">
+                    <expand macro="validator_optional_separator" FIELD="pair separator"/>
+                </param>
+                <param argument="variable_sep" type="text" value="" label="Variable separator" help="Optional separator used to split variable names. Leave empty to keep names unchanged.">
+                    <expand macro="validator_optional_separator" FIELD="variable separator"/>
+                </param>
+            </when>
+            <when value="expand_coordinates">
+                <param argument="sample_key" type="text" label="Sample column" help="Column in adata.obs that identifies each spatial sample.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="sample key"/>
+                </param>
+                <expand macro="param_spatial_key"/>
+                <param argument="n_cols" type="integer" value="" optional="true" min="1" label="Grid columns" help="Number of columns in the output grid. Leave empty for an approximately square layout."/>
+                <param argument="margin" type="float" value="0.1" min="0" label="Grid margin" help="Spacing between samples as a fraction of the largest sample extent. Use 0 to pack samples edge-to-edge."/>
+            </when>
+            <when value="mdata_to_anndata">
+                <param argument="x_mod" type="text" label="X modality"><expand macro="sanitize_query"/><expand macro="validator_required_key" FIELD="X modality"/></param>
+                <param argument="y_mod" type="text" label="Y modality"><expand macro="sanitize_query"/><expand macro="validator_required_key" FIELD="Y modality"/></param>
+                <param argument="x_layer" type="text" value="" optional="true" label="X modality layer"><expand macro="sanitize_query"/><expand macro="validator_optional_key" FIELD="X modality layer"/></param>
+                <param argument="y_layer" type="text" value="" optional="true" label="Y modality layer"><expand macro="sanitize_query"/><expand macro="validator_optional_key" FIELD="Y modality layer"/></param>
+                <param argument="x_use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use X modality raw matrix"/>
+                <param argument="y_use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use Y modality raw matrix"/>
+            </when>
+            <when value="spatial_pair_proximity">
+                <expand macro="param_groupby"/>
+                <expand macro="param_spatial_key"/>
+                <expand macro="param_bandwidth" DEFAULT_BANDWIDTH="250"/>
+                <param argument="contact_bandwidth" type="float" value="" optional="true" min="0" label="Contact bandwidth" help="Optional shorter distance threshold for contact-proximity statistics."/>
+                <param argument="min_cells_in_proximity" type="integer" value="10" min="1" label="Minimum nearby cells"/>
+                <param argument="trim_fraction" type="float" value="0.1" min="0" max="0.49" label="Distance trim fraction"/>
+                <expand macro="param_kernel" DEFAULT_KERNEL="gaussian"/>
+            </when>
+            <when value="interpolate_adata">
+                <param argument="reference" type="data" format="h5ad" label="Reference AnnData" help="Reference observations carrying expression values and spatial coordinates."/>
+                <expand macro="param_spatial_key"/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <param name="interpolation_method" type="select" label="Interpolation method">
+                    <option value="linear" selected="true">Linear</option>
+                    <option value="nearest">Nearest neighbour</option>
+                    <option value="cubic">Cubic</option>
+                </param>
+                <param argument="fill_value" type="float" value="0" label="Out-of-domain fill value"/>
+            </when>
+            <when value="get_lric_auc">
+                <param argument="uns_key" type="text" value="lric" label="Spatial result key" help="Key in the input AnnData uns containing one LIANA 2 LRIC or cross-PCF result table. Use the results key chosen in Liana Methods.">
+                    <expand macro="sanitize_query"/>
+                    <expand macro="validator_required_key" FIELD="spatial result key"/>
+                </param>
+                <param argument="max_dist" type="float" value="" optional="true" min="0.000001" label="Maximum distance (exclusive)" help="Use radii strictly below this distance. Leave empty to use all radii."/>
+                <param name="transform" type="select" label="Curve transformation">
+                    <option value="log2_floor" selected="true">Log2 with g floored at 0.05 (LIANA default)</option>
+                    <option value="log2">Strict log2 (drop non-finite bins)</option>
+                    <option value="identity">Untransformed g</option>
+                </param>
+                <param argument="min_bins" type="integer" value="3" min="2" label="Minimum finite radius bins" help="Interactions with fewer finite bins in the selected distance range are omitted from the summary."/>
+            </when>
+            <when value="query_bandwidth">
+                <expand macro="param_spatial_key"/>
+                <param argument="start" type="integer" value="0" min="0" label="Minimum bandwidth"/>
+                <param argument="end" type="integer" value="500" min="1" label="Maximum bandwidth"/>
+                <param argument="interval_n" type="integer" value="50" min="2" label="Number of bandwidth values"/>
+                <param name="format" type="select" label="Plot format">
+                    <option value="png" selected="true">PNG</option>
+                    <option value="pdf">PDF</option>
+                    <option value="svg">SVG</option>
+                </param>
+                <conditional name="reference_settings">
+                    <param name="reference_selector" type="select" label="Reference coordinates">
+                        <option value="none" selected="true">Use target coordinates only</option>
+                        <option value="reference">Use coordinates from a reference AnnData</option>
+                    </param>
+                    <when value="none"/>
+                    <when value="reference">
+                        <param name="reference" type="data" format="h5ad" label="Reference AnnData"/>
+                        <param name="reference_spatial_key" type="text" value="spatial" label="Reference spatial key">
+                            <expand macro="sanitize_query"/>
+                            <expand macro="validator_required_key" FIELD="reference spatial key"/>
+                        </param>
+                    </when>
+                </conditional>
             </when>
         </conditional>
         <expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
         <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
-            <filter>method['method'] in ['spatial_neighbors', 'obsm_to_adata']</filter>
+            <filter>method['method'] in ['spatial_neighbors', 'obsm_to_adata', 'expand_coordinates', 'mdata_to_anndata', 'interpolate_adata']</filter>
+        </data>
+        <data name="proximity_out" format="tabular" from_work_dir="spatial_pair_proximity.tsv" label="${tool.name} (${method.method}) on ${on_string}: Spatial pair proximity">
+            <filter>method['method'] == 'spatial_pair_proximity'</filter>
         </data>
         <data name="factor_scores_out" format="tabular" from_work_dir="factor_scores.tsv" label="${tool.name} (${method.method}) on ${on_string}: Factor scores">
             <filter>method['method'] == 'get_factor_scores'</filter>
         </data>
         <data name="loadings_out" format="tabular" from_work_dir="variable_loadings.tsv" label="${tool.name} (${method.method}) on ${on_string}: Variable loadings">
             <filter>method['method'] == 'get_variable_loadings'</filter>
+        </data>
+        <data name="bandwidth_png" format="png" from_work_dir="bandwidth.png" label="${tool.name} (${method.method}) on ${on_string}: Bandwidth diagnostic (PNG)">
+            <filter>method['method'] == 'query_bandwidth' and method['format'] == 'png'</filter>
+        </data>
+        <data name="bandwidth_pdf" format="pdf" from_work_dir="bandwidth.pdf" label="${tool.name} (${method.method}) on ${on_string}: Bandwidth diagnostic (PDF)">
+            <filter>method['method'] == 'query_bandwidth' and method['format'] == 'pdf'</filter>
+        </data>
+        <data name="bandwidth_svg" format="svg" from_work_dir="bandwidth.svg" label="${tool.name} (${method.method}) on ${on_string}: Bandwidth diagnostic (SVG)">
+            <filter>method['method'] == 'query_bandwidth' and method['format'] == 'svg'</filter>
+        </data>
+        <data name="bandwidth_out" format="tabular" from_work_dir="bandwidth.tsv" label="${tool.name} (${method.method}) on ${on_string}: Bandwidth query">
+            <filter>method['method'] == 'query_bandwidth'</filter>
+        </data>
+        <data name="lric_auc_out" format="tabular" from_work_dir="lric_auc.tsv" label="${tool.name} on ${on_string}: Spatial interaction scores">
+            <filter>method['method'] == 'get_lric_auc'</filter>
         </data>
         <data name="hidden_output" format="txt" label="Log file">
             <filter>advanced_common['show_log']</filter>
@@ -152,7 +387,7 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.ut.spatial_neighbors"/>
+                    <has_text_matching expression="li.pp.spatial_neighbors"/>
                 </assert_contents>
             </output>
         </test>
@@ -168,13 +403,13 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
             </section>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="45700" delta="10000"/>
-                    <has_h5_keys keys="obsm/NMF_W"/>
+                    <has_h5_keys keys="X,obs,var,obsm/NMF_W"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.ut.obsm_to_adata"/>
+                    <has_text_matching expression="li.pp.obsm_to_adata"/>
+                    <has_text text="obsm_to_adata_shape=50x5"/>
                 </assert_contents>
             </output>
         </test>
@@ -195,7 +430,7 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.ut.get_factor_scores"/>
+                    <has_text_matching expression="li.ms.get_factor_scores"/>
                 </assert_contents>
             </output>
         </test>
@@ -216,9 +451,119 @@ loadings.to_csv('variable_loadings.tsv', sep='\t', index=True)
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.ut.get_variable_loadings"/>
+                    <has_text_matching expression="li.ms.get_variable_loadings"/>
                 </assert_contents>
             </output>
+        </test>
+        <!-- Test 5: expand_coordinates preserves original coordinates -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="expand_coordinates"/>
+                <param name="sample_key" value="cell_type"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="n_cols" value="2"/>
+                <param name="margin" value="0.2"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/cell_type,obsm/spatial,obsm/spatial_original"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li.pp.expand_coordinates"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- LIANA 1.8.1 mdata_to_anndata: combine two modalities -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="bivariate_mudata_test.h5mu" ftype="h5mu"/>
+            <conditional name="method"><param name="method" value="mdata_to_anndata"/><param name="x_mod" value="ligand_mod"/><param name="y_mod" value="receptor_mod"/><param name="x_use_raw" value="false"/><param name="y_use_raw" value="false"/></conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="anndata_out"><assert_contents><has_h5_keys keys="var/modality,obsp/spatial_connectivities"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.ms.mdata_to_anndata"/><has_text_matching expression="mdata_to_anndata_shape=[0-9]+x[0-9]+"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 spatial_pair_proximity: semantic table -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="spatial_deterministic.h5ad"/>
+            <conditional name="method"><param name="method" value="spatial_pair_proximity"/><param name="groupby" value="cell_type"/><param name="spatial_key" value="spatial"/><param name="bandwidth" value="100"/><param name="contact_bandwidth" value="25"/><param name="min_cells_in_proximity" value="1"/><param name="trim_fraction" value="0.1"/><param name="kernel" value="gaussian"/></conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="proximity_out"><assert_contents><has_line line="source&#009;target&#009;mean_distance&#009;interacting&#009;proximity&#009;contact_interacting&#009;contact_proximity"/><has_n_lines n="5"/><has_n_columns n="7"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.pp.spatial_pair_proximity"/><has_text_matching expression="spatial_pair_proximity_rows=4"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 interpolate_adata: reference values projected to target coordinates -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="spatial_deterministic.h5ad"/>
+            <conditional name="method"><param name="method" value="interpolate_adata"/><param name="reference" value="interpolate_reference.h5ad"/><param name="spatial_key" value="spatial"/><param name="use_raw" value="false"/><param name="interpolation_method" value="nearest"/><param name="fill_value" value="0"/></conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="anndata_out"><assert_contents><has_h5_keys keys="obsm/spatial,var/_index"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.pp.interpolate_adata"/><has_text_matching expression="interpolate_numeric_mean=3\.25000000"/></assert_contents></output>
+        </test>
+        <!-- LIANA 1.8.1 query_bandwidth: utility plot and diagnostic table -->
+        <test expect_num_outputs="3">
+            <param name="adata" value="spatial_deterministic.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="query_bandwidth"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="start" value="10"/>
+                <param name="end" value="100"/>
+                <param name="interval_n" value="5"/>
+                <param name="format" value="png"/>
+                <conditional name="reference_settings"><param name="reference_selector" value="none"/></conditional>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="bandwidth_png"><assert_contents><has_image_width min="400"/><has_image_height min="300"/></assert_contents></output>
+            <output name="bandwidth_out"><assert_contents><has_line line="bandwidth&#009;neighbours"/><has_n_lines n="6"/><has_n_columns n="2"/></assert_contents></output>
+            <output name="hidden_output"><assert_contents><has_text_matching expression="li.pp.query_bandwidth"/><has_text_matching expression="query_bandwidth_rows=5"/></assert_contents></output>
+        </test>
+        <!-- Constant curves have independently known span-normalized AUC values. -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="lric_auc_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_lric_auc"/>
+                <param name="uns_key" value="lric"/>
+                <param name="transform" value="log2_floor"/>
+                <param name="min_bins" value="3"/>
+            </conditional>
+            <section name="advanced_common"><param name="show_log" value="true"/></section>
+            <output name="lric_auc_out" ftype="tabular">
+                <assert_contents>
+                    <has_line line="source&#009;target&#009;ligand_complex&#009;receptor_complex&#009;interaction&#009;score&#009;peak_radius"/>
+                    <has_n_columns n="7"/><has_n_lines n="3"/>
+                    <has_line line="A&#009;B&#009;L1&#009;R1&#009;L1^R1&#009;1.0&#009;0.0"/>
+                    <has_line line="B&#009;A&#009;L2&#009;R2&#009;L2^R2&#009;-1.0&#009;0.0"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output"><assert_contents><has_text text="li.mt.get_lric_auc"/></assert_contents></output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="adata" value="lric_auc_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_lric_auc"/>
+                <param name="uns_key" value="lric"/>
+                <param name="transform" value="identity"/>
+                <param name="max_dist" value="2"/>
+                <param name="min_bins" value="2"/>
+            </conditional>
+            <output name="lric_auc_out" ftype="tabular"><assert_contents>
+                <has_n_lines n="3"/>
+                <has_line line="A&#009;B&#009;L1&#009;R1&#009;L1^R1&#009;2.0&#009;0.0"/>
+                <has_line line="B&#009;A&#009;L2&#009;R2&#009;L2^R2&#009;0.5&#009;0.0"/>
+            </assert_contents></output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="adata" value="lric_auc_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="get_lric_auc"/>
+                <param name="uns_key" value="lric"/>
+                <param name="transform" value="log2"/>
+                <param name="min_bins" value="4"/>
+            </conditional>
+            <output name="lric_auc_out" ftype="tabular"><assert_contents><has_line line="source&#009;target&#009;ligand_complex&#009;receptor_complex&#009;interaction&#009;score&#009;peak_radius"/><has_n_lines n="1"/></assert_contents></output>
         </test>
     </tests>
     <help><![CDATA[
@@ -236,14 +581,31 @@ This tool provides utility functions from LIANA+ for data transformation and pre
 
 - **get_variable_loadings**: Extract variable loadings from adata.varm (e.g., from MOFA or NMF analysis) as a tabular file.
 
+- **expand_coordinates**: Translate each sample's spatial coordinates into a separate non-overlapping grid cell.
+
+- **mdata_to_anndata**: Combine two MuData modalities into the paired AnnData representation used by LIANA multimodal methods.
+
+- **spatial_pair_proximity**: Summarize pairwise population distance and proximity statistics.
+
+- **interpolate_adata**: Interpolate reference expression values onto target spatial coordinates.
+
+- **query_bandwidth**: Plot and tabulate expected neighbourhood size across candidate spatial bandwidths.
+
 **Inputs**
 
 - AnnData object
 
 **Outputs**
 
-- Modified AnnData object (for spatial_neighbors, obsm_to_adata)
+- Modified AnnData object (for spatial_neighbors, obsm_to_adata, expand_coordinates)
 - Tabular file with factor scores or loadings (for extraction methods)
+
+get_lric_auc: summarize spatial interaction curves
+--------------------------------------------------
+
+Select the AnnData output of Liana Methods and enter the same spatial results key. The input must contain one LIANA 2 LRIC or cross-PCF result table; stacked samples or conditions must be separated before scoring.
+
+The output contains the interaction identifiers, a span-normalized area under each transformed g(r) curve (score), and the radius of its largest absolute transformed value (peak_radius). With the default log2 transformation, positive scores indicate co-enrichment, negative scores indicate depletion, and zero corresponds to the null. Values below 0.05 are floored before the default log2 transformation. Untransformed scores use a different scale, with g = 1 as the null; their peak_radius selects the largest absolute g value, rather than the greatest deviation from 1. Curves below the minimum finite-bin support are omitted, so a header-only result is valid when no curve qualifies. Expression matrices and annotations are not changed.
 
     ]]></help>
     <expand macro="citations"/>
