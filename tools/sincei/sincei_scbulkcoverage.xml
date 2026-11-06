@@ -1,0 +1,157 @@
+<tool id="sincei_scbulkcoverage" name="sincei scBulkCoverage" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="@LICENSE@">
+    <description>pseudo-bulk coverage tracks per group of cells</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        @PREPARE_BAMS@
+        mkdir results &&
+        scBulkCoverage
+            @BAM_ARGS@
+            --groupInfo '$groupInfo'
+            --outFilePrefix results/coverage
+            --outFileFormat '$outFileFormat'
+            --normalizeUsing '$normalization.normalizeUsing'
+            #if str($normalization.ignoreForNormalization).strip():
+                --ignoreForNormalization
+                #for $chrom in str($normalization.ignoreForNormalization).split(',')
+                    #if $chrom.strip()
+                        '${chrom.strip()}'
+                    #end if
+                #end for
+            #end if
+            --scaleFactor $normalization.scaleFactor
+            @CELL_TAG_CMD@
+            --binSize $binSize
+            @REGION_CMD@
+            @EXCLUSION_CMD@
+            @READ_FILTERS_CMD@
+            @FRAGMENT_LENGTH_CMD@
+            @SEQUENCE_FILTERS_CMD@
+            @RNA_STRAND_CMD@
+            @READ_PROCESSING_CMD@
+            $processing.MNase
+            #if str($processing.Offset).strip():
+                --Offset $processing.Offset
+            #end if
+            @THREADS@
+    ]]></command>
+    <inputs>
+        <expand macro="bam_inputs"/>
+        <param argument="--groupInfo" type="data" format="tabular" label="Cell groups" help="Either the UMAP/cluster table from scClusterCells (cell, UMAP1, UMAP2, cluster) or a 3-column table (sample, barcode, group) without header. Samples must match the BAM dataset names without .bam."/>
+        <param argument="--outFileFormat" type="select" label="Output format">
+            <option value="bigwig" selected="true">bigWig</option>
+            <option value="bedgraph">bedGraph</option>
+        </param>
+        <expand macro="cell_tag"/>
+        <expand macro="bin_size" value="100"/>
+        <expand macro="region"/>
+        <section name="normalization" title="Normalization" expanded="true">
+            <param argument="--normalizeUsing" type="select" label="Normalization method" help="How to normalize the pseudo-bulk signal of each group.">
+                <option value="CPM" selected="true">CPM (counts per million reads in the group)</option>
+                <option value="Frequency">Frequency (binarized coverage per bin divided by the number of cells)</option>
+                <option value="Mean">Mean (mean signal per bin across cells)</option>
+                <option value="None">None (sum of coverage)</option>
+            </param>
+            <param argument="--ignoreForNormalization" type="text" value="" label="Chromosomes to ignore for normalization" help="Comma-separated chromosome names to skip when computing normalization factors, e.g. chrX,chrM.">
+                <validator type="regex" message="Comma-separated chromosome names">[A-Za-z0-9_.,]*</validator>
+            </param>
+            <param argument="--scaleFactor" type="float" value="1.0" label="Scale factor" help="The normalized signal is multiplied by this value."/>
+        </section>
+        <expand macro="exclusion"/>
+        <expand macro="read_filters">
+            <expand macro="fragment_length_filters"/>
+            <expand macro="sequence_filters"/>
+            <expand macro="rna_strand_filter"/>
+        </expand>
+        <expand macro="read_processing">
+            <param argument="--MNase" type="boolean" truevalue="--MNase" falsevalue="" checked="false" label="MNase-seq / CUT&amp;RUN mode" help="Count only the 3 central nucleotides of each 130-200 bp fragment, giving nucleosome positions. Requires paired-end data. A bin size of 1 is recommended."/>
+            <param argument="--Offset" type="text" value="" label="Signal offset" help="Use this position (1-based, negative counts from the read end) inside each read as the signal, e.g. 12 for Ribo-seq. Two space-separated values define a range, e.g. '5 -1'. 0 is not allowed.">
+                <validator type="regex" message="One or two non-zero integers separated by a space">(-?[1-9][0-9]*( -?[1-9][0-9]*)?)?</validator>
+            </param>
+        </expand>
+    </inputs>
+    <outputs>
+        <collection name="coverage_bigwig" type="list" label="${tool.name} on ${on_string}: coverage (bigWig)">
+            <filter>outFileFormat == "bigwig"</filter>
+            <discover_datasets pattern="coverage_(?P&lt;designation&gt;.+)\.bw" directory="results" format="bigwig"/>
+        </collection>
+        <collection name="coverage_bedgraph" type="list" label="${tool.name} on ${on_string}: coverage (bedGraph)">
+            <filter>outFileFormat == "bedgraph"</filter>
+            <discover_datasets pattern="coverage_(?P&lt;designation&gt;.+)\.bedgraph" directory="results" format="bedgraph"/>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- bigWig, CPM -->
+        <test expect_num_outputs="1">
+            <param name="bamfiles" value="SL2-1.bam,SL2-2.bam"/>
+            <param name="groupInfo" value="groupInfo.tsv"/>
+            <param name="binSize" value="1000"/>
+            <param name="region" value="chr1:23365000:23385000"/>
+            <output_collection name="coverage_bigwig" type="list" count="2">
+                <element name="groupA" ftype="bigwig">
+                    <assert_contents>
+                        <has_size size="11603" delta="500"/>
+                    </assert_contents>
+                </element>
+                <element name="groupB" ftype="bigwig">
+                    <assert_contents>
+                        <has_size size="11607" delta="500"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- bedGraph, raw sums, cluster table from scClusterCells -->
+        <test expect_num_outputs="1">
+            <param name="bamfiles" value="SL2-1.bam,SL2-2.bam"/>
+            <param name="groupInfo" value="umap_clusters.tsv"/>
+            <param name="outFileFormat" value="bedgraph"/>
+            <param name="binSize" value="1000"/>
+            <param name="region" value="chr1:23365000:23385000"/>
+            <section name="normalization">
+                <param name="normalizeUsing" value="None"/>
+            </section>
+            <output_collection name="coverage_bedgraph" type="list" count="2">
+                <element name="0" ftype="bedgraph">
+                    <assert_contents>
+                        <has_line_matching expression="chr1\t2337\d+\t2337\d+\t\d+.*"/>
+                    </assert_contents>
+                </element>
+                <element name="1" ftype="bedgraph">
+                    <assert_contents>
+                        <has_text text="chr1"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+`scBulkCoverage` aggregates the reads of cells that belong to the same group (e.g. a cluster from
+`scClusterCells`, or a batch) and writes one pseudo-bulk coverage track per group. Coverage is
+counted in bins and can be normalized per group. The tracks can be viewed in a genome browser
+or used with deepTools.
+
+-----
+
+**Inputs**
+
+- One or more BAM files with a cell barcode tag.
+- A table assigning cells to groups, in one of two forms:
+  - the UMAP/cluster table from `scClusterCells` (`sample::barcode`, UMAP1, UMAP2, cluster)
+  - a 3-column table without header: sample, barcode, group
+
+  The sample names must match the BAM dataset names without the `.bam` extension.
+
+**Outputs**
+
+- A collection with one bigWig or bedGraph track per group.
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="creator"/>
+    <expand macro="citations"/>
+</tool>
