@@ -1,7 +1,9 @@
-<tool id="tetyper" name="TETyper" version="@TOOL_VERSION@+galaxy2" profile="23.1">
+<tool id="tetyper" name="TETyper" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="GPL-3.0-or-later">
     <description>Transposable Element Typer</description>
     <macros>
-        <token name="@TOOL_VERSION@">1.1</token>
+        <token name="@TOOL_VERSION@">1.2</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.0</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">tetyper</requirement>
@@ -11,7 +13,8 @@
         ## avoid creating indices in the inputdir
         ln -s '$reference' reference.fa &&
         TETyper.py
-            --threads \${GALAXY_SLOTS:-1}
+            --threads "\${GALAXY_SLOTS:-1}"
+            --mode '$mode'
             #if $collection_paired.selector == "paired"
                 --fq1 '${collection_paired.forward_input}' --fq2 '${collection_paired.reverse_input}'
             #elif $collection_paired.selector == "collection":
@@ -50,6 +53,11 @@
                 <param format="fastq,fastq.gz" name="reverse_input" type="data" label="Reverse strand" help="FASTQ dataset"/>
             </when>
         </conditional>
+        <param name="mode" type="select" label="Analysis mode" help="Run the whole pipeline, only variant calling (deletions and SNPs), or only flank extraction. SNP and structural variant profiles are ignored in flank extraction mode.">
+            <option value="all" selected="true">Variant calling and flank extraction</option>
+            <option value="variants">Variant calling only</option>
+            <option value="flanks">Flank extraction only</option>
+        </param>
         <conditional name="snp_profiles_source">
             <param name="snp_profiles_source_selector" type="select"
                    label="Select a SNP profile from your history or use one from a tool data table?">
@@ -102,8 +110,12 @@
     </inputs>
     <outputs>
         <data name="summary" format="tabular" from_work_dir="output_summary.txt" label="${tool.name} on ${on_string}: summary"/>
-        <data name="snps" format="vcf" from_work_dir="output.vcf" label="${tool.name} on ${on_string}: SNPs"/>
-        <data name="blast" format="tabular" from_work_dir="output_blast.txt" label="${tool.name} on ${on_string}: BLAST alignment"/>
+        <data name="snps" format="vcf" from_work_dir="output.vcf" label="${tool.name} on ${on_string}: SNPs">
+            <filter>mode != "flanks"</filter>
+        </data>
+        <data name="blast" format="tabular" from_work_dir="output_blast.txt" label="${tool.name} on ${on_string}: BLAST alignment">
+            <filter>mode != "flanks"</filter>
+        </data>
         <data name="alignment" format="bam" from_work_dir="output.bam" label="${tool.name} on ${on_string}: BWA alignment"/>
         <data name="log" format="txt" from_work_dir="output.log" label="${tool.name} on ${on_string}: log">
             <filter>include_log</filter>
@@ -166,12 +178,45 @@
             </output>
             <output name="alignment">
                 <assert_contents>
-                    <has_size min="1"/>
+                    <has_size value="176343" delta="1000"/>
                 </assert_contents>
             </output>
             <output name="log">
                 <assert_contents>
                     <has_text text="Final output written to: output_summary.txt"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="4">
+            <param name="reference" value="Tn4401b-1.fasta" />
+            <conditional name="collection_paired">
+                <param name="selector" value="paired" />
+                <param name="forward_input" value="ERR1911133_Tn4401b-1_mapped_subsampled_1.fastq" />
+                <param name="reverse_input" value="ERR1911133_Tn4401b-1_mapped_subsampled_2.fastq" />
+            </conditional>
+            <param name="mode" value="variants" />
+            <conditional name="snp_profiles_source">
+                <param name="snp_profiles_source_selector" value="history" />
+                <param name="snp_profiles" value="Tn4401b_snp_profiles.txt" />
+            </conditional>
+            <conditional name="struct_profiles_source">
+                <param name="struct_profiles_source_selector" value="history" />
+                <param name="struct_profiles" value="Tn4401b_struct_profiles.txt" />
+            </conditional>
+            <output name="summary" file="output_summary_variants.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="reference" value="Tn4401b-1.fasta" />
+            <conditional name="collection_paired">
+                <param name="selector" value="paired" />
+                <param name="forward_input" value="ERR1911133_Tn4401b-1_mapped_subsampled_1.fastq" />
+                <param name="reverse_input" value="ERR1911133_Tn4401b-1_mapped_subsampled_2.fastq" />
+            </conditional>
+            <param name="mode" value="flanks" />
+            <output name="summary" file="output_summary_flanks.txt" />
+            <output name="alignment">
+                <assert_contents>
+                    <has_size value="176343" delta="1000"/>
                 </assert_contents>
             </output>
         </test>
@@ -223,11 +268,13 @@ For example:
 
 **Output**
 
-TETyper will produce a tab-seperated output file with the following outputs:
+TETyper will produce a tab-separated output file with the following columns. In "Variant calling only" mode the flank columns are omitted and no flank extraction is performed; in "Flank extraction only" mode only the Sample_name and flank columns are reported, and the SNP and BLAST outputs are not produced.
 
 +--------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 |  Column                  | Description                                                                                                                                                                                                                                      |
 +==========================+==================================================================================================================================================================================================================================================+
+|  Sample_name             | Output prefix used for the sample (always "output" in Galaxy).                                                                                                                                                                                   |
++--------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 |  Deletions               | A list of sequence ranges corresponding to regions of the reference classified as deletions for this sample, or "none" for no deletions.                                                                                                         |
 +--------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 |  Structural_variant      | If --struct_profiles is specified and the pattern of deletions above corresponds to one of these profiles, then the profile name is given, otherwise "unknown".                                                                                  |

@@ -1,0 +1,93 @@
+<tool id="haplotype_define_windows" name="Define haplotype windows" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>size read-level haplotype windows from the fragment-length distribution of a cohort</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+@REF_RESOLVE@
+## Windows must be identical across every specimen or the resulting sheets have
+## non-corresponding columns, so this is a COHORT-level reduction over the BAM
+## collection, deliberately not a per-specimen step.
+mkdir -p bams &&
+#for $i, $b in enumerate($bams)
+ln -s '$b' 'bams/${i}.bam' && ln -s '${b.metadata.bam_index}' 'bams/${i}.bam.bai' &&
+#end for
+pyeuk define-windows
+    --ref '$ref_path'
+    --bams bams/*.bam
+    --sample $sample
+    --min-spanning $min_spanning
+    #if str($legacy_spanning_target).strip() != ''
+    --spanning-target $legacy_spanning_target
+    #end if
+    --min-depth $min_depth
+    --window-min $window_min
+    --window-max $window_max
+    --width-step $width_step
+    #if int($step) > 0
+    --step $step
+    #end if
+    --out '$windows'
+    ]]></command>
+    <inputs>
+        <param name="bams" type="data" format="bam" multiple="true" label="Aligned BAMs (the cohort)" help="A collection or several datasets. A sample of these is scanned; all of them get the same windows."/>
+        <expand macro="reference_source" label="Reference the BAMs were aligned to" help="The reference the BAMs were mapped to: a FASTA from your history, or a genome cached on this Galaxy."/>
+        <param argument="--sample" type="integer" value="20" min="1" label="How many BAMs to scan" help="How many BAMs to scan. 0 = all."/>
+        <param argument="--min-spanning" type="float" value="0.30" min="0.05" max="0.99" label="Minimum fraction of reads that span a window" help="Widest width at which at least this fraction of overlapping reads span the window end to end."/>
+        <param argument="--spanning-target" name="legacy_spanning_target" type="text" value="" optional="true" label="Legacy percentile rule (leave empty)" help="Deprecated. Set a value only to reproduce a pre-2026-08 run; it overrides the measured rule above."/>
+        <param argument="--min-depth" type="integer" value="20" min="1" label="Depth for a position to count as covered" help="Minimum read depth for a base to count toward a window."/>
+        <param argument="--window-min" type="integer" value="40" min="10" label="Minimum window length" help="Shortest window to try (bases)."/>
+        <param argument="--window-max" type="integer" value="0" min="0" label="Maximum window length (0 = no cap)" help="Longest window to try (bases). Longer windows carry more linkage but accumulate sequencing error; worth checking per panel. 0 = unbounded."/>
+        <param argument="--width-step" type="integer" value="10" min="1" label="Granularity of candidate widths" help="Step between candidate widths (bases)."/>
+        <param argument="--step" type="integer" value="0" min="0" label="Tiling step (0 = non-overlapping)" help="Spacing between windows. 0 = one window per reference sequence."/>
+    </inputs>
+    <outputs>
+        <data name="windows" format="bed"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="bams" value="SpecA.bam,SpecB.bam,SpecC.bam"/>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="panel.fa"/>
+            </conditional>
+            <param name="sample" value="3"/>
+            <param name="min_depth" value="20"/>
+            <output name="windows">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="4"/>
+                    <has_line line="M1&#9;0&#9;150&#9;M1_W0001"/>
+                    <has_line line="M2&#9;0&#9;150&#9;M2_W0001"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Identifies data-adaptive sub-amplicon analysis windows directly from the read
+alignments, with no pre-annotated locus boundaries. Windows are chosen once for the whole
+cohort so every specimen is evaluated over the same intervals.
+
+In amplicon sequencing the forward and reverse reads start at different primer positions and
+overlap asymmetrically. Pinning a window to the first covered base restricts spanning coverage
+to one strand; maximising width alone selects intervals that starve one orientation. This tool
+optimises placement and width together to keep the window as long as possible while both
+strands still span it.
+
+Per reference sequence it evaluates three properties: coverage extent, placement, and width.
+The extent runs from the first to the last position with read depth at least min_depth across
+the sampled specimens. Candidate intervals are scored by ``S = width x f_span``, where f_span
+is the fraction of overlapping reads that span the interval end to end (kept above
+min_spanning). f_span is measured from the CIGAR alignments, not inferred from nominal read
+length. The extent is then tiled at the chosen width; leading or trailing remnants that meet
+the minimum width are kept as adjacent windows.
+
+Input: aligned BAMs for the cohort, and the reference they were mapped to.
+Output: a BED of windows, used by Call window haplotypes.
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
