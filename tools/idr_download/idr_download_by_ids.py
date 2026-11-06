@@ -35,7 +35,8 @@ def get_json(session, url):
     response.raise_for_status()
     return response.json()
 
-#(getFileInChunks) had the same "open file, write every chunk" loop.
+
+# (getFileInChunks) had the same "open file, write every chunk" loop.
 def write_chunks(path, chunks):
     with open(path, "wb") as file:
         for chunk in chunks:
@@ -138,7 +139,7 @@ def get_bulk_annotation_from_IDR(screen_id, session, out_dir):
         print(f"loaded {min(offset, row_count)}/{row_count} rows")
     out_tsv = os.path.join(out_dir, f"bulk_annotations_{screen_id}.tsv")
     write_tsv(out_tsv, column_names, data)
-    print(f"Bulk annotations saved to {out_tsv} ({len(df_ann)} rows)")
+    print(f"Bulk annotations saved to {out_tsv} ({len(row_count)} rows)")
 
 
 # OMERO BLOCK
@@ -302,13 +303,16 @@ def main(args):
             if args.original:
                 label = "Image (original)"
                 seen_filesets = {}
+
                 def task(image):
                     download_original(image, out_dir, seen_filesets)
             else:
                 label = "Image"
+
                 def task(image):
                     fetch_image(image, args.channel, args.stack, args.time, tile,
                                 args.mode, out_dir)
+
             def process(image_id):
                 image = images[image_id]
                 task(image if image is not None else get_image(conn, image_id))
