@@ -96,6 +96,7 @@ def get_image_from_IDR(image_id, session, out_dir):
         image_path = os.path.join(out_dir, tif_url.split("/")[-1])
         # stream to disk instead of holding the whole file in memory
         with session.get(tif_url, stream=True) as response:
+            response.raise_for_status()
             write_chunks(image_path, response.iter_content(chunk_size=1024 * 1024))
         print(f"Saved {image_path}")
 
@@ -209,11 +210,19 @@ def resolve_images(conn, image_ids, dataset_id):
 
 
 # function to fetch a dataset with all images
-def download_original_files(image, out_dir):
-    out_dir = Path(out_dir)
-    files = image.getImportedImageFiles()
-    for original_file in files:
-        dest = out_dir / f"{original_file.getId()}_{original_file.getName()}"
+def download_original_files(image, fileset, out_dir):
+    folder = f"fileset_{fileset.getId()}" if fileset is not None else f"image_{image.getId()}"
+    target = Path(out_dir) / folder
+    target.mkdir(exist_ok=True)
+    for original_file in image.getImportedImageFiles():
+        # name/stem/suffix contain no folders, so nothing is written outside the folder
+        name = Path(original_file.getName())
+        dest = target / name.name
+        # same name in different subfolders: add _1, _2, ... before the extension
+        n = 1
+        while dest.exists():
+            dest = target / f"{name.stem}_{n}{name.suffix}"
+            n += 1
         write_chunks(dest, original_file.getFileInChunks())
         print(f"Downloaded {dest}")
 
@@ -227,7 +236,7 @@ def download_original(image, out_dir, seen_filesets):
                   f"{seen_filesets[fileset.getId()]}, skipping image {image.getId()}")
             return
         seen_filesets[fileset.getId()] = image.getId()
-    download_original_files(image, out_dir)
+    download_original_files(image, fileset, out_dir)
 
 
 def parse_args():
