@@ -1,0 +1,165 @@
+<tool id="hicexplorer_hicmatrixqc" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>quality control report for cool and mcool matrices</description>
+    <macros>
+        <token name="@BINARY@">hicMatrixQC</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #set $matrices = []
+        #set $labels = []
+        #for $counter, $i in enumerate($input_files):
+            ln -s '$i.matrix' '${counter}_matrix.$i.matrix.ext' &&
+            #silent $matrices.append("'%s_matrix.%s'" % ($counter, $i.matrix.ext))
+            #if str($i.mlabel) != "":
+                #silent $labels.append("'%s'" % str($i.mlabel).replace("'", ""))
+            #else
+                #silent $labels.append("'%s'" % str($i.matrix.name).replace("'", ""))
+            #end if
+        #end for
+        @BINARY@
+
+            --matrices #echo ' '.join($matrices)#
+            --labels #echo ' '.join($labels)#
+            --outFileName qc_report.html
+            --tableFileName qc_statistics.tsv
+
+            #if str($resolutions).strip():
+                --resolutions $resolutions
+            #end if
+
+            --shortRangeCutoff $shortRangeCutoff
+            --decayRange $decayRangeLow $decayRangeHigh
+            --mapResolutionContacts $mapResolutionContacts
+            --mapResolutionFraction $mapResolutionFraction
+            --madThreshold $madLower $madUpper
+            --transThreshold $transThreshold
+            --maxChromosomes $maxChromosomes
+            --threads @THREADS@
+]]>
+    </command>
+    <inputs>
+        <repeat name="input_files" title="Hi-C matrices" min="1">
+            <param name="matrix" type="data" format="cool,mcool" label="Cool or mcool matrix" />
+            <param name="mlabel" type="text" optional="true" value="" label="Label" help="Label to use in the report. If not given the dataset name is used.">
+                <validator type="regex" message="No quotes, please.">^[^'"]*$</validator>
+            </param>
+        </repeat>
+        <param name="resolutions" type="text" optional="true" value="" label="Resolutions of an mcool file" help="Space separated, e.g. 10000 50000. If empty, all resolutions of an mcool file are analysed. Ignored for a cool file.">
+            <validator type="regex" message="Only numbers separated by spaces are allowed.">^[0-9 ]*$</validator>
+        </param>
+        <param argument="--shortRangeCutoff" type="integer" value="20000" min="1" label="Short range cut-off (bp)" help="Cis contacts closer than this distance between bin starts are short range. The cut-off is exact up to one bin size." />
+        <param name="decayRangeLow" type="integer" value="100000" min="1" label="Decay exponent fit, lower distance (bp)" />
+        <param name="decayRangeHigh" type="integer" value="1000000" min="2" label="Decay exponent fit, upper distance (bp)" />
+        <param argument="--mapResolutionContacts" type="integer" value="1000" min="1" label="Contacts per bin for the map resolution" help="Rao et al. 2014 use 1000." />
+        <param argument="--mapResolutionFraction" type="float" value="0.8" min="0.01" max="1" label="Fraction of bins for the map resolution" help="Rao et al. 2014 use 0.8." />
+        <param name="madLower" type="float" value="-1.5" label="MAD filter, lower modified z-score" help="The filter of hicCorrectMatrix (--filterThreshold)." />
+        <param name="madUpper" type="float" value="5.0" label="MAD filter, upper modified z-score" />
+        <param argument="--transThreshold" type="float" value="2.0" min="0" label="Flag chromosome pairs above this observed over expected ratio" />
+        <param argument="--maxChromosomes" type="integer" value="30" min="2" label="Number of chromosomes with rows of their own" help="The longest chromosomes get their own rows in the decay, coverage and trans tables. The genome-wide statistics use all chromosomes." />
+    </inputs>
+    <outputs>
+        <data name="report" from_work_dir="qc_report.html" format="html" label="${tool.name} on ${on_string}: report" />
+        <data name="statistics" from_work_dir="qc_statistics.tsv" format="tabular" label="${tool.name} on ${on_string}: statistics" />
+    </outputs>
+    <tests>
+        <!-- hicMatrixQC is new in HiCExplorer v4 (no counterpart in 3.7.6, no package yet;
+             see macros.xml @TOOL_VERSION@): this test runs once a v4 package exists. -->
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="small_test" />
+            </repeat>
+            <output name="report" ftype="html">
+                <assert_contents>
+                    <has_text text="hicMatrixQC report" />
+                    <has_text text="small_test" />
+                    <not_has_text text="&lt;script" />
+                </assert_contents>
+            </output>
+            <output name="statistics" ftype="tabular">
+                <assert_contents>
+                    <has_text text="contacts.total" />
+                    <has_text text="decay.exponent.genome" />
+                    <has_text text="map_resolution.bp" />
+                    <has_line_matching expression="statistic&#009;small_test" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="Li_et_al_2015.cool" ftype="cool" />
+                <param name="mlabel" value="Li" />
+            </repeat>
+            <param name="shortRangeCutoff" value="50000" />
+            <output name="statistics" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="statistic&#009;.*&#009;Li" />
+                    <has_text text="contacts.short_range_cutoff_bp" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="hicMatrixQC/small_test_matrix.mcool" ftype="mcool" />
+                <param name="mlabel" value="multi" />
+            </repeat>
+            <param name="resolutions" value="10000 20000" />
+            <param name="shortRangeCutoff" value="30000" />
+            <param name="decayRangeLow" value="50000" />
+            <param name="decayRangeHigh" value="2000000" />
+            <param name="mapResolutionContacts" value="50" />
+            <param name="mapResolutionFraction" value="0.5" />
+            <param name="madLower" value="-2.0" />
+            <param name="madUpper" value="4.0" />
+            <param name="transThreshold" value="1.5" />
+            <param name="maxChromosomes" value="5" />
+            <output name="report" ftype="html">
+                <assert_contents>
+                    <has_text text="multi" />
+                </assert_contents>
+            </output>
+            <output name="statistics" ftype="tabular">
+                <assert_contents>
+                    <has_text text="contacts.total" />
+                    <has_text text="10000" />
+                    <has_text text="20000" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Quality control of Hi-C matrices
+================================
+
+hicMatrixQC writes a report for finished cool or mcool matrices, the counterpart of the BAM based QC of hicBuildMatrix. The
+report is an HTML page without scripts, and the statistics are also written as a table with one column per sample. An
+mcool file gives one sample per resolution.
+
+The report contains
+
+- the counts of the hicBuildMatrix QC log and the distribution of the read pairs over distance and read pair type, if
+  hicBuildMatrix (version 4) stored them in the matrix (metadata key hicexplorer_qc),
+- contacts, cis and trans fractions, short range and long range contacts, and the fractions of the main diagonal and of the
+  first off-diagonal,
+- the contact distance curve P(s) and its decay exponent, genome-wide and per chromosome,
+- the map resolution after Rao et al. 2014 (the smallest bin size at which 80% of the bins have at least 1000 contacts),
+- the coverage per bin, the empty bins, and the bins the MAD filter of hicCorrectMatrix would remove,
+- the state of the balancing weights,
+- the observed over expected trans contacts of every pair of chromosomes,
+- the X over autosome coverage ratio and the presence of chromosome Y and chromosome M.
+
+Distances between bins are distances between bin starts, so distance thresholds are exact only up to one bin size.
+Counts are the raw counts of the stored pixels. Matrices with bins of different sizes only get the statistics stored by
+hicBuildMatrix.
+
+| For more information about HiCExplorer please consider our documentation on readthedocs.io_
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+]]>    </help>
+    <expand macro="citations" />
+</tool>

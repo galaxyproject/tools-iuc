@@ -1,0 +1,307 @@
+<tool id="hicexplorer_hicdifferentialanalysis" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>tests TADs, loops or A/B compartments for differences between two conditions with replicates</description>
+    <macros>
+        <token name="@BINARY@">hicDifferentialAnalysis</token>
+        <import>macros.xml</import>
+        <xml name="effect_options">
+            <param argument="--fdr" type="float" value="0.05" min="0" max="1" label="FDR" help="Benjamini-Hochberg false discovery rate at which a unit is called differential." />
+            <param argument="--minFoldChange" type="float" value="1.1" min="1" label="Minimum fold change" help="Fold change the test is against (TREAT). 1 tests for any change." />
+        </xml>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #set $matrices_a = []
+        #for $counter, $m in enumerate($conditionA):
+            ln -s '$m' 'A_${counter + 1}.cool' &&
+            #silent $matrices_a.append("'A_%s.cool'" % ($counter + 1))
+        #end for
+        #set $matrices_b = []
+        #for $counter, $m in enumerate($conditionB):
+            #if $counter < len($conditionA) and str($m.file_name) == str($conditionA[$counter].file_name):
+                ## the same dataset in both conditions keeps one file name (needed by --splitReplicates)
+                #silent $matrices_b.append($matrices_a[$counter])
+            #else:
+                ln -s '$m' 'B_${counter + 1}.cool' &&
+                #silent $matrices_b.append("'B_%s.cool'" % ($counter + 1))
+            #end if
+        #end for
+
+        @BINARY@ $mode.subcommand
+            --conditionA #echo ' '.join($matrices_a)#
+            --conditionB #echo ' '.join($matrices_b)#
+            --outFilePrefix differential
+
+            #if $mode.subcommand == 'tads':
+                --domains '$mode.domains'
+                --boundaryWindow $mode.boundaryWindow
+            #else if $mode.subcommand == 'loops':
+                --loops
+                #for $l in $mode.loops:
+                    '$l'
+                #end for
+                --peakWidth $mode.peakWidth
+                --windowSize $mode.windowSize
+            #else:
+                --gcTrack '$mode.gcTrack'
+                --minDistance $mode.minDistance
+            #end if
+
+            #if str($blocks).strip():
+                --blocks #echo ' '.join(["'%s'" % b for b in str($blocks).split()])#
+            #end if
+            $exploratory
+            --fdr $fdr
+            --minFoldChange $minFoldChange
+            --filterThreshold $filter_lower $filter_upper
+            @CHROMOSOME_LIST@
+            --threads @THREADS@
+
+            #if str($calibration.splitReplicates) not in ('', 'None'):
+                --splitReplicates $calibration.splitReplicates
+            #end if
+            #if $calibration.plantRegions:
+                --plantRegions '$calibration.plantRegions'
+                --plantFold $calibration.plantFold
+                --plantSeed $calibration.plantSeed
+            #end if
+]]>
+    </command>
+    <inputs>
+        <param argument="--conditionA" type="data" format="cool" multiple="true" label="Condition A matrices" help="One cool file per replicate of condition A. All matrices of both conditions must share one bin table. Raw counts are used; a weight column is ignored." />
+        <param argument="--conditionB" type="data" format="cool" multiple="true" label="Condition B matrices" help="One cool file per replicate of condition B." />
+        <conditional name="mode">
+            <param name="subcommand" type="select" label="Features to test">
+                <option value="tads" selected="true">TADs and TAD boundaries (tads)</option>
+                <option value="loops">Loops (loops)</option>
+                <option value="compartments">A/B compartments (compartments)</option>
+            </param>
+            <when value="tads">
+                <param argument="--domains" type="data" format="bed" label="TAD domains" help="BED file of TADs, for example the domains file of hicFindTADs." />
+                <param argument="--boundaryWindow" type="integer" value="500000" min="1" label="Boundary window (bp)" help="Width of the windows on either side of a boundary; capped by the two adjacent TADs." />
+            </when>
+            <when value="loops">
+                <param argument="--loops" type="data" format="bed,interval,tabular" multiple="true" label="Loop calls" help="One or more loop files, for example one per sample, with the first six columns chrom1 start1 end1 chrom2 start2 end2 as written by hicDetectLoops. Inter-chromosomal calls are ignored." />
+                <param argument="--peakWidth" type="integer" value="1" min="0" label="Peak half width (bins)" help="Half width of the peak square around the loop pixel." />
+                <param argument="--windowSize" type="integer" value="5" min="2" label="Background half width (bins)" help="Half width of the local background square; at least the peak half width plus 2." />
+            </when>
+            <when value="compartments">
+                <param argument="--gcTrack" type="data" format="bedgraph" label="GC content track" help="bedGraph with chrom, start, end and GC content; averaged over each bin by overlap. Used to orient the compartment track so that A is GC rich." />
+                <param argument="--minDistance" type="integer" value="200000" min="0" label="Minimum contact distance (bp)" help="Only contacts at at least this distance are counted." />
+            </when>
+        </conditional>
+        <param argument="--blocks" type="text" value="" optional="true" label="Block labels" help="Optional. One label per sample, separated by spaces, condition A first, for an additive block factor such as a batch or a paired replicate. The block must not be confounded with the condition.">
+            <validator type="regex" message="Labels may contain letters, digits, '_', '-' and '.' separated by spaces">^[\w\-\. ]*$</validator>
+        </param>
+        <param argument="--exploratory" type="boolean" truevalue="--exploratory" falsevalue="" checked="false" label="Allow a condition with a single sample" help="The dispersion is then estimated from all samples ignoring the conditions, and every output file is labelled exploratory. Without this option such a comparison is refused." />
+        <expand macro="effect_options" />
+        <param name="filter_lower" type="float" value="-1.5" label="Lower MAD z-score limit of bin coverage" help="A bin whose cis coverage is outside the limits in any sample is masked in all samples (--filterThreshold)." />
+        <param name="filter_upper" type="float" value="5.0" label="Upper MAD z-score limit of bin coverage" />
+        <expand macro="chromosome_list" />
+        <section name="calibration" title="Calibration options" expanded="false" help="Used to check the calibration of the test itself with null and planted-effect runs; not needed for a routine comparison.">
+            <param argument="--splitReplicates" type="integer" optional="true" label="Split replicates (seed)" help="Split every count of each file into two binomial halves with this seed: the first halves form condition A, the second halves condition B. Condition A and B must list the same files in the same order." />
+            <param argument="--plantRegions" type="data" format="bed" optional="true" label="Planted regions" help="Regions whose contacts are thinned to 1 / fold in one condition: chrom, start, end and an optional fourth column A or B (default A)." />
+            <param argument="--plantFold" type="float" value="2.0" min="1" label="Planted fold difference" />
+            <param argument="--plantSeed" type="integer" value="0" label="Seed of the planted thinning" />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="tads" from_work_dir="differential_tads.tsv" format="tabular" label="${tool.name} on ${on_string}: differential TADs">
+            <filter>mode['subcommand'] == 'tads'</filter>
+        </data>
+        <data name="boundaries" from_work_dir="differential_boundaries.tsv" format="tabular" label="${tool.name} on ${on_string}: differential TAD boundaries">
+            <filter>mode['subcommand'] == 'tads'</filter>
+        </data>
+        <data name="loops_out" from_work_dir="differential_loops.tsv" format="tabular" label="${tool.name} on ${on_string}: differential loops">
+            <filter>mode['subcommand'] == 'loops'</filter>
+        </data>
+        <data name="compartments" from_work_dir="differential_compartments.tsv" format="tabular" label="${tool.name} on ${on_string}: differential compartments">
+            <filter>mode['subcommand'] == 'compartments'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="conditionA" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <param name="conditionB" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <conditional name="mode">
+                <param name="subcommand" value="tads" />
+                <param name="domains" value="multiNone_domains.bed" ftype="bed" />
+                <param name="boundaryWindow" value="50000" />
+            </conditional>
+            <param name="blocks" value="b1 b2 b1 b2" />
+            <param name="fdr" value="0.1" />
+            <param name="minFoldChange" value="1.2" />
+            <param name="filter_lower" value="-2" />
+            <param name="filter_upper" value="6" />
+            <repeat name="chromosome_list">
+                <param name="chromosomes" value="chr3L" />
+            </repeat>
+            <output name="tads" ftype="tabular">
+                <assert_contents>
+                    <has_text text="differential TADs" />
+                    <has_text text="replicated: 2 samples in condition A, 2 in condition B" />
+                    <has_text text="#chrom&#009;start&#009;end&#009;name" />
+                </assert_contents>
+            </output>
+            <output name="boundaries" ftype="tabular">
+                <assert_contents>
+                    <has_text text="hicDifferentialAnalysis tads" />
+                    <has_text text="differential TAD boundaries" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="conditionA" value="small_test_matrix.cool" ftype="cool" />
+            <param name="conditionB" value="small_test_matrix.cool" ftype="cool" />
+            <conditional name="mode">
+                <param name="subcommand" value="tads" />
+                <param name="domains" value="multiNone_domains.bed" ftype="bed" />
+                <param name="boundaryWindow" value="50000" />
+            </conditional>
+            <param name="exploratory" value="true" />
+            <repeat name="chromosome_list">
+                <param name="chromosomes" value="chr3L" />
+            </repeat>
+            <output name="tads" ftype="tabular">
+                <assert_contents>
+                    <has_text text="EXPLORATORY" />
+                </assert_contents>
+            </output>
+            <output name="boundaries" ftype="tabular">
+                <assert_contents>
+                    <has_text text="EXPLORATORY" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="conditionA" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <param name="conditionB" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <conditional name="mode">
+                <param name="subcommand" value="loops" />
+                <param name="loops" value="hicDifferentialAnalysis/loops_a.bed,hicDifferentialAnalysis/loops_b.bed" ftype="bed" />
+                <param name="peakWidth" value="2" />
+                <param name="windowSize" value="6" />
+            </conditional>
+            <param name="fdr" value="0.1" />
+            <repeat name="chromosome_list">
+                <param name="chromosomes" value="chr3L" />
+            </repeat>
+            <repeat name="chromosome_list">
+                <param name="chromosomes" value="chr2L" />
+            </repeat>
+            <section name="calibration">
+                <param name="plantRegions" value="hicDifferentialAnalysis/plant.bed" ftype="bed" />
+                <param name="plantFold" value="3" />
+                <param name="plantSeed" value="1" />
+            </section>
+            <output name="loops_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="differential loops" />
+                    <has_text text="calibration: planted regions" />
+                    <has_text text="#chrom1&#009;start1&#009;end1&#009;chrom2" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="conditionA" value="small_test_matrix.cool" ftype="cool" />
+            <param name="conditionB" value="small_test_matrix.cool" ftype="cool" />
+            <conditional name="mode">
+                <param name="subcommand" value="loops" />
+                <param name="loops" value="hicDifferentialAnalysis/loops_a.bed" ftype="interval" />
+            </conditional>
+            <param name="exploratory" value="true" />
+            <section name="calibration">
+                <param name="splitReplicates" value="3" />
+            </section>
+            <output name="loops_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="EXPLORATORY" />
+                    <has_text text="differential loops" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="conditionA" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <param name="conditionB" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <conditional name="mode">
+                <param name="subcommand" value="loops" />
+                <param name="loops" value="hicDifferentialAnalysis/loops_a.bed" ftype="tabular" />
+            </conditional>
+            <output name="loops_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="differential loops" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="conditionA" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <param name="conditionB" value="small_test_matrix.cool,small_test_matrix.cool" ftype="cool" />
+            <conditional name="mode">
+                <param name="subcommand" value="compartments" />
+                <param name="gcTrack" value="hicDifferentialAnalysis/gc_chr4.bedgraph" ftype="bedgraph" />
+                <param name="minDistance" value="100000" />
+            </conditional>
+            <repeat name="chromosome_list">
+                <param name="chromosomes" value="chr4" />
+            </repeat>
+            <output name="compartments" ftype="tabular">
+                <assert_contents>
+                    <has_text text="differential compartment preference" />
+                    <has_text text="#chrom&#009;start&#009;end&#009;E1&#009;gc&#009;compartment" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Differential analysis of TADs, loops and compartments (HiCExplorer 4)
+=====================================================================
+
+**hicDifferentialAnalysis** compares Hi-C contact matrices of two conditions with replicates and tests TADs and TAD boundaries, loops, or A/B compartments for differences in their contacts. It is new in HiCExplorer 4.
+
+_________________
+
+Model
+-----
+
+The contact counts of each tested unit (a TAD, a boundary, a loop or a bin) are modelled with a negative binomial generalized linear model. Offsets account for library size and distance decay. The dispersion is estimated from the replicates with a trended negative binomial dispersion and quasi-likelihood dispersion with empirical Bayes moderation. The condition effect is tested against a minimum fold change (TREAT), and the p-values are adjusted with the Benjamini-Hochberg procedure. Bins whose cis coverage lies outside the MAD z-score limits in any sample are masked in all samples.
+
+All matrices must be cool files with one common bin table; the raw counts are used and a weight column is ignored. Each condition needs at least two replicates. With *Allow a condition with a single sample* a comparison with one sample in a condition is run, the dispersion is then estimated from all samples ignoring the conditions, and the outputs are labelled exploratory. *Block labels* add an additive block factor, for example a batch or the pairing of replicates; give one label per sample, condition A first.
+
+_________________
+
+Features to test
+----------------
+
+**tads**: each TAD is tested on its intra-TAD contacts per distance stratum and in total, and the p-values are combined with Simes' method. Each boundary between two adjacent TADs is tested on the contacts crossing it relative to its two flanks, within the *Boundary window* on either side.
+
+**loops**: the loop calls of all files are united. Positions are mapped to matrix bins, and calls within one bin of each other in both anchors are merged into one loop at their rounded mean position. Each loop is tested on the contacts of its peak square (the loop pixel plus or minus *Peak half width* bins), with the contacts of its local background as offset (the square of plus or minus *Background half width* bins without the peak square and the ring of one bin around it). A difference is thus a change of the loop's enrichment over its background.
+
+**compartments**: a consensus compartment track is computed per chromosome from the pooled samples: of the three leading eigenvectors of the Pearson correlation of the pooled observed over expected matrix, the one that correlates most with GC content, oriented so that A (positive) is GC rich. Every bin is tested on its contacts with A bins, with its contacts with B bins as offset, both at a distance of at least *Minimum contact distance*. A difference is a change of the bin's preference for the A over the B compartment. This mode computes dense matrices per chromosome; use a resolution of 50 kb or coarser.
+
+The calibration options split each sample into two binomial halves (a null comparison) or thin the contacts of planted regions in one condition. They serve to check the test itself and are not needed for a routine comparison.
+
+_________________
+
+Output
+------
+
+Tab separated files with header lines starting with ``#`` that describe the model, the samples and the columns. Each row is one tested unit with its log2 fold change of condition B against A, p-value and Benjamini-Hochberg adjusted p-value.
+
+- tads: one file of TADs and one file of TAD boundaries.
+- loops: one file of loops.
+- compartments: one file of bins, with the per-sample score log2 of observed over expected contacts with A over the same with B.
+
+_________________
+
+For more information about HiCExplorer please consider our documentation on readthedocs.io_.
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+
+]]>    </help>
+    <expand macro="citations">
+        <citation type="doi">10.1093/bioinformatics/btp053</citation>
+        <citation type="doi">10.1515/1544-6115.1826</citation>
+        <citation type="doi">10.1111/j.2517-6161.1995.tb02031.x</citation>
+        <citation type="doi">10.1093/biomet/73.3.751</citation>
+    </expand>
+</tool>
