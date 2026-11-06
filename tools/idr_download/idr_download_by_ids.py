@@ -139,7 +139,7 @@ def get_bulk_annotation_from_IDR(screen_id, session, out_dir):
         print(f"loaded {min(offset, row_count)}/{row_count} rows")
     out_tsv = os.path.join(out_dir, f"bulk_annotations_{screen_id}.tsv")
     write_tsv(out_tsv, column_names, data)
-    print(f"Bulk annotations saved to {out_tsv} ({len(row_count)} rows)")
+    print(f"Bulk annotations saved to {out_tsv} {row_count} rows)")
 
 
 # OMERO BLOCK
