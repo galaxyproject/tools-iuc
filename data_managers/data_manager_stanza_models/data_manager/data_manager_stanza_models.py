@@ -2,10 +2,15 @@
 """
 Data Manager for Stanza Language Models
 
-Downloads Stanza language models with ``stanza.download()`` into the data
-manager output's extra files directory and registers them in Galaxy's
-``stanza_models`` data table. Galaxy then moves the models into the managed
-data directory (see data_manager_conf.xml).
+Downloads Stanza language models into the data manager output's extra files
+directory and registers them in Galaxy's ``stanza_models`` data table. Galaxy
+then moves the models into the managed data directory (see data_manager_conf.xml).
+
+The ``default`` package is downloaded with ``stanza.download()`` (single zip
+archive). ``default_fast`` and ``default_accurate`` are downloaded file-by-file
+with stanza's own package-expansion helpers, because stanza.download() crashes
+on languages whose packages use the identity lemmatizer (see
+download_language_models).
 
 Each language is installed as a self-contained stanza_resources directory
 (resources.json plus a per-language model subdirectory) using the selected
@@ -19,11 +24,22 @@ does not include.
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 
 import stanza
 from certifi import where as certifi_where
 from stanza._version import __resources_version__, __version__
+from stanza.resources.common import (
+    add_dependencies,
+    download_resources_json,
+    flatten_processor_list,
+    LEMMA,
+    load_resources_json,
+    maintain_processor_list,
+    PROCESSOR_VARIANTS,
+    request_file,
+)
 
 # Ensure CA certificates are found by hf_xet in conda containers.
 os.environ.setdefault("SSL_CERT_FILE", certifi_where())
@@ -83,6 +99,56 @@ STANZA_LANGUAGES = {
 }
 
 
+def _resolve_alias(resources, lang):
+    """Follow 'alias' entries in the resources file (mirrors stanza.download)."""
+    while isinstance(resources.get(lang), dict) and 'alias' in resources[lang]:
+        lang = resources[lang]['alias']
+    return lang
+
+
+def download_language_models(lang, model_dir, package, resources_version, resources):
+    """
+    Download the models of one language for a package that is distributed as
+    individual model files (default_fast, default_accurate).
+
+    stanza.download() cannot be used for these packages: languages whose
+    packages use the identity lemmatizer (lemma == token; currently Vietnamese,
+    Thai, Telugu, Maltese and Faroese) make its download_models() look up
+    resources[lang]['lemma']['identity']['md5'], but the identity lemmatizer
+    ships no model file and has no entry in resources.json. Stanza therefore
+    raises "Cannot find the following processor and model name combination:
+    lemma, identity" (stanza >= 1.12 through current main). The 'default'
+    package is unaffected because it downloads a single default.zip instead.
+
+    This replicates the per-file download using stanza's own package-expansion
+    helpers and checksum-verified request_file, skipping processors that are
+    implemented in code and need no model file. The pipeline side handles these
+    variants itself (e.g. the lemma_use_identity option), so the resulting
+    stanza_resources directory loads exactly like a stanza.download() one.
+    """
+    lang = _resolve_alias(resources, lang)
+    download_list = maintain_processor_list(resources, lang, package, {}, allow_pretrain=True)
+    download_list = add_dependencies(resources, lang, download_list)
+    download_list = flatten_processor_list(download_list)
+
+    url = resources['url']
+    for processor, model_name in download_list:
+        # External processor variants (spacy, jieba, sudachipy, ...) and the
+        # identity lemmatizer are code-only and ship no downloadable model.
+        if model_name in PROCESSOR_VARIANTS.get(processor, {}):
+            continue
+        if processor == LEMMA and model_name == 'identity':
+            continue
+        request_file(
+            url.format(resources_version=resources_version, lang=lang,
+                       filename=f"{processor}/{model_name}.pt"),
+            os.path.join(model_dir, lang, processor, f'{model_name}.pt'),
+            None,
+            md5=resources[lang][processor][model_name]['md5'],
+            alternate_md5=resources[lang][processor][model_name].get('alternate_md5', None),
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download and register Stanza language models")
     parser.add_argument("data_manager_json",
@@ -118,6 +184,14 @@ def main():
     stanza_version = args.stanza_version
     resources_version = args.resources_version
 
+    # The package expansions and model checksums below come from resources.json,
+    # so fetch it once up front and reuse it for every selected language. It is
+    # copied into each per-language directory, which the Stanza NLP tool loads
+    # as a self-contained stanza_resources directory.
+    download_resources_json(str(target_dir), resources_version=resources_version)
+    resources = load_resources_json(str(target_dir))
+    resources_json = target_dir / "resources.json"
+
     for lang in args.model:
         display_name = STANZA_LANGUAGES.get(lang, lang)
 
@@ -126,14 +200,25 @@ def main():
         # The value doubles as the on-disk subdirectory name.
         entry_value = f"{lang}-{package}-v{resources_version}"
         lang_dir = target_dir / entry_value
+        lang_dir.mkdir(parents=True, exist_ok=True)
         print(f"Downloading {display_name} ({lang}) models with the {package} package...")
-        stanza.download(
-            lang=lang,
-            model_dir=str(lang_dir),
-            package=package,
-            resources_version=resources_version,
-            verbose=False,
-        )
+
+        if package == "default":
+            # The 'default' package is distributed as a single zip archive;
+            # stanza.download() handles it (and the resources.json copy) itself.
+            stanza.download(
+                lang=lang,
+                model_dir=str(lang_dir),
+                package=package,
+                resources_version=resources_version,
+                verbose=False,
+            )
+        else:
+            # Per-file packages: stanza.download() crashes on identity-lemma
+            # languages (see download_language_models), so download the model
+            # files ourselves.
+            shutil.copy(resources_json, lang_dir / "resources.json")
+            download_language_models(lang, str(lang_dir), package, resources_version, resources)
 
         data_table_entries.append({
             "value": entry_value,

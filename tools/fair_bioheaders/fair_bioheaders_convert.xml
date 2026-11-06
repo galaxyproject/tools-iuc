@@ -1,0 +1,211 @@
+<tool id="fair_bioheaders_convert" name="FAIR-bioHeaders convert" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description>metadata between YAML, JSON, JSON-LD and HTML</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_topics"/>
+    <edam_operations>
+        <edam_operation>operation_3434</edam_operation>
+    </edam_operations>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command><![CDATA[
+@SET_TYPE@
+bioheaders convert
+    --from '$type'
+    --to '$to.format'
+#if $type == 'jsonld' and $ignore_unknown_terms
+    --ignore-unknown-terms
+#end if
+#if $to.format == 'jsonld'
+    --jsonld-profile '$to.jsonld_profile'
+#end if
+    '$input'
+    '$output'
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="@METADATA_FORMATS@,@HEADED_FORMATS@" label="Metadata or data file with a header"
+            help="Metadata in YAML, JSON or JSON-LD, or a FASTA, GFA or GFF3 file (plain or gzip-compressed) whose header is read."/>
+        <conditional name="to">
+            <param name="format" type="select" label="Output format">
+                <option value="yaml" selected="true">YAML</option>
+                <option value="json">JSON</option>
+                <option value="jsonld">JSON-LD</option>
+                <option value="html">HTML (microdata)</option>
+            </param>
+            <when value="yaml"/>
+            <when value="json"/>
+            <when value="jsonld">
+                <param name="jsonld_profile" type="select" label="JSON-LD profile">
+                    <option value="canonical" selected="true">Canonical: can be read back and converted again</option>
+                    <option value="export">Export: schema.org graph for web indexing (one-way, provisional)</option>
+                </param>
+            </when>
+            <when value="html"/>
+        </conditional>
+        <param name="ignore_unknown_terms" type="boolean" truevalue="--ignore-unknown-terms" falsevalue="" checked="false"
+            label="Ignore unknown JSON-LD terms"
+            help="For JSON-LD input that is not in the canonical form: report terms that do not map to a metadata field as warnings instead of errors. Ignored for other inputs."/>
+    </inputs>
+    <outputs>
+        <data name="output" format="yaml" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="to.format" value="json" format="json"/>
+                <when input="to.format" value="jsonld" format="jsonld"/>
+                <when input="to.format" value="html" format="html"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: YAML to JSON -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.yaml" ftype="yaml"/>
+            <conditional name="to">
+                <param name="format" value="json"/>
+            </conditional>
+            <output name="output" file="example.fhr.json" ftype="json"/>
+        </test>
+        <!-- 2: JSON to canonical JSON-LD -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.json" ftype="json"/>
+            <conditional name="to">
+                <param name="format" value="jsonld"/>
+            </conditional>
+            <output name="output" file="example.fhr.jsonld" ftype="jsonld"/>
+        </test>
+        <!-- 3: JSON-LD back to YAML -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.jsonld" ftype="jsonld"/>
+            <param name="ignore_unknown_terms" value="true"/>
+            <output name="output" file="example.fhr.yaml" ftype="yaml"/>
+        </test>
+        <!-- 4: the header of a gzip FASTA to YAML -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.fasta.gz" ftype="fasta.gz"/>
+            <output name="output" ftype="yaml">
+                <assert_contents>
+                    <has_line line="genome: Synthetic human reference example"/>
+                    <has_text text="checksum: "/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 5: the header of a FASTA file to the schema.org export -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.fasta" ftype="fasta"/>
+            <conditional name="to">
+                <param name="format" value="jsonld"/>
+                <param name="jsonld_profile" value="export"/>
+            </conditional>
+            <output name="output" ftype="jsonld">
+                <assert_contents>
+                    <has_text text="&quot;@vocab&quot;: &quot;http://schema.org/&quot;"/>
+                    <has_text text="&quot;@type&quot;: &quot;Dataset&quot;"/>
+                    <has_text text="Synthetic human reference example"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 6: GFA header to HTML microdata -->
+        <test expect_num_outputs="1">
+            <param name="input" value="example.fhr.gfa" ftype="gfa1"/>
+            <conditional name="to">
+                <param name="format" value="html"/>
+            </conditional>
+            <output name="output" ftype="html">
+                <assert_contents>
+                    <has_text text="itemscope"/>
+                    <has_text text="Synthetic human reference example"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 7: the header of a GFF3 file to JSON -->
+        <test expect_num_outputs="1">
+            <param name="input" value="annotation.fhgff3.gff3" ftype="gff3"/>
+            <conditional name="to">
+                <param name="format" value="json"/>
+            </conditional>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="annotation" value="&quot;Synthetic FHGFF3 example annotation&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 8: JSON-LD output is not available for FHGFF3 yet -->
+        <test expect_failure="true">
+            <param name="input" value="annotation.fhgff3.gff3" ftype="gff3"/>
+            <conditional name="to">
+                <param name="format" value="jsonld"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="not available for FHGFF3 metadata yet"/>
+            </assert_stderr>
+        </test>
+        <!-- 9: expanded JSON-LD with a term outside the FHR mapping fails by default -->
+        <test expect_failure="true">
+            <param name="input" value="unknown-term.expanded.jsonld" ftype="jsonld"/>
+            <assert_stderr>
+                <has_text text="JSON-LD term not in the FHR mapping: https://example.org/terms#unknownTerm"/>
+            </assert_stderr>
+        </test>
+        <!-- 10: and is read, with a warning, when unknown terms are ignored -->
+        <test expect_num_outputs="1">
+            <param name="input" value="unknown-term.expanded.jsonld" ftype="jsonld"/>
+            <param name="ignore_unknown_terms" value="true"/>
+            <output name="output" ftype="yaml">
+                <assert_contents>
+                    <has_line line="genome: Synthetic human reference example"/>
+                    <not_has_text text="unknownTerm"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="warning: JSON-LD term not in the FHR mapping"/>
+            </assert_stderr>
+        </test>
+        <!-- 11: a file without a header fails the job -->
+        <test expect_failure="true">
+            <param name="input" value="genome.fasta" ftype="fasta"/>
+            <assert_stderr>
+                <has_text text="No ;~ FHR metadata header found"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+Converts FAIR-bioHeaders metadata between YAML, JSON, JSON-LD and HTML
+microdata with the fair-bioheaders_ toolkit (``bioheaders convert``). The
+input can also be a FASTA, GFA or GFF3 file: its header is read and converted.
+The data lines are not copied.
+
+@HEADER_HELP@
+
+-----
+
+**Input**
+
+Metadata in YAML, JSON or JSON-LD, or a FASTA, GFA or GFF3 file with a header
+(plain or gzip-compressed).
+
+**Output**
+
+- **YAML** and **JSON**: the metadata as they appear in the header.
+- **JSON-LD**: *canonical* is the round-trip form defined by the
+  specification and can be converted back; *export* is a one-way schema.org
+  graph for web pages and dataset search engines (provisional).
+- **HTML**: the metadata as HTML microdata, to embed in a web page.
+
+JSON-LD and HTML are available for FHR (genome) metadata only so far, not yet
+for FHP (protein) or FHGFF3 (annotation) metadata.
+
+To add converted metadata to a data file, use **FAIR-bioHeaders combine**.
+
+@GALAXY_HELP@
+
+@LINKS@
+    ]]></help>
+    <expand macro="citations"/>
+    <expand macro="creator"/>
+</tool>
