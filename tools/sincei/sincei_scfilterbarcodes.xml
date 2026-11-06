@@ -1,35 +1,110 @@
-<tool id="sincei_scfilterbarcodes" name="sincei scFilterBarcode" version="@TOOL_VERSION@+galaxy@SUFFIX_VERSION@" profile="23.2" license="MIT">
-    <description>Identifies barcodes present in a BAM files and produces a list</description>
+<tool id="sincei_scfilterbarcodes" name="sincei scFilterBarcodes" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="@LICENSE@">
+    <description>detect and filter cell barcodes in a BAM file</description>
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="bio_tools"/>
     <expand macro="requirements"/>
-    <command detect_errors="exit_code"><![CDATA[
-            scFilterBarcode 
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        @PREPARE_SINGLE_BAM@
+        scFilterBarcodes
+            --bamfile input.bam
+            --outFile '$barcodes_out'
+            @CELL_TAG_CMD@
+            --binSize $binSize
+            --minCount $minCount
+            #if $whitelist:
+                --whitelist '$whitelist'
+                #if str($minHammingDist) not in ('', 'None'):
+                    --minHammingDist $minHammingDist
+                #end if
+            #end if
+            #if str($minMappingQuality) not in ('', 'None'):
+                --minMappingQuality $minMappingQuality
+            #end if
+            #if $rankPlot:
+                --rankPlot rank_plot.png
+            #end if
+            @EXCLUSION_CMD@
+            @THREADS@
     ]]></command>
-    <inputs>      
-        <param argument="--bamfile" type="data" format="bam" label="Input Indexed BAM file"/>
-        <param argument="--whitelist" type="data" format="tabular,txt" label="Input whitelist file" help="A single-column file containing the whitelist of barcodes to be used"/>
-        <param argument="--minHammingDist" type="integer" label="Enter minimum distance to match the barcode in whitelist." help="Note that increasing the hamming distance really slows down the barcode detection process."/>
-        <param argument="--minCount" type="integer" label="Enter Minimum no. of bins with non-zero counts, in order to report a barcode." help="Note that increasing the hamming distance really slows down the barcode detection process."/>
-        <param argument="--minMappingQuality" type="integer" optional="true" label="Enter minimum mapping quality" help="If set, only reads that have a mapping quality score of at least this are considered."/>
-        <param argument="--cellTag" type="text" label="Name of the BAM tag from which to extract barcodes"/>
-        <param argument="--blackListFileName" type="data" format="bed,gtf" label="Select the Blacklist file for excluding barcodes from output list"/>
-        <param argument="--binSize" type="integer" label="Enter bin size for calculation of coverage" help="Default:100000"/>
+    <inputs>
+        <expand macro="bam_input"/>
+        <expand macro="cell_tag"/>
+        <param argument="--whitelist" type="data" format="txt,tabular" optional="true" label="Barcode whitelist" help="Single-column file of expected barcodes. If set, detected barcodes are matched against it."/>
+        <param argument="--minHammingDist" type="integer" min="0" optional="true" label="Hamming distance for whitelist matching" help="Maximum Hamming distance allowed when matching barcodes to the whitelist. Higher values slow down detection considerably. Only used with a whitelist."/>
+        <param argument="--minCount" type="integer" min="0" value="0" label="Minimum number of non-zero bins" help="Report only barcodes with reads in at least this many bins."/>
+        <param argument="--minMappingQuality" type="integer" min="0" optional="true" label="Minimum mapping quality" help="Only reads with at least this mapping quality are considered."/>
+        <expand macro="bin_size" value="100000"/>
+        <param argument="--rankPlot" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Plot barcode rank (knee) plot" help="Plot the number of non-zero bins per barcode against the barcode rank."/>
+        <expand macro="exclusion"/>
     </inputs>
     <outputs>
-        <data name="detected_barcodes" format="txt" label="${tool.name} on ${on_string}:Detected Barcodes"/>
-        <data name="rank_plot" format="png" label="${tool.name} on ${on_string}: Rank Plot"/>
+        <data name="barcodes_out" format="tabular" label="${tool.name} on ${on_string}: barcodes"/>
+        <data name="rank_plot" format="png" from_work_dir="rank_plot.png" label="${tool.name} on ${on_string}: rank plot">
+            <filter>rankPlot</filter>
+        </data>
     </outputs>
     <tests>
-        
-        
+        <!-- whitelist matching -->
+        <test expect_num_outputs="1">
+            <param name="bamfile" value="SL2-1.bam"/>
+            <param name="whitelist" value="test_barcodes.txt"/>
+            <param name="minHammingDist" value="0"/>
+            <param name="binSize" value="10000"/>
+            <output name="barcodes_out" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="\tbarcode\tcount\tselected"/>
+                    <has_text text="AGCGTCTA"/>
+                    <has_n_lines n="6"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- no whitelist, rank plot, min count filter -->
+        <test expect_num_outputs="2">
+            <param name="bamfile" value="SL2-1.mini.bam"/>
+            <param name="binSize" value="100"/>
+            <param name="minCount" value="3"/>
+            <param name="rankPlot" value="true"/>
+            <output name="barcodes_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="count_rank"/>
+                    <has_line_matching expression=".*AGCGTCTA\t6\tTrue.*"/>
+                    <has_line_matching expression=".*ACGTAGAT\t2\tFalse.*"/>
+                </assert_contents>
+            </output>
+            <output name="rank_plot" ftype="png">
+                <assert_contents>
+                    <has_size size="18615" delta="2000"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
-    <help><![CDATA[
-        **sincei scfilterbarcodes**
+    <help format="markdown"><![CDATA[
+**What it does**
 
-              
+`scFilterBarcodes` scans a BAM file for cell barcodes (stored in a BAM tag, `BC` by default)
+and reports how many genomic bins each barcode has reads in. Barcodes can be matched against a
+whitelist, allowing some Hamming distance, and filtered by a minimum number of non-zero bins.
+This is typically the first step to find which barcodes correspond to real cells.
+
+-----
+
+**Inputs**
+
+- A coordinate-sorted BAM file with a cell barcode tag.
+- Optionally, a single-column whitelist of expected barcodes.
+
+**Outputs**
+
+- A table of detected barcodes with their bin count and whether they passed the filters.
+  The `selected` barcodes can be used as the whitelist (`--barcodes`) for the other sincei tools.
+- Optionally, a barcode rank ("knee") plot.
+
+**Note:** the rank plot cannot be drawn when all barcodes have the same count.
+@HELP_FOOTER@
     ]]></help>
-    <expand macro="citations"/>
     <expand macro="creator"/>
+    <expand macro="citations"/>
 </tool>

@@ -1,19 +1,218 @@
 <macros>
-    <token name="@TOOL_VERSION@">0.4</token>
-    <token name="@SUFFIX_VERSION@">0</token>
+    <token name="@TOOL_VERSION@">0.6.1</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">25.1</token>
+    <token name="@LICENSE@">MIT</token>
+    <token name="@THREADS@">--numberOfProcessors "\${GALAXY_SLOTS:-1}"</token>
     <xml name="requirements">
         <requirements>
             <requirement type="package" version="@TOOL_VERSION@">sincei</requirement>
+            <yield/>
         </requirements>
+    </xml>
+    <xml name="bio_tools">
+        <xrefs>
+            <xref type="bio.tools">sincei</xref>
+        </xrefs>
+    </xml>
+    <xml name="version_command">
+        <version_command>echo @TOOL_VERSION@</version_command>
     </xml>
     <xml name="creator">
         <creator>
-            <organization name="Galaxy Europe" url="https://www.izw-berlin.de/en/home.html"/>
+            <person givenName="Saim" familyName="Momin" url="https://github.com/SaimMomin12"/>
         </creator>
     </xml>
     <xml name="citations">
         <citations>
-            <citation type="doi">https://doi.org/10.1101/2024.07.27.605424</citation>
+            <citation type="doi">10.1101/2024.07.27.605424</citation>
         </citations>
     </xml>
+    <!-- ============================== BAM inputs ============================== -->
+    <xml name="bam_inputs">
+        <param argument="--bamfiles" type="data" format="bam" multiple="true" label="BAM files" help="One or more coordinate-sorted BAM files containing a cell barcode tag. The dataset name (without .bam) is used as the sample label, so cells are reported as label::barcode."/>
+    </xml>
+    <xml name="bam_input">
+        <param argument="--bamfile" type="data" format="bam" label="BAM file" help="Coordinate-sorted BAM file containing a cell barcode tag."/>
+    </xml>
+    <!-- Link each BAM and its index into the working directory (sincei needs the .bai next to the .bam).
+         Sample labels are derived from the element identifiers; file names are indexed to avoid collisions. -->
+    <token name="@PREPARE_BAMS@"><![CDATA[
+        #import re
+        #set $bam_args = []
+        #set $label_args = []
+        #for $i, $bam in enumerate($bamfiles)
+            #set $label = re.sub(r'[^\w\-.]', '_', re.sub(r'\.bam$', '', str($bam.element_identifier)))
+            ln -s '$bam' 'input_${i}.bam' &&
+            ln -s '${bam.metadata.bam_index}' 'input_${i}.bam.bai' &&
+            #silent $bam_args.append("'input_%s.bam'" % $i)
+            #silent $label_args.append("'%s'" % $label)
+        #end for
+    ]]></token>
+    <token name="@BAM_ARGS@"><![CDATA[
+            --bamfiles #echo ' '.join($bam_args)#
+            --labels #echo ' '.join($label_args)#
+    ]]></token>
+    <token name="@PREPARE_SINGLE_BAM@"><![CDATA[
+        ln -s '$bamfile' 'input.bam' &&
+        ln -s '${bamfile.metadata.bam_index}' 'input.bam.bai' &&
+    ]]></token>
+    <!-- ============================== Common params ============================== -->
+    <xml name="barcodes">
+        <param argument="--barcodes" type="data" format="txt,tabular" label="Barcode whitelist" help="A single-column file with the cell barcodes to consider, one per line."/>
+    </xml>
+    <xml name="cell_tag">
+        <param argument="--cellTag" type="text" value="BC" label="Cell barcode BAM tag" help="Name of the BAM tag that holds the cell barcode.">
+            <validator type="regex" message="A BAM tag consists of two alphanumeric characters">[A-Za-z][A-Za-z0-9]</validator>
+        </param>
+    </xml>
+    <token name="@CELL_TAG_CMD@">--cellTag '$cellTag'</token>
+    <xml name="h5ad_input" token_label="Count matrix">
+        <param argument="--input" type="data" format="h5ad" label="@LABEL@" help="AnnData (h5ad) object produced by sincei (e.g. scCountReads)."/>
+    </xml>
+    <xml name="region">
+        <param argument="--region" type="text" value="" optional="true" label="Genomic region" help="Limit the operation to a genomic region, e.g. chr10 or chr10:456700:891000. Useful to reduce computing time.">
+            <validator type="regex" message="Use the format chr, chr:start:end or chr:start-end">([A-Za-z0-9_.]+(:[0-9]+[:-][0-9]+)?)?</validator>
+        </param>
+    </xml>
+    <token name="@REGION_CMD@"><![CDATA[
+        #if str($region).strip():
+            --region '$region'
+        #end if
+    ]]></token>
+    <xml name="bin_size" token_value="10000">
+        <param argument="--binSize" type="integer" min="1" value="@VALUE@" label="Bin size (bp)" help="Size of the genomic bins, in bases."/>
+    </xml>
+    <xml name="distance_between_bins" token_value="0">
+        <param argument="--distanceBetweenBins" type="integer" min="0" value="@VALUE@" label="Distance between bins (bp)" help="Gap, in bases, between sampled bins. Larger values sample the genome more sparsely."/>
+    </xml>
+    <!-- ============================== Region exclusion ============================== -->
+    <xml name="exclusion">
+        <section name="exclusion" title="Region exclusion" expanded="false">
+            <param argument="--blacklist" type="data" format="bed,gtf" multiple="true" optional="true" label="Blacklisted regions" help="BED or GTF file(s) with regions to exclude from the analysis."/>
+            <param argument="--chrToSkip" type="text" value="" label="Chromosomes to skip" help="Comma-separated chromosome names to exclude, e.g. chrM,chrX.">
+                <validator type="regex" message="Comma-separated chromosome names">[A-Za-z0-9_.,]*</validator>
+            </param>
+        </section>
+    </xml>
+    <token name="@EXCLUSION_CMD@"><![CDATA[
+        #if $exclusion.blacklist:
+            --blacklist
+            #for $bl in $exclusion.blacklist
+                '$bl'
+            #end for
+        #end if
+        #if str($exclusion.chrToSkip).strip():
+            --chrToSkip
+            #for $chrom in str($exclusion.chrToSkip).split(',')
+                #if $chrom.strip()
+                    '${chrom.strip()}'
+                #end if
+            #end for
+        #end if
+    ]]></token>
+    <!-- ============================== Read filtering ============================== -->
+    <!-- Core filters supported by every BAM-processing tool. Tool-specific options go into the yield. -->
+    <xml name="read_filters">
+        <section name="filtering" title="Read filtering" expanded="false">
+            <param argument="--minMappingQuality" type="integer" min="0" optional="true" label="Minimum mapping quality" help="Only reads with at least this mapping quality are considered."/>
+            <param argument="--samFlagInclude" type="integer" min="0" optional="true" label="Include reads with SAM flag" help="Only consider reads with all of these SAM flag bits set, e.g. 64 for first-in-pair reads."/>
+            <param argument="--samFlagExclude" type="integer" min="0" optional="true" label="Exclude reads with SAM flag" help="Discard reads with any of these SAM flag bits set, e.g. 16 for reverse-strand reads."/>
+            <param argument="--duplicateFilter" type="select" optional="true" label="Duplicate filter" help="How to identify duplicate reads. Read start and barcode are always considered. Leave empty to keep all reads.">
+                <option value="start_bc">start + barcode</option>
+                <option value="start_bc_umi">start + barcode + UMI</option>
+                <option value="start_end_bc">start + end + barcode</option>
+                <option value="start_end_bc_umi">start + end + barcode + UMI</option>
+            </param>
+            <yield/>
+        </section>
+    </xml>
+    <token name="@READ_FILTERS_CMD@"><![CDATA[
+        #if str($filtering.minMappingQuality) not in ('', 'None'):
+            --minMappingQuality $filtering.minMappingQuality
+        #end if
+        #if str($filtering.samFlagInclude) not in ('', 'None'):
+            --samFlagInclude $filtering.samFlagInclude
+        #end if
+        #if str($filtering.samFlagExclude) not in ('', 'None'):
+            --samFlagExclude $filtering.samFlagExclude
+        #end if
+        #if $filtering.duplicateFilter:
+            --duplicateFilter '$filtering.duplicateFilter'
+        #end if
+    ]]></token>
+    <xml name="fragment_length_filters">
+        <param argument="--minFragmentLength" type="integer" min="0" optional="true" label="Minimum fragment length" help="Minimum fragment length for read/pair inclusion, e.g. to select mono-nucleosomal fragments in ATAC-seq."/>
+        <param argument="--maxFragmentLength" type="integer" min="0" optional="true" label="Maximum fragment length" help="Maximum fragment length for read/pair inclusion."/>
+    </xml>
+    <token name="@FRAGMENT_LENGTH_CMD@"><![CDATA[
+        #if str($filtering.minFragmentLength) not in ('', 'None'):
+            --minFragmentLength $filtering.minFragmentLength
+        #end if
+        #if str($filtering.maxFragmentLength) not in ('', 'None'):
+            --maxFragmentLength $filtering.maxFragmentLength
+        #end if
+    ]]></token>
+    <xml name="sequence_filters">
+        <param argument="--motifFilter" type="text" value="" label="Motif filter" help="Keep only reads with a given motif at the 5' end of the read and/or the 5' overhang in the genome, as 'read_motif,genome_motif', e.g. A,TA. Requires a 2bit genome. Separate multiple motif pairs with spaces.">
+            <validator type="regex" message="Motifs must contain only A, C, G, T or N, as 'read,genome' pairs separated by spaces">([ACGTN]*,?[ACGTN]*)( [ACGTN]*,?[ACGTN]*)*</validator>
+        </param>
+        <param argument="--genome2bit" type="data" format="twobit" optional="true" label="Genome sequence (2bit)" help="Required when a motif filter is set."/>
+        <param argument="--GCcontentFilter" type="text" value="" label="GC content range" help="Keep only reads whose GC fraction lies within 'low,high', e.g. 0.1,0.9.">
+            <validator type="regex" message="Use the format low,high, e.g. 0.1,0.9">([01](\.[0-9]+)?,[01](\.[0-9]+)?)?</validator>
+        </param>
+        <param argument="--minAlignedFraction" type="float" min="0" max="1" optional="true" label="Minimum aligned fraction" help="Minimum fraction of the read that must be aligned (excluding indels and clipping)."/>
+    </xml>
+    <token name="@SEQUENCE_FILTERS_CMD@"><![CDATA[
+        #if str($filtering.motifFilter).strip():
+            --motifFilter
+            #for $motif in str($filtering.motifFilter).split()
+                '$motif'
+            #end for
+        #end if
+        #if $filtering.genome2bit:
+            --genome2bit '$filtering.genome2bit'
+        #end if
+        #if str($filtering.GCcontentFilter).strip():
+            --GCcontentFilter '$filtering.GCcontentFilter'
+        #end if
+        #if str($filtering.minAlignedFraction) not in ('', 'None'):
+            --minAlignedFraction $filtering.minAlignedFraction
+        #end if
+    ]]></token>
+    <xml name="rna_strand_filter">
+        <param argument="--filterRNAstrand" type="select" optional="true" label="Filter RNA strand" help="Keep only RNA-seq reads originating from genes on the given strand (assumes a dUTP-based library).">
+            <option value="forward">forward</option>
+            <option value="reverse">reverse</option>
+        </param>
+    </xml>
+    <token name="@RNA_STRAND_CMD@"><![CDATA[
+        #if $filtering.filterRNAstrand:
+            --filterRNAstrand '$filtering.filterRNAstrand'
+        #end if
+    ]]></token>
+    <xml name="read_processing">
+        <section name="processing" title="Read processing" expanded="false">
+            <param argument="--extendReads" type="integer" min="1" optional="true" label="Extend reads to fragment length (bp)" help="Extend single-end reads to this fragment length. Paired-end reads are always extended to the fragment defined by both mates. Not recommended for spliced RNA-seq reads."/>
+            <param argument="--centerReads" type="boolean" truevalue="--centerReads" falsevalue="" checked="false" label="Center reads on the fragment" help="Center reads with respect to the fragment length, giving sharper signal around enriched regions."/>
+            <yield/>
+        </section>
+    </xml>
+    <token name="@READ_PROCESSING_CMD@"><![CDATA[
+        #if str($processing.extendReads) not in ('', 'None'):
+            --extendReads $processing.extendReads
+        #end if
+        $processing.centerReads
+    ]]></token>
+    <!-- ============================== Shared help ============================== -->
+    <token name="@HELP_FOOTER@"><![CDATA[
+
+-----
+
+**About sincei**
+
+sincei is a toolkit for the exploration of single-cell (epi)genomics data, from BAM files to
+count matrices, clustering and pseudo-bulk signal. For full documentation, see
+https://sincei.readthedocs.io
+    ]]></token>
 </macros>
