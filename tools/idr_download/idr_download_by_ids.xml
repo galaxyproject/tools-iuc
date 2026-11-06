@@ -1,29 +1,34 @@
 <tool id="idr_download_by_ids" name="Download IDR/OMERO" version="0.50" profile="26.0" license="MIT">
     <description>with requests and omero-py</description>
-        <macros>
-            <import>macros.xml</import>
-       </macros>
-        <requirements>
-            <requirement type="package" version="5.22.1">omero-py</requirement>
-            <!-- openjdk is needed: https://github.com/conda-forge/omero-py-feedstock/pull/16 -->
-            <requirement type="package" version="21.0.2">openjdk</requirement>
-            <requirement type="package" version="2026.9.20">tifffile</requirement>
-            <requirement type="package" version="3.0.6">pandas</requirement>
-                    <!-- ====== XML block for OMERO credentials. vaul system implemented in 26.0 ===== -->
+    <macros>
+        <import>macros.xml</import>
+        <xml name="skip_failed">
+            <param name="skip_failed" type="boolean" checked="false"
+                label="Continue if some IDs cannot be downloaded?"
+                help="If Yes, images that are missing or fail are reported in the log and the job still returns everything that was downloaded. If No, the job fails." />
+        </xml>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_3382</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_2422</edam_operation>
+    </edam_operations>
+    <requirements>
+        <requirement type="package" version="5.22.1">omero-py</requirement>
+        <!-- openjdk is needed: https://github.com/conda-forge/omero-py-feedstock/pull/16 -->
+        <requirement type="package" version="21.0.2">openjdk</requirement>
+        <requirement type="package" version="2026.9.20">tifffile</requirement>
+        <!-- ====== XML block for OMERO credentials. vault system implemented in 26.0 ===== -->
         <credentials name="OMERO" version="0.1" label="OMERO Credentials" description="Input a set of credentials to access a target OMERO.server">
             <variable name="username" inject_as_env="OMERO_USER" optional="true" label="OMERO username" description="OMERO username" />
             <secret name="password" inject_as_env="OMERO_PASSWORD" optional="true" label="OMERO password" description="OMERO password" />
             <secret name="uuid-key" inject_as_env="UUID_SESSION_KEY" optional="true" label="OMERO UUID Session Key" description="Input your session key here to connect using an existing OMERO session key. More information on how to find a session key: https://omero.readthedocs.io/en/stable/users/cli/sessions.html" />
         </credentials>
-        </requirements>
-       <command detect_errors="exit_code"><![CDATA[
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
         set -o pipefail &&
         mkdir -p output &&
-
-        #if $omero_instance_type.omero_instance == 'priv' and $test_username != ""
-            export OMERO_USER='$test_username' &&
-            export OMERO_PASSWORD='$test_password' &&
-        #end if
 
         python '$__tool_directory__/idr_download_by_ids.py'
 
@@ -33,7 +38,9 @@
             #if $sel.selection == 'dataset'
                 --dataset $sel.id_dataset_omero
             #else
-                --image_ids '$sel.id_spec'
+                #for $image_id in str($sel.id_spec).split()
+                    '$image_id'
+                #end for
             #end if
 
             #set $reg = $omero_instance_type.image_region
@@ -46,23 +53,30 @@
                 -t $reg.frame
             #elif $reg.mode == 'stack'
                 #if str($reg.tile).strip()
-                    --tile '$reg.tile'
+                    --tile ${str($reg.tile).replace(',', ' ')}
                 #end if
                 -c '$reg.channel'
                 -t $reg.frame
-            #else
-                --hypercube
             #end if
 
             #if $omero_instance_type.original
                 --original
+            #end if
+            #if $omero_instance_type.skip_failed
+                --skip-failed
             #end if
             @HOST_PORT@
 
         #elif $omero_instance_type.omero_instance == 'idr'
             #set $q = $omero_instance_type.query
             #if $q.type == 'image'
-                image '$q.id_spec'
+                image
+                #for $image_id in str($q.id_spec).split()
+                    '$image_id'
+                #end for
+                #if $q.skip_failed
+                    --skip-failed
+                #end if
             #elif $q.type == 'annotation'
                 annotation '$q.value' '$q.object_type'
             #else
@@ -77,13 +91,14 @@
             && tar -czf '$output_tar' output
         #end if
     ]]></command>
-            <environment_variables>
-                <environment_variable name="USER">galaxy</environment_variable>
-       </environment_variables>
+    <environment_variables>
+        <environment_variable name="USER">galaxy</environment_variable>
+        <!-- This env variable is to avoid printing all the syntaxWarning coming from ice.py from Python 3.12-->
+        <environment_variable name="PYTHONWARNINGS">ignore::SyntaxWarning</environment_variable>
+    </environment_variables>
     <inputs>
         <conditional name="omero_instance_type">
-            <param name="omero_instance" type="select" 
-            label="Get data from IDR or a private OMERO instance?">
+            <param name="omero_instance" type="select" label="Get data from IDR or a private OMERO instance?">
                 <option value="idr">IDR</option>
                 <option value="priv">private OMERO instance</option>
             </param>
@@ -96,22 +111,24 @@
                         <option value="bulk">Tables</option>
                     </param>
                     <when value="image">
-                        <param name="id_spec" type="integer" min="0" label="Image IDs to download"
-                            help="You can enter a single image-id, or a space-separated list of IDs."/>
+                        <param name="id_spec" type="text" label="Image IDs to download"
+                            help="You can enter a single image-id, or a space-separated list of IDs.">
+                            <validator type="regex" message="Enter one or more image IDs (integers) separated by spaces">^\s*\d+(\s+\d+)*\s*$</validator>
+                        </param>
+                        <expand macro="skip_failed" />
                     </when>
                     <!-- ====== Annotation is defined as key-value pairs. These cannot be fetched from datasets and plates ===== -->
                     <when value="annotation">
                         <param name="object_type" type="select" label="Target object in OMERO"
                             help="Object type in IDR with annotations">
-                        <option value="image">Image</option>
-                        <option value="project">Project</option>
-                        <option value="screen">Screen</option>
-                        <option value="well">Well</option>
+                            <option value="image">Image</option>
+                            <option value="project">Project</option>
+                            <option value="screen">Screen</option>
+                            <option value="well">Well</option>
                         </param>
-                        <param name="value" type="integer" min="0" label="Annotation ID"
+                        <param name="value" type="integer" min="0" label="Object ID"
                             help="The Image/Project/Screen/Well ID" />
                     </when>
-                    <!-- ====== Buld is defined as tables. These cannot be fetched from screens ===== -->
                     <when value="bulk">
                         <param name="id_file" type="integer" min="0"
                             label="Input a Screen ID to get associated tables" />
@@ -121,7 +138,6 @@
             <!-- ===== private OMERO ===== -->
             <when value="priv">
                 <expand macro="host_port"/>
-                <param name="galaxy_test_param" type="hidden" value="false" />
                 <conditional name="image_ids">
                     <!-- ===== get data a single images or all the ones in dataset ===== -->
                     <param name="selection" type="select" label="How would you like to specify the IDs of images to download?">
@@ -129,12 +145,14 @@
                         <option value="dataset">All images from a single Dataset ID</option>
                     </param>
                     <when value="image_ids">
-                        <param name="id_spec" type="integer" label="Image IDs"
-                            help="You can enter a single image-id, or a space-separated list of IDs."/>
+                        <param name="id_spec" type="text" label="Image IDs"
+                            help="You can enter a single image-id, or a space-separated list of IDs.">
+                            <validator type="regex" message="Enter one or more image IDs (integers) separated by spaces">^\s*\d+(\s+\d+)*\s*$</validator>
+                        </param>
                     </when>
                     <when value="dataset">
-                        <param name="id_dataset_omero" type="integer" min="0" value="9059" label="Dataset ID"
-                        help="You can enter a single dataset-id."/>
+                        <param name="id_dataset_omero" type="integer" min="0" label="Dataset ID"
+                            help="You can enter a single dataset-id."/>
                     </when>
                 </conditional>
                 <conditional name="image_region">
@@ -145,12 +163,12 @@
                         <option value="hypercube">Hypercube (ZCTYX)</option>
                     </param>
                     <when value="plane">
-                        <param name="channel" type="integer"  value="0" min="0" label="Channel index"/>
+                        <param name="channel" type="integer" value="0" min="0" label="Channel index"/>
                         <param name="z_section" type="integer" value="0" min="0" label="Stack index" />
                         <param name="frame" type="integer" value="0" min="0" label="Time frame index" />
                     </when>
                     <when value="stack">
-                        <param name="channel" type="integer"  value="0" min="0" label="Channel index"/>
+                        <param name="channel" type="integer" value="0" min="0" label="Channel index"/>
                         <param name="frame" type="integer" value="0" min="0" label="Time frame index" />
                         <param name="tile" type="text" value="" optional="true"
                             label="Limit the download to a tile (optional)"
@@ -165,8 +183,9 @@
                 <param name="original" type="boolean" checked="false"
                     label="Download the original file?"
                     help="Download the file originally uploaded to OMERO instead of an exported TIFF. Previous export options will be ignored" />
-                </when>
-            </conditional>
+                <expand macro="skip_failed" />
+            </when>
+        </conditional>
         <param name="zip" type="boolean" checked="true"
             label="Download images in a tarball?"
             help="By default, the tool will download a tarball containing individual images into your Galaxy history. This option is strongly recommended, especially for a large number of files. With this option set to No, you will download a collection of images, only suggested for a small number of files." />
@@ -177,12 +196,12 @@
             <filter>zip</filter>
         </data>
         <collection name="output_file" type="list">
-            <discover_datasets pattern="__name_and_ext__" directory="output" />
+            <discover_datasets pattern="__name_and_ext__" directory="output" recurse="true" />
             <filter>not zip</filter>
         </collection>
     </outputs>
     <tests>
-        <!-- Unfortunately, it is not possible to test OMERaO since a public instance is not available -->
+        <!-- Unfortunately, it is not possible to test OMERO since a public instance is not available -->
         <!-- Test 1: IDR, image IDs given as text, results in a tarball -->
         <test expect_num_outputs="2">
             <conditional name="omero_instance_type">
@@ -204,7 +223,7 @@
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 2: IDR, images selected by annotation key/value, results in a tarball -->
+        <!-- Test 2: IDR, key-value annotations of a project, results as a collection -->
         <test expect_num_outputs="2">
             <conditional name="omero_instance_type">
                 <param name="omero_instance" value="idr" />
@@ -222,14 +241,13 @@
             </output>
             <output_collection name="output_file" type="list">
                 <element name="annotations_project_1158" ftype="tsv" file="annotations_project_1158.tsv">
-                <assert_contents>
-                    <has_n_lines n="22"/>
-                </assert_contents>
-            </element>
+                    <assert_contents>
+                        <has_n_lines n="22"/>
+                    </assert_contents>
+                </element>
             </output_collection>
         </test>
- 
-        <!-- Test 3: IDR, image IDs from a text file (bulk), results as a collection -->
+        <!-- Test 3: IDR, bulk annotation table of a screen, results as a collection -->
         <test expect_num_outputs="2">
             <conditional name="omero_instance_type">
                 <param name="omero_instance" value="idr" />
@@ -246,9 +264,9 @@
             </output>
             <output_collection name="output_file" type="list">
                 <element name="bulk_annotations_2303" ftype="tsv" file="bulk_annotations_2303.tsv">
-                <assert_contents>
-                    <has_n_lines n="483"/>
-                </assert_contents>
+                    <assert_contents>
+                        <has_n_lines n="483"/>
+                    </assert_contents>
                 </element>
             </output_collection>
         </test>
@@ -268,49 +286,77 @@
                 </assert_contents>
             </output>
             <output_collection name="output_file" type="list">
-            <element name="NGFF_validator_1811590" file="NGFF_validator_1811590.html" ftype="html" compare="sim_size" delta="1000">
-                <assert_contents>
-                    <has_text text="NGFF-validator" />
-                </assert_contents>
-            </element>
-            <element name="zarr_info_1811590" file="zarr_info_1811590.tsv" ftype="tsv" compare="sim_size" delta="1000">
-                <assert_contents>
-                    <has_n_lines n="2"/>
-                </assert_contents>
-            </element>
+                <element name="NGFF_validator_1811590" file="NGFF_validator_1811590.html" ftype="html" compare="sim_size" delta="1000">
+                    <assert_contents>
+                        <has_text text="NGFF-validator" />
+                    </assert_contents>
+                </element>
+                <element name="zarr_info_1811590" file="zarr_info_1811590.tsv" ftype="tsv" compare="sim_size" delta="1000">
+                    <assert_contents>
+                        <has_n_lines n="2"/>
+                    </assert_contents>
+                </element>
             </output_collection>
+        </test>
+        <!-- Test 5: IDR, new test to check the skip failure for several images -->
+        <test expect_num_outputs="2">
+            <conditional name="omero_instance_type">
+                <param name="omero_instance" value="idr" />
+                <conditional name="query">
+                    <param name="type" value="image" />
+                    <param name="id_spec" value="999999999 12567502"/>
+                    <param name="skip_failed" value="true" />
+                </conditional>
+            </conditional>
+            <param name="zip" value="true" />
+            <output name="log" file="idr_image_12567502.log" compare="sim_size" delta="1000">
+                <assert_contents>
+                    <not_has_text text="Traceback"/>
+                </assert_contents>
+            </output>
+            <output name="output_tar" file="idr_image_12567502.tar.gz" compare="sim_size" delta="10000">
+                <assert_contents>
+                    <has_archive_member path="output/.+" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
 @SECURITY_DISCLAIMER@
 **What it does**
 
-This tool allows users to fetch images and annotations (tables and key-value pairs) directly from the [Image Data Resource (IDR)](https://idr.openmicroscopy.org).
+This tool allows users to fetch images and annotations (tables and key-value pairs) directly from the [Image Data Resource (IDR)](https://idr.openmicroscopy.org), and images from a private OMERO server.
 
-For Zarr images, the tool provides links to their S3/HTTPS storage locations, together with a link for NGFF validation. Other image file formats are downloaded as original files, up to a maximum of 20 files; if more than 20 files are selected, only links are provided.
+For Zarr images, the tool provides links to their S3/HTTPS storage locations, together with a link for NGFF validation. Other image file formats are downloaded as original files, up to a maximum of 20 files per image; if an image has more than 20 files, only links are provided.
 
 Images stored in OMERO can be fetched as single-plane (YX), stack (ZYX), hypercube TIFF (ZCTYX), or as the original files.
 
 **Downloading from IDR**
 
-Choose one of the following ways to select images:
+Choose what to fetch:
 
-- **As text**: Enter a single image ID, or a space-separated list of image IDs (for example, `54321 54322 54323`).
-- **By IDR annotation**: Select an `OMERO.table` or key-value annotation associated with an image, a screen/plate, or a project/dataset.
+- **Images**: Enter a single image ID, or a space-separated list of image IDs (for example, `54321 54322 54323`).
+- **Key-Value pairs annotation**: Choose the object type (Image, Project, Screen or Well) and enter its ID. All key-value pairs (map annotations) attached to that object are saved as a TSV file with the columns namespace, key and value.
+- **Tables**: Enter a Screen ID. The `bulk_annotations` table (OMERO.table) attached to that screen is saved as a TSV file.
 
 **Downloading from a private OMERO server**
 
-Enter the server hostname and indicate whether it uses a secure (SSL) connection.
-Images can be selected by image ID or by OMERO dataset ID. If a dataset ID is selected, all images in that dataset are downloaded.
+Enter the server hostname and port. Your OMERO username and password, or an existing session key, are taken from the OMERO credentials stored in your Galaxy user preferences. The OMERO credentials of older versions of this tool (stored as user preference fields) are no longer used, so please enter them again in the credentials section.
+
+Images can be selected by image ID (one or more, separated by spaces) or by OMERO dataset ID. If a dataset ID is selected, all images in that dataset are downloaded.
 
 Then choose what to download:
 
-- **Export - Plane**: Downloads a single plane defined by the channel name, z-plane, and time point. If no channel is specified, the first channel is used. The output is a 2D image (YX).
-- **Export - Stack**: Downloads all z-planes for a single channel and time point as a TIFF file. The output is a 3D image (ZYX).
+- **Export - Plane**: Downloads a single plane defined by the channel index, z-plane, and time point (all indices start at 0). The output is a 2D image (YX).
+- **Export - Stack**: Downloads all z-planes for a single channel and time point as a TIFF file. The output is a 3D image (ZYX). The download can be limited to a tile specified as `x,y,width,height` in pixels, where `x,y` is the upper-left corner.
 - **Export - Hypercube**: Downloads all dimensions as a TIFF file. The output is a 5D image (ZCTYX).
-- **Original**: Downloads the file exactly as originally uploaded to OMERO, rather than exporting it.
+- **Original**: Downloads the files exactly as originally uploaded to OMERO, rather than exporting them. Files shared by several images (one fileset) are downloaded only once.
 
-For all options except **Original**, the download can be limited to a tile specified as `x,y,width,height` in pixels, where `x,y` is the upper-left corner.
+If a session key is used, the session is left open after the job; a session opened with username and password is closed.
+
+**Failed downloads**
+
+With "Continue if some IDs cannot be downloaded?" set to **Yes**, missing or failing images are listed in the log and everything else is returned. With **No**, the job fails if any image could not be downloaded (the other images are still attempted, but no output is returned).
 
 **Output**
 
