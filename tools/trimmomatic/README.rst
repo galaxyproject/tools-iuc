@@ -14,7 +14,7 @@ The references for Trimmomatic are:
 
 - Beier, S., Bolger, A.M., Bolger, M.E., Schwacke, R., & Usadel, B. (2026).
   Trimmomatic: a decade of feature-rich, high-performance NGS read preprocessing.
-  Bioinformatics, btag331. https://doi.org/10.1093/bioinformatics/btag331
+  Bioinformatics, btag331.
 
 Controlling the available memory
 ================================
