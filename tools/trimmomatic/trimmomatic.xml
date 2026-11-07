@@ -29,6 +29,14 @@
   #else
     ln -s '$fastq_in' fastq_in.'$fastq_in.extension' &&
   #end if
+  #if $readtype.single_or_paired in ["pair_of_files", "collection"]
+    #if $r1_ext.startswith(('fastqillumina', 'fastqsolexa')) != $r2_ext.startswith(('fastqillumina', 'fastqsolexa'))
+      #raise ValueError("Paired reads must use the same quality encoding.")
+    #end if
+    #set phred = '-phred64' if $r1_ext.startswith(('fastqillumina', 'fastqsolexa')) else '-phred33'
+  #else
+    #set phred = '-phred64' if $fastq_in.extension.startswith(('fastqillumina', 'fastqsolexa')) else '-phred33'
+  #end if
   ## _JAVA_OPTIONS is expanded onto the command line just below, so `env -u`
   ## stops the JVM applying it a second time from the environment. That second
   ## route also makes the JVM print `Picked up _JAVA_OPTIONS: ...` on stderr,
@@ -42,6 +50,9 @@
       fastq_out_r2_paired.'$r2_ext' fastq_out_r2_unpaired.'$r2_ext'
   #else
     SE -threads \${GALAXY_SLOTS:-6} fastq_in.'$fastq_in.extension' fastq_out.'$fastq_in.extension'
+  #end if
+  #if $output_summary
+    -summary summary.txt
   #end if
   ## ILLUMINACLIP option
   #if $illuminaclip.do_illuminaclip == "yes"
@@ -87,13 +98,23 @@
     #if str( $op.operation.name ) == "MAXINFO"
       MAXINFO:$op.operation.target_length:$op.operation.strictness
     #end if
+    #if str( $op.operation.name ) == "MAXLEN"
+      MAXLEN:$op.operation.maxlen
+    #end if
+    #if str( $op.operation.name ) == "TAILCROP"
+      TAILCROP:$op.operation.tailcrop
+    #end if
+    #if str( $op.operation.name ) == "BASECOUNT"
+      BASECOUNT:$op.operation.bases:$op.operation.min_count#if $op.operation.max_count is not None#:$op.operation.max_count#end if#
+    #end if
+    #if str( $op.operation.name ) in ["TOPHRED33", "TOPHRED64"]
+      $op.operation.name
+    #end if
   #end for
   #if $output_logs:
     -trimlog trimlog
   #end if
-  #if $quality_score
-    $quality_score
-  #end if
+  $phred
   2>&1 | tee trimmomatic.log &&
   if [ -z "\$(tail -1 trimmomatic.log | grep "Completed successfully")" ]; then echo "Trimmomatic did not finish successfully" >&2 ; exit 1 ; fi
   &&
@@ -154,9 +175,11 @@ ${from_text_area}</configfile>
             <param name="adapter_fasta" type="select" label="Adapter sequences to use">
               <option value="TruSeq2-SE.fa">TruSeq2 (single-ended, for Illumina GAII)</option>
               <option value="TruSeq3-SE.fa">TruSeq3 (single-ended, for MiSeq and HiSeq)</option>
+              <option value="TruSeq3-SE-GGGGG.fa">TruSeq3 with poly-G (single-ended, for NovaSeq and NextSeq)</option>
               <option value="TruSeq2-PE.fa">TruSeq2 (paired-ended, for Illumina GAII)</option>
               <option value="TruSeq3-PE.fa">TruSeq3 (paired-ended, for MiSeq and HiSeq)</option>
               <option value="TruSeq3-PE-2.fa">TruSeq3 (additional seqs) (paired-ended, for MiSeq and HiSeq)</option>
+              <option value="TruSeq3-PE-2-GGGGG.fa">TruSeq3 with poly-G (paired-ended, for NovaSeq and NextSeq)</option>
               <option value="NexteraPE-PE.fa">Nextera (paired-ended)</option>
             </param>
           </when>
@@ -190,6 +213,11 @@ ${from_text_area}</configfile>
           <option value="HEADCROP">Cut the specified number of bases from the start of the read (HEADCROP)</option>
           <option value="AVGQUAL">Drop reads with average quality lower than a specified level (AVGQUAL)</option>
           <option value="MAXINFO">Trim reads adaptively, balancing read length and error rate to maximise the value of each read (MAXINFO)</option>
+          <option value="MAXLEN">Drop reads above a specified length (MAXLEN)</option>
+          <option value="TAILCROP">Cut the specified number of bases from the end of the read (TAILCROP)</option>
+          <option value="BASECOUNT">Filter reads by the count of specified bases (BASECOUNT)</option>
+          <option value="TOPHRED33">Convert quality scores to Phred+33 (TOPHRED33)</option>
+          <option value="TOPHRED64">Convert quality scores to Phred+64 (TOPHRED64)</option>
         </param>
         <when value="SLIDINGWINDOW">
           <param name="window_size" type="integer" label="Number of bases to average across" value="4" />
@@ -217,47 +245,74 @@ ${from_text_area}</configfile>
           <param name="target_length" type="integer" label="Target read length" value="" help="The read length which is likely to allow the location of the read within the target sequence to be determined." />
           <param name="strictness" type="float" label="Strictness" value="" help="Set between zero and one - specifies the balance between preserving read length versus removal of incorrect bases; low values (&lt;0.2) favours longer reads, high values (&gt;0.8) favours read correctness." />
         </when>
+        <when value="MAXLEN">
+          <param name="maxlen" type="integer" min="1" value="150" label="Maximum length of reads to keep"/>
+        </when>
+        <when value="TAILCROP">
+          <param name="tailcrop" type="integer" min="0" value="0" label="Number of bases to remove from the end of the read"/>
+        </when>
+        <when value="BASECOUNT">
+          <param name="bases" type="text" value="N" label="Bases to count" help="For example, N or GC. Matching is case-sensitive.">
+            <validator type="regex" message="Enter one or more DNA bases (A, C, G, T, N).">^[ACGTNacgtn]+$</validator>
+          </param>
+          <param name="min_count" type="integer" min="0" value="0" label="Minimum base count"/>
+          <param name="max_count" type="integer" min="0" optional="true" value="" label="Maximum base count" help="Leave empty for no upper limit."/>
+        </when>
+        <when value="TOPHRED33"/>
+        <when value="TOPHRED64"/>
       </conditional>
     </repeat>
-    <param name="quality_score" type="select" optional="true" label="Quality score encoding" help="The phred+64 encoding works the same as the phred+33 encoding, except you add 64 to the phred score to determine the ascii code of the quality character. You will only find phred+64 encoding on older 
-      data, which was sequenced several years ago. FASTQC can be used in order to identify the encoding type.">
-        <option value="-phred33">Phred33</option>
-        <option value="-phred64">Phred64</option>
-    </param>
+    <param name="output_summary" argument="-summary" type="boolean" checked="false" label="Output summary file?"/>
     <param name="output_logs" argument="-trimlog" type="boolean" label="Output trimlog file?" truevalue="yes" falsevalue="no" checked="False" />
     <param name="output_err" type="boolean" label="Output trimmomatic log messages?" truevalue="yes" falsevalue="no" checked="False" help="these are the messages written to stderr (eg. for use in MultiQC)" />
   </inputs>
   <outputs>
     <data name="fastq_out_r1_paired" default_identifier_source="readtype|fastq_r1_in" label="${tool.name} on ${readtype.fastq_r1_in.name} (R1 paired)" format_source="readtype|fastq_r1_in">
       <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+      <expand macro="output_format" input="readtype.fastq_r1_in"/>
     </data>
     <data name="fastq_out_r2_paired" default_identifier_source="readtype|fastq_r2_in" label="${tool.name} on ${readtype.fastq_r2_in.name} (R2 paired)" format_source="readtype|fastq_r2_in">
       <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+      <expand macro="output_format" input="readtype.fastq_r2_in"/>
     </data>
     <data name="fastq_out_r1_unpaired" default_identifier_source="readtype|fastq_r1_in" label="${tool.name} on ${readtype.fastq_r1_in.name} (R1 unpaired)" format_source="readtype|fastq_r1_in">
       <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+      <expand macro="output_format" input="readtype.fastq_r1_in"/>
     </data>
     <data name="fastq_out_r2_unpaired" default_identifier_source="readtype|fastq_r2_in" label="${tool.name} on ${readtype.fastq_r2_in.name} (R2 unpaired)" format_source="readtype|fastq_r2_in">
       <filter>readtype['single_or_paired'] == "pair_of_files"</filter>
+      <expand macro="output_format" input="readtype.fastq_r2_in"/>
     </data>
     <data name="fastq_out" default_identifier_source="readtype|fastq_in" label="${tool.name} on ${readtype.fastq_in.name}" format_source="readtype|fastq_in">
       <filter>readtype['single_or_paired'] == 'se'</filter>
+      <expand macro="output_format" input="readtype.fastq_in"/>
     </data>
     <collection name="fastq_out_paired" type="paired" label="${tool.name} on ${on_string}: paired">
       <filter>readtype['single_or_paired'] == "collection"</filter>
-      <data name="forward" label="${tool.name} on ${readtype.fastq_pair.forward.name} (R1 paired)" format_source="fastq_pair['forward']"/>
-      <data name="reverse" label="${tool.name} on ${readtype.fastq_pair.reverse.name} (R2 paired)" format_source="fastq_pair['reverse']"/>
+      <data name="forward" label="${tool.name} on ${readtype.fastq_pair.forward.name} (R1 paired)" format_source="fastq_pair['forward']">
+        <expand macro="output_format" input="readtype.fastq_pair.forward"/>
+      </data>
+      <data name="reverse" label="${tool.name} on ${readtype.fastq_pair.reverse.name} (R2 paired)" format_source="fastq_pair['reverse']">
+        <expand macro="output_format" input="readtype.fastq_pair.reverse"/>
+      </data>
     </collection>
     <collection name="fastq_out_unpaired" type="paired" label="${tool.name} on ${on_string}: unpaired">
       <filter>readtype['single_or_paired'] == "collection"</filter>
-      <data name="forward" label="${tool.name} on ${readtype.fastq_pair.forward.name} (R1 unpaired)" format_source="fastq_pair['forward']"/>
-      <data name="reverse" label="${tool.name} on ${readtype.fastq_pair.reverse.name} (R2 unpaired)" format_source="fastq_pair['reverse']"/>
+      <data name="forward" label="${tool.name} on ${readtype.fastq_pair.forward.name} (R1 unpaired)" format_source="fastq_pair['forward']">
+        <expand macro="output_format" input="readtype.fastq_pair.forward"/>
+      </data>
+      <data name="reverse" label="${tool.name} on ${readtype.fastq_pair.reverse.name} (R2 unpaired)" format_source="fastq_pair['reverse']">
+        <expand macro="output_format" input="readtype.fastq_pair.reverse"/>
+      </data>
     </collection>
     <data name="log_file" format="txt" label="${tool.name} on ${on_string} (trimlog file)" from_work_dir="trimlog">
       <filter>output_logs</filter>
     </data>
     <data name="err_file" format="txt" label="${tool.name} on ${on_string} (log file)" from_work_dir="trimmomatic.log">
       <filter>output_err</filter>
+    </data>
+    <data name="summary_file" format="txt" label="${tool.name} on ${on_string} (summary file)" from_work_dir="summary.txt">
+      <filter>output_summary</filter>
     </data>
   </outputs>
   <tests>
@@ -281,7 +336,7 @@ ${from_text_area}</configfile>
         <param name="fastq_in" value="Illumina_SG_R1.fastq.gz" ftype="fastqsanger.gz" />
       </conditional>
       <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
-      <output name="fastq_out" file="trimmomatic_se_out1.fastq.gz" />
+      <output name="fastq_out" file="trimmomatic_se_out1.fastq.gz" decompress="true" />
     </test>
     <test expect_num_outputs="4">
       <!-- Paired-end example - gzipped -->
@@ -291,10 +346,10 @@ ${from_text_area}</configfile>
         <param name="fastq_r2_in" value="Illumina_SG_R2.fastq.gz" ftype="fastqsanger.gz" />
       </conditional>
       <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
-      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1.fastq.gz" />
-      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq.gz" />
-      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq.gz" />
-      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1.fastq.gz" />
+      <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1.fastq.gz" decompress="true" />
+      <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq.gz" decompress="true" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq.gz" decompress="true" />
+      <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1.fastq.gz" decompress="true" />
     </test>
     <test expect_num_outputs="4">
       <!-- Paired-end example -->
@@ -379,12 +434,12 @@ ${from_text_area}</configfile>
       </conditional>
       <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
       <output_collection name="fastq_out_paired" type="paired">
-        <element name="forward" file="trimmomatic_pe_r1_paired_out1.fastq.gz" />
-        <element name="reverse" file="trimmomatic_pe_r2_paired_out1.fastq.gz" />
+        <element name="forward" file="trimmomatic_pe_r1_paired_out1.fastq.gz" decompress="true" />
+        <element name="reverse" file="trimmomatic_pe_r2_paired_out1.fastq.gz" decompress="true" />
       </output_collection>
       <output_collection name="fastq_out_unpaired" type="paired">
-        <element name="forward" file="trimmomatic_pe_r1_unpaired_out1.fastq.gz" />
-        <element name="reverse" file="trimmomatic_pe_r2_unpaired_out1.fastq.gz" />
+        <element name="forward" file="trimmomatic_pe_r1_unpaired_out1.fastq.gz" decompress="true" />
+        <element name="reverse" file="trimmomatic_pe_r2_unpaired_out1.fastq.gz" decompress="true" />
       </output_collection>
     </test>
     <test expect_num_outputs="1">
@@ -424,7 +479,7 @@ ${from_text_area}</configfile>
       <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
       <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1_clip.fastq" />
       <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq" />
-      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1_clip.fastq" />
       <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1_clip.fastq" />
     </test>
     <test expect_num_outputs="4">
@@ -445,7 +500,7 @@ ${from_text_area}</configfile>
       <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
       <output name="fastq_out_r1_paired" file="trimmomatic_pe_r1_paired_out1_clip.fastq" />
       <output name="fastq_out_r1_unpaired" file="trimmomatic_pe_r1_unpaired_out1.fastq" />
-      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1.fastq" />
+      <output name="fastq_out_r2_paired" file="trimmomatic_pe_r2_paired_out1_clip.fastq" />
       <output name="fastq_out_r2_unpaired" file="trimmomatic_pe_r2_unpaired_out1_clip.fastq" />
     </test>
     <test expect_num_outputs="3">
@@ -457,7 +512,6 @@ ${from_text_area}</configfile>
       <param name="operations_0|operation|name" value="SLIDINGWINDOW" />
       <param name="output_logs" value="yes" />
       <param name="output_err" value="yes" />
-      <param name="quality_score" value="-phred33"/>
       <output name="fastq_out" file="trimmomatic_se_out1.fastq" />
       <output name="log_file" file="trimmomatic_se_out1.log" />
       <output name="err_file" compare="re_match" file="trimmomatic_se_out2.err.re_match" />
@@ -490,6 +544,10 @@ This tool allows the following trimming steps to be performed:
  * **AVGQUAL:** Drop the read if the average quality is below a specified value
  * **MAXINFO:** Trim reads adaptively, balancing read length and error rate to
    maximise the value of each read
+ * **MAXLEN:** Drop reads longer than a specified length
+ * **TAILCROP:** Remove a specified number of bases from the end of a read
+ * **BASECOUNT:** Keep reads whose count of specified bases is within the given limits
+ * **TOPHRED33 / TOPHRED64:** Convert output quality scores to Phred+33 or Phred+64
 
 If ILLUMINACLIP is requested then it is always performed first; subsequent options
 can be mixed and matched and will be performed in the order that they have been
@@ -508,6 +566,15 @@ Note that trimming operation order is important.
 For single-end data this Trimmomatic tool accepts a single FASTQ file; for
 paired-end data it will accept either two FASTQ files (R1 and R2), or a
 dataset collection containing the R1/R2 FASTQ pair.
+
+The wrapper determines the input quality setting from the Galaxy datatype:
+``fastqsanger`` selects ``-phred33``, while ``fastqillumina`` and ``fastqsolexa``
+select ``-phred64``, including their gzip variants. Paired reads must use the same
+quality setting.
+
+For custom adapters, see the `adapter FASTA documentation
+<https://github.com/usadellab/Trimmomatic#the-adapter-fasta>`_, which explains
+how sequence names control simple and palindrome matching.
 
 .. class:: infomark
 
@@ -533,6 +600,10 @@ essential for many downstream analysis tools.
 For single-end data the output is a single FASTQ file containing just the filtered
 reads.
 
+Optional outputs include a per-read trimming log, execution messages, and a
+summary of surviving and discarded reads. Quality conversion operations also
+update the output datatype; gzip compression is preserved.
+
 -------------
 
 .. class:: infomark
@@ -545,6 +616,9 @@ Heusden, Marius van den Beek, Jelle Scholtalbers, Charles Girardot, Matthias
 Bernt and Cristóbal Gallardo. It is now maintained as part of the IUC tool
 collection.
 
+Povilas Matusevicius (@povilasmat) updated the wrapper to Trimmomatic 0.41,
+following feedback from Wolfgang Maier (@wm75) and Sebastian Beier (@sebeier).
+
 It runs the Trimmomatic program which has been developed
 within Bjorn Usadel's group at RWTH Aachen university.
 
@@ -552,10 +626,14 @@ Trimmomatic website (including documentation):
 
  * http://www.usadellab.org/cms/index.php?page=trimmomatic
 
-The reference for Trimmomatic is:
+The references for Trimmomatic are:
 
  * Bolger, A.M., Lohse, M., &amp; Usadel, B. (2014). Trimmomatic: A flexible trimmer
    for Illumina Sequence Data. Bioinformatics, btu170.
+
+ * Beier, S., Bolger, A.M., Bolger, M.E., Schwacke, R., & Usadel, B. (2026).
+   Trimmomatic: a decade of feature-rich, high-performance NGS read preprocessing.
+   Bioinformatics, btag331. https://doi.org/10.1093/bioinformatics/btag331
 
 Please kindly acknowledge both this Galaxy tool and the Trimmomatic program if you
 use it.
@@ -567,5 +645,6 @@ use it.
     Use http://www.bioinformatics.org/texmed/ to convert PubMed to Bibtex
     -->
     <citation type="doi">10.1093/bioinformatics/btu170</citation>
+    <citation type="doi">10.1093/bioinformatics/btag331</citation>
   </citations>
 </tool>

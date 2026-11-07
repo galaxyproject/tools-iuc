@@ -7,10 +7,14 @@ manipluating Illumina FASTQ files (both single and paired-end).
 Trimmomatic has been developed within Bjorn Usadel's group at RWTH Aachen university
 http://www.usadellab.org/cms/index.php?page=trimmomatic
 
-The reference for Trimmomatic is:
+The references for Trimmomatic are:
 
 - Bolger, A.M., Lohse, M., & Usadel, B. (2014). Trimmomatic: A flexible trimmer
   for Illumina Sequence Data. Bioinformatics, btu170.
+
+- Beier, S., Bolger, A.M., Bolger, M.E., Schwacke, R., & Usadel, B. (2026).
+  Trimmomatic: a decade of feature-rich, high-performance NGS read preprocessing.
+  Bioinformatics, btag331. https://doi.org/10.1093/bioinformatics/btag331
 
 Controlling the available memory
 ================================
@@ -31,6 +35,13 @@ History
 ============== ================================================================
 Version        Changes
 -------------- ----------------------------------------------------------------
+0.41+galaxy0   - Update to Trimmomatic 0.41.
+               - Use input datatypes to determine quality encoding.
+               - Add poly-G adapter files and optional summary output.
+               - Add support for ``MAXLEN``, ``TAILCROP``, ``BASECOUNT``,
+                 ``TOPHRED33`` and ``TOPHRED64`` operations.
+               - Update output datatypes after quality conversion.
+               - Add custom adapter documentation and the 2026 citation.
 0.39+galaxy1   - Relocated to the ``tools-iuc`` repository
 0.39           - Update to Trimmomatic 0.39.
 0.38.1         - Bug fix: add dependency on ``coreutils`` so that
@@ -92,6 +103,8 @@ Matthias Bernt (@bernt-matthias) added log and trimlog output.
 Nicola Soranzo (@nsoranzo) suggested using coreutils to enable cross-platform
 support across Linux and MacOS.
 Cristóbal Gallardo (@gallardoalba) updated Trimmomatic up to version 0.39.
+Povilas Matusevicius (@povilasmat) updated the wrapper to Trimmomatic 0.41,
+following feedback from Wolfgang Maier (@wm75) and Sebastian Beier (@sebeier).
 Peter Briggs wishes to acknowledge the help from Matthia Bernt
 (@bernt-matthias) with relocating the tool in the IUC tool repository,
 and the IUC for taking on responsibility for the tool.
@@ -101,7 +114,7 @@ Developers
 
 The Trimmomatic tool is now maintained as part of the ``tools-iuc`` repository
 on GitHub:
-https://github.com/galaxyproject/tools-iuc/tools/tree/main/trimmomatic
+https://github.com/galaxyproject/tools-iuc/tree/main/tools/trimmomatic
 
 Licence (MIT)
 =============
