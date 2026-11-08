@@ -13,7 +13,7 @@ import csv
 import math
 import os
 import sys
-from typing import Dict, Iterable, List, Optional, Sequence, TextIO, Tuple
+from typing import Dict, Iterable, Optional, Sequence, TextIO, Tuple
 
 
 def bessel_k0_approx(x: float) -> float:
@@ -173,11 +173,11 @@ def calculate_cri(
     cri = (w_spatial * s_score + w_genomic * g_score + w_stromal * m_score) / total_w
 
     if cri < cutoff_low:
-        tier = "TIER 1 (LOW RESISTANCE & SANCTUARY RISK)"
+        tier = "Tier 1 (Low Sanctuary Risk)"
     elif cri <= cutoff_high:
-        tier = "TIER 2 (INTERMEDIATE RISK / BORDERLINE SANCTUARY)"
+        tier = "Tier 2 (Intermediate Risk)"
     else:
-        tier = "TIER 3 (HIGH RESISTANCE & SANCTUARY RISK)"
+        tier = "Tier 3 (High Sanctuary Risk)"
 
     sanctuary_depth, conc_ratio, bio_summary = compute_biophysical_sanctuary(
         str(pattern), lambda_pen=lambda_pen, r_vessel=r_vessel
