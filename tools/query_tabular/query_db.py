@@ -2,6 +2,7 @@
 
 from __future__ import print_function
 
+import csv
 import math
 import re
 import sqlite3 as sqlite
@@ -318,7 +319,7 @@ def describe_tables(conn, outputFile):
         c = conn.cursor()
         tables_query = TABLE_QUERY
         rslt = c.execute(tables_query).fetchall()
-        for table, sql in rslt:
+        for table, _sql in rslt:
             print("Table %s:" % table, file=outputFile)
             try:
                 col_query = 'SELECT * FROM %s LIMIT 0' % table
@@ -332,16 +333,27 @@ def describe_tables(conn, outputFile):
     exit(0)
 
 
-def run_query(conn, query, outputFile, no_header=False, comment_char='#'):
+def run_query(conn, query, outputFile, no_header=False, comment_char='#', quoted=False, column_metadata=None):
     cur = conn.cursor()
     results = cur.execute(query)
     if outputFile is not None:
+        if column_metadata is not None:
+            column_metadata.update(columns=len(cur.description), column_names=[col[0] for col in cur.description])
+        writer = csv.writer(outputFile, delimiter='\t', lineterminator='\r\n') if quoted else None
+
+        def write_row(row):
+            fields = [str(val) if val is not None else '' for val in row]
+            if writer:
+                writer.writerow(fields)
+            else:
+                outputFile.write('%s\n' % '\t'.join(fields))
+
         if not no_header:
-            outputFile.write("%s%s\n" % (comment_char, '\t'.join(
-                [str(col[0]) for col in cur.description])))
-        for i, row in enumerate(results):
-            outputFile.write("%s\n" % '\t'.join(
-                [str(val) if val is not None else '' for val in row]))
+            header = [col[0] for col in cur.description]
+            header[0] = (comment_char or '') + header[0]
+            write_row(header)
+        for row in results:
+            write_row(row)
     else:
         conn.commit()
         return results
