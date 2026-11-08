@@ -5,6 +5,12 @@
         <token name="@VERSION_SUFFIX@">0</token>
         <token name="@PROFILE@">25.1</token>
         <token name="@TXOUT@">singlets</token>
+        <xml name="training_ok">
+            <!-- scDblFinder catches failed training rounds and keeps its initial scores -->
+            <assert_stderr>
+                <not_has_text text="training iteration failed"/>
+            </assert_stderr>
+        </xml>
         <xml name="test_inputs">
             <param name="input_matrix" value="in_matrix.mtx"/>
             <param name="input_genes" value="in_genes.tsv"/>
@@ -26,7 +32,13 @@
     </creator>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">bioconductor-scdblfinder</requirement>
+        <!-- scDblFinder 1.26.x passes early_stopping_rounds without an eval set, which xgboost >= 3.4 rejects;
+             fixed upstream in scDblFinder 1.27 (plger/scDblFinder@8f529a0), so drop this pin when updating -->
+        <requirement type="package" version="3.3.1">r-xgboost</requirement>
     </requirements>
+    <required_files>
+        <include path="scripts/scdblfinder.Rscript"/>
+    </required_files>
     <command detect_errors="exit_code"><![CDATA[
 Rscript '$__tool_directory__/scripts/scdblfinder.Rscript' '$scdbl_conf'
     ]]></command>
@@ -138,8 +150,9 @@ seed.val <- as.integer($advanced.seed)
             <assert_stdout>
                 <has_text text="Loaded 200 genes x 534 barcodes"/>
             </assert_stdout>
+            <expand macro="training_ok"/>
         </test>
-        <!-- 2: automatic clustering, with the singlets matrix -->
+        <!-- 2: automatic clustering, with the singlets matrix (fixed seed, so the calls are exact) -->
         <test expect_num_outputs="4">
             <expand macro="test_inputs"/>
             <conditional name="clusters">
@@ -150,23 +163,21 @@ seed.val <- as.integer($advanced.seed)
                 <assert_contents>
                     <has_line line="barcode&#9;cluster&#9;class&#9;score"/>
                     <has_n_lines n="535"/>
+                    <has_text text="&#9;doublet&#9;" n="19"/>
                 </assert_contents>
             </output>
+            <!-- 515 singlet columns; the barcodes file holds exactly the singlets of the table above -->
             <output name="matrix_out" ftype="mtx">
                 <assert_contents>
-                    <has_line_matching expression="^200 \d{3} \d+$"/>
+                    <has_line line="200 515 64746"/>
                 </assert_contents>
             </output>
             <output name="genes_out" file="in_genes.tsv"/>
-            <output name="barcodes_out">
-                <assert_contents>
-                    <has_line line="CELL0001"/>
-                    <has_n_columns n="1"/>
-                </assert_contents>
-            </output>
+            <output name="barcodes_out" file="out_singlet_barcodes.tsv"/>
             <assert_stdout>
-                <has_text_matching expression="Called \d+ doublets and \d+ singlets"/>
+                <has_text text="Called 19 doublets and 515 singlets"/>
             </assert_stdout>
+            <expand macro="training_ok"/>
         </test>
         <!-- 3: user-supplied clusters and two samples, fixed doublet rate -->
         <test expect_num_outputs="1">
@@ -191,6 +202,28 @@ seed.val <- as.integer($advanced.seed)
                     <has_n_lines n="535"/>
                 </assert_contents>
             </output>
+            <expand macro="training_ok"/>
+        </test>
+        <!-- 4: a barcode labelled with two samples is rejected -->
+        <test expect_failure="true">
+            <expand macro="test_inputs"/>
+            <conditional name="samples">
+                <param name="use" value="yes"/>
+                <param name="samples_file" value="in_samples_dup.tsv"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="1 barcodes appear more than once in the sample labels"/>
+                <has_text text="CELL0001"/>
+            </assert_stderr>
+        </test>
+        <!-- 5: a repeated barcode in the barcodes file is rejected -->
+        <test expect_failure="true">
+            <param name="input_matrix" value="in_matrix.mtx"/>
+            <param name="input_genes" value="in_genes.tsv"/>
+            <param name="input_barcodes" value="in_barcodes_dup.tsv"/>
+            <assert_stderr>
+                <has_text text="1 barcodes appear more than once in the barcodes file"/>
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
