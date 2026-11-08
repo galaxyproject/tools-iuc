@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <macros>
-    <token name="@TOOL_VERSION@">2.1.0</token>
-    <token name="@VERSION_SUFFIX@">1</token>
+    <token name="@TOOL_VERSION@">2.5.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
     <token name="@PROFILE@">21.01</token>
     <xml name="biotools">
         <xrefs>
@@ -11,6 +11,7 @@
     <xml name="requirements">
         <requirements>
             <requirement type="package" version="@TOOL_VERSION@">semibin</requirement>
+            <requirement type="package" version="0.8.0">safetensors</requirement>
             <yield/>
         </requirements>
     </xml>
@@ -269,7 +270,8 @@ ln -s '$e' '${identifier}.bam' &&
         <param argument="--ml-threshold" type="integer" min="0" value="" optional="true" label="Length threshold for generating must-link constraints" help="If no value is given, the threshold is calculated from the contig, and the default minimum value is 4,000 bp."/>
     </xml>
     <xml name="epoches">
-        <param argument="--epoches" type="integer" min="0" value="20" label="Number of epoches used in the training process"/>
+        <!-- name kept as 'epoches' for workflow compatibility; the upstream option was renamed to epochs -->
+        <param name="epoches" argument="--epochs" type="integer" min="0" value="20" label="Number of epochs used in the training process"/>
     </xml>
     <xml name="batch-size">
         <param argument="--batch-size" type="integer" min="0" value="2048" label="Batch size used in the training process"/>
@@ -287,7 +289,7 @@ ln -s '$e' '${identifier}.bam' &&
         <param argument="--max-edges" type="integer" min="0" value="200" label="Maximum number of edges that can be connected to one contig"/>
     </xml>
     <xml name="environment">
-        <param argument="--environment" type="select" optional="true" label="Environment for the built-in model">
+        <param argument="--environment" type="select" optional="true" label="Environment for the built-in model" help="The corresponding pre-trained model is used, i.e. no model is trained. SemiBin also accepts --habitat and --biome for this option.">
             <option value="" selected="true">None</option>
             <option value="human_gut">Human gut</option>
             <option value="dog_gut">Dog gut</option>
@@ -299,7 +301,14 @@ ln -s '$e' '${identifier}.bam' &&
             <option value="pig_gut">Pig gut</option>
             <option value="built_environment">Built environment</option>
             <option value="wastewater">Wastewater</option>
+            <option value="chicken_caecum">Chicken caecum</option>
             <option value="global">Global</option>
+        </param>
+    </xml>
+    <xml name="sequencing_type">
+        <param argument="--sequencing-type" type="select" label="Type of sequencing" help="Long reads covers long-read as well as hybrid (short + long read) assemblies: SemiBin accepts hybrid as a synonym of long_read and both use the long-read binning strategy.">
+            <option value="short_read" selected="true">Short reads</option>
+            <option value="long_read">Long reads (or hybrid)</option>
         </param>
     </xml>
     <xml name="minfasta-kbs">
@@ -462,7 +471,61 @@ ln -s '$e' '${identifier}.bam' &&
         </collection>
     </xml>
     <xml name="train_output">
-        <data name="model" format="h5" from_work_dir="output/model.h5" label="${tool.name} on ${on_string}: Semi-supervised deep learning model" />
+        <data name="model" format="safetensors" from_work_dir="output/model.safetensors" label="${tool.name} on ${on_string}: Semi-supervised deep learning model" />
+    </xml>
+    <xml name="model_convert_script">
+        <configfile name="semibin_model_convert"><![CDATA[
+import json
+import sys
+
+import torch
+from safetensors import safe_open
+from safetensors.torch import load_file, save_file
+
+
+def to_safetensors(source, target):
+    checkpoint = torch.load(source, map_location="cpu", weights_only=True)
+    save_file(
+        checkpoint["model_state_dict"],
+        target,
+        metadata={
+            "model_name": checkpoint["model_name"],
+            "params": json.dumps(checkpoint["params"]),
+        },
+    )
+
+
+def to_pytorch(source, target):
+    try:
+        with safe_open(source, framework="pt", device="cpu") as handle:
+            metadata = handle.metadata() or {}
+        state_dict = load_file(source, device="cpu")
+    except Exception:
+        torch.save(torch.load(source, map_location="cpu", weights_only=True), target)
+        return
+    torch.save(
+        {
+            "model_name": metadata["model_name"],
+            "model_state_dict": state_dict,
+            "params": json.loads(metadata["params"]),
+        },
+        target,
+    )
+
+
+def main():
+    direction, source, target = sys.argv[1:4]
+    if direction == "pt2safetensors":
+        to_safetensors(source, target)
+    elif direction == "safetensors2pt":
+        to_pytorch(source, target)
+    else:
+        raise SystemExit("Unknown direction: " + direction)
+
+
+if __name__ == "__main__":
+    main()
+        ]]></configfile>
     </xml>
     <xml name="cannot_link_output">
         <data name="cannot" format="txt" from_work_dir="output/cannot/cannot.txt" label="${tool.name} on ${on_string}: Cannot-link constraints" />
@@ -490,7 +553,10 @@ SemiBin is a Semi-supervised siamese neural network for metagenomic binning
 - Training data and split training data for the model
     ]]></token>
     <token name="@HELP_MODEL@"><![CDATA[
-- Semi-supervised deep learning model
+- Semi-supervised deep learning model, stored in the ``safetensors`` format
+  (a container for tensor weights that does not rely on Python pickles).
+  SemiBin itself stores models as PyTorch checkpoints (``model.pt``);
+  the tools of this suite convert between the two formats automatically.
     ]]></token>
     <token name="@HELP_BINS@"><![CDATA[
 - Reconstructed bins after reclustering
