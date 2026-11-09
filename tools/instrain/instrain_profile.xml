@@ -10,8 +10,15 @@
 #set ext=$mapping_input.datatype.file_ext
 ln -s '$mapping_input' 'inputbam.$ext'
 #if $gene_profiling.gene_file
+    #if $gene_profiling.gene_file.is_of_type('genbank')
+        #set gene_ext='gbk'
+    #elif $gene_profiling.gene_file.is_of_type('gff3')
+        #set gene_ext='gff3'
+    #else
+        #set gene_ext='fna'
+    #end if
 &&
-ln -s '$gene_profiling.gene_file' 'gene_file.fna'
+ln -s '$gene_profiling.gene_file' 'gene_file.$gene_ext'
 #end if
 #if $stb
 &&
@@ -28,15 +35,16 @@ inStrain profile
     --max_insert_relative $read_filtering.max_insert_relative
     --min_insert $read_filtering.min_insert
     --pairing_filter '$read_filtering.pairing_filter'
-#if $priority_reads
+#if $read_filtering.priority_reads
     --priority_reads '$read_filtering.priority_reads'
 #end if
     $output.detailed_mapping_info
     --min_cov $variant_calling.min_cov
     --min_freq $variant_calling.min_freq
     --fdr $variant_calling.fdr
-#if $gene_file
-    --gene_file 'gene_file.fna'
+    @VARIANT_CALLING_EXTRA_CMD@
+#if $gene_profiling.gene_file
+    --gene_file 'gene_file.$gene_ext'
 #end if
 #if $stb
     --stb 'stb_file.stb'
@@ -81,10 +89,11 @@ cd ./inStrain.IS && zip -r ../inStrain.IS.zip *
         <section name="variant_calling" title="Variant Calling" expanded="true">
             <param argument="--min_cov" type="integer" value="5" label="Minimum coverage" help=" Minimum coverage to call a variant"/>
             <param argument="--min_freq" type="float" value="0.05" label="Minimum SNP frequency" help="Minimum SNP frequency to confirm a SNV (both this AND the FDR snp count cutoff must be true to call a SNP)."/>
-            <param argument="--fdr" type="float" value="1e-06" min="0" max="1" label="FDR" help="SNP false discovery rate- based on simulation data with a 0.1 percent error rate (Q30)"/>
+            <param argument="--fdr" type="float" value="1e-06" min="0" max="1" label="FDR" help="SNP false discovery rate- based on simulation data with a 0.1 percent error rate (Q30) by default; see the error rate option"/>
+            <expand macro="variant_calling_extra"/>
         </section>
         <section name="gene_profiling" title="Gene Profiling" expanded="true">
-            <param argument="--gene_file" type="data" format="fasta,genbank" optional="true" label="Path to prodigal .fna genes file. If file ends in .gb or .gbk, will treat as a genbank file" help="EXPERIMENTAL; the name of the gene must be in the gene qualifier"/>
+            <param argument="--gene_file" type="data" format="fasta,genbank,gff3" optional="true" label="Genes file" help="A prodigal .fna genes file, a GFF3 file (e.g. from Bakta, Prokka or NCBI) or a genbank file. Only CDS features are used"/>
         </section>
         <param argument="--stb" type="data" format="tabular" optional="true" label="Scaffold to bin" help="This can be a file with each line listing a scaffold and a bin name, tab-seperated. This can also be a space-seperated list of .fasta files, with one genome per .fasta file. If nothing is provided, all scaffolds will be treated as belonging to the same genome"/>
         <param argument="--mm_level" type="boolean" truevalue="--mm_level" falsevalue="" checked="false" label="Create output files on the mm level"/>
@@ -223,7 +232,7 @@ cd ./inStrain.IS && zip -r ../inStrain.IS.zip *
         </section>
         <output name="inStrain_zip">
             <assert_contents>
-                <has_size value="1468006" delta="100000" />
+                <has_size value="72794" delta="5000"/>
             </assert_contents>
         </output>        
         <output name="scaffold_info">
@@ -266,7 +275,7 @@ cd ./inStrain.IS && zip -r ../inStrain.IS.zip *
         <output_collection name="figures_pdfs" type="list">
             <element name="inStrain.IS_CoverageAndBreadth_vs_readMismatch.pdf" ftype="pdf">
                 <assert_contents>
-                    <has_size value="383078" delta="10000" />
+                    <has_size value="11722" delta="1000" />
                 </assert_contents>
             </element>
             <element name="inStrain.IS_MajorAllele_frequency_plot.pdf" ftype="pdf">
@@ -296,6 +305,37 @@ cd ./inStrain.IS && zip -r ../inStrain.IS.zip *
             </element>
         </output_collection>
     </test>
+    <test expect_num_outputs="6">
+        <param name="mapping_input" value="SmallScaffold.fa.sorted.bam"/>
+        <param name="sequence_input" value="SmallScaffold.fa"/>
+        <section name="variant_calling">
+            <param name="min_base_quality" value="20"/>
+            <param name="legacy_snv_thresholds" value="true"/>
+        </section>
+        <section name="output">
+            <param name="skip_genome_wide" value="true"/>
+            <param name="skip_plot_generation" value="true"/>
+        </section>
+        <assert_command>
+            <has_text text="--min_base_quality 20"/>
+            <has_text text="--legacy_snv_thresholds"/>
+            <not_has_text text="--error_rate"/>
+        </assert_command>
+        <output name="scaffold_info">
+            <assert_contents>
+                <has_text text="length"/>
+                <has_n_lines n="2"/>
+                <has_n_columns n="21"/>
+            </assert_contents>
+        </output>
+        <output name="SNVs">
+            <assert_contents>
+                <has_text text="position"/>
+                <has_n_lines min="1"/>
+                <has_n_columns n="16"/>
+            </assert_contents>
+        </output>
+    </test>
     </tests>
     <help><![CDATA[
 @HELP_HEADER@
@@ -322,6 +362,11 @@ Next, using only read pairs that pass filters, a number of microdiversity metric
   - Calculate scaffold-level properties. These include things like the overall coverage, breadth of coverage, average nucleotide identity (ANI) between the reads and the reference genome, and the expected breadth of coverage based on that true coverage.
 
 Finally, this information is stored as an IS_profile object. This includes the locations of divergent sites, the number of read pairs that passed filters (and other information) for each scaffold, the linkage between SNV pairs, ect.
+
+Long reads
+----------
+
+For error-prone long reads (e.g. Nanopore), lower the minimum base quality (the SNV error model follows it unless an error rate is set explicitly), consider skipping mm profiling, and set the pairing filter to keep unpaired reads.
 
 Inputs
 ======
