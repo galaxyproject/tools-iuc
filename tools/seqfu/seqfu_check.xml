@@ -7,21 +7,33 @@
     <expand macro="requirements"/>
     <expand macro="creators"/>
     <version_command>seqfu version</version_command>
-    <command detect_errors="aggressive"><![CDATA[
+    <command detect_errors="exit_code"><![CDATA[
+#import re
 #if $input_type.type == "paired_collection"
-    ln -s '$input_type.input.forward' fq_1.fastq.gz &&
-    ln -s '$input_type.input.reverse' fq_2.fastq.gz &&
-    seqfu check -s fq_1.fastq.gz fq_2.fastq.gz > seqfu_check.tsv
+    #set $name = re.sub('[^\w\-\.]', '_', str($input_type.input.name))
+    #if $input_type.input.forward.is_of_type('fastqsanger.gz')
+        #set $ext = 'fastq.gz'
+    #else
+        #set $ext = 'fastq'
+    #end if
+    ln -s '$input_type.input.forward' '${name}_R1.${ext}' &&
+    ln -s '$input_type.input.reverse' '${name}_R2.${ext}' &&
+    seqfu check --safe-exit
+    $deep
+    '${name}_R1.${ext}' '${name}_R2.${ext}' > seqfu_check.tsv
 #else
-    ln -s '$input_type.input' fq.fastq.gz &&
-    seqfu check -s fq.fastq.gz > seqfu_check.tsv
+    #set $name = re.sub('[^\w\-\.]', '_', str($input_type.input.element_identifier))
+    ln -s '$input_type.input' '${name}' &&
+    seqfu check --safe-exit
+    $deep
+    '${name}' > seqfu_check.tsv
 #end if
     ]]></command>
     <inputs>
         <conditional name="input_type">
             <param name="type" type="select" label="Read type">
-                <option value="single">Single-end reads</option>
-                <option value="paired_collection" selected="true">Paired-end collection</option>
+                <option value="single" selected="true">Single-end reads</option>
+                <option value="paired_collection">Paired-end collection</option>
             </param>
             <when value="single">
                 <param name="input" type="data" format="fastqsanger,fastqsanger.gz" label="Single-end reads"/>
@@ -30,9 +42,14 @@
                 <param name="input" type="data_collection" collection_type="paired" format="fastqsanger,fastqsanger.gz" label="Paired-end reads"/>
             </when>
         </conditional>
+        <param argument="--deep" type="boolean" truevalue="--deep" falsevalue="" checked="false" label="Deep check" help="Perform a stricter deep check of the file (disables support for multiline Sanger FASTQ)"/>
     </inputs>
     <outputs>
-        <data name="tsv" format="tabular" from_work_dir="seqfu_check.tsv" label="${tool.name} on ${on_string}: integrity report"/>
+        <data name="tsv" format="tabular" from_work_dir="seqfu_check.tsv" label="${tool.name} on ${on_string}: integrity report">
+            <actions>
+                <action name="column_names" type="metadata" default="Status,Type,Filename,Sequences,Bases,Errors,Error details"/>
+            </actions>
+        </data>
     </outputs>
     <tests>
         <test expect_num_outputs="1">
@@ -46,7 +63,7 @@
             <conditional name="input_type">
                 <param name="type" value="paired_collection"/>
                 <param name="input">
-                    <collection type="paired">
+                    <collection type="paired" name="fq">
                         <element name="forward" value="fq_1.fastq.gz" ftype="fastqsanger.gz"/>
                         <element name="reverse" value="fq_2.fastq.gz" ftype="fastqsanger.gz"/>
                     </collection>
@@ -57,14 +74,20 @@
         <test expect_num_outputs="1">
             <conditional name="input_type">
                 <param name="type" value="single"/>
+                <param name="input" value="fq.fastq" ftype="fastqsanger"/>
+            </conditional>
+            <output name="tsv" file="seqfu_se_ok_uncompressed.tsv" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="input_type">
+                <param name="type" value="single"/>
                 <param name="input" value="fq_bad.fastq.gz" ftype="fastqsanger.gz"/>
             </conditional>
             <output name="tsv" file="seqfu_se_err.tsv" ftype="tabular"/>
         </test>
     </tests>
     <help format="markdown"><![CDATA[
-**SeqFu check**
----------------
+# SeqFu check
 
 Evaluates the integrity of FASTQ files. A file is considered valid when:
 
@@ -93,6 +116,9 @@ A tabular report with the columns:
 The tool runs with `--safe-exit`, i.e. it always exits 0 and reports the
 status in the first column - filter on `OK` downstream (as the MGnify
 pipeline does) to keep only valid datasets.
+
+Enable **Deep check** for a stricter validation that additionally disables
+support for multiline Sanger FASTQ.
 
 [SeqFu repository](https://github.com/telatin/seqfu2)
     ]]></help>
