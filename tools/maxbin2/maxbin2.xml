@@ -1,4 +1,4 @@
-<tool id="maxbin2" name="MaxBin2" version="@MAXBIN_VERSION@+galaxy6">
+<tool id="maxbin2" name="MaxBin2" version="@MAXBIN_VERSION@+galaxy7">
     <description>clusters metagenomic contigs into bins</description>
     <macros>
         <token name="@MAXBIN_VERSION@">2.2.7</token>
@@ -24,6 +24,15 @@
     </requirements>
     <version_command><![CDATA[run_MaxBin.pl -version | head -n 1]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
+## MaxBin2 decides by file name whether the contigs are gzipped,
+## so link them with a matching extension (Galaxy passes *.dat files)
+#if $contig.ext.endswith('.gz')
+    #set $contig_file = 'contigs.fasta.gz'
+#else
+    #set $contig_file = 'contigs.fasta'
+#end if
+ln -s '$contig' '$contig_file' &&
+
 ## generate read or abundance files
 #import re
 #if $assembly.inputs.type == 'reads'
@@ -74,7 +83,7 @@ echo "==== MaxBin2 stderr ====" 1>&2 &&
 #end if
 
 run_MaxBin.pl
-    -contig '$contig'
+    -contig '$contig_file'
     -out out
 #if $assembly.inputs.type == 'reads':
     -reads_list reads_list
@@ -116,7 +125,7 @@ run_MaxBin.pl
                         <expand macro="reads_extra_params"/>
                     </when>
                     <when value="abund">
-                        <param argument="-abund" type="data" format="tabular" label="Abundance file"/>
+                        <param argument="-abund" type="data" format="tabular" label="Abundance file" help="Tab-separated, two columns, no header: contig name and abundance (e.g. average coverage). MaxBin2 only reads the first value after the contig name, so other formats such as the jgi_summarize_bam_contig_depths depth table must be converted first (see help below)."/>
                     </when>
                 </conditional>
             </when>
@@ -128,7 +137,7 @@ run_MaxBin.pl
                         <expand macro="reads_extra_params"/>
                     </when>
                     <when value="abund">
-                        <param argument="-abund" type="data" format="tabular" multiple="true" label="Abundance file(s)"/>
+                        <param argument="-abund" type="data" format="tabular" multiple="true" label="Abundance file(s)" help="One file per sample. Tab-separated, two columns, no header: contig name and abundance (e.g. average coverage). MaxBin2 only reads the first value after the contig name, so other formats such as the jgi_summarize_bam_contig_depths depth table must be converted first (see help below)."/>
                     </when>
                 </conditional>
             </when>
@@ -303,6 +312,29 @@ run_MaxBin.pl
             <output name="noclass" file="2/out.noclass" ftype="fasta" />
             <output name="toshort" file="2/out.tooshort" ftype="fasta" />
             <output name="plot" file="2/out.marker.pdf" ftype="pdf" compare="sim_size" />
+        </test>
+        <!-- same as above but with gzipped contigs: results must be identical -->
+        <test expect_num_outputs="4">
+            <param name="contig" value="Bin_Sample3_contigs.fasta.gz" ftype="fasta.gz" />
+            <conditional name="assembly">
+                <param name="type" value="individual"/>
+                <conditional name="inputs">
+                    <param name="type" value="abund"/>
+                    <param name="abund" value="abundances.tsv" ftype="tabular"/>
+                </conditional>
+            </conditional>
+            <section name="adv">
+                <param name="min_contig_length" value="500"/>
+                <param name="max_iteration" value="10"/>
+                <param name="prob_threshold" value="0.95"/>
+            </section>
+            <output_collection name="bins" type="list" count="2">
+                <element name="001" file="2/out.001.fasta" ftype="fasta"/>
+                <element name="002" file="2/out.002.fasta" ftype="fasta"/>
+            </output_collection>
+            <output name="summary" file="2/out.summary" ftype="tabular" />
+            <output name="noclass" file="2/out.noclass" ftype="fasta" />
+            <output name="toshort" file="2/out.tooshort" ftype="fasta" />
         </test>
         <!-- test w contigs and reads as input + reassembly-->
         <test expect_num_outputs="8">
@@ -544,7 +576,27 @@ For example, assume I have three contigs named A0001, A0002, and A0003, then my 
     ===== =====
 
 
-Reads/Abundundance files can be given in multiple files.
+The file must have exactly this layout: tab-separated, **no header line**, the
+contig name in the first column and the abundance in the second. MaxBin2 reads
+the contig name and then only the first number that follows it; any further
+columns are ignored and a header line is read as a contig called after its
+first column.
+
+.. class:: warningmark
+
+**Depth tables from MetaBAT2's jgi_summarize_bam_contig_depths can not be used
+directly.** Their columns are ``contigName  contigLen  totalAvgDepth  <sample>
+<sample>-var ...``, so MaxBin2 would silently use the *contig length* as
+abundance. Convert them first, for example with the **Text reformatting with
+awk** tool:
+
+- one sample: ``NR>1 {print $1"\t"$3}`` (contig name and ``totalAvgDepth``)
+- several samples: create one file per sample from its depth column (column 4
+  for the first sample, 6 for the second, ...), e.g. ``NR>1 {print $1"\t"$4}``,
+  and provide all of them as abundance files (this requires selecting the
+  co-assembly option above, which accepts multiple abundance files).
+
+Reads/Abundance files can be given in multiple files (one per sample).
 
 By default MaxBin will look for 107 marker genes present in >95% of bacteria.
 Alternatively you can also choose 40 marker gene sets that are universal among
