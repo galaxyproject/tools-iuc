@@ -94,7 +94,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--compressed",
         help="File to write compressed clusters to",
-        required=True,
+        required=False,
         type=str,
     )
     arguments = parser.parse_args()

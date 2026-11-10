@@ -1,0 +1,405 @@
+<tool id="sccellfie_analysis" name="scCellFie analysis" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>expression aggregation, cell-cell communication, and differential analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creator"/>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_IMPORTS@
+@CMD_READ_INPUTS@
+
+#if str($method.method) == 'aggregate':
+agg = sccellfie.expression.agg_expression_cells(
+    adata,
+    groupby='$method.groupby',
+    #if str($method.layer) != '':
+    layer='$method.layer',
+    #end if
+    gene_symbols=None, ## keeping default, can be updated later if needed
+    agg_func='$method.agg_func',
+    top_percent=$method.top_percent,
+    #if str($method.threshold) != '':
+    threshold=$method.threshold,
+    #end if
+    exclude_zeros=$method.exclude_zeros,
+    use_raw=$method.use_raw,
+    chunk_size=None)
+agg.to_csv('result_out.tsv', sep='\t')
+
+#else if str($method.method) == 'communication_scores':
+pairs_list = []
+with open('$method.var_pairs') as pairs_file:
+    for line in pairs_file:
+        line = line.strip()
+        if line and ':' in line:
+            ligand, receptor = [x.strip() for x in line.split(':', 1)]
+            pairs_list.append((ligand, receptor))
+
+result = sccellfie.communication.compute_communication_scores(
+    adata,
+    groupby='$method.groupby',
+    var_pairs=pairs_list,
+    communication_score='$method.communication_score',
+    agg_func='$method.agg_func',
+    #if str($method.layer) != '':
+    layer='$method.layer',
+    #end if
+    ligand_threshold=$method.ligand_threshold,
+    receptor_threshold=$method.receptor_threshold)
+result.to_csv('result_out.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'local_colocalization':
+import scipy.sparse
+    #if str($method.score_key) != '':
+score_key = '$method.score_key'
+    #else
+score_key = None
+    #end if
+adata.X = scipy.sparse.csr_matrix(adata.X)  ## compute_local_colocalization_scores calls .toarray() on the two selected columns, which requires a sparse matrix
+sccellfie.communication.compute_local_colocalization_scores(
+    adata,
+    var1='$method.var1',
+    var2='$method.var2',
+    neighbors_radius=$method.neighbors_radius,
+    method='$method.coloc_method',
+    spatial_key='$method.spatial_key',
+    min_neighbors=$method.min_neighbors,
+    #if str($method.threshold1) != '':
+    threshold1=$method.threshold1,
+    #end if
+    #if str($method.threshold2) != '':
+    threshold2=$method.threshold2,
+    #end if
+    score_key=score_key,
+    inplace=True)
+
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+#else if str($method.method) == 'pairwise_differential_analysis':
+result = sccellfie.stats.pairwise_differential_analysis(
+    adata,
+    groupby='$method.groupby',
+    #if str($method.var_names) != '':
+        #set var_names_list = [str(x.strip()) for x in str($method.var_names).split(',') if x.strip()]
+    var_names=$var_names_list,
+    #end if
+    order=None,
+    alternative='$method.alternative',
+    alpha=$method.alpha)
+result.to_csv('result_out.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'scanpy_differential_analysis':
+result = sccellfie.stats.scanpy_differential_analysis(
+    adata,
+    #if str($method.cell_type) != '':
+    cell_type='$method.cell_type',
+    #else
+    cell_type=None,
+    #end if
+    cell_type_key='$method.cell_type_key',
+    condition_key='$method.condition_key',
+    #if str($method.var_names) != '':
+        #set var_names_list = [str(x.strip()) for x in str($method.var_names).split(',') if x.strip()]
+    var_names=$var_names_list,
+    #end if
+    alpha=$method.alpha,
+    min_cells=$method.min_cells,
+    downsample=$method.downsample.downsample,
+    #if str($method.downsample.downsample) == 'True':
+    n_iterations=$method.downsample.n_iterations,
+    agg_method='$method.downsample.agg_method',
+        #if str($method.downsample.random_state) != '':
+    random_state=$method.downsample.random_state,
+        #end if
+    #end if
+    )
+result.to_csv('result_out.tsv', sep='\t', index=False)
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="input_adata" label="Annotated data matrix (expression, reaction, or metabolic task scores)"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method">
+                <option value="aggregate">Aggregate expression per cell group (agg_expression_cells)</option>
+                <option value="communication_scores">Communication scores between cell types (ligand-receptor pairs)</option>
+                <option value="local_colocalization">Local colocalization score between two variables (spatial data)</option>
+                <option value="pairwise_differential_analysis">Pairwise differential analysis between all group pairs</option>
+                <option value="scanpy_differential_analysis">Differential analysis between conditions per cell type</option>
+            </param>
+            <when value="aggregate">
+                <expand macro="param_groupby" label="The key in adata.obs to group cells by"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_agg_func">
+                    <param argument="top_percent" type="float" min="0" max="100" value="10" label="Percentage of top values for 'Top mean'" help="Only used when 'Top mean' aggregation is selected"/>
+                    <param argument="threshold" type="float" min="0" max="100" value="" optional="true" label="Threshold for 'Fraction of cells above threshold'" help="Only used when 'Fraction of cells above threshold' aggregation is selected"/>
+                    <param argument="exclude_zeros" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Exclude zeros when aggregating?"/>
+                </expand>
+                <param argument="use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use adata.raw.X instead of adata.X?"/>
+            </when>
+            <when value="communication_scores">
+                <expand macro="param_groupby" label="Column in adata.obs for grouping cells (e.g. cell type)"/>
+                <param argument="var_pairs" type="data" format="txt" label="Ligand-receptor pairs file" help="Text file with one ligand-receptor pair per line, each pair formatted as 'ligand:receptor', e.g. 'TGFB1:TGFBR1'"/>
+                <param argument="communication_score" type="select" label="Method to compute communication scores">
+                    <option value="gmean" selected="true">Geometric mean - sqrt(x * y)</option>
+                    <option value="product">Simple multiplication - (x * y)</option>
+                    <option value="mean">Arithmetic mean - ((x + y) / 2)</option>
+                </param>
+                <param argument="agg_func" type="select" label="Aggregation function across cells">
+                    <option value="mean" selected="true">Mean</option>
+                    <option value="median">Median</option>
+                    <option value="25p">25th percentile</option>
+                    <option value="75p">75th percentile</option>
+                    <option value="trimean">Trimean (Tukey's)</option>
+                    <option value="topmean">Top mean</option>
+                </param>
+                <expand macro="param_layer"/>
+                <param argument="ligand_threshold" type="float" value="0" label="Expression threshold to consider a cell as expressing the ligand"/>
+                <param argument="receptor_threshold" type="float" value="0" label="Expression threshold to consider a cell as expressing the receptor"/>
+            </when>
+            <when value="local_colocalization">
+                <param argument="var1" type="text" label="First variable (gene or feature name)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="var2" type="text" label="Second variable (gene or feature name)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="neighbors_radius" type="float" value="50" label="Radius for assigning a neighborhood of a spot"/>
+                <param name="coloc_method" argument="method" type="select" label="Colocalization method">
+                    <option value="pairwise_concordance" selected="true">Pairwise concordance</option>
+                    <option value="correlation">Local Pearson correlation</option>
+                    <option value="concordance">Concordance</option>
+                    <option value="cosine">Local cosine similarity</option>
+                    <option value="weighted_gmean">Local weighted geometric mean</option>
+                    <option value="regularized_weighted_gmean">Local regularized and weighted geometric mean</option>
+                </param>
+                <param argument="spatial_key" type="text" value="spatial" label="Key in adata.obsm with spatial coordinates">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_neighbors" type="integer" min="1" value="3" label="Minimum number of neighbors required for computing score"/>
+                <param argument="threshold1" type="float" optional="true" label="Threshold for the first variable" help="Leave empty to use the mean of the variable"/>
+                <param argument="threshold2" type="float" optional="true" label="Threshold for the second variable" help="Leave empty to use the mean of the variable"/>
+                <param argument="score_key" type="text" value="" optional="true" label="Key to store the computed scores in adata.obs" help="Leave empty to use a default key">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="pairwise_differential_analysis">
+                <expand macro="param_groupby" label="Column in adata.obs with group labels"/>
+                <param argument="var_names" type="text" value="" optional="true" label="Comma-separated list of features to test" help="Leave empty to test all features">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="alternative" type="select" label="Alternative hypothesis for the Wilcoxon rank-sum test">
+                    <option value="two-sided" selected="true">Two-sided</option>
+                    <option value="greater">Greater</option>
+                    <option value="less">Less</option>
+                </param>
+                <param argument="alpha" type="float" min="0" max="1" value="0.05" label="Significance level for multiple testing correction"/>
+            </when>
+            <when value="scanpy_differential_analysis">
+                <param argument="cell_type" type="text" value="" optional="true" label="Cell type to analyze" help="Leave empty to analyze all cell types">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="cell_type_key" type="text" label="Column in adata.obs with cell type information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="condition_key" type="text" label="Column in adata.obs with condition information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="var_names" type="text" value="" optional="true" label="Comma-separated list of features to test" help="Leave empty to test all features">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="alpha" type="float" min="0" max="1" value="0.05" label="Significance level for multiple testing correction"/>
+                <param argument="min_cells" type="integer" min="1" value="30" label="Minimum number of cells required in each group for comparison"/>
+                <conditional name="downsample">
+                    <param argument="downsample" type="select" label="Downsample to balance group sizes?">
+                        <option value="False" selected="true">No</option>
+                        <option value="True">Yes</option>
+                    </param>
+                    <when value="False"/>
+                    <when value="True">
+                        <param argument="n_iterations" type="integer" min="1" value="50" label="Number of subsampling iterations"/>
+                        <param argument="agg_method" type="select" label="Method to aggregate results across iterations">
+                            <option value="mean" selected="true">Mean</option>
+                            <option value="median">Median</option>
+                        </param>
+                        <param argument="random_state" type="integer" value="0" label="Random seed"/>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="result_out" format="tabular" from_work_dir="result_out.tsv" label="${tool.name} (${method.method}) on ${on_string}: table">
+            <filter>method['method'] in ['aggregate', 'communication_scores', 'pairwise_differential_analysis', 'scanpy_differential_analysis']</filter>
+        </data>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata_output.h5ad" label="${tool.name} (${method.method}) on ${on_string}: Annotated data matrix">
+            <filter>method['method'] == 'local_colocalization'</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="${tool.name} (${method.method}) on ${on_string}: log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test 1: aggregate -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="aggregate"/>
+                <param name="groupby" value="celltype"/>
+                <param name="agg_func" value="trimean"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="agg_expression_cells"/>
+                </assert_contents>
+            </output>
+            <output name="result_out">
+                <assert_contents>
+                    <has_text_matching expression="HK1"/>
+                    <has_n_lines n="4"/>
+                    <has_n_columns n="31"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 2: communication scores -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="communication_scores"/>
+                <param name="groupby" value="celltype"/>
+                <param name="var_pairs" value="sccellfie_var_pairs.txt"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="compute_communication_scores"/>
+                </assert_contents>
+            </output>
+            <output name="result_out">
+                <assert_contents>
+                    <has_text_matching expression="sender_celltype"/>
+                    <has_n_lines n="19"/>
+                    <has_n_columns n="7"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 3: local colocalization -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="local_colocalization"/>
+                <param name="var1" value="HK1"/>
+                <param name="var2" value="HK2"/>
+                <param name="neighbors_radius" value="30"/>
+                <param name="spatial_key" value="X_spatial"/>
+                <param name="min_neighbors" value="2"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="compute_local_colocalization_scores"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obs/HK1^HK2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 4: pairwise differential analysis -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="pairwise_differential_analysis"/>
+                <param name="groupby" value="celltype"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="pairwise_differential_analysis"/>
+                </assert_contents>
+            </output>
+            <output name="result_out">
+                <assert_contents>
+                    <has_text_matching expression="adj_p_value"/>
+                    <has_n_lines n="91"/>
+                    <has_n_columns n="13"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 5: scanpy differential analysis -->
+        <test expect_num_outputs="2">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="scanpy_differential_analysis"/>
+                <param name="cell_type_key" value="celltype"/>
+                <param name="condition_key" value="condition"/>
+                <param name="min_cells" value="10"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="scanpy_differential_analysis"/>
+                </assert_contents>
+            </output>
+            <output name="result_out">
+                <assert_contents>
+                    <has_text_matching expression="cohens_d"/>
+                    <has_n_lines n="91"/>
+                    <has_n_columns n="14"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+Downstream analyses on single-cell expression, reaction, or metabolic task scores:
+
+- **Aggregate expression per cell group**: computes one summary statistic (mean, median, trimean, etc.) per
+  gene/feature and per group, returning a groups x features table.
+- **Communication scores between cell types**: computes ligand-receptor communication scores between all
+  pairs of cell groups (e.g. cell types), based on aggregated expression of ligand and receptor genes.
+- **Local colocalization score**: computes a local colocalization score between two variables (e.g. two
+  genes) for each spot in spatial data, based on a neighborhood radius.
+- **Pairwise differential analysis**: Wilcoxon rank-sum test between all pairs of groups for every feature
+  (not cell type-aware).
+- **Differential analysis between conditions per cell type**: Wilcoxon rank-sum test between conditions,
+  optionally for a specific cell type, using Scanpy's ``rank_genes_groups``. Supports downsampling to balance
+  group sizes.
+
+**Input**
+
+- An AnnData object (``.h5ad``), typically the output of the scCellFie pipeline (expression, reaction, or
+  metabolic task scores), plus a text file with ligand-receptor pairs for the communication scores method.
+
+**Output**
+
+- A tabular file with the aggregated table, communication scores, or differential analysis results, or an
+  AnnData object with colocalization scores added to ``adata.obs``.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

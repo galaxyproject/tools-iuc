@@ -65,6 +65,18 @@ gene_data <- get_table(args$gene_data, args$gd_header)
 cpd_data <- get_table(args$cpd_data, args$cpd_header)
 
 run_pathview <- function(pathway_id) {
+    if (is.null(gene_data) && is.null(cpd_data)) {
+        pathway <- paste0(args$species, pathway_id)
+        status <- download.file(
+            paste0("https://rest.kegg.jp/get/", pathway, "/image"),
+            destfile = paste0(pathway, ".pathview.png"),
+            mode = "wb"
+        )
+        if (status != 0) {
+            stop(paste("Failed to download the KEGG pathway image for", pathway))
+        }
+        return(invisible(NULL))
+    }
     pathview(
         pathway.id = pathway_id,
         gene.data = gene_data,
