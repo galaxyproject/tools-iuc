@@ -1,0 +1,361 @@
+<tool id="dupradar" name="dupRadar" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>assess PCR duplication in RNA-seq data as a function of expression</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.40.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.1</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">dupradar</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">bioconductor-dupradar</requirement>
+    </requirements>
+    <version_command><![CDATA[Rscript -e 'cat(as.character(packageVersion("dupRadar")))']]></version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#import re
+## drop .bam so the MultiQC row can line up with the same sample's other QC rows
+#set $sample = re.sub(r'[^\w.-]', '_', re.sub(r'\.bam$', '', str($input.element_identifier)))
+ln -s '$input' input.bam &&
+ln -s '$gtf' annotation.gtf &&
+Rscript '$dupradar_script' '$sample' $stranded $paired_end '$advanced.feature_type' '$advanced.attr_type' $plot_format $multiqc
+    ]]></command>
+    <configfiles>
+        <!-- plain R with no Galaxy parameters in it: every user value arrives as a command-line argument -->
+        <configfile name="dupradar_script"><![CDATA[
+suppressPackageStartupMessages(library(dupRadar))
+
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 7) {
+    stop("expected 7 arguments, got ", length(args))
+}
+sample <- args[1]
+stranded <- as.integer(args[2])
+paired <- as.logical(args[3])
+feature_type <- args[4]
+attr_type <- args[5]
+plot_format <- args[6]
+multiqc <- args[7] == "true"
+threads <- as.integer(Sys.getenv("GALAXY_SLOTS", "1"))
+
+dm <- analyzeDuprates(
+    "input.bam",
+    "annotation.gtf",
+    stranded = stranded,
+    paired = paired,
+    threads = threads,
+    GTF.featureType = feature_type,
+    GTF.attrType = attr_type,
+    verbose = TRUE
+)
+write.table(dm, file = "dupMatrix.tsv", quote = FALSE, row.names = FALSE, sep = "\t")
+if (all(dm\$allCounts == 0)) {
+    stop("No reads were assigned to any gene. Check that the GTF matches the reference (chromosome names) and that the strandedness and paired-end settings match the library.")
+}
+
+## extension-less names so the outputs can switch format without changing from_work_dir
+open_plot <- function(name) {
+    if (plot_format == "png") {
+        png(name, width = 7, height = 7, units = "in", res = 150, type = "cairo")
+    } else {
+        pdf(name)
+    }
+}
+
+open_plot("duprateExpDens.plot")
+## dupRadar's 0.5 RPKM marker errors out when no gene falls below it, e.g. with a small,
+## well-covered annotation, so only draw it when it can be placed
+duprateExpDensPlot(DupMat = dm, tRPKM = any(dm\$RPKM <= 0.5, na.rm = TRUE))
+title("Density scatter plot")
+mtext(sample, side = 3)
+invisible(dev.off())
+
+open_plot("duprateExpBoxplot.plot")
+duprateExpBoxplot(DupMat = dm)
+title("Percent duplication by expression")
+mtext(sample, side = 3)
+invisible(dev.off())
+
+open_plot("expressionHist.plot")
+expressionHist(DupMat = dm)
+title("Distribution of RPK values per gene")
+mtext(sample, side = 3)
+invisible(dev.off())
+
+fit <- duprateExpFit(DupMat = dm)
+if (inherits(fit, "try-error")) {
+    stop("dupRadar could not fit its duplication model to these data")
+}
+cat(
+    paste("- dupRadar Int (duprate at low read counts):", fit\$intercept),
+    paste("- dupRadar Sl (progression of the duplication rate):", fit\$slope),
+    fill = TRUE, labels = sample,
+    file = "intercept_slope.txt"
+)
+
+if (multiqc) {
+    writeLines(c(
+        "#id: DupInt",
+        "#plot_type: 'generalstats'",
+        "#pconfig:",
+        "#    dupRadar_intercept:",
+        "#        title: 'dupInt'",
+        "#        namespace: 'DupRadar'",
+        "#        description: 'Intercept value from DupRadar'",
+        "#        max: 100",
+        "#        min: 0",
+        "#        scale: 'RdYlGn-rev'",
+        "Sample\tdupRadar_intercept",
+        paste(sample, fit\$intercept, sep = "\t")
+    ), "dup_intercept_mqc.tsv")
+
+    ## Sample the fitted GLM curve so MultiQC can draw it as a line graph
+    curve_x <- sort(log10(dm\$RPK))
+    curve_x <- curve_x[is.finite(curve_x)]
+    curve_y <- 100 * predict(fit\$glm, data.frame(x = curve_x), type = "response")
+    ## every tenth point, and always the last one so the curve reaches the highest expression
+    keep <- unique(c(seq(1, length(curve_x), 10), length(curve_x)))
+    writeLines(c(
+        "#id: dupradar",
+        ## a two-column file carries no sample name, and MultiQC would otherwise take it from the file name
+        paste0("#sample_name: '", sample, "'"),
+        "#plot_type: 'linegraph'",
+        "#section_name: 'DupRadar'",
+        "#section_href: 'bioconductor.org/packages/release/bioc/html/dupRadar.html'",
+        "#description: 'Duplication rate quality control for RNA-seq. This plot shows the general linear model fitted to the gene duplication rates.'",
+        "#pconfig:",
+        "#    title: 'DupRadar General Linear Model'",
+        "#    xlog: True",
+        "#    xlab: 'expression (reads/kbp)'",
+        "#    ylab: '% duplicate reads'",
+        "#    ymax: 100",
+        "#    ymin: 0"
+    ), "duprateExpDensCurve_mqc.tsv")
+    write.table(
+        cbind(10^curve_x[keep], curve_y[keep]),
+        file = "duprateExpDensCurve_mqc.tsv",
+        quote = FALSE, row.names = FALSE, col.names = FALSE, sep = "\t", append = TRUE
+    )
+}
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="input" type="data" format="bam" label="Duplicate-marked BAM file"
+            help="Reads must be aligned and have PCR duplicates flagged but not removed, e.g. by Picard MarkDuplicates"/>
+        <param name="gtf" type="data" format="gtf" label="Gene annotation (GTF)"/>
+        <param name="stranded" type="select" label="Library strandedness"
+            help="Same convention as featureCounts: forward means read 1 maps to the gene's strand">
+            <option value="0" selected="true">Unstranded</option>
+            <option value="1">Forward (stranded)</option>
+            <option value="2">Reverse (reversely stranded)</option>
+        </param>
+        <param name="paired_end" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Paired-end reads?"
+            help="Paired-end data are counted as fragments"/>
+        <param name="plot_format" type="select" label="Plot format">
+            <option value="pdf" selected="true">PDF</option>
+            <option value="png">PNG</option>
+        </param>
+        <param name="multiqc" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Write MultiQC custom-content files?"
+            help="The duplication intercept for the general statistics table and the fitted curve, in the format nf-core/rnaseq produces"/>
+        <section name="advanced" title="Annotation options" expanded="false">
+            <param name="feature_type" type="text" value="exon" label="GTF feature type to count" help="Third column of the GTF (GTF.featureType)">
+                <validator type="regex" message="Letters, digits, dots, dashes and underscores only">^[\w.\-]+$</validator>
+            </param>
+            <param name="attr_type" type="text" value="gene_id" label="GTF attribute that groups features into genes" help="GTF.attrType">
+                <validator type="regex" message="Letters, digits, dots, dashes and underscores only">^[\w.\-]+$</validator>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="dup_matrix" format="tabular" from_work_dir="dupMatrix.tsv" label="${tool.name} on ${on_string}: duplication matrix"/>
+        <data name="intercept_slope" format="txt" from_work_dir="intercept_slope.txt" label="${tool.name} on ${on_string}: intercept and slope"/>
+        <data name="density_plot" format="pdf" from_work_dir="duprateExpDens.plot" label="${tool.name} on ${on_string}: density scatter plot">
+            <change_format>
+                <when input="plot_format" value="png" format="png"/>
+            </change_format>
+        </data>
+        <data name="boxplot" format="pdf" from_work_dir="duprateExpBoxplot.plot" label="${tool.name} on ${on_string}: duplication boxplot">
+            <change_format>
+                <when input="plot_format" value="png" format="png"/>
+            </change_format>
+        </data>
+        <data name="expression_hist" format="pdf" from_work_dir="expressionHist.plot" label="${tool.name} on ${on_string}: expression histogram">
+            <change_format>
+                <when input="plot_format" value="png" format="png"/>
+            </change_format>
+        </data>
+        <data name="mqc_intercept" format="tabular" from_work_dir="dup_intercept_mqc.tsv" label="${tool.name} on ${on_string}: MultiQC intercept">
+            <filter>multiqc</filter>
+        </data>
+        <data name="mqc_curve" format="tabular" from_work_dir="duprateExpDensCurve_mqc.tsv" label="${tool.name} on ${on_string}: MultiQC curve">
+            <filter>multiqc</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- paired-end, unstranded, PDF plots -->
+        <test expect_num_outputs="5">
+            <param name="input" value="dupradar.bam"/>
+            <param name="gtf" value="dupradar.gtf"/>
+            <output name="dup_matrix" file="dupradar_dupMatrix.tsv"/>
+            <output name="intercept_slope">
+                <assert_contents>
+                    <has_text text="dupRadar Int (duprate at low read counts):"/>
+                    <has_text text="dupRadar Sl (progression of the duplication rate):"/>
+                    <has_line_matching expression=".*dupRadar Int \(duprate at low read counts\): 0\.0014738\d*\s*"/>
+                    <has_line_matching expression=".*dupRadar Sl \(progression of the duplication rate\): 13\.002\d*\s*"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+            <output name="density_plot" ftype="pdf">
+                <assert_contents>
+                    <has_text text="%PDF"/>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="boxplot" ftype="pdf">
+                <assert_contents>
+                    <has_text text="%PDF"/>
+                </assert_contents>
+            </output>
+            <output name="expression_hist" ftype="pdf">
+                <assert_contents>
+                    <has_text text="%PDF"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- single-end reverse-stranded library counted as reverse, PNG plots plus MultiQC files;
+             every gene in this GTF is expressed, so the 0.5 RPKM marker has to be skipped -->
+        <test expect_num_outputs="7">
+            <param name="input" value="dupradar_se.bam"/>
+            <param name="gtf" value="dupradar_expressed.gtf"/>
+            <param name="stranded" value="2"/>
+            <param name="paired_end" value="false"/>
+            <param name="plot_format" value="png"/>
+            <param name="multiqc" value="true"/>
+            <output name="dup_matrix">
+                <assert_contents>
+                    <has_line_matching expression="^ID\tgeneLength\tallCountsMulti\t.*"/>
+                    <has_line_matching expression="^geneA\t1400\t892\t313\t.*"/>
+                    <has_line_matching expression="^geneF\t1400\t5\t5\t0\t.*"/>
+                    <has_n_lines n="7"/>
+                </assert_contents>
+            </output>
+            <output name="intercept_slope">
+                <assert_contents>
+                    <has_text text="dupRadar Int"/>
+                    <has_line_matching expression=".*dupRadar Int \(duprate at low read counts\): 0\.0015231\d*\s*"/>
+                    <has_line_matching expression=".*dupRadar Sl \(progression of the duplication rate\): 12\.895\d*\s*"/>
+                </assert_contents>
+            </output>
+            <output name="density_plot" ftype="png">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="boxplot" ftype="png">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="expression_hist" ftype="png">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="mqc_intercept">
+                <assert_contents>
+                    <has_text text="#plot_type: 'generalstats'"/>
+                    <has_line_matching expression="^dupradar_se\t0\.0015231\d*$"/>
+                </assert_contents>
+            </output>
+            <output name="mqc_curve">
+                <assert_contents>
+                    <has_text text="#plot_type: 'linegraph'"/>
+                    <has_text text="#sample_name: 'dupradar_se'"/>
+                    <has_line_matching expression="^[0-9.e+-]+\t[0-9.e+-]+$" n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- the same reverse-stranded library counted as forward assigns nothing and should fail clearly -->
+        <test expect_failure="true">
+            <param name="input" value="dupradar_se.bam"/>
+            <param name="gtf" value="dupradar_expressed.gtf"/>
+            <param name="stranded" value="1"/>
+            <param name="paired_end" value="false"/>
+            <assert_stderr>
+                <has_text text="No reads were assigned to any gene"/>
+            </assert_stderr>
+        </test>
+        <!-- non-default annotation options reach featureCounts unchanged: whole transcripts grouped by gene_name, which differs from gene_id in this GTF -->
+        <test expect_num_outputs="5">
+            <param name="input" value="dupradar.bam"/>
+            <param name="gtf" value="dupradar_gene_names.gtf"/>
+            <section name="advanced">
+                <param name="feature_type" value="transcript"/>
+                <param name="attr_type" value="gene_name"/>
+            </section>
+            <assert_command>
+                <has_text text="'dupradar' 0 TRUE 'transcript' 'gene_name' pdf false"/>
+            </assert_command>
+            <output name="dup_matrix">
+                <assert_contents>
+                    <has_line_matching expression="^nameA\t1500\t.*"/>
+                    <has_n_lines n="9"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+dupRadar measures how the PCR duplication rate of an RNA-seq library depends on gene expression.
+Highly expressed genes are expected to carry many duplicate reads simply because their fragments
+are sampled so often. A high duplication rate among *lowly* expressed genes instead points to a
+library with low complexity or heavy PCR amplification.
+
+The tool counts reads per gene four times with featureCounts: with and without the reads flagged
+as duplicates, each with and without multi-mapping reads. It reports the duplication rate per gene against reads per kilobase
+(RPK). It then fits a logistic regression of duplication rate on log10(RPK).
+
+## Input
+
+- A **coordinate-sorted BAM with duplicates marked**, not removed. dupRadar does not mark
+  duplicates itself: run Picard MarkDuplicates (or an equivalent that sets the SAM `0x400` flag)
+  first. On an unmarked BAM every duplication rate is 0.
+- The gene annotation in **GTF** format used for the alignment.
+- The library strandedness and whether the reads are paired. Paired-end is the default here;
+  switch it off for single-end data, which featureCounts refuses to count as paired.
+
+Under *Annotation options*, the GTF feature type (default `exon`) and the attribute that groups
+features into genes (default `gene_id`) are passed to featureCounts as `GTF.featureType` and
+`GTF.attrType`.
+
+## Output
+
+- **Duplication matrix**: one row per gene with read counts with and without duplicates (unique
+  and multi-mapping), RPK, and the duplication rate.
+- **Intercept and slope** of the fitted logistic model, reported (as dupRadar does) on the odds
+  scale. The intercept is the odds of a read being a duplicate for a gene at 1 read/kbp, so it
+  stays near 0 for a clean library; the slope is the factor by which those odds grow with each
+  10-fold increase in expression. The labels in this file match what nf-core/rnaseq writes.
+- **Density scatter plot** of duplication rate against RPK with the fitted curve, the most useful
+  single view of the library.
+- **Boxplot** of duplication rate by expression bin and a **histogram** of RPK values.
+- Optionally, two **MultiQC custom-content** tables in the style nf-core/rnaseq writes: the
+  intercept for the general statistics table, and points sampled from the fitted curve. They
+  carry MultiQC's in-file headers, but Galaxy's MultiQC tool sets its own custom-content options,
+  so choose *generalstats* and *linegraph* there to match.
+
+## Interpreting the plot
+
+In a good library the duplication rate stays low for genes below about 1 read/bp (1,000 reads/kbp
+on the plot's x axis, marked by the red dashed line) and rises only above it, where reads start to
+pile up on the same positions by chance. A curve that starts high on the left (a high intercept)
+indicates technical duplication. See the
+[dupRadar vignette](https://bioconductor.org/packages/release/bioc/vignettes/dupRadar/inst/doc/dupRadar.html)
+for examples.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s12859-016-1276-2</citation>
+    </citations>
+</tool>
