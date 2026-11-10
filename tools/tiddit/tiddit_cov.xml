@@ -1,0 +1,145 @@
+<tool id="tiddit_cov" name="TIDDIT coverage" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>compute binned read coverage from a BAM file</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements">
+        <requirement type="package" version="5.3.1">gawk</requirement>
+    </expand>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+@LINK_BAM@
+
+tiddit --cov
+    --bam './${sample_name}.bam'
+    -o coverage
+    -z $bin_size
+    -q $min_mapq
+
+## TIDDIT reports its own errors on stdout and still exits 0.
+&& if [ ! -s coverage.bed ]; then echo 'TIDDIT did not produce a coverage file; see the tool standard output for the reason.' >&2; exit 1; fi
+
+## TIDDIT prints bin i as 1+i*z to (i+1)*z+1 (the last one ending at the
+## contig length), which is neither BED nor 1-based closed. Rewrite it as
+## 0-based half-open bedGraph without TIDDIT's header line. TIDDIT divides by
+## the full bin size even when a contig is shorter than one bin, so rescale
+## that case to the contig length.
+&& awk -v bin=$bin_size 'BEGIN { OFS = "\t" } /^#/ { next } { s = \$2 - 1; e = s + bin; if (e > \$3) e = \$3; v = \$4; if (s == 0 && \$3 < bin) v = \$4 * bin / \$3; print \$1, s, e, v }' coverage.bed > coverage_fixed.bed
+
+#if str($output_format) == 'wig':
+    ## TIDDIT's own wig omits span, so each value would cover a single base.
+    ## Build it from the BED instead, with a separate block for a short last bin.
+    && awk 'BEGIN { print "track type=wiggle_0 name=\"Coverage\" description=\"Per bin average coverage\"" } /^#/ { next } { len = \$3 - \$2; if (\$1 != chrom || len != span) { print "fixedStep chrom=" \$1 " start=" (\$2 + 1) " step=" len " span=" len; chrom = \$1; span = len } print \$4 }' coverage_fixed.bed > coverage.wig
+#end if
+    ]]></command>
+    <inputs>
+        <expand macro="bam_input"/>
+        <param name="bin_size" argument="-z" type="integer" min="1" value="500" label="Bin size (bp)"/>
+        <param name="min_mapq" argument="-q" type="integer" min="0" value="20" label="Minimum mapping quality" help="Alignments with a lower mapping quality are not counted. Unmapped and duplicate-flagged reads are always skipped; secondary, supplementary and QC-failed alignments are counted."/>
+        <param name="output_format" type="select" label="Output format">
+            <option value="bed" selected="true">bedGraph</option>
+            <option value="wig">Wiggle</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="coverage_bed" format="bedgraph" from_work_dir="coverage_fixed.bed" label="${tool.name} on ${on_string}: bedGraph">
+            <filter>output_format == 'bed'</filter>
+        </data>
+        <data name="coverage_wig" format="wig" from_work_dir="coverage.wig" label="${tool.name} on ${on_string}: Wiggle">
+            <filter>output_format == 'wig'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 500 bp bins divide the 20 kb contig evenly; coordinates must be 0-based half-open -->
+        <test expect_num_outputs="1">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <output name="coverage_bed" ftype="bedgraph">
+                <assert_contents>
+                    <has_text text="#chromosome" negate="true"/>
+                    <has_line_matching expression="chr1\t0\t500\t\d+\.\d+"/>
+                    <has_line_matching expression="chr1\t19500\t20000\t\d+\.\d+"/>
+                    <has_text text="chr1&#9;1&#9;501" negate="true"/>
+                    <has_n_lines n="40"/>
+                    <!-- the planted deletion at 10001-11000 leaves its bins empty -->
+                    <has_line line="chr1&#9;10000&#9;10500&#9;0.0"/>
+                    <has_line line="chr1&#9;10500&#9;11000&#9;0.0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3 kb bins leave a short 2 kb last bin, which must end at the contig end -->
+        <test expect_num_outputs="1">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <param name="bin_size" value="3000"/>
+            <output name="coverage_bed" ftype="bedgraph">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t0\t3000\t\d+\.\d+"/>
+                    <has_line_matching expression="chr1\t15000\t18000\t\d+\.\d+"/>
+                    <has_line_matching expression="chr1\t18000\t20000\t\d+\.\d+"/>
+                    <has_n_lines n="7"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a contig shorter than one bin: TIDDIT divides by the bin size, the wrapper rescales to the contig length -->
+        <test expect_num_outputs="1">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <param name="bin_size" value="30000"/>
+            <output name="coverage_bed" ftype="bedgraph">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t0\t20000\t18\.99\d*"/>
+                    <has_n_lines n="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Wiggle needs span equal to the bin, and its own block for the short last bin -->
+        <test expect_num_outputs="1">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <param name="bin_size" value="3000"/>
+            <param name="min_mapq" value="0"/>
+            <param name="output_format" value="wig"/>
+            <output name="coverage_wig" ftype="wig">
+                <assert_contents>
+                    <has_line line="fixedStep chrom=chr1 start=1 step=3000 span=3000"/>
+                    <has_line line="fixedStep chrom=chr1 start=18001 step=2000 span=2000"/>
+                    <has_text text="span" n="2"/>
+                    <!-- track line, two headers, six full bins and one short bin -->
+                    <has_n_lines n="10"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="-z 3000"/>
+                <has_text text="-q 0"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+Computes the average read depth of a coordinate-sorted BAM file in fixed-size
+bins along every reference sequence, using the coverage module of
+[TIDDIT](https://github.com/SciLifeLab/TIDDIT). Unmapped reads,
+duplicate-flagged reads and reads below the mapping quality cutoff are not
+counted. Secondary, supplementary and QC-failed alignments are counted like any
+other alignment.
+
+## Outputs
+
+- **bedGraph**: one line per bin with chromosome, start, end and mean coverage, in
+  0-based, half-open coordinates (the first 500 bp bin is `0-500`). The last bin
+  of each sequence ends at the sequence end and may be shorter than the bin size.
+- **Wiggle**: a `fixedStep` track whose `span` equals the bin size, with a
+  separate block for a shorter last bin, suitable for genome browsers.
+
+TIDDIT's own BED and Wiggle files are off by one base and lack `span`
+respectively, so this tool rewrites TIDDIT's bins into correct coordinates.
+
+## Known limitation
+
+TIDDIT 3.9.7 underestimates the coverage of a last bin that is shorter than the
+bin size. When a sequence is shorter than one bin the tool corrects the value;
+for longer sequences the short last bin cannot be corrected from TIDDIT's output
+and reads too low. Choose a bin size that divides the sequence lengths, or
+ignore the last bin of each sequence.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
