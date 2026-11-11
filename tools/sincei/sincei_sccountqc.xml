@@ -13,11 +13,23 @@
             --outMetrics qc
         #else:
             --outFile '$filtered'
-            #if str($mode.filterCellArgs).strip():
-                --filterCellArgs '$mode.filterCellArgs'
+            ## build 'metric: min, max; metric: min, max'. An empty max becomes inf: with a single value,
+            ## sincei 0.6.1 looks up cell metrics in adata.var instead of adata.obs and fails.
+            #if $mode.cell_filters:
+                #set $cell_args = []
+                #for $f in $mode.cell_filters
+                    #set $fmax = str($f.max) if str($f.max) not in ('', 'None') else 'inf'
+                    #silent $cell_args.append('%s: %s, %s' % ($f.metric, $f.min, $fmax))
+                #end for
+                --filterCellArgs '#echo '; '.join($cell_args)#'
             #end if
-            #if str($mode.filterRegionArgs).strip():
-                --filterRegionArgs '$mode.filterRegionArgs'
+            #if $mode.region_filters:
+                #set $region_args = []
+                #for $f in $mode.region_filters
+                    #set $fmax = str($f.max) if str($f.max) not in ('', 'None') else 'inf'
+                    #silent $region_args.append('%s: %s, %s' % ($f.metric, $f.min, $fmax))
+                #end for
+                --filterRegionArgs '#echo '; '.join($region_args)#'
             #end if
             #if $mode.region_blacklist:
                 --region_blacklist
@@ -44,16 +56,37 @@
             </param>
             <when value="metrics"/>
             <when value="filter">
-                <param argument="--filterCellArgs" type="text" value="" label="Cell filters" help="Filters on cell metrics as 'metric: min, max; metric: min, max', e.g. 'total_counts: 100, 100000; n_genes_by_counts: 50, 10000'. Run the metrics mode first to see the available metrics.">
-                    <validator type="regex" message="Use the format 'metric: min, max; metric: min, max'">[A-Za-z0-9_.,:; -]*</validator>
-                </param>
-                <param argument="--filterRegionArgs" type="text" value="" label="Region filters" help="Filters on region metrics, in the same format, e.g. 'n_cells_by_counts: 2, 1000'.">
-                    <validator type="regex" message="Use the format 'metric: min, max; metric: min, max'">[A-Za-z0-9_.,:; -]*</validator>
-                </param>
-                <param argument="--region_blacklist" type="data" format="bed,gtf" multiple="true" optional="true" label="Blacklisted regions" help="Regions overlapping these BED/GTF entries are removed."/>
+                <repeat name="cell_filters" title="Cell filter" help="List of arguments to filter cells. Cells with a QC metric outside [minimum, maximum] are removed. Run 'Compute QC metrics' first to view all available metrics.">
+                    <param name="metric" type="select" label="Cell QC metric">
+                        <option value="total_counts" selected="true">total_counts</option>
+                        <option value="log1p_total_counts">log1p_total_counts</option>
+                        <option value="n_genes_by_counts">n_genes_by_counts (number of regions with counts)</option>
+                        <option value="log1p_n_genes_by_counts">log1p_n_genes_by_counts</option>
+                        <option value="pct_counts_in_top_50_genes">pct_counts_in_top_50_genes</option>
+                        <option value="pct_counts_in_top_100_genes">pct_counts_in_top_100_genes</option>
+                        <option value="pct_counts_in_top_200_genes">pct_counts_in_top_200_genes</option>
+                        <option value="pct_counts_in_top_500_genes">pct_counts_in_top_500_genes</option>
+                        <option value="gini_coefficient">gini_coefficient</option>
+                    </param>
+                    <param name="min" type="float" value="0" label="Minimum value"/>
+                    <param name="max" type="float" optional="true" label="Maximum value" help="Leave empty for no upper bound."/>
+                </repeat>
+                <repeat name="region_filters" title="Region filter" help="List of arguments to filter regions. Regions with a QC metric outside [minimum, maximum] are removed. Run 'Compute QC metrics' first to view all available metrics.">
+                    <param name="metric" type="select" label="Region QC metric">
+                        <option value="total_counts" selected="true">total_counts</option>
+                        <option value="log1p_total_counts">log1p_total_counts</option>
+                        <option value="n_cells_by_counts">n_cells_by_counts</option>
+                        <option value="mean_counts">mean_counts</option>
+                        <option value="log1p_mean_counts">log1p_mean_counts</option>
+                        <option value="pct_dropout_by_counts">pct_dropout_by_counts</option>
+                    </param>
+                    <param name="min" type="float" value="0" label="Minimum value"/>
+                    <param name="max" type="float" optional="true" label="Maximum value" help="Leave empty for no upper bound."/>
+                </repeat>
+                <param argument="--region_blacklist" type="data" format="bed,gtf" multiple="true" optional="true" label="Region blacklist" help="A BED or GTF file containing regions that should be excluded from all analyses. Regions in the AnnData object that overlap with blacklisted regions will be removed."/>
                 <!-- The cell_blacklist option is not exposed: in sincei 0.6.1 it is parsed as an open file handle and then
                      passed to open() again, which always fails. Add it back once fixed upstream. -->
-                <param argument="--chrom_blacklist" type="text" value="" label="Blacklisted chromosomes" help="Comma-separated chromosomes to remove, e.g. chrM,chrUn.">
+                <param argument="--chrom_blacklist" type="text" value="" label="Chromosome blacklist" help="A list of chromosomes to exclude, separated by commas, e.g. chrM,chrUn.">
                     <validator type="regex" message="Comma-separated chromosome names">[A-Za-z0-9_.,]*</validator>
                 </param>
             </when>
@@ -66,7 +99,7 @@
         <data name="region_metrics" format="tabular" from_work_dir="qc.regions.tsv" label="${tool.name} on ${on_string}: region metrics">
             <filter>mode['operation'] == 'metrics'</filter>
         </data>
-        <data name="filtered" format="h5ad" label="${tool.name} on ${on_string}: filtered counts">
+        <data name="filtered" format="h5ad" label="${tool.name} on ${on_string}: filtered counts (AnnData)">
             <filter>mode['operation'] == 'filter'</filter>
         </data>
     </outputs>
@@ -91,8 +124,21 @@
             <param name="input" value="counts.h5ad"/>
             <conditional name="mode">
                 <param name="operation" value="filter"/>
-                <param name="filterCellArgs" value="total_counts: 10, 1000"/>
-                <param name="filterRegionArgs" value="total_counts: 1, 1000"/>
+                <repeat name="cell_filters">
+                    <param name="metric" value="total_counts"/>
+                    <param name="min" value="10"/>
+                    <param name="max" value="1000"/>
+                </repeat>
+                <!-- no maximum: passed as inf -->
+                <repeat name="cell_filters">
+                    <param name="metric" value="n_genes_by_counts"/>
+                    <param name="min" value="1"/>
+                </repeat>
+                <repeat name="region_filters">
+                    <param name="metric" value="total_counts"/>
+                    <param name="min" value="1"/>
+                    <param name="max" value="1000"/>
+                </repeat>
                 <param name="chrom_blacklist" value="chrM,chrUn"/>
             </conditional>
             <output name="filtered" ftype="h5ad">
@@ -119,8 +165,9 @@ rates.
 - **Filter cells and regions** removes cells and regions outside the given metric ranges, plus
   blacklisted regions or chromosomes, and returns a filtered count matrix.
 
-Metric filters have the form `metric: min, max; metric: min, max`, for example
-`total_counts: 500, 100000; n_genes_by_counts: 100, 20000`.
+Each cell or region filter keeps only the cells/regions whose QC metric lies between the given
+minimum and maximum (inclusive). Several filters can be combined. Run **Compute QC metrics**
+first to see the metric values.
 
 -----
 
