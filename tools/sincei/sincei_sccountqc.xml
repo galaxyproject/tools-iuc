@@ -1,0 +1,186 @@
+<tool id="sincei_sccountqc" name="sincei scCountQC" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="@LICENSE@">
+    <description>quality metrics and filtering of a count matrix</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        scCountQC
+            --input '$input'
+        #if str($mode.operation) == 'metrics':
+            --outMetrics qc
+        #else:
+            --outFile '$filtered'
+            ## build 'metric: min, max; metric: min, max'. An empty max becomes inf: with a single value,
+            ## sincei 0.6.1 looks up cell metrics in adata.var instead of adata.obs and fails.
+            #if $mode.cell_filters:
+                #set $cell_args = []
+                #for $f in $mode.cell_filters
+                    #set $fmax = str($f.max) if str($f.max) not in ('', 'None') else 'inf'
+                    #silent $cell_args.append('%s: %s, %s' % ($f.metric, $f.min, $fmax))
+                #end for
+                --filterCellArgs '#echo '; '.join($cell_args)#'
+            #end if
+            #if $mode.region_filters:
+                #set $region_args = []
+                #for $f in $mode.region_filters
+                    #set $fmax = str($f.max) if str($f.max) not in ('', 'None') else 'inf'
+                    #silent $region_args.append('%s: %s, %s' % ($f.metric, $f.min, $fmax))
+                #end for
+                --filterRegionArgs '#echo '; '.join($region_args)#'
+            #end if
+            #if $mode.region_blacklist:
+                --region_blacklist
+                #for $bl in $mode.region_blacklist
+                    '$bl'
+                #end for
+            #end if
+            #if str($mode.chrom_blacklist).strip():
+                --chrom_blacklist
+                #for $chrom in str($mode.chrom_blacklist).split(',')
+                    #if $chrom.strip()
+                        '${chrom.strip()}'
+                    #end if
+                #end for
+            #end if
+        #end if
+    ]]></command>
+    <inputs>
+        <expand macro="h5ad_input"/>
+        <conditional name="mode">
+            <param name="operation" type="select" label="Operation">
+                <option value="metrics" selected="true">Compute QC metrics</option>
+                <option value="filter">Filter cells and regions</option>
+            </param>
+            <when value="metrics"/>
+            <when value="filter">
+                <repeat name="cell_filters" title="Cell filter" help="List of arguments to filter cells. Cells with a QC metric outside [minimum, maximum] are removed. Run 'Compute QC metrics' first to view all available metrics.">
+                    <param name="metric" type="select" label="Cell QC metric">
+                        <option value="total_counts" selected="true">total_counts</option>
+                        <option value="log1p_total_counts">log1p_total_counts</option>
+                        <option value="n_genes_by_counts">n_genes_by_counts (number of regions with counts)</option>
+                        <option value="log1p_n_genes_by_counts">log1p_n_genes_by_counts</option>
+                        <option value="pct_counts_in_top_50_genes">pct_counts_in_top_50_genes</option>
+                        <option value="pct_counts_in_top_100_genes">pct_counts_in_top_100_genes</option>
+                        <option value="pct_counts_in_top_200_genes">pct_counts_in_top_200_genes</option>
+                        <option value="pct_counts_in_top_500_genes">pct_counts_in_top_500_genes</option>
+                        <option value="gini_coefficient">gini_coefficient</option>
+                    </param>
+                    <param name="min" type="float" value="0" label="Minimum value"/>
+                    <param name="max" type="float" optional="true" label="Maximum value" help="Leave empty for no upper bound."/>
+                </repeat>
+                <repeat name="region_filters" title="Region filter" help="List of arguments to filter regions. Regions with a QC metric outside [minimum, maximum] are removed. Run 'Compute QC metrics' first to view all available metrics.">
+                    <param name="metric" type="select" label="Region QC metric">
+                        <option value="total_counts" selected="true">total_counts</option>
+                        <option value="log1p_total_counts">log1p_total_counts</option>
+                        <option value="n_cells_by_counts">n_cells_by_counts</option>
+                        <option value="mean_counts">mean_counts</option>
+                        <option value="log1p_mean_counts">log1p_mean_counts</option>
+                        <option value="pct_dropout_by_counts">pct_dropout_by_counts</option>
+                    </param>
+                    <param name="min" type="float" value="0" label="Minimum value"/>
+                    <param name="max" type="float" optional="true" label="Maximum value" help="Leave empty for no upper bound."/>
+                </repeat>
+                <param argument="--region_blacklist" type="data" format="bed,gtf" multiple="true" optional="true" label="Region blacklist" help="A BED or GTF file containing regions that should be excluded from all analyses. Regions in the AnnData object that overlap with blacklisted regions will be removed."/>
+                <!-- The cell_blacklist option is not exposed: in sincei 0.6.1 it is parsed as an open file handle and then
+                     passed to open() again, which always fails. Add it back once fixed upstream. -->
+                <param argument="--chrom_blacklist" type="text" value="" label="Chromosome blacklist" help="A list of chromosomes to exclude, separated by commas, e.g. chrM,chrUn.">
+                    <validator type="regex" message="Comma-separated chromosome names">[A-Za-z0-9_.,]*</validator>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="cell_metrics" format="tabular" from_work_dir="qc.cells.tsv" label="${tool.name} on ${on_string}: cell metrics">
+            <filter>mode['operation'] == 'metrics'</filter>
+        </data>
+        <data name="region_metrics" format="tabular" from_work_dir="qc.regions.tsv" label="${tool.name} on ${on_string}: region metrics">
+            <filter>mode['operation'] == 'metrics'</filter>
+        </data>
+        <data name="filtered" format="h5ad" label="${tool.name} on ${on_string}: filtered counts (AnnData)">
+            <filter>mode['operation'] == 'filter'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input" value="counts.h5ad"/>
+            <output name="cell_metrics" ftype="tabular">
+                <assert_contents>
+                    <has_text text="total_counts"/>
+                    <has_text text="SL2-1::AGCGTCTA"/>
+                    <has_n_lines n="11"/>
+                </assert_contents>
+            </output>
+            <output name="region_metrics" ftype="tabular">
+                <assert_contents>
+                    <has_text text="pct_dropout_by_counts"/>
+                    <has_n_lines n="1001"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input" value="counts.h5ad"/>
+            <conditional name="mode">
+                <param name="operation" value="filter"/>
+                <repeat name="cell_filters">
+                    <param name="metric" value="total_counts"/>
+                    <param name="min" value="10"/>
+                    <param name="max" value="1000"/>
+                </repeat>
+                <!-- no maximum: passed as inf -->
+                <repeat name="cell_filters">
+                    <param name="metric" value="n_genes_by_counts"/>
+                    <param name="min" value="1"/>
+                </repeat>
+                <repeat name="region_filters">
+                    <param name="metric" value="total_counts"/>
+                    <param name="min" value="1"/>
+                    <param name="max" value="1000"/>
+                </repeat>
+                <param name="chrom_blacklist" value="chrM,chrUn"/>
+            </conditional>
+            <output name="filtered" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="X,obs,var"/>
+                </assert_contents>
+                <metadata name="shape" value="9,126"/>
+            </output>
+            <!-- input: 10 cells x 1000 regions, 518 counts -->
+            <assert_stdout>
+                <has_text text="Cells post-filtering: 9"/>
+                <has_text text="Features post-filtering: 126"/>
+            </assert_stdout>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+`scCountQC` computes quality metrics for the cells and regions of a count matrix produced by
+`scCountReads`, such as total counts, the number of detected regions per cell, and dropout
+rates.
+
+- **Compute QC metrics** writes the per-cell and per-region metrics as tables.
+- **Filter cells and regions** removes cells and regions outside the given metric ranges, plus
+  blacklisted regions or chromosomes, and returns a filtered count matrix.
+
+Each cell or region filter keeps only the cells/regions whose QC metric lies between the given
+minimum and maximum (inclusive). Several filters can be combined. Run **Compute QC metrics**
+first to see the metric values.
+
+-----
+
+**Inputs**
+
+- An AnnData (`h5ad`) count matrix from sincei.
+
+**Outputs**
+
+- *Compute QC metrics*: a cell metrics table and a region metrics table.
+- *Filter cells and regions*: a filtered AnnData (`h5ad`) object.
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="creator"/>
+    <expand macro="citations"/>
+</tool>
