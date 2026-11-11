@@ -75,6 +75,14 @@ echo 'chimera.uchime(
 | mothur
 | tee mothur.out.log
 2>&1  ## uchime component writes output to stderr
+#if $template.source == 'self' and $template.count:
+&& if [ ! -s template.count.denovo.uchime.count_table ]; then cp template.count.dat template.count.denovo.uchime.count_table; fi
+## mothur only writes that count table for 'hasCount && dereplicate' (see the printTable
+## call in chimerauchimecommand.cpp), so with a count table that has no group columns and
+## dereplicate=T nothing is produced. Never hand Galaxy an empty mothur.count_table: its
+## set_meta() indexes the (empty) header list and the job dies with state 'error' and
+## exit_code None. tools-iuc#5178; Galaxy side fixed in galaxy#24840
+#end if
     ]]></command>
     <inputs>
         <param argument="fasta" type="data" format="mothur.align,fasta" label="fasta - Candiate Aligned Sequences"/>
@@ -158,7 +166,7 @@ echo 'chimera.uchime(
         <data name="out_alns" format="txt" from_work_dir="fasta.*uchime.alns" label="${tool.name} on ${on_string}: uchime.alns">
             <filter>chimealns</filter>
         </data>
-        <data name="out_count" format="mothur.count_table" from_work_dir="template.*uchime.pick.count_table" label="${tool.name} on ${on_string}: uchime.count_table">
+        <data name="out_count" format="mothur.count_table" from_work_dir="template.*uchime.count_table" label="${tool.name} on ${on_string}: uchime.count_table">
             <filter>template['source'] == 'self' and template['count']</filter>
         </data>
     </outputs>
@@ -201,6 +209,58 @@ echo 'chimera.uchime(
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
+        <test expect_num_outputs="3"><!-- de novo with a count table that has group columns -->
+            <param name="fasta" value="chimera.fasta"/>
+            <conditional name="template">
+                <param name="source" value="self"/>
+                <param name="count" value="chimera.count_table" ftype="mothur.count_table"/>
+            </conditional>
+            <output name="uchime_chimeras" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="122"/>
+                    <has_line line="Score&#009;Query&#009;ParentA&#009;ParentB&#009;IdQM&#009;IdQA&#009;IdQB&#009;IdAB&#009;IdQT&#009;LY&#009;LN&#009;LA&#009;RY&#009;RN&#009;RA&#009;Div&#009;YN"/>
+                </assert_contents>
+            </output>
+            <output name="out_accnos" ftype="mothur.accnos">
+                <assert_contents>
+                    <has_n_lines n="54"/>
+                    <has_line_matching expression="^M00967_43_000000000-A3JHG_1_2105_10923_10313$"/>
+                </assert_contents>
+            </output>
+            <output name="out_count" ftype="mothur.count_table">
+                <assert_contents>
+                    <has_n_lines n="68"/>
+                    <has_line line="Representative_Sequence&#009;total&#009;Mock"/>
+                    <has_line line="M00967_43_000000000-A3JHG_1_1101_14069_1827&#009;1&#009;1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"><!-- count table without group columns and dereplicate=T:
+            mothur writes no count table, the wrapper passes the input table through (tools-iuc#5178) -->
+            <param name="fasta" value="chimera.fasta"/>
+            <conditional name="template">
+                <param name="source" value="self"/>
+                <param name="count" value="chimera.count_table_wogroups" ftype="mothur.count_table"/>
+            </conditional>
+            <param name="dereplicate" value="true"/>
+            <output name="uchime_chimeras" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="122"/>
+                    <has_line line="Score&#009;Query&#009;ParentA&#009;ParentB&#009;IdQM&#009;IdQA&#009;IdQB&#009;IdAB&#009;IdQT&#009;LY&#009;LN&#009;LA&#009;RY&#009;RN&#009;RA&#009;Div&#009;YN"/>
+                </assert_contents>
+            </output>
+            <output name="out_accnos" ftype="mothur.accnos">
+                <assert_contents>
+                    <has_n_lines n="54"/>
+                </assert_contents>
+            </output>
+            <output name="out_count" ftype="mothur.count_table">
+                <assert_contents>
+                    <has_n_lines n="122"/>
+                    <has_line line="Representative_Sequence&#009;total"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 
@@ -213,6 +273,22 @@ The chimera.uchime_ command reads a fasta file and reference file and outputs po
 .. _chimera.uchime: https://www.mothur.org/wiki/Chimera.uchime
 
 Version 1.23.0: Upgrades tool dependency to mothur 1.33 and adds support for count (mothur 1.28) and dereplicate (mothur 1.29) options.
+
+**The count output**
+
+mothur writes the ``.uchime.count_table`` output only when the supplied count table carries group
+columns, i.e. it needs the per-group abundances to zero out the chimeric sequences. With a count
+table without group columns the tool therefore passes the input table through unchanged, so the
+output is never an empty file.
+
+.. _tools-iuc#5178: https://github.com/galaxyproject/tools-iuc/issues/5178
+.. _galaxy#24840: https://github.com/galaxyproject/galaxy/pull/24840
+
+.. note::
+
+    An empty ``mothur.count_table`` used to abort the job at metadata time (``IndexError`` in
+    ``CountTable.set_meta``). See tools-iuc#5178_ for the report and galaxy#24840_ for the fix in
+    the Galaxy datatype.
 
     ]]></help>
     <expand macro="citations">
