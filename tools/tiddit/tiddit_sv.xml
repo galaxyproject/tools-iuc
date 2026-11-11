@@ -23,7 +23,7 @@
     bwa index reference.fa &&
 #end if
 
-python '$check_header' './${sample_name}.bam' &&
+python '$check_header' './${sample_name}.bam' $calling.min_contig &&
 
 tiddit --sv
     --bam './${sample_name}.bam'
@@ -53,8 +53,8 @@ tiddit --sv
 && if [ ! -s tiddit.vcf ]; then echo 'TIDDIT did not produce a VCF; see the tool standard output for the reason.' >&2; exit 1; fi
     ]]></command>
     <configfiles>
-        <!-- TIDDIT builds work file paths from the sample (SM) and contig (SN) names in the BAM
-             header and pools every read group under the first sample name. Check the header first. -->
+        <!-- TIDDIT builds work file paths from the sample name (SM) and the names (SN) of the contigs
+             it calls, and pools every read group under the first sample name. Check the header first. -->
         <configfile name="check_header"><![CDATA[
 import sys
 
@@ -67,9 +67,13 @@ if len(samples) > 1:
         "The BAM file has read groups for %d samples. TIDDIT would call them as one sample; "
         "give it one sample per BAM file." % len(samples)
     )
-contigs = [sq["SN"] for sq in header.get("SQ", [])]
+min_contig = int(sys.argv[2])
+contigs = [sq["SN"] for sq in header.get("SQ", []) if sq["LN"] >= min_contig]
 if any("/" in name for name in samples + contigs):
-    sys.exit("TIDDIT cannot use sample or contig names that contain a slash; rename them in the BAM header first.")
+    sys.exit(
+        "TIDDIT cannot use sample names that contain a slash, or contig names that do unless the contig "
+        "is shorter than the minimum contig length; rename them in the BAM header first."
+    )
         ]]></configfile>
     </configfiles>
     <inputs>
@@ -183,6 +187,23 @@ if any("/" in name for name in samples + contigs):
             <assert_stderr>
                 <has_text text="names that contain a slash"/>
             </assert_stderr>
+        </test>
+        <!-- ...but TIDDIT writes no files for a contig below the minimum length, so there the name is fine -->
+        <test expect_num_outputs="2">
+            <param name="input" value="slash_in_contig_name.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="slash_in_contig_name_reference.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <section name="calling">
+                <param name="min_contig" value="30000"/>
+            </section>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##contig=&lt;ID=chr1/alt,length=20000&gt;"/>
+                    <has_line_matching expression="#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample1"/>
+                </assert_contents>
+            </output>
         </test>
         <!-- read groups from two samples would be pooled under the first sample name -->
         <test expect_failure="true">
