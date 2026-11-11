@@ -1,0 +1,118 @@
+<tool id="comebin_llmopt" name="COMEBin-LLMopt" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>faster COMEBin: binning of metagenomic contigs using COntrastive Multi-viEw representation learning</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>comebin-llmopt -V</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+mkdir 'outputs' 'bam_files' &&
+
+#set $safename_fasta = re.sub('[^\w\-_\.]', '_', str($assembly_file.element_identifier))
+## Copy, not link: COMEBin writes gene-call caches next to the resolved assembly path.
+cp '$assembly_file' '${safename_fasta}.fasta' &&
+
+#for $file in $bam_files:
+    #set $safename = re.sub('[^\w\-_\.]', '_', str($file.element_identifier))
+    ln -s '$file' './bam_files/${safename}.bam' &&
+#end for
+
+comebin-llmopt
+    -a '${safename_fasta}.fasta'
+    -o 'outputs'
+    -p 'bam_files'
+    -t "\${GALAXY_SLOTS:-12}"
+    #if str($loss):
+        -l ${loss}
+    #end if
+    -n ${learning}
+    -e ${emb_comebin}
+    -c ${emb_cov}
+    -b ${batch}
+    -m ${max_edges}
+    -L ${min_length}
+    #if str($seed):
+        -s ${seed}
+    #end if
+    -d 'cpu'
+
+## COMEBin-LLMopt exits 0 without bins when no marker-gene seeds are found;
+## create empty outputs in that case.
+&& mkdir -p 'outputs/comebin_res/comebin_res_bins'
+&& touch 'outputs/comebin_res/comebin_res.tsv'
+    ]]></command>
+    <inputs>
+        <param name="assembly_file" type="data" format="fasta" label="Metagenomic assembly file"/>
+        <param name="bam_files" type="data" format="bam" multiple="true" label="Input bam file(s)" help="One BAM file per sample with the reads mapped to the assembly."/>
+        <param name="learning" type="integer" value="6" min="1" label="Views for contrastive multiple-view learning"/>
+        <param name="loss" type="float" optional="true" min="0.001" label="Temperature in loss function" help="Leave empty for the automatic choice (COMEBin-LLMopt only): 0.07 if the N50 of the binned contigs is above 10 kb, otherwise 0.15."/>
+        <param name="emb_comebin" type="integer" value="2048" min="1" label="Embedding size for COMEBin network"/>
+        <param name="emb_cov" type="integer" value="2048" min="1" label="Embedding size for coverage network"/>
+        <param name="batch" type="integer" value="1024" min="1" label="Batch size"/>
+        <param name="max_edges" type="integer" value="100" min="1" label="HNSW neighbours retained per contig" help="Capped automatically at the number of contigs minus one."/>
+        <param argument="-L" name="min_length" type="integer" value="1001" min="1001" label="Minimum contig length to bin" help="COMEBin-LLMopt only. Shorter contigs stay unbinned. For large assemblies (about 100k contigs) 2500 cuts the run time several-fold."/>
+        <param argument="-s" name="seed" type="integer" optional="true" value="42" label="Random seed" help="COMEBin-LLMopt only. Set a seed for reproducible results; leave empty for a random seed."/>
+    </inputs>
+    <outputs>
+        <collection name="bins" type="list" format="fasta" label="${tool.name} on ${on_string}: bins">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fa$" directory="outputs/comebin_res/comebin_res_bins/"/>
+        </collection>
+        <data name="contig_bins" format="tabular" from_work_dir="outputs/comebin_res/comebin_res.tsv" label="${tool.name} on ${on_string}: contig to bin table"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="assembly_file" ftype="fasta" value="input_single.fasta"/>
+            <param name="bam_files" ftype="bam" value="input_single.bam"/>
+            <param name="max_edges" value="20"/>
+            <param name="seed" value="42"/>
+            <!-- The 40-contig test assembly (800 kb) yields no bin of at least 200 kb, the minimum final bin size. -->
+            <output_collection name="bins" type="list" count="0"/>
+            <output name="contig_bins" ftype="tabular">
+                <assert_contents>
+                    <has_size value="0"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+COMEBin-LLMopt is a modified, faster version of COMEBin 1.1.0 (the **COMEBin** tool in
+this Tool Shed). It bins metagenomic contigs with contrastive multi-view representation
+learning: it builds several fragments (views) of each contig and learns embeddings of
+coverage and k-mer features, then clusters them with Leiden.
+
+**Differences from the COMEBin tool**
+
+- **Faster:** about 2.6–2.8× shorter run time on CPUs (faster loss, training batches,
+  coverage features and dropout), with the same bin quality within seed noise.
+- **Minimum contig length** (new): bin only contigs above a length, for example 2500 bp for
+  large assemblies.
+- **Random seed** (new): reproducible runs.
+- **Temperature:** chosen automatically from the assembly N50 when left empty
+  (COMEBin always uses the value given, 0.15 by default).
+- **More robust:** small assemblies (HNSW neighbours are capped), assemblies without
+  marker-gene seeds (empty output instead of an error) and CheckM failures.
+- **Extra output:** a contig-to-bin table.
+
+The changes are listed at https://github.com/paulzierep/COMEBin-LLMopt/blob/main/CHANGELOG.md.
+
+**Input**
+
+- The assembly file in FASTA format.
+- The corresponding BAM file(s), one per sample, with reads mapped to the assembly.
+
+**Output**
+
+- A collection with one FASTA file per bin.
+- A two-column table: contig ID and bin.
+
+Bins with less than 200 kb of sequence are not reported, so very small assemblies
+can give empty outputs.
+
+The run time is still high for large assemblies, since this is a machine learning tool.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
