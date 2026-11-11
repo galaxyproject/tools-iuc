@@ -80,9 +80,7 @@ echo "==== MaxBin2 stdout ====" &&
 echo "==== MaxBin2 stderr ====" 1>&2 &&
 #end if
 
-## Capture stdout and stderr separately so we can inspect the no-bin diagnostic.
-## pipefail also makes a failed FASTA decompression/read fail the recovery pipeline.
-{ set -o pipefail ; run_MaxBin.pl
+run_MaxBin.pl
     -contig '$contig_file'
     -out out
 #if $assembly.inputs.type == 'reads':
@@ -96,60 +94,25 @@ echo "==== MaxBin2 stderr ====" 1>&2 &&
     -prob_threshold $adv.prob_threshold
     $output.plotmarker
     -markerset $output.markerset
-    -thread \${GALAXY_SLOTS:-1}
-    > maxbin.stdout 2> maxbin.stderr ;
+    -thread \${GALAXY_SLOTS:-1} ;
 maxbin_rc=\$? ;
-## Keep the original diagnostics visible in Galaxy after saving MaxBin2's exit code.
-cat maxbin.stdout && cat maxbin.stderr >&2 &&
-if [ "\$maxbin_rc" -eq 0 ]; then
-    true ;
-## Recover only the known insufficient-marker outcome: exit 255, the exact final
-## stdout line, no non-whitespace stderr, and no partially produced bin FASTAs.
-## A matching message alone must not hide another error or an incomplete run.
-elif [ "\$maxbin_rc" -eq 255 ]
-    && tail -n 1 maxbin.stdout | grep -Fxq 'Marker gene search reveals that the dataset cannot be binned (the medium of marker gene number <= 1). Program stop.'
-    && ! grep -q '[^[:space:]]' maxbin.stderr
-    && [ -z "\$(find . -maxdepth 1 -name 'out.[0-9]*.fasta' -print -quit)" ] ; then
-    ## Preserve every input contig. Read compressed FASTA with gzip, plain FASTA with cat.
-    #if $contig.ext.endswith('.gz')
-    gzip -cd '$contig'
-    #else
-    cat '$contig'
-    #end if
-    ## Buffer each FASTA record and count its sequence bases. Contigs meeting the
-    ## minimum length go to noclass; shorter ones go to tooshort. Emit the last
-    ## record at EOF, and create both files even when one has no records.
-    | awk -v minimum='$adv.min_contig_length' '
-        function emit() {
-            if (record != "") {
-                destination = length_bp >= minimum ? "out.noclass" : "out.tooshort";
-                printf "%s", record > destination;
-            }
-        }
-        BEGIN { record = ""; length_bp = 0; printf "" > "out.noclass"; printf "" > "out.tooshort"; }
-        /^>/ { emit(); record = ""; length_bp = 0; }
-        { record = record \$0 "\n"; if (\$0 !~ /^>/) { sequence = \$0; gsub(/[[:space:]]/, "", sequence); length_bp += length(sequence); } }
-        END { emit(); }
-    '
-    ## Create the expected empty outputs and a valid empty marker archive.
-    ## Do not create any bin FASTAs: Galaxy will discover an empty bin collection.
-    && touch out.summary out.marker out.marker.pdf
-    && tar -czf out.marker_of_each_bin.tar.gz --files-from /dev/null
-    ## Reassembly has additional declared outputs, which must also exist when empty.
+if [ \$maxbin_rc -eq 0 ]; then
+    tar -xzf out.marker_of_each_bin.tar.gz ;
+## MaxBin2 stops with exit code 255 before binning if it finds too few marker genes.
+## It has already split the contigs by length at that point: keep them as unclassified
+## and too short sequences, and return an empty bin collection.
+elif [ \$maxbin_rc -eq 255 ] && grep -qs 'dataset cannot be binned' out.log ; then
+    mv out.contig.tmp out.noclass &&
+    touch out.summary out.marker out.marker.pdf
     #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
-    && mkdir -p out.reassem
-    && touch out.reassem/out.summary out.reassem/out.reads.noclass out.reassem/N50.txt
+    && mkdir -p out.reassem && touch out.reassem/out.reads.noclass out.reassem/N50.txt
     #end if
-    && echo 'No bins recovered: insufficient marker genes; returning an empty bin collection.' >&2 ;
+    && echo 'MaxBin2 found too few marker genes to bin this dataset; returning an empty bin collection.' >&2 ;
 else
-    ## All other failures keep MaxBin2's original nonzero exit code.
-    exit "\$maxbin_rc" ;
-fi ; }
-&& tar -xzf out.marker_of_each_bin.tar.gz
+    (exit \$maxbin_rc) ;
+fi
 
-## Print any available IDBA diagnostics without replacing the preceding command's
-## exit status with the status of echo/cat. The semicolon allows diagnostics after
-## a failed archive extraction as well as after success.
+## Print the IDBA diagnostics also on failure, but keep the exit status from above.
 #if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
 ; rc=\$? ; echo "==== IDBA stdout ===="
 && if [[ -f out.idba.out ]]; then cat out.idba.out; fi
@@ -267,7 +230,7 @@ fi ; }
             <output name="toshort"><assert_contents><has_text text="&gt;short_contig"/><not_has_text text="&gt;long_contig"/></assert_contents></output>
             <output name="log"><assert_contents><has_text text="dataset cannot be binned"/></assert_contents></output>
             <assert_stderr>
-                <has_text text="No bins recovered: insufficient marker genes"/>
+                <has_text text="too few marker genes"/>
             </assert_stderr>
         </test>
         <!-- test w contigs and reads as input -->
