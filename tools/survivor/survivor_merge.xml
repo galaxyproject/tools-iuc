@@ -1,0 +1,238 @@
+<tool id="survivor_merge" name="SURVIVOR merge" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0">
+    <description>structural variant calls from several callers or samples into one VCF</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.0.7</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_0199</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_3227</edam_operation>
+    </edam_operations>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">survivor</requirement>
+        <requirement type="package" version="5.3.1">gawk</requirement>
+    </requirements>
+    <version_command><![CDATA[SURVIVOR 2>&1 | grep -m1 'Version' | sed 's/Version: //']]></version_command>
+    <command detect_errors="aggressive"><![CDATA[
+## SURVIVOR cannot read compressed VCFs and keys samples on list order, so
+## stage every input as plain text under a predictable name. Two things in
+## SURVIVOR 1.0.7 give wrong results without an error, so staging also guards
+## against them: a record whose INFO starts with SVLEN= or END= can be dropped
+## or mis-sized (those fields are moved behind the others; SURVIVOR writes its
+## own INFO, so this never shows in the output), and a multi-sample input is
+## collapsed to one column with genotypes taken from the wrong sample.
+set -o pipefail &&
+#for $i, $vcf in enumerate($input_vcfs):
+    #if $vcf.is_of_type('vcf_bgzip'):
+        gzip -dc '$vcf'
+    #else:
+        cat '$vcf'
+    #end if
+    | awk -v input='${i + 1}' '
+        BEGIN { FS = OFS = "\t" }
+        substr(\$0, 1, 1) == "\043" {
+            if (index(\$0, "\043CHROM") == 1 && NF > 10) {
+                print "Input " input " has " (NF - 9) " sample columns. SURVIVOR merge needs one sample per input; split multi-sample VCFs first." > "/dev/stderr";
+                exit 1
+            }
+            print;
+            next
+        }
+        {
+            n = split(\$8, field, ";");
+            head = "";
+            tail = "";
+            for (j = 1; j <= n; j++) {
+                if (field[j] ~ /^(SVLEN|END)=/) { tail = tail ";" field[j] } else { head = head ";" field[j] }
+            }
+            if (head != "" && tail != "") { \$8 = substr(head, 2) tail }
+            print
+        }' > 'input_${i}.vcf' &&
+    echo 'input_${i}.vcf' >> vcf_list.txt &&
+#end for
+
+SURVIVOR merge
+    vcf_list.txt
+    #if $distance.distance_type == 'fraction':
+        $distance.max_distance_fraction
+    #else:
+        $distance.max_distance_bp
+    #end if
+    $min_support
+    $same_type
+    $same_strand
+    ## size-based distance estimation is hard-disabled in SURVIVOR 1.0.7, so the flag is ignored
+    0
+    $min_size
+    '$merged_vcf'
+    ]]></command>
+    <inputs>
+        <param name="input_vcfs" type="data" format="vcf,vcf_bgzip" multiple="true" min="2" label="VCF files to merge" help="Two or more SV callsets, one per caller or sample. A list collection works too. The order of the inputs sets the order of the sample columns and of the SUPP_VEC flags in the output."/>
+        <conditional name="distance">
+            <param name="distance_type" type="select" label="Maximum distance between breakpoints is given as">
+                <option value="bp" selected="true">A fixed number of base pairs</option>
+                <option value="fraction">A fraction of the SV length</option>
+            </param>
+            <when value="bp">
+                <param name="max_distance_bp" type="integer" min="1" value="1000" label="Maximum distance between breakpoints (bp)" help="Start and end breakpoints of two calls must each lie within this distance for the calls to be merged."/>
+            </when>
+            <when value="fraction">
+                <param name="max_distance_fraction" type="float" value="0.1" label="Maximum distance between breakpoints (fraction of SV length)" help="For example 0.1 allows the breakpoints of a 5 kb deletion to differ by 500 bp.">
+                    <validator type="in_range" min="0" max="1" exclude_min="true" exclude_max="true" message="Enter a value greater than 0 and less than 1"/>
+                </param>
+            </when>
+        </conditional>
+        <param name="min_support" type="integer" min="1" value="2" label="Minimum number of supporting inputs" help="A merged call is reported only if at least this many input VCFs contain it. Use 1 to keep the union of all calls."/>
+        <param name="same_type" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Only merge calls of the same SV type" help="If disabled, for example a deletion and a duplication at the same breakpoints are merged."/>
+        <param name="same_strand" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Only merge calls on the same strands"/>
+        <param name="min_size" type="integer" min="0" value="30" label="Minimum SV size (bp)" help="Only calls longer than this are reported."/>
+    </inputs>
+    <outputs>
+        <data name="merged_vcf" format="vcf" label="${tool.name} on ${on_string}: merged VCF"/>
+    </outputs>
+    <tests>
+        <!-- defaults: consensus of three callers, the 20 bp deletion is dropped by the size filter -->
+        <test expect_num_outputs="1">
+            <param name="input_vcfs" value="caller_a.vcf,caller_b.vcf,caller_c.vcf" ftype="vcf"/>
+            <assert_command>
+                <has_text_matching expression="SURVIVOR merge\s+vcf_list.txt\s+1000\s+2\s+1\s+1\s+0\s+30\s"/>
+            </assert_command>
+            <output name="merged_vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line line="##source=SURVIVOR"/>
+                    <has_line_matching expression="^#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE1\tSAMPLE1_1\tSAMPLE1_2$"/>
+                    <has_line_matching expression="^chr1\t.*" n="4"/>
+                    <has_line_matching expression="^chr1\t1100\tcaller_b_1\t.*\tSUPP=3;SUPP_VEC=111;.*SVTYPE=DEL;.*"/>
+                    <has_line_matching expression="^chr1\t10500\tcaller_b_2\t.*\tSUPP=2;SUPP_VEC=110;.*SVTYPE=DUP;.*"/>
+                    <has_line_matching expression="^chr1\t30200\tcaller_c_2\t.*\tSUPP=2;SUPP_VEC=101;.*SVTYPE=INV;.*"/>
+                    <has_line_matching expression="^chr1\t40300\tcaller_c_3\t.*\tSUPP=2;SUPP_VEC=011;.*SVTYPE=DEL;.*"/>
+                    <has_text text="./.:NaN"/>
+                    <not_has_text text="SUPP=1;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- bgzipped VCFs, union of all calls -->
+        <test expect_num_outputs="1">
+            <param name="input_vcfs" value="caller_a.vcf.gz,caller_b.vcf.gz,caller_c.vcf.gz" ftype="vcf_bgzip"/>
+            <param name="min_support" value="1"/>
+            <output name="merged_vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="^chr1\t.*" n="6"/>
+                    <has_text text="SUPP=1;SUPP_VEC=010;"/>
+                    <has_text text="SUPP=1;SUPP_VEC=001;"/>
+                    <has_text text="caller_c_4"/>
+                    <not_has_text text="caller_a_4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- tight distance as a fraction of SV length, no size filter -->
+        <test expect_num_outputs="1">
+            <param name="input_vcfs" value="caller_a.vcf,caller_b.vcf,caller_c.vcf" ftype="vcf"/>
+            <conditional name="distance">
+                <param name="distance_type" value="fraction"/>
+                <param name="max_distance_fraction" value="0.06"/>
+            </conditional>
+            <param name="min_support" value="1"/>
+            <param name="min_size" value="0"/>
+            <output name="merged_vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="^chr1\t.*" n="11"/>
+                    <has_text text="caller_a_4"/>
+                    <has_text text="SUPP=2;SUPP_VEC=101;"/>
+                    <not_has_text text="SUPP=3;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- strands ignored: the two opposite-strand inversions merge, the DEL and DUP at the same spot do not -->
+        <test expect_num_outputs="1">
+            <param name="input_vcfs" value="caller_a.vcf,caller_d.vcf" ftype="vcf"/>
+            <param name="min_support" value="1"/>
+            <param name="same_strand" value="false"/>
+            <param name="min_size" value="0"/>
+            <assert_command>
+                <has_text_matching expression="SURVIVOR merge\s+vcf_list.txt\s+1000\s+1\s+1\s+0\s+0\s+0\s"/>
+            </assert_command>
+            <output name="merged_vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="^#CHROM\t.*\tFORMAT\tSAMPLE1\tSAMPLE2$"/>
+                    <has_line_matching expression="^chr1\t.*" n="5"/>
+                    <has_line_matching expression="^chr1\t30050\tcaller_d_2\t.*\tSUPP=2;SUPP_VEC=11;.*SVTYPE=INV;.*"/>
+                    <has_line_matching expression="^chr1\t1000\tcaller_a_1\t.*\tSUPP=1;SUPP_VEC=10;.*SVTYPE=DEL;.*"/>
+                    <has_line_matching expression="^chr1\t1020\tcaller_d_1\t.*\tSUPP=1;SUPP_VEC=01;.*SVTYPE=DUP;.*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- type and strands ignored: the DEL and DUP at the same spot merge as well -->
+        <test expect_num_outputs="1">
+            <param name="input_vcfs" value="caller_a.vcf,caller_d.vcf" ftype="vcf"/>
+            <param name="min_support" value="1"/>
+            <param name="same_type" value="false"/>
+            <param name="same_strand" value="false"/>
+            <param name="min_size" value="0"/>
+            <output name="merged_vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="^chr1\t.*" n="4"/>
+                    <has_line_matching expression="^chr1\t1020\tcaller_d_1\t.*\tSUPP=2;SUPP_VEC=11;.*"/>
+                    <has_line_matching expression="^chr1\t1000\t.*" n="0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- SURVIVOR 1.0.7 loses a call whose INFO starts with SVLEN=; staging reorders INFO so it still merges -->
+        <test expect_num_outputs="1">
+            <param name="input_vcfs" value="caller_a.vcf,svlen_first.vcf" ftype="vcf"/>
+            <param name="min_support" value="1"/>
+            <output name="merged_vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="^chr1\t1050\tsvlen_first_1\t.*\tSUPP=2;SUPP_VEC=11;.*SVTYPE=DEL;.*"/>
+                    <has_line_matching expression="^chr1\t10100\tsvlen_first_2\t.*\tSUPP=2;SUPP_VEC=11;.*SVTYPE=DUP;.*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a multi-sample input is refused instead of being merged with the wrong genotypes -->
+        <test expect_failure="true">
+            <param name="input_vcfs" value="caller_a.vcf,two_samples.vcf" ftype="vcf"/>
+            <assert_stderr>
+                <has_text text="Input 2 has 2 sample columns"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+[SURVIVOR](https://github.com/fritzsedlazeck/SURVIVOR) merge combines structural variant (SV) calls from several VCF files into one VCF. It is typically used to build a consensus callset from several SV callers run on the same sample, or to merge callsets from several samples into a multi-sample VCF.
+
+Two calls are merged when their start and end breakpoints both lie within the maximum distance and, optionally, when they have the same SV type and strands. A merged call is reported only if it is supported by at least the chosen number of input files.
+
+## Inputs
+
+Two or more VCF files (plain or bgzipped), one per caller or sample. A list collection works too.
+
+Each input must have a single sample column. SURVIVOR keeps only one column per input and can fill it with another sample's genotype, so the tool stops with an error if an input has more than one. Split multi-sample VCFs first, for example with bcftools.
+
+SURVIVOR reads the SV type and end from the `SVTYPE` and `END` (or `SVLEN`) INFO fields that most SV callers write. Callers with unusual VCF dialects, in particular for breakends (`BND`), may not be parsed correctly, so check the merged calls.
+
+## Parameters
+
+The defaults (1000 bp, 2 supporting inputs, same type, same strand, 30 bp minimum size) are the values used in the SURVIVOR documentation for building a consensus from several callers. SURVIVOR's option to estimate the distance from the SV size is disabled in its code, so it is not offered here.
+
+- **Maximum distance between breakpoints**: either a fixed number of base pairs or a fraction (between 0 and 1) of the SV length. Breakpoints must be closer than this value, not equal to it. A fraction cannot apply to calls whose breakpoints are on different chromosomes, so SURVIVOR uses a fixed 1000 bp for those.
+- **Minimum number of supporting inputs**: 1 keeps every call (union), the number of inputs keeps only calls found in all of them (intersection). A value larger than the number of inputs gives a VCF with no calls.
+- **Only merge calls of the same SV type**: if disabled, calls of different types at the same breakpoints, for example a deletion and a duplication, are merged.
+- **Only merge calls on the same strands**: if disabled, calls are merged whatever their strands.
+- **Minimum SV size**: only calls longer than this are reported, so a call of exactly this size is dropped. Calls between chromosomes are not filtered by size.
+
+## Output
+
+A VCF with one sample column per input, in input order. Sample columns are named after the sample columns of the inputs, with a numeric suffix where names repeat. Useful INFO fields:
+
+- `SUPP`: number of inputs that support the merged call.
+- `SUPP_VEC`: a string of 0 and 1, one character per input in input order, that shows which inputs support the call. `101` means the first and third input.
+
+In the FORMAT fields, `ID` and `CO` give the original ID and coordinates of each input call. Inputs without the call get an empty (`./.`) entry.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/ncomms14061</citation>
+    </citations>
+</tool>
