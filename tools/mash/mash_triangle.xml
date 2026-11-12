@@ -17,6 +17,8 @@
         ## Galaxy identifier; mash only recognises sketches by their .msh suffix
         #set $used = set()
         #set $links = []
+        #set $sketch_first = False
+        #set $has_sequences = False
         #if str($inputs.input_mode) == 'collection'
             #set $input_files = $inputs.input_collection
         #else
@@ -25,11 +27,15 @@
         #for $input in $input_files
             #set $base = $safe_name($input.element_identifier)
             #if $input.ext == 'msh'
+                #if not $links
+                    #set $sketch_first = True
+                #end if
                 #set $suffix = '.msh'
                 #if $base.endswith('.msh')
                     #set $base = $base[:-4]
                 #end if
             #else
+                #set $has_sequences = True
                 #set $suffix = ''
                 #if $base.endswith('.msh')
                     #set $base = $base + '_'
@@ -45,6 +51,12 @@
             #silent $links.append($link)
             ln -s '$input' '$link' &&
         #end for
+        ## mash takes every sketching setting, including -i, from a leading sketch and ignores the form,
+        ## and nothing in the form can check the input order
+        #if $sketch_first and $has_sequences
+            echo 'The first input is a sketch, so mash would apply its k-mer size, seed, sketch size and individual-sequence setting to the sequence inputs and ignore the settings in this form. Put a sequence dataset first, or sketch every input with the same settings.' >&2 &&
+            exit 1 &&
+        #end if
         mash triangle
             -p \${GALAXY_SLOTS:-1}
             -k $kmer_size
@@ -99,9 +111,9 @@
                 <param name="genome_size" type="integer" argument="-g" value="" min="1000" max="100000000000" optional="true" label="Genome size" help="If specified, will be used for p-value calculation instead of an estimated size from k-mer content"/>
             </when>
         </conditional>
-        <param name="kmer_size" type="integer" argument="-k" value="21" min="1" max="32" label="K-mer size" help="Must match the k-mer size of any sketch (msh) inputs"/>
+        <param name="kmer_size" type="integer" argument="-k" value="21" min="1" max="32" label="K-mer size" help="Used to sketch sequence inputs; any sketch (msh) inputs must have been built with the same k-mer size"/>
         <param name="sketch_size" type="integer" argument="-s" value="1000" min="10" max="1000000" label="Sketch size" help="Each sketch will have at most this many non-redundant min-hashes"/>
-        <param name="seed" type="integer" argument="-S" value="42" min="0" max="4294967295" label="Hash seed" help="Must match the seed used to build any sketch (msh) inputs"/>
+        <param name="seed" type="integer" argument="-S" value="42" min="0" max="4294967295" label="Hash seed" help="Used to sketch sequence inputs; any sketch (msh) inputs must have been built with the same seed"/>
         <conditional name="output_type">
             <param name="output_type_selector" type="select" label="Output format">
                 <option value="phylip" selected="true">Lower-triangular distance matrix (relaxed Phylip)</option>
@@ -241,6 +253,16 @@
             </conditional>
             <param name="kmer_size" value="15"/>
         </test>
+        <!-- a leading sketch would override the form's settings for the sequence inputs, so the job fails -->
+        <test expect_failure="true">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_b.msh,triangle_genome_a.fasta"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="The first input is a sketch"/>
+            </assert_stderr>
+        </test>
         <!-- read sets -->
         <test expect_num_outputs="1">
             <conditional name="inputs">
@@ -277,11 +299,14 @@ sequence dataset is given, mash compares its individual sequences regardless of
 this setting.
 
 Sketch (msh) inputs are labelled with the names stored in the sketch when it
-was built, not with their Galaxy dataset name. If the first input is a sketch,
-its k-mer size, seed and sketch size are used for every input and the values
-set in this form are ignored. Otherwise each sketch must have been built with
-the k-mer size and seed set here; the job fails if a sketch does not match,
-rather than silently leaving it out of the result.
+was built, not with their Galaxy dataset name, and keep the settings they were
+built with. Each sketch must have been built with the k-mer size and seed set
+here; the job fails if a sketch does not match, rather than silently leaving it
+out of the result. When sketches are mixed with sequence datasets the first
+input must be a sequence dataset: mash would otherwise take the k-mer size,
+seed, sketch size and individual-sequence setting from the first sketch and
+ignore this form, so the job fails instead. If every input is a sketch, the
+first one sets the parameters and the others must match it.
 
 **Reads** mode (``-r``) filters out low-copy k-mers that are likely to be
 sequencing errors, as in **mash sketch**.
