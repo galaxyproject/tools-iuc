@@ -1,0 +1,108 @@
+## Run scDblFinder on a 10x-style count matrix (matrix.mtx, genes.tsv, barcodes.tsv).
+## Parameters are read from the Galaxy configfile passed as the only argument,
+## which defines `params`, `files` and `seed.val`.
+
+suppressPackageStartupMessages({
+    library(scDblFinder)
+    library(SingleCellExperiment)
+    library(Matrix)
+})
+
+source(commandArgs(trailingOnly = TRUE)[1])
+set.seed(seed.val)
+
+## Barcodes must be unique: a repeated barcode (e.g. the same barcode from two
+## captures) would silently get the label of its first occurrence.
+check_unique <- function(x, where) {
+    dup <- unique(x[duplicated(x)])
+    if (length(dup) > 0) {
+        stop(sprintf(
+            paste(
+                "%d barcodes appear more than once in the %s, for example: %s.",
+                "Barcodes must be unique. If the matrix combines several captures,",
+                "make them unique first, for example by adding a sample prefix."
+            ),
+            length(dup), where, paste(head(dup, 3), collapse = ", ")
+        ))
+    }
+}
+
+read_labels <- function(path, barcodes, what) {
+    tab <- read.delim(path, header = params$labels_header, colClasses = "character")
+    if (ncol(tab) < 2) {
+        stop(sprintf("The %s file needs two columns: barcode and %s.", what, what))
+    }
+    check_unique(tab[[1]], paste(what, "labels"))
+    labels <- setNames(tab[[2]], tab[[1]])
+    missing <- setdiff(barcodes, names(labels))
+    if (length(missing) > 0) {
+        stop(sprintf(
+            "%d barcodes have no %s label, for example: %s",
+            length(missing), what, paste(head(missing, 3), collapse = ", ")
+        ))
+    }
+    labels[barcodes]
+}
+
+## Load counts
+counts <- as(readMM(files$matrix), "CsparseMatrix")
+genes <- read.delim(files$genes, header = FALSE, colClasses = "character")
+barcodes <- read.delim(files$barcodes, header = FALSE, colClasses = "character")[[1]]
+check_unique(barcodes, "barcodes file")
+if (nrow(counts) != nrow(genes) || ncol(counts) != length(barcodes)) {
+    stop(sprintf(
+        "Matrix is %d x %d, but there are %d genes and %d barcodes.",
+        nrow(counts), ncol(counts), nrow(genes), length(barcodes)
+    ))
+}
+rownames(counts) <- make.unique(genes[[1]])
+colnames(counts) <- barcodes
+sce <- SingleCellExperiment(assays = list(counts = counts))
+cat(sprintf("Loaded %d genes x %d barcodes\n", nrow(sce), ncol(sce)))
+
+## Build arguments
+args <- list(
+    sce = sce,
+    dbr.per1k = params$dbr_per1k,
+    nfeatures = params$nfeatures,
+    dims = params$dims,
+    returnType = "sce"
+)
+if (params$clusters_mode == "auto") {
+    args$clusters <- TRUE
+} else if (params$clusters_mode == "file") {
+    args$clusters <- read_labels(files$clusters, barcodes, "cluster")
+}
+if (!is.null(files$samples)) {
+    args$samples <- read_labels(files$samples, barcodes, "sample")
+    args$multiSampleMode <- params$multi_sample_mode
+}
+if (!is.null(params$dbr)) args$dbr <- params$dbr
+if (!is.null(params$dbr_sd)) args$dbr.sd <- params$dbr_sd
+
+sce <- do.call(scDblFinder, args)
+
+## Per-barcode results
+cols <- intersect(
+    c("scDblFinder.sample", "scDblFinder.cluster", "scDblFinder.class", "scDblFinder.score"),
+    colnames(colData(sce))
+)
+res <- data.frame(barcode = colnames(sce), as.data.frame(colData(sce))[, cols, drop = FALSE])
+colnames(res) <- sub("^scDblFinder\\.", "", colnames(res))
+write.table(res, files$table, sep = "\t", quote = FALSE, row.names = FALSE)
+
+## Look calls up by barcode, so the result does not depend on the column order
+## of the returned object matching the input
+is_doublet <- setNames(sce$scDblFinder.class == "doublet", colnames(sce))[barcodes]
+cat(sprintf(
+    "Called %d doublets and %d singlets (%.1f%% doublets)\n",
+    sum(is_doublet), sum(!is_doublet), 100 * mean(is_doublet)
+))
+
+## Optional matrix of singlets, in the same 10x layout as the input
+if (!is.null(files$out_dir)) {
+    dir.create(files$out_dir, showWarnings = FALSE)
+    writeMM(counts[, !is_doublet, drop = FALSE], file.path(files$out_dir, "matrix.mtx"))
+    file.copy(files$genes, file.path(files$out_dir, "genes.tsv"))
+    writeLines(barcodes[!is_doublet], file.path(files$out_dir, "barcodes.tsv"))
+}
