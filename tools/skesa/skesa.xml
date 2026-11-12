@@ -1,0 +1,296 @@
+<tool id="skesa" name="SKESA" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>de novo assembly of microbial Illumina reads</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>skesa --version 2>&amp;1 | grep -o 'SKESA [0-9.]*'</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## SKESA's own default is 32 GB; it reserves about 2 GB of whatever it is given, so
+## anything below 4 GB makes it refuse even tiny inputs.
+MEMORY_GB=\$(( \${GALAXY_MEMORY_MB:-32768} / 1024 )) &&
+if [ "\$MEMORY_GB" -lt 4 ]; then MEMORY_GB=4; fi &&
+
+skesa
+#if $input.type == 'single'
+    --reads '$input.reads'
+#elif $input.type == 'paired'
+    --reads '$input.forward','$input.reverse'
+#elif $input.type == 'paired_collection'
+    --reads '$input.paired.forward','$input.paired.reverse'
+#else
+    --reads '$input.reads'
+    --use_paired_ends
+#end if
+#if $input.type != 'single' and $input.insert_size
+    --insert_size $input.insert_size
+#end if
+    --kmer $kmer
+    #if $min_count
+        --min_count $min_count
+    #end if
+    --min_contig $min_contig
+    --vector_percent $vector_percent
+    $allow_snps
+    --cores \${GALAXY_SLOTS:-1}
+    --memory \$MEMORY_GB
+    --contigs_out '$contigs'
+#if $extra_outputs
+    #if 'hist' in $extra_outputs
+        --hist '$hist'
+    #end if
+    #if 'all' in $extra_outputs
+        --all '$all_iterations'
+    #end if
+    #if 'connected_reads' in $extra_outputs and $input.type != 'single'
+        --connected_reads '$connected_reads'
+    #end if
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="type" type="select" label="Reads">
+                <option value="paired" selected="true">Paired-end: two datasets</option>
+                <option value="paired_collection">Paired-end: paired collection</option>
+                <option value="interleaved">Paired-end: interleaved dataset</option>
+                <option value="single">Single-end</option>
+            </param>
+            <when value="paired">
+                <param name="forward" type="data" format="fastqsanger,fastqsanger.gz" label="Forward reads"/>
+                <param name="reverse" type="data" format="fastqsanger,fastqsanger.gz" label="Reverse reads"/>
+                <expand macro="insert_size"/>
+            </when>
+            <when value="paired_collection">
+                <param name="paired" type="data_collection" collection_type="paired" format="fastqsanger,fastqsanger.gz" label="Paired reads"
+                    help="Run on a list:paired collection to assemble each sample separately"/>
+                <expand macro="insert_size"/>
+            </when>
+            <when value="interleaved">
+                <param name="reads" type="data" format="fastqsanger,fastqsanger.gz" label="Interleaved paired reads"
+                    help="Mates must alternate: read 1 of a pair directly followed by read 2 (--use_paired_ends)"/>
+                <expand macro="insert_size"/>
+            </when>
+            <when value="single">
+                <param name="reads" type="data" format="fastqsanger,fastqsanger.gz" label="Single-end reads"/>
+            </when>
+        </conditional>
+        <param argument="--kmer" type="integer" min="13" value="21" label="Minimal k-mer length"
+            help="SKESA starts at this k-mer length and steps up to a maximum it estimates from the reads"/>
+        <param argument="--min_count" type="integer" min="1" optional="true" label="Minimal k-mer count"
+            help="K-mers seen fewer times are dropped when comparing alternative extensions. Leave empty to let SKESA estimate it from coverage"/>
+        <param argument="--min_contig" type="integer" min="1" value="200" label="Minimal contig length to report"/>
+        <param argument="--vector_percent" type="float" min="0.0" max="1.0" value="0.05" label="Fraction of reads containing a 19-mer for it to be treated as vector/adapter"
+            help="Such 19-mers are clipped from the reads before assembly. 1 disables this"/>
+        <param argument="--allow_snps" type="boolean" truevalue="--allow_snps" falsevalue="" checked="false" label="Run an extra step to merge contigs across SNPs"
+            help="Useful when the sample is not clonal and SNPs would otherwise break contigs"/>
+        <param name="extra_outputs" type="select" multiple="true" optional="true" label="Additional outputs">
+            <option value="hist">K-mer histogram (--hist)</option>
+            <option value="all">Contigs from every assembly iteration (--all)</option>
+            <option value="connected_reads">Connected paired reads (--connected_reads, paired input only)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="contigs" format="fasta" label="${tool.name} on ${on_string}: contigs"/>
+        <data name="hist" format="tabular" label="${tool.name} on ${on_string}: k-mer histogram">
+            <filter>extra_outputs and 'hist' in extra_outputs</filter>
+        </data>
+        <data name="all_iterations" format="fasta" label="${tool.name} on ${on_string}: contigs per iteration">
+            <filter>extra_outputs and 'all' in extra_outputs</filter>
+        </data>
+        <data name="connected_reads" format="fasta" label="${tool.name} on ${on_string}: connected paired reads">
+            <filter>extra_outputs and 'connected_reads' in extra_outputs and input['type'] != 'single'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- paired datasets, with every optional output -->
+        <test expect_num_outputs="4">
+            <conditional name="input">
+                <param name="type" value="paired"/>
+                <param name="forward" value="reads_1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+                <param name="reverse" value="reads_2.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="extra_outputs" value="hist,all,connected_reads"/>
+            <assert_command>
+                <has_text text="--reads"/>
+                <has_text text="--memory"/>
+                <not_has_text text="--use_paired_ends"/>
+            </assert_command>
+            <output name="contigs" ftype="fasta">
+                <expand macro="one_contig"/>
+            </output>
+            <output name="hist" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="3"/>
+                    <has_line_matching expression="^21\t2\t[0-9]+$"/>
+                </assert_contents>
+            </output>
+            <output name="all_iterations" ftype="fasta">
+                <assert_contents>
+                    <has_line_matching expression="^>kmer21_1 .*"/>
+                </assert_contents>
+            </output>
+            <output name="connected_reads" ftype="fasta">
+                <assert_contents>
+                    <has_line line=">ConnectedRead_1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- paired collection -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="paired_collection"/>
+                <param name="paired">
+                    <collection type="paired">
+                        <element name="forward" value="reads_1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="reads_2.fastqsanger.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+                <param name="insert_size" value="300"/>
+            </conditional>
+            <assert_command>
+                <has_text text="--insert_size 300"/>
+            </assert_command>
+            <output name="contigs" ftype="fasta">
+                <expand macro="one_contig"/>
+            </output>
+        </test>
+        <!-- interleaved -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="interleaved"/>
+                <param name="reads" value="reads_interleaved.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <assert_command>
+                <has_text text="--use_paired_ends"/>
+            </assert_command>
+            <output name="contigs" ftype="fasta">
+                <expand macro="one_contig"/>
+            </output>
+        </test>
+        <!-- single-end, uncompressed; connected reads are not produced without pairs -->
+        <test expect_num_outputs="2">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="reads_single.fastqsanger" ftype="fastqsanger"/>
+            </conditional>
+            <param name="extra_outputs" value="hist,connected_reads"/>
+            <assert_command>
+                <not_has_text text="--connected_reads"/>
+            </assert_command>
+            <output name="contigs" ftype="fasta">
+                <expand macro="one_contig"/>
+            </output>
+            <output name="hist" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- non-default assembly options -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="paired"/>
+                <param name="forward" value="reads_1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+                <param name="reverse" value="reads_2.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="kmer" value="31"/>
+            <param name="min_count" value="3"/>
+            <param name="vector_percent" value="1.0"/>
+            <param name="allow_snps" value="true"/>
+            <assert_command>
+                <has_text text="--kmer 31"/>
+                <has_text text="--min_count 3"/>
+                <has_text text="--vector_percent 1.0"/>
+                <has_text text="--allow_snps"/>
+            </assert_command>
+            <output name="contigs" ftype="fasta">
+                <expand macro="one_contig"/>
+            </output>
+        </test>
+        <!-- every contig shorter than min_contig: SKESA succeeds with an empty FASTA -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="paired"/>
+                <param name="forward" value="reads_1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+                <param name="reverse" value="reads_2.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="min_contig" value="5000"/>
+            <output name="contigs" ftype="fasta">
+                <assert_contents>
+                    <has_size size="0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- nothing assemblable at all: SKESA exits 1 and the job fails -->
+        <test expect_failure="true">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="too_few_reads.fastqsanger" ftype="fastqsanger"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="Was not able to assemble anything"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+SKESA (Strategic K-mer Extension for Scrupulous Assemblies) is NCBI's de novo assembler for
+microbial genomes sequenced with Illumina. It extends contigs one k-mer at a time over a
+series of increasing k-mer lengths and stops at repeats or ambiguous branches instead of
+guessing, so it trades some contiguity for very few misassemblies. It is fast enough to
+assemble a typical bacterial genome in minutes.
+
+-----
+
+**Input**
+
+Reads in FASTQ format, plain or gzipped. Choose how they are organised:
+
+- **Paired-end: two datasets** -- forward and reverse reads in separate files.
+- **Paired-end: paired collection** -- one forward/reverse pair. Running the tool over a
+  ``list:paired`` collection produces one assembly per sample.
+- **Paired-end: interleaved dataset** -- one file where each read 1 is followed directly by
+  its mate.
+- **Single-end** -- unpaired reads.
+
+For paired input SKESA estimates the insert size itself unless you give one.
+
+**Options**
+
+- **Minimal k-mer length** -- the first k-mer length used. SKESA then steps up to a maximum
+  estimated from read length and coverage.
+- **Minimal k-mer count** -- k-mers seen fewer times are ignored when SKESA chooses between
+  alternative extensions. When left empty it is estimated from coverage.
+- **Minimal contig length** -- shorter contigs are not reported.
+- **Vector percent** -- 19-mers present in at least this fraction of reads are treated as
+  adapter or vector and clipped. Set to 1 to disable.
+- **Allow SNPs** -- an extra pass that joins contigs broken by SNPs, for samples that are
+  not clonal.
+
+The job's cores and memory come from the Galaxy job configuration. SKESA needs at least
+4 GB to run, so less than that is rounded up.
+
+-----
+
+**Output**
+
+- **Contigs** (always) in FASTA. Contig names look like ``Contig_1_19.98``, where the last
+  number is the average k-mer coverage.
+- **K-mer histogram** (optional): k-mer length, count, and number of k-mers with that count.
+- **Contigs per iteration** (optional): the contigs after each k-mer length, mostly useful
+  for troubleshooting.
+- **Connected paired reads** (optional, paired input only): read pairs SKESA merged into a
+  single sequence spanning the insert.
+
+**When nothing is assembled**
+
+If SKESA assembles contigs but none reaches the minimal contig length, the job succeeds
+and the contigs dataset is empty, so a run over many samples is not interrupted by one
+poor sample. If the reads cannot be assembled at all (for example far too few reads),
+SKESA reports "Was not able to assemble anything" and the job fails.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
