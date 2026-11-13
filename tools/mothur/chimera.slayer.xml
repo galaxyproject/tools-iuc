@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_chimera_slayer" name="Chimera.slayer" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_chimera_slayer" name="Chimera.slayer" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Find putative chimeras using slayer</description>
     <macros>
         <import>macros.xml</import>
@@ -10,63 +10,77 @@
     <command><![CDATA[
 @SHELL_OPTIONS@
 
-## enable mothur to find blast
-ln -s ln -s `dirname \$(which mothur)`/* . &&
-
 ## create symlinks to input datasets
 ln -s '$fasta' fasta.dat &&
 #if $alignment.source == "self":
-    ln -s '$alignment.name' alignment.name.dat &&
-    ln -s '$alignment.group' alignment.group.dat &&
-    ln -s '$alignment.count' alignment.count.dat &&
+    #if $alignment.name:
+        ln -s '$alignment.name' alignment.name.dat &&
+    #end if
+    #if $alignment.group:
+        ln -s '$alignment.group' alignment.group.dat &&
+    #end if
+    #if $alignment.count:
+        ln -s '$alignment.count' alignment.count.dat &&
+    #end if
 #else:
     ln -s '$alignment.reference' alignment.reference.dat &&
 #end if
 
-echo 'chimera.slayer(
-    fasta=fasta.dat,
-    #if $alignment.source == "self":
-        reference=self,
-        #if $alignment.name:
-            name=$alignment.name,
-        #end if
-        #if $alignment.group:
-            group=$alignment.group,
-        #end if
-        #if $alignment.count:
-            count=$alignment.count,
-        #end if
-    #else:
-        reference=$alignment.reference,
+## collect the arguments of the mothur command in a list and join them with
+## commas, so that the command can never end with a trailing comma
+#set $mothur_args = []
+#silent $mothur_args.append("fasta=fasta.dat")
+#if $alignment.source == "self":
+    #silent $mothur_args.append("reference=self")
+    #if $alignment.name:
+        #silent $mothur_args.append("name=alignment.name.dat")
     #end if
-    #if $options.setby == "user":
-        search=$options.search,
-        window=$options.window,
-        increment=$options.increment,
-        match=$options.match,
-        mismatch=$options.mismatch,
-        numwanted=$options.numwanted,
-        parents=$options.parents,
-        minsim=$options.minsim,
-        mincov=$options.mincov,
-        iters=$options.iters,
-        minbs=$options.minbs,
-        minsnp=$options.minsnp,
-        divergence=$options.divergence,
-        trim=$options.trim,
-        split=$options.split,
+    #if $alignment.group:
+        #silent $mothur_args.append("group=alignment.group.dat")
     #end if
-    dereplicate=$dereplicate,
-    processors='\${GALAXY_SLOTS:-8}'
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
-| ./mothur
+    #if $alignment.count:
+        #silent $mothur_args.append("count=alignment.count.dat")
+    #end if
+#else:
+    #silent $mothur_args.append("reference=alignment.reference.dat")
+#end if
+#if $options.setby == "user":
+    #silent $mothur_args.append("window=" + str($options.window))
+    #silent $mothur_args.append("increment=" + str($options.increment))
+    #silent $mothur_args.append("match=" + str($options.match))
+    #silent $mothur_args.append("mismatch=" + str($options.mismatch))
+    #silent $mothur_args.append("numwanted=" + str($options.numwanted))
+    #silent $mothur_args.append("parents=" + str($options.parents))
+    #silent $mothur_args.append("minsim=" + str($options.minsim))
+    #silent $mothur_args.append("mincov=" + str($options.mincov))
+    #silent $mothur_args.append("iters=" + str($options.iters))
+    #silent $mothur_args.append("minbs=" + str($options.minbs))
+    #silent $mothur_args.append("minsnp=" + str($options.minsnp))
+    #silent $mothur_args.append("divergence=" + str($options.divergence))
+    #silent $mothur_args.append("realign=" + str($options.realign))
+    #silent $mothur_args.append("trim=" + str($options.trim))
+    #silent $mothur_args.append("split=" + str($options.split))
+    ## ksize is appended last so that it is visible in the command
+    ## line mothur echoes into its logfile
+    #silent $mothur_args.append("ksize=" + str($options.ksize))
+#end if
+#silent $mothur_args.append("dereplicate=" + str($dereplicate))
+#silent $mothur_args.append("removechimeras=" + str($removechimeras))
+
+echo 'chimera.slayer(${",".join($mothur_args)})'
+| mothur
 | tee mothur.out.log
+#if str($alignment.source) == "self" and $alignment.count and str($removechimeras) == "true":
+## mothur skips remove.seqs when no chimeras are found, so no chimeras count table is
+## written.  In that case the count table is unchanged and the input can be reused;
+## copying it also avoids handing Galaxy an empty count table, which it cannot parse.
+&& if [ ! -s fasta.slayer.count_table ]; then cp alignment.count.dat fasta.slayer.count_table; fi
+#end if
     ]]></command>
     <inputs>
         <param argument="fasta" type="data" format="fasta" label="fasta - Candiate Sequences"/>
         <conditional name="alignment">
-            <param name="source" type="select" label="Select Reference Template from">
+            <param argument="source" type="select" label="Select Reference Template from">
                 <option value="hist">History</option>
                 <option value="ref">Cached Reference</option>
                 <option value="self">Self - Use abundant sequences from the input Candiate Sequences fasta </option>
@@ -88,16 +102,13 @@ echo 'chimera.slayer(
             </when>
         </conditional>
         <conditional name="options">
-            <param name="setby" type="select" label="Slayer Options">
+            <param argument="setby" type="select" label="Slayer Options">
                 <option value="default">Use default settings</option>
                 <option value="user">Manually set options</option>
             </param>
             <when value="default"/>
             <when value="user">
-                <param argument="search" type="select" label="search - Search method for finding the closest parent">
-                    <option value="blast" selected="true">blast</option>
-                    <option value="kmer">kmer</option>
-                </param>
+                <param argument="ksize" type="integer" value="7" min="1" label="ksize - kmer size" help="size of the kmers used to search the reference for candidate parents (default 7)"/>
                 <param argument="window" type="integer" value="50" label="window - Window size for searching for chimeras (default 50)"/>
                 <param argument="increment" type="integer" value="5" label="increment - Increment for window slide on each iteration (default 5)"/>
                 <param argument="match" type="integer" value="5" label="match - Reward matched bases (default 5)"/>
@@ -110,38 +121,68 @@ echo 'chimera.slayer(
                 <param argument="minbs" type="integer" value="90" label="minbs - Minimum bootstrap support % for calling a sequence chimeric (default 90)"/>
                 <param argument="minsnp" type="integer" value="10" label="minsnp - Percent of SNPs to sample on each side of breakpoint for computing bootstrap support (default 10)"/>
                 <param argument="divergence" type="float" value="1.007" label="divergence - Divergence cutoff for chimera determination (default 1.007)"/>
+                <param argument="realign" type="boolean" truevalue="true" falsevalue="false" checked="true" label="realign - realign the query against the candidate parents"/>
                 <param argument="trim" type="boolean" truevalue="true" falsevalue="false" checked="false" label="trim - include chimeric sequences trimmed to their longest piece"/>
                 <param argument="split" type="boolean" truevalue="true" falsevalue="false" checked="false" label="split - detect tri- and quadmeras"
                     help="if a sequence comes back as non-chimeric, mothur will test the two sides to see if they are chimeric."/>
             </when>
         </conditional>
-        <param name="dereplicate" type="boolean" falsevalue="false" truevalue="true" checked="false" label="dereplicate - remove chimeric sequences from all groups"
+        <param argument="dereplicate" type="boolean" falsevalue="false" truevalue="true" checked="false" label="dereplicate - remove chimeric sequences from all groups"
             help="If parameter is false, then if one group finds the seqeunce to be chimeric, then all groups find it to be chimeric"/>
+        <param argument="removechimeras" type="boolean" falsevalue="false" truevalue="true" checked="true" label="removechimeras - remove chimeric sequences from the fasta"
+            help="When set to true (the mothur default), the chimeric sequences are removed from the output fasta file and the other files are kept consistent"/>
         <expand macro="param-savelog"/>
     </inputs>
     <outputs>
         <expand macro="logfile-output"/>
-        <data name="slayer.chimeras" from_work_dir="fasta.slayer.chimeras" format="txt" label="${tool.name} on ${on_string}: slayer.chimeras"/>
+        <data name="slayer_chimeras" from_work_dir="fasta.slayer.chimeras" format="txt" label="${tool.name} on ${on_string}: slayer.chimeras"/>
         <data name="out_accnos" from_work_dir="fasta.slayer.accnos" format="mothur.accnos" label="${tool.name} on ${on_string}: slayer.accnos"/>
+        <data name="chimeras_fasta" from_work_dir="fasta.slayer.fasta" format="fasta" label="${tool.name} on ${on_string}: slayer.fasta">
+            <filter>removechimeras</filter>
+        </data>
+        <data name="chimeras_count" from_work_dir="fasta.slayer.count_table" format="mothur.count_table" label="${tool.name} on ${on_string}: slayer.count_table">
+            <filter>removechimeras and alignment['source'] == 'self'</filter>
+        </data>
     </outputs>
     <tests>
-        <test><!-- test with external reference -->
+        <test expect_num_outputs="4"><!-- test with external reference -->
             <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
-            <param name="source" value="hist"/>
-            <param name="reference" value="HMP_MOCK.v35.align"/>
-            <output name="slayer.chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.slayer.chimeras" ftype="txt"/>
+            <conditional name="alignment">
+                <param name="source" value="hist"/>
+                <param name="reference" value="HMP_MOCK.v35.align"/>
+            </conditional>
+            <output name="slayer_chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.slayer.chimeras" ftype="txt"/>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test><!-- test with self as reference -->
+        <!-- mothur cannot use a names file here: the count table it derives from the
+             names file drops the last sequence (E.faecalis.2), which makes the abundance
+             sort abort with "is in your fastafile, but is not in your countfile"
+             (mothur 1.46 and 1.48 alike). Feed the equivalent count table instead.
+             The order of the reported sequences depends on the thread scheduling, so
+             the output is compared order-insensitively. -->
+        <test expect_num_outputs="5"><!-- test with self as reference -->
             <param name="fasta" value="HMP_MOCK.v35.align"/>
-            <param name="source" value="self"/>
-            <param name="setby" value="user"/>
-            <param name="search" value="kmer"/>
-            <param name="name" value="HMP_MOCK.v35.align.names"/>
-            <output name="slayer.chimeras" file="HMP_MOCK.v35.slayer.chimeras" ftype="txt"/>
+            <conditional name="alignment">
+                <param name="source" value="self"/>
+                <param name="count" value="HMP_MOCK.v35.count_table" ftype="mothur.count_table"/>
+            </conditional>
+            <conditional name="options">
+                <param name="setby" value="user"/>
+                <param name="ksize" value="33"/>
+            </conditional>
+            <output name="slayer_chimeras" file="HMP_MOCK.v35.slayer.chimeras" ftype="txt" sort="true"/>
+            <output name="chimeras_count" ftype="mothur.count_table"><!-- no chimera is found in this data set,
+                     so mothur skips remove.seqs and the wrapper falls back to the (unchanged) input count table -->
+                <assert_contents>
+                    <has_n_lines n="33"/>
+                    <has_line line="Representative_Sequence&#009;total"/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
-            <expand macro="logfile-test"/>
+            <expand macro="logfile-test-command">
+                <has_line_matching expression="mothur &gt; .*ksize=33.*\)"/>
+            </expand>
         </test>
     </tests>
     <help><![CDATA[
@@ -165,8 +206,8 @@ Note:
 It is not recommended to blindly discard all sequences flagged as chimeras. Some may represent naturally formed chimeras that do not represent PCR artifacts. Sequences flagged may warrant further investigation.
 
 
-.. _ChimeraSlayer: http://microbiomeutil.sourceforge.net/
-.. _chimera.slayer: https://www.mothur.org/wiki/Chimera.slayer
+.. _ChimeraSlayer: https://doi.org/10.1101/gr.112730.110
+.. _chimera.slayer: https://mothur.org/wiki/chimera.slayer/
 
     ]]></help>
     <expand macro="citations">

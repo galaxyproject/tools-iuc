@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_make_shared" name="Make.shared" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_make_shared" name="Make.shared" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Make a shared file from a list and a group</description>
     <macros>
         <import>macros.xml</import>
@@ -16,30 +16,33 @@ ln -s '$intype.otu' intype_otu.dat &&
     ln -s '$intype.group' intype_group.dat &&
 #end if
 
-echo 'make.shared(
-    #if $intype.infile == "biom":
-        biom=intype_otu.dat
-    #else
-        #if $intype.group.is_of_type("mothur.groups"):
-            group=intype_group.dat,
-        #elif $intype.group.is_of_type("mothur.count_table"):
-            count=intype_group.dat,
-        #end if
-        #if $intype.label:
-            label=${ str($intype.label).replace(",","-") },
-        #end if
-        #if $intype.groups:
-            groups=${ str($intype.groups).replace(",","-") },
-        #end if
-        list=intype_otu.dat
+## collect the arguments of the mothur command in a list and join them with
+## commas, so that the command can never end with a trailing comma
+#set $mothur_args = []
+#if $intype.infile == "biom":
+    #silent $mothur_args.append("biom=intype_otu.dat")
+#else
+    #if $intype.group.is_of_type("mothur.groups"):
+        #silent $mothur_args.append("group=intype_group.dat")
+    #elif $intype.group.is_of_type("mothur.count_table"):
+        #silent $mothur_args.append("count=intype_group.dat")
     #end if
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
+    #if $intype.label:
+        #silent $mothur_args.append("label=" + str(str($intype.label).replace(",","-")))
+    #end if
+    #if $intype.groups:
+        #silent $mothur_args.append("groups=" + str(str($intype.groups).replace(",","-")))
+    #end if
+    #silent $mothur_args.append("list=intype_otu.dat")
+#end if
+
+echo 'make.shared(${",".join($mothur_args)})'
 | mothur
 | tee mothur.out.log &&
 
-## move output files to correct destination
-mv mothur.*.logfile "$logfile" &&
+## the logfile is declared with from_work_dir="mothur.out.log" in the logfile-output macro;
+## additionally moving mothur's own logfile onto the dataset path declares the same output
+## twice, which Galaxy tolerates but Pulsar rejects (tools-iuc#5657)
 #if $intype.infile == 'otulist' and $intype.groups:
     mv intype_otu*.groups "$groupout"
 #else
@@ -48,24 +51,24 @@ mv mothur.*.logfile "$logfile" &&
     ]]></command>
     <inputs>
         <conditional name="intype">
-            <param name="infile" type="select" label="Select input type" help="">
+            <param argument="infile" type="select" label="Select input type" help="">
                 <option value="otulist">OTU list</option>
                 <option value="biom">Biom 1.0 file</option>
             </param>
             <when value="otulist">
-                <param name="otu" type="data" format="mothur.list" label="list - OTU List"/>
-                <param name="group" type="data" format="mothur.groups,mothur.count_table" label="supply group or count table if you supplied OTU list"/>
-                <param name="label" type="select" optional="true" label="label - Select OTU Labels to include" multiple="true" help="By default all are included if no selection is made.">
+                <param argument="otu" type="data" format="mothur.list" label="list - OTU List"/>
+                <param argument="group" type="data" format="mothur.groups,mothur.count_table" label="supply group or count table if you supplied OTU list"/>
+                <param argument="label" type="select" optional="true" label="label - Select OTU Labels to include" multiple="true" help="By default all are included if no selection is made.">
                     <expand macro="labeloptions"/>
                 </param>
-                <param name="groups" type="select" multiple="true" label="groups - Groups to include">
+                <param argument="groups" type="select" multiple="true" label="groups - Groups to include">
                     <options>
                         <filter type="data_meta" ref="group" key="groups"/>
                     </options>
                 </param>
             </when>
             <when value="biom">
-                <param name="otu" type="data" format="biom1" label="Biom 1.0 file"/>
+                <param argument="otu" type="data" format="biom1" label="Biom 1.0 file"/>
             </when>
         </conditional>
         <expand macro="param-savelog"/>
@@ -74,38 +77,66 @@ mv mothur.*.logfile "$logfile" &&
         <expand macro="logfile-output"/>
         <data name="shared" format="mothur.shared" from_work_dir="intype_otu*.shared" label="${tool.name} on ${on_string}: shared"/>
         <data name="groupout" format="mothur.groups" from_work_dir="intype_otu*.groups" label="${tool.name} on ${on_string}: groups">
-            <filter>intype['group'].ext == "mothur.groups"</filter>
+            <!-- an exception inside a filter makes Galaxy keep the output, so every optional
+                 parameter has to be tested with .get() before it is indexed -->
+            <filter>intype.get('group') and intype['group'].ext == "mothur.groups"</filter>
         </data>
         <collection name="labelshares" type="list" label="${tool.name} on ${on_string}: share files per label">
             <discover_datasets pattern=".*?\.(?P&lt;designation&gt;.*)\.shared" format="mothur.shared"/>
-            <filter>intype['groups']</filter>
+            <filter>intype.get('groups')</filter>
         </collection>
     </outputs>
     <tests>
-        <test><!-- test with biom file -->
-            <param name="infile" value="biom"/>
-            <param name="otu" value="example.biom"/>
-            <output name="shared" md5="e44d5ca4e4a5dbc68e8219c5690aa156" ftype="mothur.shared"/>
+        <test expect_num_outputs="2"><!-- test with biom file -->
+            <conditional name="intype">
+                <param name="infile" value="biom"/>
+                <param name="otu" value="example.biom"/>
+            </conditional>
+            <output name="shared" ftype="mothur.shared">
+                <assert_contents>
+                    <has_n_lines n="7"/>
+                    <has_line line="label&#009;Group&#009;numOtus&#009;GG_OTU_1&#009;GG_OTU_2&#009;GG_OTU_3&#009;GG_OTU_4&#009;GG_OTU_5"/>
+                    <has_line line="userLabel&#009;Sample3&#009;5&#009;1&#009;0&#009;1&#009;1&#009;1"/>
+                    <has_line line="userLabel&#009;Sample6&#009;5&#009;0&#009;1&#009;0&#009;1&#009;0"/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test><!-- test with otu and group file-->
-            <param name="infile" value="otulist"/>
-            <param name="otu" value="amazon.an.list" ftype="mothur.list"/>
-            <param name="group" value="amazon.groups" ftype="mothur.groups"/>
+        <test expect_num_outputs="3"><!-- test with otu and group file-->
+            <conditional name="intype">
+                <param name="infile" value="otulist"/>
+                <param name="otu" value="amazon.an.list" ftype="mothur.list"/>
+                <param name="group" value="amazon.groups" ftype="mothur.groups"/>
+            </conditional>
             <output name="shared" file="amazon.an.shared" ftype="mothur.shared"/>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test><!-- test with label and group select-->
-            <param name="infile" value="otulist"/>
-            <param name="otu" value="amazon.an.list" ftype="mothur.list"/>
-            <param name="group" value="amazon.groups" ftype="mothur.groups"/>
-            <param name="label" value="0.03,0.05,0.22"/>
-            <param name="groups" value="forest,pasture"/>
-            <output name="groupout" md5="fb60628ae445e7b06f9833f632b2cd0c" ftype="mothur.groups"/>
+        <test expect_num_outputs="4"><!-- test with label and group select-->
+            <conditional name="intype">
+                <param name="infile" value="otulist"/>
+                <param name="otu" value="amazon.an.list" ftype="mothur.list"/>
+                <param name="group" value="amazon.groups" ftype="mothur.groups"/>
+                <param name="label" value="0.03,0.05,0.22"/>
+                <param name="groups" value="forest,pasture"/>
+            </conditional>
+            <output name="groupout" ftype="mothur.groups">
+                <assert_contents>
+                    <has_n_lines n="98"/>
+                    <has_line line="U68589&#009;forest"/>
+                    <has_line line="U68639&#009;pasture"/>
+                    <has_line line="U68688&#009;pasture"/>
+                </assert_contents>
+            </output>
             <output_collection name="labelshares" count="3">
-                <element name="0.22" md5="592b4fb84412de47be18e64ef26b7a80" ftype="mothur.shared"/>
+                <element name="0.22" ftype="mothur.shared">
+                    <assert_contents>
+                        <has_n_lines n="2"/>
+                        <has_line_matching expression="^0\.22\tforest\t\d+(\t\d+)+$"/>
+                        <has_line_matching expression="^0\.22\tpasture\t\d+(\t\d+)+$"/>
+                    </assert_contents>
+                </element>
             </output_collection>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
@@ -120,11 +151,11 @@ mv mothur.*.logfile "$logfile" &&
 The make.shared_ command takes a list_ and a group_ file and outputs a shared_ file, as well as a rabund_ file for each group.
 
 
-.. _list: https://www.mothur.org/wiki/List_file
-.. _group: https://www.mothur.org/wiki/Group_file
-.. _shared: https://www.mothur.org/wiki/Shared_file
-.. _rabund: https://www.mothur.org/wiki/Rabund_file
-.. _make.shared: https://www.mothur.org/wiki/Make.shared
+.. _list: https://mothur.org/wiki/list_file/
+.. _group: https://mothur.org/wiki/group_file/
+.. _shared: https://mothur.org/wiki/shared_file/
+.. _rabund: https://mothur.org/wiki/rabund_file/
+.. _make.shared: https://mothur.org/wiki/make.shared/
 
     ]]></help>
     <expand macro="citations"/>

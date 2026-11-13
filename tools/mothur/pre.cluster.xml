@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_pre_cluster" name="Pre.cluster" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_pre_cluster" name="Pre.cluster" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Remove sequences due to pyrosequencing errors</description>
     <macros>
         <import>macros.xml</import>
@@ -9,37 +9,62 @@
     <expand macro="version_command"/>
     <command><![CDATA[
 @SHELL_OPTIONS@
+#import re
 
 ## create symlinks to input datasets
 ln -s '$fasta' fasta.dat &&
 ln -s '$name' name.dat &&
 ln -s '$group' group.dat &&
 
-echo 'pre.cluster(
-    fasta=fasta.dat,
-    #if $name.is_of_type("mothur.names"):
-        name=name.dat,
-    #elif $name.is_of_type("mothur.count_table"):
-        count=name.dat,
+## collect the arguments of the mothur command in a list and join them with
+## commas, so that the command can never end with a trailing comma
+#set $mothur_args = []
+#silent $mothur_args.append("fasta=fasta.dat")
+#if $name.is_of_type("mothur.names"):
+    #silent $mothur_args.append("name=name.dat")
+#elif $name.is_of_type("mothur.count_table"):
+    #silent $mothur_args.append("count=name.dat")
+#end if
+#if $group:
+    #silent $mothur_args.append("group=group.dat")
+#end if
+#silent $mothur_args.append("diffs=" + str($diffs))
+#silent $mothur_args.append("match=" + str($match))
+#silent $mothur_args.append("mismatch=" + str($mismatch))
+#silent $mothur_args.append("gapopen=" + str($gapopen))
+#silent $mothur_args.append("gapextend=" + str($gapextend))
+#silent $mothur_args.append("method=" + str($method_cond.method))
+#silent $mothur_args.append("clump=" + str($clump))
+#if $method_cond.method == "unoise":
+    #silent $mothur_args.append("alpha=" + str($alpha))
+#end if
+#if $method_cond.method == "tree":
+    #silent $mothur_args.append("delta=" + str($delta))
+#end if
+#if $method_cond.method == "deblur":
+    #silent $mothur_args.append("error_rate=" + str($error_rate))
+    #silent $mothur_args.append("indel_prob=" + str($indel_prob))
+    #silent $mothur_args.append("max_indels=" + str($max_indels))
+    #if $error_dist:
+        #silent $mothur_args.append("error_dist=" + str($error_dist))
     #end if
-    #if $group:
-        group=group.dat,
-    #end if
-    diffs=$diffs,
-    match=$match,
-    mismatch=$mismatch,
-    gapopen=$gapopen,
-    gapextend=$gapextend,
-    topdown=$topdown,
-    processors='\${GALAXY_SLOTS:-8}'
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
+#end if
+#silent $mothur_args.append("processors='${GALAXY_SLOTS:-8}'")
+
+echo 'pre.cluster(${",".join($mothur_args)})'
 | mothur
 | tee mothur.out.log &&
 
 cat fasta* &&
 
-if [ -f fasta.precluster.map ]; then mv fasta.precluster.map fasta.precluster.fasta.map; fi
+## without group information mothur writes a single map file and names it after
+## the file it was given; rename it after the input dataset, so that the element
+## of the map collection is recognisable
+#set $identifier = re.sub('[^\w\-\s\.]', '_', str($fasta.element_identifier))
+#if not $identifier
+    #set $identifier = 'fasta'
+#end if
+if [ -f fasta.precluster.map ]; then mv fasta.precluster.map 'fasta.precluster.${identifier}.map'; fi
     ]]></command>
     <inputs>
         <param argument="fasta" type="data" format="fasta" label="fasta - Sequence Fasta"/>
@@ -50,25 +75,47 @@ if [ -f fasta.precluster.map ]; then mv fasta.precluster.map fasta.precluster.fa
         <param argument="mismatch" type="integer" value="-1" label="mismatch - penalty for a mismatch (default -1)"/>
         <param argument="gapopen" type="integer" value="-2" label="gapopen - penalty for opening a gap (default -2)"/>
         <param argument="gapextend" type="integer" value="-1" label="gapextend - penalty for extending a gap (default -1)"/>
-        <param argument="topdown" type="boolean" truevalue="true" falsevalue="false" checked="true" label="topdown"
-            help="cluster from largest abundance to smallest or vice versa. Default=Yes, meaning largest to smallest"/>
+        <param argument="clump" type="select" label="clump - Which reads can be combined (default lessthan)" help="lessthan: merge reads with less abundance; lessthanequal: merge reads with less than or equal abundance">
+            <option value="lessthan" selected="true">lessthan</option>
+            <option value="lessthanequal">lessthanequal</option>
+        </param>
+        <conditional name="method_cond">
+            <param argument="method" type="select" label="method - Preclustering algorithm (default simple)" help="simple: pseudo-single linkage (Huse) method; unoise: UNOISE error removal; tree: TreePrecluster; deblur: Deblur denoiser">
+                <option value="simple" selected="true">simple</option>
+                <option value="unoise">unoise</option>
+                <option value="tree">tree</option>
+                <option value="deblur">deblur</option>
+            </param>
+            <when value="simple"/>
+            <when value="unoise">
+                <param argument="alpha" type="float" value="2.0" label="alpha - value for the beta formula used in the unoise algorithm (default 2.0)"/>
+            </when>
+            <when value="tree">
+                <param argument="delta" type="float" value="2.0" label="delta - amount of amplification between rounds of PCR, used in the tree algorithm (default 2.0)"/>
+            </when>
+            <when value="deblur">
+                <param argument="error_rate" type="float" value="0.005" label="error_rate - expected mean error rate of the data, as a fraction (default 0.005)"/>
+                <param argument="indel_prob" type="float" value="0.01" label="indel_prob - expected fraction of sequences with an insertion or deletion (default 0.01)"/>
+                <param argument="max_indels" type="integer" value="3" min="0" label="max_indels - maximum number of insertions or deletions expected in the data (default 3)"/>
+                <param argument="error_dist" type="text" optional="true" label="error_dist - fraction of sequences expected to have 0, 1, 2, ... errors" help="starts with 1 and is hyphen separated, e.g. 1-0.06-0.02-0.02-0.01-0.005-0.005-0.005-0.001-0.001-0.001-0.0005, or use binomial to let mothur determine the distribution (default 1-0.06-0.02-0.02-0.01-0.005-0.005-0.005-0.001-0.001-0.001-0.0005)"/>
+            </when>
+        </conditional>
         <expand macro="param-savelog"/>
     </inputs>
     <outputs>
         <expand macro="logfile-output"/>
         <data name="fasta_out" format_source="fasta" from_work_dir="fasta*.precluster.dat" label="${tool.name} on ${on_string}: precluster.fasta"/>
-        <data name="names_out" format="mothur.names" from_work_dir="fasta*.precluster.names" label="${tool.name} on ${on_string}: precluster.names">
-            <filter>name.ext != "mothur.count_table"</filter>
-        </data>
         <data name="count_out" format="mothur.count_table" from_work_dir="fasta*.precluster.count_table" label="${tool.name} on ${on_string}: precluster.count_table">
-            <filter>name.ext == "mothur.count_table"</filter>
+            <!-- mothur converts a name file into a count table, so no name output exists -->
+            <filter>name and (name.ext == "mothur.count_table" or name.ext == "mothur.names")</filter>
         </data>
         <collection name="map_out" type="list" label="${tool.name} on ${on_string}: precluster.map">
             <discover_datasets pattern="fasta\.precluster\.(?P&lt;designation&gt;.*)\.map" format="tabular"/>
         </collection>
     </outputs>
     <tests>
-        <test><!-- test with fasta and names file -->
+        <test expect_num_outputs="4"><!-- test with fasta and names file -->
+            <param name="method_cond|method" value="simple"/>
             <param name="fasta" value="amazon.fasta_head" ftype="fasta"/>
             <param name="name" value="amazon.head.names" ftype="mothur.names"/>
             <output name="fasta_out" ftype="fasta">
@@ -77,16 +124,17 @@ if [ -f fasta.precluster.map ]; then mv fasta.precluster.map fasta.precluster.fa
                     <has_text text="U68589"/>
                 </assert_contents>
             </output>
-            <output name="names_out" ftype="mothur.names">
+            <output name="count_out" ftype="mothur.count_table">
                 <assert_contents>
-                    <expand macro="test-names-format"/>
-                    <has_line_matching expression="^U68589\tU68589$"/>
+                    <has_n_lines n="6"/>
+                    <has_line_matching expression="^Representative_Sequence\ttotal$"/>
+                    <has_line_matching expression="^U68589\t1$"/>
                 </assert_contents>
             </output>
             <output_collection name="map_out" count="1">
-                <element name="fasta" ftype="tabular">
+                <element name="amazon.fasta_head" ftype="tabular">
                     <assert_contents>
-                        <has_text text="ideal_seq_1"/>
+                        <has_text text="ideal_seq"/>
                         <has_text text="U68589"/>
                     </assert_contents>
                 </element>
@@ -94,7 +142,8 @@ if [ -f fasta.precluster.map ]; then mv fasta.precluster.map fasta.precluster.fa
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test><!-- test with fasta and count table -->
+        <test expect_num_outputs="4"><!-- test with fasta and count table -->
+            <param name="method_cond|method" value="simple"/>
             <param name="fasta" value="amazon.fasta_head" ftype="fasta"/>
             <param name="name" value="amazon.count_table" ftype="mothur.count_table"/>
             <output name="fasta_out" ftype="fasta">
@@ -110,9 +159,9 @@ if [ -f fasta.precluster.map ]; then mv fasta.precluster.map fasta.precluster.fa
                 </assert_contents>
             </output>
             <output_collection name="map_out" count="1">
-                <element name="fasta" ftype="tabular">
+                <element name="amazon.fasta_head" ftype="tabular">
                     <assert_contents>
-                        <has_text text="ideal_seq_1"/>
+                        <has_text text="ideal_seq"/>
                         <has_text text="U68589"/>
                     </assert_contents>
                 </element>
@@ -137,9 +186,17 @@ The advantage of our approach is that the algorithm works on aligned sequences i
 This is advantageous because by pre-clustering you remove a large number of sequences making the distance
 calculation much faster.
 
-.. _pre.cluster: https://www.mothur.org/wiki/Pre.cluster
+.. _pre.cluster: https://mothur.org/wiki/pre.cluster/
 
-v1.24.0: Updated to mothur 1.33, added count and topdown parameter
+**Notes**
+
+mothur converts a name file into a count table before pre-clustering, so the sequence names are not
+returned as a separate dataset; they are part of the ``precluster.count_table`` dataset.
+
+The map datasets are returned as the ``precluster.map`` collection: one element per group, named
+after the group, when a group file (or a count table that carries groups) is given, otherwise a
+single element named after the input fasta dataset. Their columns are
+``ideal_seq``/``error_seq``/``abundance``/``diffs``/``sequence``.
 
     ]]></help>
     <expand macro="citations">

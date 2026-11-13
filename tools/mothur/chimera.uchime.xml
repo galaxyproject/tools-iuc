@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_chimera_uchime" name="Chimera.uchime" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_chimera_uchime" name="Chimera.uchime" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Find putative chimeras using uchime</description>
     <macros>
         <import>macros.xml</import>
@@ -19,60 +19,77 @@ ln -s '$fasta' fasta.dat &&
     ln -s '$template.name' template.name.dat &&
 #else:
     ln -s '$template.reference' template.reference.dat &&
+    ## mothur 1.48 regression: in reference mode it feeds an formatted copy of the
+    ## query fasta to uchime, but only the de novo branch of the command creates
+    ## that copy (it reads a temporary "[fasta]temp" file, which is written
+    ## exclusively when reference=self). uchime
+    ## therefore sees an empty query file and reports no chimeras at all.
+    ## Writing the file mothur expects ourselves restores 1.46 behaviour.
+    ln -s fasta.dat fasta.temp &&
 #end if
 
-echo 'chimera.uchime(
-    fasta=fasta.dat,
-    #if $template.source == "self":
-        reference=self,
-        #if float($template.abskew) > 0:
-            abskew=$template.abskew,
-        #end if
-        #if $template.group:
-            group=template.group.dat,
-        #end if
-        #if $template.count:
-            count=template.count.dat,
-        #end if
-    #elif $template.source == "names":
-        name=template.name.dat,
-    #else:
-        reference=template.reference.dat,
+## collect the arguments of the mothur command in a list and join them with
+## commas, so that the command can never end with a trailing comma
+#set $mothur_args = []
+#silent $mothur_args.append("fasta=fasta.dat")
+#if $template.source == "self":
+    #silent $mothur_args.append("reference=self")
+    #if float($template.abskew) > 0:
+        #silent $mothur_args.append("abskew=" + str($template.abskew))
     #end if
-    minh=$minh,
-    mindiv=$mindiv,
-    xn=$xn,
-    dn=$dn,
-    xa=$xa,
-    chunks=$chunks,
-    minchunk=$minchunk,
-    #if $idsmoothwindow:
-        idsmoothwindow=$idsmoothwindow,
+    #if $template.group:
+        #silent $mothur_args.append("group=template.group.dat")
     #end if
-    maxp=$maxp,
-    minlen=$minlen,
-    maxlen=$maxlen,
-    skipgaps=$skipgaps,
-    skipgaps2=$skipgaps2,
-    #if $alignment.ucl == "local":
-        ucl=true,
-        #if $alignment.queryfract:
-            queryfract=$alignment.queryfract,
-        #end if
+    #if $template.count:
+        #silent $mothur_args.append("count=template.count.dat")
     #end if
-    dereplicate=$dereplicate,
-    chimealns=$chimealns,
-    processors='\${GALAXY_SLOTS:-8}'
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
+#elif $template.source == "names":
+    #silent $mothur_args.append("name=template.name.dat")
+#else:
+    #silent $mothur_args.append("reference=template.reference.dat")
+#end if
+#silent $mothur_args.append("minh=" + str($minh))
+#silent $mothur_args.append("mindiv=" + str($mindiv))
+#silent $mothur_args.append("xn=" + str($xn))
+#silent $mothur_args.append("dn=" + str($dn))
+#silent $mothur_args.append("xa=" + str($xa))
+#silent $mothur_args.append("chunks=" + str($chunks))
+#silent $mothur_args.append("minchunk=" + str($minchunk))
+#if $idsmoothwindow:
+    #silent $mothur_args.append("idsmoothwindow=" + str($idsmoothwindow))
+#end if
+#silent $mothur_args.append("maxp=" + str($maxp))
+#silent $mothur_args.append("minlen=" + str($minlen))
+#silent $mothur_args.append("maxlen=" + str($maxlen))
+#silent $mothur_args.append("skipgaps=" + str($skipgaps))
+#silent $mothur_args.append("skipgaps2=" + str($skipgaps2))
+#if $alignment.ucl == "local":
+    #silent $mothur_args.append("ucl=true")
+    #if $alignment.queryfract:
+        #silent $mothur_args.append("queryfract=" + str($alignment.queryfract))
+    #end if
+#end if
+#silent $mothur_args.append("dereplicate=" + str($dereplicate))
+#silent $mothur_args.append("chimealns=" + str($chimealns))
+#silent $mothur_args.append("processors='${GALAXY_SLOTS:-8}'")
+
+echo 'chimera.uchime(${",".join($mothur_args)})'
 | mothur
 | tee mothur.out.log
 2>&1  ## uchime component writes output to stderr
+#if $template.source == 'self' and $template.count:
+&& if [ ! -s template.count.denovo.uchime.count_table ]; then cp template.count.dat template.count.denovo.uchime.count_table; fi
+## mothur only writes that count table for 'hasCount && dereplicate', so with a
+## count table that has no group columns and
+## dereplicate=T nothing is produced. Never hand Galaxy an empty mothur.count_table: its
+## set_meta() indexes the (empty) header list and the job dies with state 'error' and
+## exit_code None. tools-iuc#5178; Galaxy side fixed in galaxy#24840
+#end if
     ]]></command>
     <inputs>
         <param argument="fasta" type="data" format="mothur.align,fasta" label="fasta - Candiate Aligned Sequences"/>
         <conditional name="template">
-            <param name="source" type="select" label="Select Reference Template from">
+            <param argument="source" type="select" label="Select Reference Template from">
                 <option value="hist">History</option>
                 <option value="ref">Cached Reference</option>
                 <option value="self">Self</option>
@@ -146,43 +163,105 @@ echo 'chimera.uchime(
     </inputs>
     <outputs>
         <expand macro="logfile-output"/>
-        <data name="uchime.chimeras" format="txt" from_work_dir="fasta.*uchime.chimeras" label="${tool.name} on ${on_string}: uchime.chimeras"/>
+        <data name="uchime_chimeras" format="txt" from_work_dir="fasta.*uchime.chimeras" label="${tool.name} on ${on_string}: uchime.chimeras"/>
         <data name="out_accnos" format="mothur.accnos" from_work_dir="fasta.*uchime.accnos" label="${tool.name} on ${on_string}: uchime.accnos"/>
         <data name="out_alns" format="txt" from_work_dir="fasta.*uchime.alns" label="${tool.name} on ${on_string}: uchime.alns">
             <filter>chimealns</filter>
         </data>
-        <data name="out_count" format="mothur.count_table" from_work_dir="template.*uchime.pick.count_table" label="${tool.name} on ${on_string}: uchime.count_table">
+        <data name="out_count" format="mothur.count_table" from_work_dir="template.*uchime.count_table" label="${tool.name} on ${on_string}: uchime.count_table">
             <filter>template['source'] == 'self' and template['count']</filter>
         </data>
     </outputs>
     <tests>
-        <test><!-- default params test -->
+        <test expect_num_outputs="3"><!-- default params test -->
             <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head_withchimera"/>
-            <param name="source" value="hist"/>
-            <param name="reference" value="HMP_MOCK.v35.align"/>
-            <output name="uchime.chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.chimeras" ftype="txt"/>
+            <conditional name="template">
+                <param name="source" value="hist"/>
+                <param name="reference" value="HMP_MOCK.v35.align"/>
+            </conditional>
+            <output name="uchime_chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.chimeras" ftype="txt"/>
             <output name="out_accnos" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.accnos" ftype="mothur.accnos"/>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test><!-- de novo test -->
+        <test expect_num_outputs="3"><!-- de novo test -->
             <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
-            <param name="source" value="self"/>
-            <output name="uchime.chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.denovo.uchime.chimeras" ftype="txt"/>
-            <output name="out_accnos" md5="d41d8cd98f00b204e9800998ecf8427e" ftype="mothur.accnos"/>
+            <conditional name="template">
+                <param name="source" value="self"/>
+            </conditional>
+            <output name="uchime_chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.denovo.uchime.chimeras" ftype="txt"/>
+            <output name="out_accnos" ftype="mothur.accnos">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test><!-- with chimealns output -->
+        <test expect_num_outputs="4"><!-- with chimealns output -->
             <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head_withchimera"/>
-            <param name="source" value="hist"/>
-            <param name="reference" value="HMP_MOCK.v35.align"/>
+            <conditional name="template">
+                <param name="source" value="hist"/>
+                <param name="reference" value="HMP_MOCK.v35.align"/>
+            </conditional>
             <param name="chimealns" value="true"/>
-            <output name="uchime.chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.chimeras" ftype="txt"/>
+            <output name="uchime_chimeras" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.chimeras" ftype="txt"/>
             <output name="out_accnos" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.accnos" ftype="mothur.accnos"/>
             <output name="out_alns" file="Mock_S280_L001_R1_001_small.trim.contigs.good.ref.uchime.alns" ftype="txt"/>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
+        </test>
+        <test expect_num_outputs="3"><!-- de novo with a count table that has group columns -->
+            <param name="fasta" value="chimera.fasta"/>
+            <conditional name="template">
+                <param name="source" value="self"/>
+                <param name="count" value="chimera.count_table" ftype="mothur.count_table"/>
+            </conditional>
+            <output name="uchime_chimeras" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="122"/>
+                    <has_line line="Score&#009;Query&#009;ParentA&#009;ParentB&#009;IdQM&#009;IdQA&#009;IdQB&#009;IdAB&#009;IdQT&#009;LY&#009;LN&#009;LA&#009;RY&#009;RN&#009;RA&#009;Div&#009;YN"/>
+                </assert_contents>
+            </output>
+            <output name="out_accnos" ftype="mothur.accnos">
+                <assert_contents>
+                    <has_n_lines n="54"/>
+                    <has_line_matching expression="^M00967_43_000000000-A3JHG_1_2105_10923_10313$"/>
+                </assert_contents>
+            </output>
+            <output name="out_count" ftype="mothur.count_table">
+                <assert_contents>
+                    <has_n_lines n="68"/>
+                    <has_line line="Representative_Sequence&#009;total&#009;Mock"/>
+                    <has_line line="M00967_43_000000000-A3JHG_1_1101_14069_1827&#009;1&#009;1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"><!-- count table without group columns and dereplicate=T:
+            mothur writes no count table, the wrapper passes the input table through (tools-iuc#5178) -->
+            <param name="fasta" value="chimera.fasta"/>
+            <conditional name="template">
+                <param name="source" value="self"/>
+                <param name="count" value="chimera.count_table_wogroups" ftype="mothur.count_table"/>
+            </conditional>
+            <param name="dereplicate" value="true"/>
+            <output name="uchime_chimeras" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="122"/>
+                    <has_line line="Score&#009;Query&#009;ParentA&#009;ParentB&#009;IdQM&#009;IdQA&#009;IdQB&#009;IdAB&#009;IdQT&#009;LY&#009;LN&#009;LA&#009;RY&#009;RN&#009;RA&#009;Div&#009;YN"/>
+                </assert_contents>
+            </output>
+            <output name="out_accnos" ftype="mothur.accnos">
+                <assert_contents>
+                    <has_n_lines n="54"/>
+                </assert_contents>
+            </output>
+            <output name="out_count" ftype="mothur.count_table">
+                <assert_contents>
+                    <has_n_lines n="122"/>
+                    <has_line line="Representative_Sequence&#009;total"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -191,11 +270,17 @@ echo 'chimera.uchime(
 
 **Command Documentation**
 
-The chimera.uchime_ command reads a fasta file and reference file and outputs potentially chimeric sequences. The original uchime program was written by Robert C. Edgar and donated to the public domain, http://drive5.com/uchime
+The chimera.uchime_ command reads a fasta file and reference file and outputs potentially chimeric sequences. The original uchime program was written by Robert C. Edgar and donated to the public domain (uchime_).
 
-.. _chimera.uchime: https://www.mothur.org/wiki/Chimera.uchime
+.. _chimera.uchime: https://mothur.org/wiki/chimera.uchime/
+.. _uchime: http://drive5.com/uchime
 
-Version 1.23.0: Upgrades tool dependency to mothur 1.33 and adds support for count (mothur 1.28) and dereplicate (mothur 1.29) options.
+**The count output**
+
+mothur writes the ``uchime.count_table`` output only when the supplied count table carries group
+columns, i.e. it needs the per-group abundances to zero out the chimeric sequences. With a count
+table without group columns the tool therefore passes the input table through unchanged, so the
+output is never empty.
 
     ]]></help>
     <expand macro="citations">
