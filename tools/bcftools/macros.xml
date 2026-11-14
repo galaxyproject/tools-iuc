@@ -1,6 +1,6 @@
 <macros>
   <token name="@TOOL_VERSION@">1.24</token>
-  <token name="@VERSION_SUFFIX@">0</token>
+  <token name="@VERSION_SUFFIX@">1</token>
   <token name="@PROFILE@">24.1</token>
   <xml name="bio_tools">
       <xrefs>
@@ -21,7 +21,7 @@
       <requirement type="package" version="3.11.0">matplotlib</requirement>
   </xml>
   <xml name="version_command">
-    <version_command>bcftools 2&gt;&amp;1 | grep 'Version:'</version_command>
+    <version_command>bcftools --version-only</version_command>
   </xml>
 
   <xml name="citations">
@@ -36,15 +36,10 @@
   --threads \${GALAXY_SLOTS:-4}
   </token>
   <xml name="macro_input">
-    <!-- 
-    REQUIRES https://github.com/galaxyproject/galaxy/pull/14605/files
-    <param name="input_files" type="data" format="vcf,vcf.gz,vcf_bgzip,bcf" label="Other VCF/BCF Datasets" multiple="True" />
-    -->
     <param name="input_file" type="data" format="vcf,vcf_bgzip,bcf" label="VCF/BCF Data" />
   </xml>
   <token name="@PREPARE_INPUT_FILE@">
 <![CDATA[
-## May need to symlink input if there is an associated
 #set $input_vcf = 'input.vcf.gz'
 #if $input_file.is_of_type('vcf')
   bgzip -c '$input_file' > $input_vcf &&
@@ -73,15 +68,10 @@ $input_vcf
   </token>
 
   <xml name="macro_inputs">
-    <!-- 
-    REQUIRES https://github.com/galaxyproject/galaxy/pull/14605/files
-    <param name="input_files" type="data" format="vcf,vcf.gz,vcf_bgzip,bcf" label="Other VCF/BCF Datasets" multiple="True" />
-    -->
     <param name="input_files" type="data" format="vcf,vcf_bgzip,bcf" label="Other VCF/BCF Datasets" multiple="True" />
   </xml>
   <token name="@PREPARE_INPUT_FILES@">
 <![CDATA[
-## May need to symlink input if there is an associated
 #set $input_vcfs = []
 #set $vcfs_list_file = 'vcfs_list'
 #for (i, input_file) in enumerate($input_files):
@@ -89,8 +79,7 @@ $input_vcf
   #if $input_file.is_of_type('vcf')
     bgzip -c '$input_file' > $input_vcf &&
     bcftools index $input_vcf &&
-  ##elif $input_file.is_of_type('vcf_bgzip') or $input_file.is_of_type('vcf.gz') -> REQUIRES  https://github.com/galaxyproject/galaxy/pull/14605
-  #elif $input_file.is_of_type('vcf_bgzip') or $input_file.is_of_type('vcf.gz')
+  #elif $input_file.is_of_type('vcf_bgzip')
     ln -s '$input_file' $input_vcf &&
     #if $input_file.metadata.tabix_index:
       ln -s '${input_file.metadata.tabix_index}' ${input_vcf}.tbi &&
@@ -172,16 +161,20 @@ $vcfs_list_file
     <param argument="--AF-file" type="data" format="tabular" optional="true" label="Allele frequencies file" help="Tab-delimited file containing the columns CHR,POS,REF,ALT,AF" />
   </xml>
   <!-- This may need to bgzip and tabix the file -->
+  <!-- Added a step to compress and index the allele frequency file before using it -->
   <token name="@PREPARE_AF_FILE@">
 <![CDATA[
+#set $af_path = None
 #if 'AF_file' in $section and $section.AF_file:
-    #pass
+    #set $af_path = 'af_file.tab.gz'
+    bgzip -c '$section.AF_file' > $af_path &&
+    tabix -s 1 -b 2 -e 2 $af_path &&
 #end if
 ]]>
   </token>
   <token name="@AF_FILE@">
 #if 'AF_file' in $section and $section.AF_file:
-  --AF-file '${section.AF_file}'
+  --AF-file $af_path
 #end if
   </token>
 
@@ -222,19 +215,16 @@ $vcfs_list_file
 #end if
   </token>
 
-  <xml name="macro_collapse_opt_none">
-      <option value="none">none - require the exact same set of alleles in all files</option>
-  </xml>
   <xml name="macro_collapse_opt_id">
-      <option value="id">id - only records with identical ID column are compatible. </option>
+      <option value="id">id - require identical ID column to consider records matching</option>
   </xml>
   <xml name="macro_collapse">
-    <param name="collapse" type="select" optional="true" label="Collapse" help="Controls how to treat records with duplicate positions and defines compatible records across multiple input files">
-      <option value="snps">snps - allow different alleles, as long as they all are SNPs</option>
-      <option value="indels">indels - allow different alleles, as long as they all are indels</option>
-      <option value="both">both - indels and snps </option>
-      <option value="some">some - at least some of the ALTs must match</option>
-      <option value="any">any - any combination of alleles</option>
+    <param name="collapse" type="select" optional="true" label="Collapse" help="Controls how to treat records with duplicate positions and defines compatible records across multiple input files. With no selection here the default is to use all of CHROM, POS, REF and ALT for record matching (none).">
+      <option value="some">some - for records to be considered matching at least some of their ALT alleles must match</option>
+      <option value="snps">snps - SNP records are matched on CHROM, POS, REF only regardless of ALT alleles</option>
+      <option value="indels">indels - indel records are matched on CHROM, POS, REF only regardless of ALT alleles</option>
+      <option value="both">both - same as snps and indels options combined</option>
+      <option value="all">all - all records are matched on CHROM, POS, REF only regardless of ALT alleles</option>
       <yield/>
     </param>
   </xml>
@@ -276,8 +266,6 @@ $vcfs_list_file
       <data name="output_file" format="vcf">
         <change_format>
           <when input="output_type" value="b" format="bcf" />
-          <when input="output_type" value="u" format="bcf" />
-          <when input="output_type" value="z" format="vcf_bgzip" />
           <when input="output_type" value="v" format="vcf" />
         </change_format>
       </data>
@@ -397,7 +385,7 @@ $vcfs_list_file
 #set $intervals_spec = ','.join($components)
 ]]>
   </token>
-  
+
   <token name="@MASK@">
 <![CDATA[
 #if $section.conditional_soft_filter.selector == 'enabled' and $section.conditional_soft_filter.soft_filter
@@ -436,7 +424,7 @@ $vcfs_list_file
 #end if
 ]]>
   </token>
-  
+
   <token name="@TARGETS@">
 <![CDATA[
 #if $section.targets.targets_src != '__none__':
@@ -563,7 +551,7 @@ $vcfs_list_file
   </xml>
 
   <xml name="macro_include">
-    <param argument="--include" type="text" optional="true" label="Include" help="Select sites for which the expression is true">
+    <param argument="--include" type="text" optional="true" label="Include" help="Select sites for which the expression is true. Note that duplicate removal ignores this option.">
       <expand macro="macro_include_exclude_validate_sanitize" />
     </param>
   </xml>
@@ -572,7 +560,7 @@ $vcfs_list_file
   --include '${section.include}'
 #end if
   </token>
-  
+
   <xml name="macro_exclude">
     <param argument="--exclude" type="text" optional="true" label="Exclude" help="Exclude sites for which the expression is true">
       <expand macro="macro_include_exclude_validate_sanitize" />
@@ -607,6 +595,15 @@ $vcfs_list_file
 ${section.vcf_ids}
   </token>
 
+  <xml name="macro_no_version">
+    <param argument="--no-version" type="boolean" truevalue="--no-version" falsevalue="" checked="false" label="Do not append version and command line to the header" help="Prevents adding bcftools version and command line information to the output VCF header." />
+  </xml>
+  <token name="@NO_VERSION@">
+#if $section.no_version:
+  --no-version
+#end if
+  </token>
+
 <xml name="macro_output_tags">
   <param name="output_tags" argument="--annotate" type="select" optional="true" multiple="True" display="checkboxes" label="Optional tags to output" help="--annotate">
       <yield />
@@ -615,6 +612,19 @@ ${section.vcf_ids}
 
 <xml name="macro_overlap" token_argument="" token_label="">
 </xml>
+
+  <xml name="macro_rm_dups" token_argument="--rm-dups" token_label="Remove duplicates resulting from concatenation of">
+    <param argument="@ARGUMENT@" type="select" label="@LABEL@" optional="true">
+        <help>
+The following rules are applied depending on your selection: SNPs - of SNP records affecting the same genomic position only the first one is kept regardless of whether the ALT alleles match or not; indels - of indel records affecting the same genomic position only the first one is kept regardless of whether the REF and ALT alleles match or not; both - deduplicates both SNP and indel records according to the previous rules; all - deduplicates all kinds of records according to the rules for SNPs; exact - deduplicates all kinds of records if they match exactly considering REF and ALT.
+        </help>
+        <option value="snps">SNPs (snps)</option>
+        <option value="indels">indels</option>
+        <option value="both">SNPs and indels (both)</option>
+        <option value="all">all records (all)</option>
+        <option value="exact">exact matches (exact)</option>
+    </param>
+  </xml>
 
 
   <token name="@OUTPUT_HELP@">
