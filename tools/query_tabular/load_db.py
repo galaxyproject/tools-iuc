@@ -177,36 +177,35 @@ def getValueType(val):
 
 def get_column_def(file_path, table_name, skip=0, comment_char='#',
                    column_names=None, max_lines=1000, load_named_columns=False,
-                   firstlinenames=False, filters=None):
+                   firstlinenames=False, filters=None, quoted=False):
     col_pref = ['TEXT', 'REAL', 'INTEGER', None]
     col_types = []
     col_idx = None
     col_names = []
     try:
-        tr = TabularReader(file_path, skip=skip, comment_char=comment_char,
-                           col_idx=None, filters=filters)
-        for linenum, fields in enumerate(tr):
-            if linenum == 0 and firstlinenames:
-                col_names = [get_valid_column_name(name) or 'c%d' % (i + 1)
-                             for i, name in enumerate(fields)]
-                # guarantee col_types in case of empty data
-                while len(col_types) < len(fields):
-                    col_types.append(None)
-                continue
-            if linenum > max_lines:
-                break
-            try:
-                while len(col_types) < len(fields):
-                    col_types.append(None)
-                for i, val in enumerate(fields):
-                    colType = getValueType(val)
-                    if col_pref.index(colType) < col_pref.index(col_types[i]):
-                        col_types[i] = colType
-            except Exception as e:
-                print('Failed at line: %d err: %s' % (linenum, e),
-                      file=sys.stderr)
+        with TabularReader(file_path, skip=skip, comment_char=comment_char,
+                           col_idx=None, filters=filters, quoted=quoted) as tr:
+            for linenum, fields in enumerate(tr):
+                if linenum == 0 and firstlinenames:
+                    col_names = [get_valid_column_name(name) or 'c%d' % (i + 1)
+                                 for i, name in enumerate(fields)]
+                    # guarantee col_types in case of empty data
+                    while len(col_types) < len(fields):
+                        col_types.append(None)
+                    continue
+                if linenum > max_lines:
+                    break
+                try:
+                    while len(col_types) < len(fields):
+                        col_types.append(None)
+                    for i, val in enumerate(fields):
+                        colType = getValueType(val)
+                        if col_pref.index(colType) < col_pref.index(col_types[i]):
+                            col_types[i] = colType
+                except Exception as e:
+                    raise ValueError('Cannot infer columns at record %d: %s' % (linenum + 1, e)) from e
     except Exception as e:
-        print('Failed: %s' % (e), file=sys.stderr)
+        raise ValueError('Cannot read %s for table %s: %s' % (file_path, table_name, e)) from e
     for i, col_type in enumerate(col_types):
         if not col_type:
             col_types[i] = 'TEXT'
@@ -234,7 +233,7 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
             else:
                 col_names = [x if x else 'c%d' % (i) for i, x in enumerate(cnames)]
     col_def = []
-    for i, col_name in enumerate(col_names):
+    for i in range(len(col_names)):
         if i >= len(col_types):
             col_types.append('TEXT')
         col_def.append('%s %s' % (col_names[i], col_types[i]))
@@ -244,13 +243,13 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
 def create_table(conn, file_path, table_name, skip=0, comment_char='#',
                  pkey_autoincr=None, column_names=None,
                  load_named_columns=False, firstlinenames=False,
-                 filters=None, unique_indexes=[], indexes=[]):
+                 filters=None, unique_indexes=None, indexes=None, quoted=False):
     col_names, col_types, col_def, col_idx = \
         get_column_def(file_path, table_name, skip=skip,
                        comment_char=comment_char, column_names=column_names,
                        load_named_columns=load_named_columns,
                        firstlinenames=firstlinenames,
-                       filters=filters)
+                       filters=filters, quoted=quoted)
     col_func = [float if t == 'REAL' else int
                 if t == 'INTEGER' else str for t in col_types]
     table_def = 'CREATE TABLE %s (\n    %s%s\n);' % (
@@ -263,58 +262,65 @@ def create_table(conn, file_path, table_name, skip=0, comment_char='#',
                   table_name, ','.join(col_names),
                   ','.join(["?" for x in col_names]))
     # print >> sys.stdout, insert_stmt
-    data_lines = 0
     try:
         c = conn.cursor()
-        c.execute(table_def)
+        try:
+            c.execute(table_def)
+        except Exception as e:
+            if 'duplicate column name' in str(e):
+                raise ValueError('%s. SQLite column names are case-insensitive; '
+                                 'use distinct column aliases in Table Options, or '
+                                 'disable first-line column names.' % e) from e
+            if 'too many columns' in str(e):
+                raise ValueError('%s. This input exceeds the SQLite column limit; '
+                                 'select fewer columns or reshape the table before loading it.' % e) from e
+            raise
         conn.commit()
         c.close()
 
         c = conn.cursor()
-        tr = TabularReader(file_path, skip=skip, comment_char=comment_char,
-                           col_idx=col_idx, filters=filters)
-        for linenum, fields in enumerate(tr):
-            if linenum == 0 and firstlinenames:
-                continue
-            data_lines += 1
-            try:
-                vals = [col_func[i](x)
-                        if x else None for i, x in enumerate(fields)]
-                c.execute(insert_stmt, vals)
-            except Exception as e:
-                print('Load %s Failed line: %d err: %s' % (file_path, linenum, e),
-                      file=sys.stderr)
-                for i, val in enumerate(fields):
-                    try:
-                        col_func[i](val)
-                    except Exception:
-                        colType = getValueType(val)
-                        col_func[i] = float if colType == 'REAL' else int if colType == 'INTEGER' else str
-                        print('Changing %s from %s to %s' % (col_names[i], col_types[i], colType),
-                              file=sys.stderr)
-                        col_types[i] = colType
-                vals = [col_func[i](x)
-                        if x else None for i, x in enumerate(fields)]
-                print('%s  %s' % (insert_stmt, vals),
-                      file=sys.stderr)
+        with TabularReader(file_path, skip=skip, comment_char=comment_char,
+                           col_idx=col_idx, filters=filters, quoted=quoted) as tr:
+            for linenum, fields in enumerate(tr):
+                if linenum == 0 and firstlinenames:
+                    continue
                 try:
+                    if len(fields) != len(col_names):
+                        raise ValueError('Expected %d fields, found %d' % (len(col_names), len(fields)))
+                    vals = []
+                    for i, val in enumerate(fields):
+                        if val == '':
+                            vals.append(None)
+                            continue
+                        try:
+                            converted = col_func[i](val)
+                        except ValueError:
+                            # Later records may require a wider type than the inference sample.
+                            colType = getValueType(val)
+                            col_func[i] = float if colType == 'REAL' else int if colType == 'INTEGER' else str
+                            print('Changing %s from %s to %s' % (col_names[i], col_types[i], colType),
+                                  file=sys.stderr)
+                            col_types[i] = colType
+                            converted = col_func[i](val)
+                        vals.append(converted)
                     c.execute(insert_stmt, vals)
                 except Exception as e:
-                    print('Insert %s line: %d Failed err: %s' % (file_path, linenum, e),
-                          file=sys.stderr)
+                    raise ValueError('Cannot load %s into %s at record %d: %s' %
+                                     (file_path, table_name, linenum + 1, e)) from e
         conn.commit()
         c.close()
-        for i, index in enumerate(unique_indexes):
+        for i, index in enumerate(unique_indexes or []):
             index_name = 'idx_uniq_%s_%d' % (table_name, i)
             index_columns = index.split(',')
             create_index(conn, table_name, index_name, index_columns,
                          unique=True)
-        for i, index in enumerate(indexes):
+        for i, index in enumerate(indexes or []):
             index_name = 'idx_%s_%d' % (table_name, i)
             index_columns = index.split(',')
             create_index(conn, table_name, index_name, index_columns)
     except Exception as e:
-        exit('Error: %s' % (e))
+        conn.rollback()
+        raise ValueError('Cannot load table %s: %s' % (table_name, e)) from e
 
 
 def create_index(conn, table_name, index_name, index_columns, unique=False):
