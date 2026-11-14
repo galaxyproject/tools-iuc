@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_make_design" name="Make Design" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_make_design" name="Make Design" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Assign groups to Sets</description>
     <macros>
         <import>macros.xml</import>
@@ -10,42 +10,96 @@
     <command><![CDATA[
 @SHELL_OPTIONS@
 
+#import re
+
+## A design file is a table: the first line names the columns and its first cell is the
+## word "group", every further line assigns one group of the source file to one set per
+## grouping column. The sets of the first grouping form the default class, which is the
+## one most commands work on.
+#set $rowtail = ''
 #for $grouping in $groupings:
-    #set grp_str = $grouping.groups.__str__
-    #if grp_str:
-        #for $grp in grp_str.split(','):
-            echo -e "$grp\t$grouping.name" >> $design;
-        #end for
+    #if re.search('\s', str($grouping.name)):
+printf '[ERROR]: the name of a grouping must not contain whitespace: %s\n' '${grouping.name}' >&2 && exit 1 &&
     #end if
+    #set $rowtail += '\t' + str($grouping.name)
 #end for
+
+## the groups of the source file: the second column of a group file (name and group) and
+## of a shared file (label, group, number of OTUs, ...), whose first line is a header
+awk -F'\t' 'NR == 1 && $1 == "label" { next } { print $2 }' '$source' | sort -u > source_groups.txt &&
+
+## every group of the source file has to be part of every grouping, otherwise the table
+## has holes and the design file is unusable
+#for $i, $grouping in enumerate($groupings):
+    #set $selection = ','.join([str($g) for $g in $grouping.groups])
+printf '%s\n' '$selection' | tr ',' '\n' | sort -u > grouping_${i}.txt &&
+comm -23 source_groups.txt grouping_${i}.txt > missing_${i}.txt &&
+if [ -s missing_${i}.txt ]; then
+    printf '[ERROR]: the grouping %s does not contain these groups of the source file:\n' '${grouping.name}' >&2 &&
+    sed 's/^/    /' missing_${i}.txt >&2 &&
+    exit 1;
+fi &&
+#end for
+
+printf 'group$rowtail\n' > design.txt &&
+awk -v tail="$rowtail" '{ print $0 tail }' source_groups.txt >> design.txt &&
+mv design.txt '$design'
     ]]></command>
     <inputs>
-        <param name="source" type="data" format="mothur.shared,mothur.groups" label="Source containing groups"/>
+        <param argument="source" type="data" format="mothur.shared,mothur.groups" label="Source containing groups" help="the design file gets one line per group of this dataset"/>
         <repeat name="groupings" title="Grouping">
-            <param name="name" type="text" label="Name for a new combined grouping"/>
-            <param name="groups" type="select" multiple="true" label="Select groups for to include in this grouping">
+            <param argument="name" type="text" label="Name for a new combined grouping" help="the name of the set column; it must not contain whitespace"/>
+            <param argument="groups" type="select" multiple="true" label="Select groups to include in this grouping">
                 <options>
                     <filter type="data_meta" ref="source" key="groups"/>
                 </options>
             </param>
         </repeat>
-        <expand macro="param-savelog"/>
     </inputs>
     <outputs>
         <data name="design" format="mothur.design" label="${tool.name} on ${on_string}: design"/>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="1">
             <param name="source" value="amazon.mothur.shared" ftype="mothur.shared"/>
+            <repeat name="groupings">
+                <param name="name" value="tardis"/>
+                <param name="groups" value="forest,pasture"/>
+            </repeat>
+            <output name="design" ftype="mothur.design">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^group\ttardis$"/>
+                    <has_line_matching expression="^forest\ttardis$"/>
+                    <has_line_matching expression="^pasture\ttardis$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="source" value="amazon.groups" ftype="mothur.groups"/>
             <repeat name="groupings">
                 <param name="name" value="tardis"/>
                 <param name="groups" value="forest,pasture"/>
             </repeat>
             <repeat name="groupings">
                 <param name="name" value="dalek"/>
-                <param name="groups" value="pasture"/>
+                <param name="groups" value="forest,pasture"/>
             </repeat>
-            <output name="design" file="toymothur.design" ftype="mothur.design"/>
+            <output name="design" ftype="mothur.design">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^group\ttardis\tdalek$"/>
+                    <has_line_matching expression="^forest\ttardis\tdalek$"/>
+                    <has_line_matching expression="^pasture\ttardis\tdalek$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <param name="source" value="amazon.mothur.shared" ftype="mothur.shared"/>
+            <repeat name="groupings">
+                <param name="name" value="tardis"/>
+                <param name="groups" value="forest"/>
+            </repeat>
         </test>
     </tests>
     <help><![CDATA[
@@ -54,12 +108,28 @@
 
 **Command Documentation**
 
-Make Design creates a design file for use in mothur commands: merge.groups_, indicator_, and metastats_.
-A design file looks like the group file. It is a 2 column tab delimited file, where the first column is the group name and the second column is the set the group belongs to.
+Make Design writes a design file, which assigns the groups of the source dataset to one
+or more sets per group. A design file is a table whose first line names the columns: the
+first column is called ``group`` and every further column is named after a grouping. Each
+line below the header holds the name of a group followed by the set it belongs to in each
+grouping. For the groups ``forest`` and ``pasture``, both in the grouping ``tardis``, the
+design file is::
 
-.. _merge.groups: https://www.mothur.org/wiki/Merge.groups
-.. _indicator: https://www.mothur.org/wiki/Indicator
-.. _metastats: https://www.mothur.org/wiki/Metastats
+    group	tardis
+    forest	tardis
+    pasture	tardis
+
+Every group of the source dataset has to be part of every grouping, otherwise the table
+would have holes.
+
+**Usage**
+
+Design files are read by merge.groups_, indicator_ and metastats_. The sets of the first
+grouping column form the default class, which is the one most commands work on.
+
+.. _merge.groups: https://mothur.org/wiki/merge.groups/
+.. _indicator: https://mothur.org/wiki/indicator/
+.. _metastats: https://mothur.org/wiki/metastats/
 
     ]]></help>
     <expand macro="citations"/>

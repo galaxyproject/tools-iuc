@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_make_group" name="Make.group" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_make_group" name="Make.group" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Make a group file</description>
     <macros>
         <import>macros.xml</import>
@@ -32,28 +32,31 @@
     #end for
 #end if
 
-echo 'make.group(
-    fasta=${ str($fastas).rstrip('-') },
-    groups=${ str($groups).rstrip('-') }
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
+## collect the arguments of the mothur command in a list and join them with
+## commas, so that the command can never end with a trailing comma
+#set $mothur_args = []
+#silent $mothur_args.append("fasta=" + str(str($fastas).rstrip('-')))
+#silent $mothur_args.append("groups=" + str(str($groups).rstrip('-')))
+#silent $mothur_args.append("format=group")
+
+echo 'make.group(${",".join($mothur_args)})'
 | mothur
 | tee mothur.out.log
     ]]></command>
     <inputs>
         <conditional name="method">
-            <param name="how" type="select" label="Method to create group file">
+            <param argument="how" type="select" label="Method to create group file">
                 <option value="collection"> Automatically from collection </option>
                 <option value="manually"> Manually specify fasta files and group names</option>
             </param>
             <when value="collection">
-                <param name="fasta_collection" type="data_collection" collection_type="list" format="fasta" label="Collection with fasta files to group"
+                <param argument="fasta_collection" type="data_collection" collection_type="list" format="fasta" label="Collection with fasta files to group"
                     help="group names will be derived from the dataset names of the collection elements, please make sure these are meaningful names"/>
             </when>
             <when value="manually">
                 <repeat name="inputs" title="Additional">
-                    <param name="fasta" type="data" format="fasta" label="fasta - Fasta to group"/>
-                    <param name="group" type="text" label="group - Group name"/>
+                    <param argument="fasta" type="data" format="fasta" label="fasta - Fasta to group"/>
+                    <param argument="group" type="text" label="group - Group name"/>
                 </repeat>
             </when>
         </conditional>
@@ -64,42 +67,70 @@ echo 'make.group(
         <data name="output" format="mothur.groups" from_work_dir="*groups" label="${tool.name} on ${on_string}: group"/>
     </outputs>
     <tests>
-        <test> <!-- test manual groups creation -->
-            <param name="how" value="manually"/>
-            <repeat name="inputs">
-                <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
-                <param name="group" value="testgroup"/>
-            </repeat>
-            <repeat name="inputs">
-                <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
-                <param name="group" value="testgroup2"/>
-            </repeat>
-            <output name="output" file="Mock_S280_L001_R1_001_small.trim.contigs.good.Mock_S280_L001_R1_001_small.trim.contigs.good.groups"/>
+        <!-- mothur 1.48 collects the sequence->group assignments into a std::map, so the
+             output is sorted by sequence name and a sequence that occurs in more than one
+             input file is reported once (its last group wins) instead of once per group. -->
+        <test expect_num_outputs="2"> <!-- test manual groups creation -->
+            <conditional name="method">
+                <param name="how" value="manually"/>
+                <repeat name="inputs">
+                    <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
+                    <param name="group" value="testgroup"/>
+                </repeat>
+                <repeat name="inputs">
+                    <param name="fasta" value="amazon.fasta"/>
+                    <param name="group" value="testgroup2"/>
+                </repeat>
+            </conditional>
+            <output name="output" ftype="mothur.groups">
+                <assert_contents>
+                    <has_n_lines n="108"/>
+                    <has_line_matching expression="^M00967_43_000000000-A3JHG_1_1101_11148_6457\ttestgroup$"/>
+                    <has_line_matching expression="^U68589\ttestgroup2$"/>
+                    <has_line_matching expression="^U68688\ttestgroup2$"/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test> <!-- test auto-creation from collection -->
-            <param name="how" value="collection"/>
-            <param name="fasta_collection">
-               <collection type="list">
-                   <element name="testgroup" ftype="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head" />
-                   <element name="testgroup2" ftype="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head" />
-              </collection>
-           </param>
-           <output name="output" file="Mock_S280_L001_R1_001_small.trim.contigs.good.Mock_S280_L001_R1_001_small.trim.contigs.good.groups"/>
-           <param name="savelog" value="true"/>
+        <test expect_num_outputs="2"> <!-- test auto-creation from collection -->
+            <conditional name="method">
+                <param name="how" value="collection"/>
+                <param name="fasta_collection">
+                   <collection type="list">
+                       <element name="testgroup" ftype="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head" />
+                       <element name="testgroup2" ftype="fasta" value="amazon.fasta" />
+                  </collection>
+               </param>
+            </conditional>
+            <output name="output" ftype="mothur.groups">
+                <assert_contents>
+                    <has_n_lines n="108"/>
+                    <has_line_matching expression="^M00967_43_000000000-A3JHG_1_1101_11148_6457\ttestgroup$"/>
+                    <has_line_matching expression="^U68589\ttestgroup2$"/>
+                </assert_contents>
+            </output>
+            <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test> <!-- test with spaces or hyphens in element identifier -->
-            <param name="how" value="collection"/>
-            <param name="fasta_collection">
-               <collection type="list">
-                   <element name="test group" ftype="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head" />
-                   <element name="test-group2" ftype="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head" />
-              </collection>
-           </param>
-           <output name="output" file="make_group_collection.groups"/>
-           <param name="savelog" value="true"/>
+        <test expect_num_outputs="2"> <!-- test with spaces or hyphens in element identifier -->
+            <conditional name="method">
+                <param name="how" value="collection"/>
+                <param name="fasta_collection">
+                   <collection type="list">
+                       <element name="test group" ftype="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head" />
+                       <element name="test-group2" ftype="fasta" value="amazon.fasta" />
+                  </collection>
+               </param>
+            </conditional>
+            <output name="output" ftype="mothur.groups">
+                <assert_contents>
+                    <has_n_lines n="108"/>
+                    <has_line_matching expression="^M00967_43_000000000-A3JHG_1_1101_11148_6457\ttest_group$"/>
+                    <has_line_matching expression="^U68589\ttest_group2$"/>
+                </assert_contents>
+            </output>
+            <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
     </tests>
@@ -111,8 +142,8 @@ echo 'make.group(
 
 The make.group_ command reads a fasta file or series of fasta files and creates a group_ file.
 
-.. _group: https://www.mothur.org/wiki/Group_file
-.. _make.group: https://www.mothur.org/wiki/Make.group
+.. _group: https://mothur.org/wiki/group_file/
+.. _make.group: https://mothur.org/wiki/make.group/
 
     ]]></help>
     <expand macro="citations"/>

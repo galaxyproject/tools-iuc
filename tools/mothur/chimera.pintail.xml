@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_chimera_pintail" name="Chimera.pintail" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_chimera_pintail" name="Chimera.pintail" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Find putative chimeras using pintail</description>
     <macros>
         <import>macros.xml</import>
@@ -19,37 +19,41 @@ ln -s '$quantile' quantile.dat &&
     ln -s '$mask_cond.mask' mask.dat &&
 #end if
 
-echo 'chimera.pintail(
-    fasta=fasta.dat,
-    reference=alignment.reference.dat,
-    filter=$filter,
-    #if $mask_cond.source2 == "default":
-        mask=default,
-    #elif $mask_cond.source2 == "history":
-        mask=mask.dat,
-    #end if
-    #if $conservation:
-        conservation=conservation.dat,
-    #end if
-    #if $quantile:
-        quantile=quantile.dat,
-    #end if
-    #if int($window) > 0:
-        window=$window,
-    #end if
-    #if int($increment) > 0:
-        increment=$increment,
-    #end if
-    processors='\${GALAXY_SLOTS:-8}'
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
+## mothur 1.48's chimera.pintail segfaults when no default files directory is
+## configured (it dereferences an empty default-files path).
+## Bioconda ships mothur without the bundled `files` dir, so run
+## set.dir(mothurfiles=.) first to keep the default path non-empty.
+{
+echo 'set.dir(mothurfiles=.)' &&
+#set $mothur_args = ["fasta=fasta.dat", "reference=alignment.reference.dat",
+    "filter=" + str($filter)]
+#if $mask_cond.source2 == "default":
+    #silent $mothur_args.append("mask=default")
+#elif $mask_cond.source2 == "history":
+    #silent $mothur_args.append("mask=mask.dat")
+#end if
+#if $conservation:
+    #silent $mothur_args.append("conservation=conservation.dat")
+#end if
+#if $quantile:
+    #silent $mothur_args.append("quantile=quantile.dat")
+#end if
+#if int($window) > 0:
+    #silent $mothur_args.append("window=" + str($window))
+#end if
+#if int($increment) > 0:
+    #silent $mothur_args.append("increment=" + str($increment))
+#end if
+echo 'chimera.pintail(${",".join($mothur_args)})'
+;
+}
 | mothur
 | tee mothur.out.log
     ]]></command>
     <inputs>
         <param argument="fasta" type="data" format="fasta" label="fasta - Candiate Sequences"/>
         <conditional name="alignment">
-            <param name="source" type="select" label="Select Reference Template from">
+            <param argument="source" type="select" label="Select Reference Template from">
                 <option value="hist">History</option>
                 <option value="ref">Cached Reference</option>
             </param>
@@ -64,7 +68,7 @@ echo 'chimera.pintail(
         </conditional>
         <param argument="filter" type="boolean" falsevalue="false" truevalue="true" checked="false" label="filter - Apply a 50% soft vertical filter"/>
         <conditional name="mask_cond">
-            <param name="source2" type="select" label="Mask option">
+            <param argument="source2" type="select" label="Mask option">
                 <option value="">None</option>
                 <option value="default">default ecoli mask</option>
                 <option value="history">From your history</option>
@@ -89,7 +93,7 @@ echo 'chimera.pintail(
     </inputs>
     <outputs>
         <expand macro="logfile-output"/>
-        <data name="pintail.chimeras" format="txt" from_work_dir="fasta.*pintail.chimeras" label="${tool.name} on ${on_string}: pintail.chimeras"/>
+        <data name="pintail_chimeras" format="txt" from_work_dir="fasta.*pintail.chimeras" label="${tool.name} on ${on_string}: pintail.chimeras"/>
         <data name="out_accnos" format="mothur.accnos" from_work_dir="fasta.*pintail.accnos" label="${tool.name} on ${on_string}: pintail.accnos"/>
         <data name="out_freq" format="mothur.freq" from_work_dir="alignment.reference.freq" label="${tool.name} on ${on_string}: pintail.freq">
             <filter>conservation == None</filter>
@@ -99,31 +103,58 @@ echo 'chimera.pintail(
         </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="4">
             <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
-            <param name="source" value="hist"/>
-            <param name="reference" value="HMP_MOCK.v35.align"/>
+            <conditional name="alignment">
+                <param name="source" value="hist"/>
+                <param name="reference" value="HMP_MOCK.v35.align"/>
+            </conditional>
             <param name="quantile" value="HMP_MOCK.v35.pintail.quan"/>
             <param name="window" value="200"/>
-            <output name="pintail.chimeras" md5="644fe23ee459a76de7b225e530361865" ftype="txt"/>
-            <output name="out_accnos" file="Mock_S280_L001_R1_001_small.trim.contigs.good.pintail.accnos" ftype="mothur.accnos"/>
-            <param name="savelog" value="true"/>
-            <expand macro="logfile-test"/>
-        </test>
-        <test>
-            <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
-            <param name="source" value="hist"/>
-            <param name="reference" value="HMP_MOCK.v35.align"/>
-            <param name="source2" value="default"/>
-            <param name="window" value="200"/>
-            <output name="pintail.chimeras" ftype="txt">
+            <output name="pintail_chimeras" ftype="txt">
                 <assert_contents>
                     <has_text text="Observed"/>
                     <has_text text="Expected"/>
+                    <has_line_matching expression="\S+\tdiv: [0-9.]+\tstDev: [0-9.]+\tchimera flag: (Yes|No)"/>
                 </assert_contents>
             </output>
-            <output name="out_quantile" md5="74372024214704010aed4f9c8258f77b" ftype="mothur.quan"/>
-            <output name="out_freq" md5="2d2c4066c5de06c8d1d78ee3784daa3d" ftype="mothur.freq"/>
+            <output name="out_accnos" ftype="mothur.accnos">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <test expect_num_outputs="5">
+            <param name="fasta" value="Mock_S280_L001_R1_001_small.trim.contigs.good.align_head"/>
+            <conditional name="alignment">
+                <param name="source" value="hist"/>
+                <param name="reference" value="HMP_MOCK.v35.align"/>
+            </conditional>
+            <conditional name="mask_cond">
+                <param name="source2" value="default"/>
+            </conditional>
+            <param name="window" value="200"/>
+            <output name="pintail_chimeras" ftype="txt">
+                <assert_contents>
+                    <has_text text="Observed"/>
+                    <has_text text="Expected"/>
+                    <has_line_matching expression="\S+\tdiv: [0-9.]+\tstDev: [0-9.]+\tchimera flag: (Yes|No)"/>
+                </assert_contents>
+            </output>
+            <output name="out_quantile" ftype="mothur.quan">
+                <assert_contents>
+                    <has_line_matching expression="^#[0-9.]+$"/>
+                    <has_line_matching expression="^[0-9]+(\t[0-9.]+)+$"/>
+                </assert_contents>
+            </output>
+            <output name="out_freq" ftype="mothur.freq">
+                <assert_contents>
+                    <has_line_matching expression="^#[0-9.]+$"/>
+                    <has_line_matching expression="^[0-9]+\t[0-9.]+$"/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
@@ -150,7 +181,7 @@ The sequence to be checked (the query) is first globally aligned with a phylogen
 
 
 .. _paper: http://www.ncbi.nlm.nih.gov/pubmed/16332745
-.. _chimera.pintail: https://www.mothur.org/wiki/Chimera.pintail
+.. _chimera.pintail: https://mothur.org/wiki/chimera.pintail/
 
     ]]></help>
     <expand macro="citations">
