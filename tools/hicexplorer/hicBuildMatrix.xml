@@ -1,4 +1,4 @@
-<tool id="hicexplorer_hicbuildmatrix" name="@BINARY@" version="@TOOL_VERSION@+galaxy2" profile="@PROFILE@">
+<tool id="hicexplorer_hicbuildmatrix" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>create a contact matrix</description>
     <macros>
         <token name="@BINARY@">hicBuildMatrix</token>
@@ -6,19 +6,32 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
+        #if $input_type.input_type_selector == 'pairs':
+            #set $first_input = $input_type.pairsFile
+        #else:
+            @SET_SAM_FILES@
+            #set $first_input = $sam1
+        #end if
 
         mkdir ./QCfolder &&
         mkdir '$qc.files_path' &&
         @BINARY@
-            --samFiles '$samFile1' '$samFile2'
+            #if $input_type.input_type_selector == 'pairs':
+                --pairsFile '$input_type.pairsFile'
+                #if $input_type.restrictionCutFile:
+                    --restrictionCutFile '$input_type.restrictionCutFile'
+                #end if
+            #else:
+                --samFiles '$sam1' '$sam2'
 
-            --restrictionCutFile '$restrictionCutFile'
+                --restrictionCutFile '$input_type.restrictionCutFile'
 
-            #if $restrictionSequence:
-                --restrictionSequence $restrictionSequence
-            #end if
-            #if $danglingSequence:
-                --danglingSequence $danglingSequence
+                #if $input_type.restrictionSequence:
+                    --restrictionSequence $input_type.restrictionSequence
+                #end if
+                #if $input_type.danglingSequence:
+                    --danglingSequence $input_type.danglingSequence
+                #end if
             #end if
             #if $minDistance:
             --minDistance $minDistance
@@ -27,10 +40,13 @@
                 --maxLibraryInsertSize $maxLibraryInsertSize
             #end if
 
-            #if $binSizes:
+            ## an empty bin size is skipped: with .pairs input and no bin size,
+            ## the restriction cut file defines the bins
+            #set $bin_sizes = [str($repeat.binSize) for $repeat in $binSizes if str($repeat.binSize) not in ('', 'None')]
+            #if $bin_sizes:
                 --binSize
-                #for $repeat in $binSizes
-                    '${repeat.binSize}'
+                #for $bin_size in $bin_sizes
+                    '${bin_size}'
                 #end for
             #end if
 
@@ -40,7 +56,7 @@
             #if $dbKey:
                 --genomeAssembly '$dbKey'
             #else
-                --genomeAssembly '$samFile1.metadata.dbkey'
+                --genomeAssembly '$first_input.metadata.dbkey'
             #end if
 
             #if $region:
@@ -49,12 +65,14 @@
 
             --outFileName 'matrix.$outputFormat'
 
-            #if $outBam:
-                $outBam ./unsorted.bam
-            #end if
+            #if $input_type.input_type_selector != 'pairs':
+                #if $outBam:
+                    $outBam ./unsorted.bam
+                #end if
 
-            $keepSelfCircles
-            $keepSelfLigation
+                $keepSelfCircles
+                $keepSelfLigation
+            #end if
             $skipDuplicationCheck
 
             #if $minMappingQuality and $minMappingQuality is not None:
@@ -70,16 +88,28 @@
         mv '$qc.files_path/hicQC.html' '$qc'
         && mv "$qc.files_path"/*.log raw_qc
         && mv matrix.$outputFormat matrix
-        #if $outBam:
+        #if $outBam and $input_type.input_type_selector != 'pairs':
             && samtools sort -@ @THREADS@ -T "\${TMPDIR:-.}" ./unsorted.bam -o sorted.bam
         #end if
 ]]>
     </command>
     <inputs>
-        <expand macro="samFiles" />
-        <expand macro="restrictionCutFile" />
-        <expand macro="restrictionSequence" />
-        <expand macro="danglingSequence" />
+        <expand macro="samFiles">
+            <token name="sam_options">
+                <expand macro="restrictionCutFile" />
+                <expand macro="restrictionSequence" />
+                <expand macro="danglingSequence" />
+            </token>
+            <token name="extra_input_options">
+                <option value="pairs">4DN .pairs file</option>
+            </token>
+            <token name="extra_input_whens">
+                <when value="pairs">
+                    <param argument="--pairsFile" type="data" format="4dn_pairs" label="Pairs file" help="A 4DN or pairtools .pairs file, plain or gzip compressed, used instead of the SAM/BAM files. Chromosome sizes come from the chromosome sizes file or from the #chromsize header lines. Minimum mapping quality needs the columns mapq1 and mapq2. Restriction sequence, dangling sequence, self ligations, self circles and the BAM output do not apply to .pairs input and are not passed." />
+                    <param argument="--restrictionCutFile" type="data" format="bed" optional="true" label="BED file with all restriction cut places" help="Defines restriction fragment bins. Give either this file or a bin size, not both." />
+                </when>
+            </token>
+        </expand>
 
         <param argument="--minDistance" type="integer" optional="true" value="" label="Minimum distance between restriction sites" help="Restriction sites that are closer that this distance are merged into one.
                 This option only applies if --restrictionCutFile is given." />
@@ -89,7 +119,7 @@
                         is too far away from the nearest restriction site." />
 
         <repeat name="binSizes" title="Bin size in bp" min="1" help="If used, the restriction cut places (if given) are used to only consider reads that are in the vicinity of the resctriction sites.
-                Otherwise all reads in the interval are considered. Use multiple ones to create a mcool file.">
+                Otherwise all reads in the interval are considered. Several bin sizes need the mcool output format; every further bin size has to be a multiple of the first.">
             <param argument="--binSize" type="integer" optional="true" value="" label="Bin size in bp" />
         </repeat>
 
@@ -118,15 +148,17 @@
         <param name="outputFormat" type="select" label="Output file format">
             <option value="h5">HiCExplorer format</option>
             <option value="cool">cool</option>
+            <option value="mcool">mcool (one matrix per bin size)</option>
         </param>
     </inputs>
     <outputs>
         <data name="outfileBam" from_work_dir="sorted.bam" format="bam" label="${tool.name} BAM file on ${on_string}">
-            <filter>outBam</filter>
+            <filter>outBam and input_type['input_type_selector'] != 'pairs'</filter>
         </data>
         <data name="outFileName" from_work_dir="matrix" format="h5" label="${tool.name} MATRIX on ${on_string}">
             <change_format>
                 <when input="outputFormat" value="cool" format="cool" />
+                <when input="outputFormat" value="mcool" format="mcool" />
             </change_format>
         </data>
         <data name="qc" format="html" label="${tool.name} QC on ${on_string}" />
@@ -134,15 +166,15 @@
     </outputs>
     <tests>
         <test expect_num_outputs="4">
-            <param name="samFile1" value="small_test_R1_unsorted.sam" dbkey="hg38" />
-            <param name="samFile2" value="small_test_R2_unsorted.sam" dbkey="hg38" />
+            <param name="input_type|samFile1" value="small_test_R1_unsorted.sam" dbkey="hg38" />
+            <param name="input_type|samFile2" value="small_test_R2_unsorted.sam" dbkey="hg38" />
             <param name="outputFormat" value="h5" />
             <repeat name="binSizes">
                 <param name="binSize" value="5000" />
             </repeat>
-            <param name="restrictionCutFile" value="DpnII_10k.bed" />
-            <param name="restrictionSequence" value="GATC" />
-            <param name="danglingSequence" value="GATC" />
+            <param name="input_type|restrictionCutFile" value="DpnII_10k.bed" />
+            <param name="input_type|restrictionSequence" value="GATC" />
+            <param name="input_type|danglingSequence" value="GATC" />
             <param name="outBam" value="True" />
             <output name="outfileBam" file="small_test_matrix_result_sorted.bam" compare="diff" lines_diff="2" ftype="bam" />
             <output name="outFileName" ftype="h5">
@@ -153,14 +185,40 @@
             <output name="raw_qc" file="raw_qc_report" compare="diff" lines_diff="2" />
         </test>
         <test expect_num_outputs="4">
-            <param name="samFile1" value="small_test_R1_unsorted.sam" dbkey="hg38" />
-            <param name="samFile2" value="small_test_R2_unsorted.sam" dbkey="hg38" />
+            <conditional name="input_type">
+                <param name="input_type_selector" value="paired_collection" />
+                <param name="sam_pair">
+                    <collection type="paired">
+                        <element name="forward" value="small_test_R1_unsorted.sam" dbkey="hg38" />
+                        <element name="reverse" value="small_test_R2_unsorted.sam" dbkey="hg38" />
+                    </collection>
+                </param>
+                <param name="restrictionCutFile" value="DpnII_10k.bed" />
+                <param name="restrictionSequence" value="GATC" />
+                <param name="danglingSequence" value="GATC" />
+            </conditional>
+            <param name="outputFormat" value="h5" />
             <repeat name="binSizes">
                 <param name="binSize" value="5000" />
             </repeat>
-            <param name="restrictionCutFile" value="DpnII_10k.bed" />
-            <param name="restrictionSequence" value="GATC" />
-            <param name="danglingSequence" value="GATC" />
+            <param name="outBam" value="True" />
+            <output name="outfileBam" file="small_test_matrix_result_sorted.bam" compare="diff" lines_diff="2" ftype="bam" />
+            <output name="outFileName" ftype="h5">
+                <assert_contents>
+                    <has_h5_keys keys="intervals,matrix" />
+                </assert_contents>
+            </output>
+            <output name="raw_qc" file="raw_qc_report" compare="diff" lines_diff="2" />
+        </test>
+        <test expect_num_outputs="4">
+            <param name="input_type|samFile1" value="small_test_R1_unsorted.sam" dbkey="hg38" />
+            <param name="input_type|samFile2" value="small_test_R2_unsorted.sam" dbkey="hg38" />
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <param name="input_type|restrictionCutFile" value="DpnII_10k.bed" />
+            <param name="input_type|restrictionSequence" value="GATC" />
+            <param name="input_type|danglingSequence" value="GATC" />
             <param name="outputFormat" value="cool" />
             <param name="outBam" value="True" />
             <output name="outfileBam" file="small_test_matrix_result_sorted.bam" compare="diff" lines_diff="2" ftype="bam" />
@@ -170,6 +228,122 @@
                 </assert_contents>
             </output>
             <output name="raw_qc" file="raw_qc_report" compare="diff" lines_diff="2" />
+        </test>
+        <test expect_num_outputs="3">
+            <param name="input_type|samFile1" value="small_test_R1_unsorted.sam" ftype="sam" dbkey="hg38" />
+            <param name="input_type|samFile2" value="small_test_R2_unsorted.sam" ftype="sam" dbkey="hg38" />
+            <param name="input_type|restrictionCutFile" value="DpnII_10k.bed" />
+            <param name="input_type|restrictionSequence" value="GATC" />
+            <param name="input_type|danglingSequence" value="GATC" />
+            <param name="minDistance" value="300" />
+            <param name="maxLibraryInsertSize" value="800" />
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <repeat name="binSizes">
+                <param name="binSize" value="10000" />
+            </repeat>
+            <param name="region" value="chr2L" />
+            <param name="keepSelfCircles" value="true" />
+            <param name="keepSelfLigation" value="true" />
+            <param name="minMappingQuality" value="10" />
+            <param name="skipDuplicationCheck" value="true" />
+            <param name="chromosomeSizes" value="hicBuildMatrix/dm3_subset.chrom.sizes" ftype="tabular" />
+            <param name="dbKey" value="dm3" />
+            <param name="outputFormat" value="mcool" />
+            <output name="outFileName" ftype="mcool">
+                <assert_contents>
+                    <has_h5_keys keys="resolutions" />
+                </assert_contents>
+            </output>
+            <output name="qc" ftype="html">
+                <assert_contents>
+                    <has_text text="html" />
+                </assert_contents>
+            </output>
+            <output name="raw_qc" ftype="txt">
+                <assert_contents>
+                    <has_text text="Sequenced reads" />
+                    <has_text text="Hi-C contacts" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="pairs" />
+                <param name="pairsFile" value="small_test.pairs" ftype="4dn_pairs" dbkey="hg38" />
+            </conditional>
+            <param name="outputFormat" value="h5" />
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <param name="region" value="chr2L" />
+            <output name="outFileName" ftype="h5">
+                <assert_contents>
+                    <has_h5_keys keys="intervals,matrix" />
+                </assert_contents>
+            </output>
+            <output name="raw_qc" ftype="txt">
+                <assert_contents>
+                    <has_text text="Sequenced reads" />
+                    <has_text text="Hi-C contacts" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="pairs" />
+                <param name="pairsFile" value="small_test.pairs" ftype="4dn_pairs" dbkey="hg38" />
+                <param name="restrictionCutFile" value="DpnII_10k.bed" />
+            </conditional>
+            <param name="outputFormat" value="cool" />
+            <param name="minDistance" value="300" />
+            <param name="maxLibraryInsertSize" value="800" />
+            <param name="minMappingQuality" value="10" />
+            <param name="skipDuplicationCheck" value="true" />
+            <param name="chromosomeSizes" value="hicBuildMatrix/dm3_subset.chrom.sizes" ftype="tabular" />
+            <output name="outFileName" ftype="cool">
+                <assert_contents>
+                    <has_h5_keys keys="bins,chroms,indexes,pixels" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="pairs" />
+                <param name="pairsFile" value="small_test.pairs" ftype="4dn_pairs" dbkey="hg38" />
+            </conditional>
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <repeat name="binSizes">
+                <param name="binSize" value="10000" />
+            </repeat>
+            <repeat name="binSizes">
+                <param name="binSize" value="20000" />
+            </repeat>
+            <param name="outputFormat" value="mcool" />
+            <output name="outFileName" ftype="mcool">
+                <assert_contents>
+                    <has_h5_keys keys="resolutions" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <conditional name="input_type">
+                <param name="input_type_selector" value="pairs" />
+                <param name="pairsFile" value="small_test.pairs" ftype="4dn_pairs" dbkey="hg38" />
+            </conditional>
+            <repeat name="binSizes">
+                <param name="binSize" value="5000" />
+            </repeat>
+            <repeat name="binSizes">
+                <param name="binSize" value="10000" />
+            </repeat>
+            <param name="outputFormat" value="cool" />
+            <assert_stderr>
+                <has_text text="Several bin sizes need an .mcool output file" />
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
@@ -192,6 +366,8 @@ Usage
 
 
 This tool must be used on paired sam / bam files produced with a program that supports local alignment (e.g. Bowtie2) where both PE reads are mapped using the --local option.
+
+A 4DN or pairtools .pairs file can be given instead of the sam / bam files. Positions in a .pairs file are the 5' ends of the reads. Bins come from the bin size or, without a bin size, from the restriction cut file. A .pairs file carries no read sequence and no alignment span, so the restriction sequence, the dangling sequence, self ligations, self circles and the BAM output do not apply. The quality report has the layout of hicBuildMatrixMicroC.
 
 _________________
 
