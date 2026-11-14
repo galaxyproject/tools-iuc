@@ -1,0 +1,469 @@
+<tool id="alerax" name="AleRax" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>species tree - gene tree inference and reconciliation under gene duplication, loss, and HGT</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.4.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.1</token>
+        <xml name="test_species_tree_file" tokens="search">
+            <conditional name="species_tree_input">
+                <param name="source" value="file"/>
+                <param name="species_tree" value="species_tree.newick" ftype="newick"/>
+                <param name="species_tree_search" value="@SEARCH@"/>
+            </conditional>
+        </xml>
+        <xml name="test_inputs">
+            <param name="gene_trees">
+                <collection type="list">
+                    <element name="family_381" value="family_381.newick" ftype="newick"/>
+                    <element name="family_497" value="family_497.newick" ftype="newick"/>
+                </collection>
+            </param>
+            <param name="mappings">
+                <collection type="list">
+                    <element name="family_381" value="family_381.link" ftype="txt"/>
+                    <element name="family_497" value="family_497.link" ftype="txt"/>
+                </collection>
+            </param>
+        </xml>
+        <xml name="test_common_outputs">
+            <output name="species_tree_out">
+                <assert_contents>
+                    <has_text text="HomoUUUSapiens"/>
+                </assert_contents>
+            </output>
+            <output_collection name="event_counts" type="list" count="2">
+                <element name="family_381">
+                    <assert_contents>
+                        <has_text text="duplications"/>
+                        <has_n_columns n="10"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="transfers" type="list" count="2"/>
+        </xml>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">alerax</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">alerax</requirement>
+    </requirements>
+    <version_command>echo @TOOL_VERSION@</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#if $model.model_parametrization == "PER-SPECIES" and $species_tree_input.species_tree_search != "SKIP":
+    #raise Exception("PER-SPECIES model parametrization does not work with species tree inference. Use your own species tree with the species tree search set to SKIP, or choose GLOBAL or PER-FAMILY.")
+#end if
+#set $n_families = len($gene_trees.keys())
+NP=\${GALAXY_SLOTS:-1} &&
+if [ "\$NP" -gt $n_families ]; then NP=$n_families; fi &&
+if [ "\$NP" -gt 1 ]; then
+    MPI_PREFIX="mpiexec --allow-run-as-root --oversubscribe -np \$NP";
+else
+    MPI_PREFIX="";
+fi &&
+
+\$MPI_PREFIX alerax
+    -f '$families_file'
+    #if $species_tree_input.source == "file":
+        -s '$species_tree_input.species_tree'
+    #else:
+        -s $species_tree_input.source
+    #end if
+    --species-tree-search $species_tree_input.species_tree_search
+    --rec-model $model.rec_model
+    --model-parametrization $model.model_parametrization
+    --gene-tree-samples $advanced.gene_tree_samples
+    --seed $advanced.seed
+    -p output
+
+    && sed -i 's/ /\t/g' output/per_fam_likelihoods.txt
+    && sed -i 's/, /\t/g' output/reconciliations/summaries/*_meanSpeciesEventCounts.txt
+    && sed -i 's/ /\t/g' output/reconciliations/summaries/*_meanTransfers.txt
+
+#if $advanced.archive:
+    && tar -cf alerax_output.tar --exclude='output/ccps' --exclude='output/checkpoint' output
+#end if
+    ]]></command>
+    <configfiles>
+        <configfile name="families_file"><![CDATA[
+[FAMILIES]
+#for $gt in $gene_trees:
+- ${gt.element_identifier}
+gene_tree = ${gt}
+#if $mappings:
+    #set $mapping_found = False
+    #for $m in $mappings:
+        #if $m.element_identifier == $gt.element_identifier:
+            mapping = ${m}
+            #set $mapping_found = True
+        #end if
+    #end for
+    #if not $mapping_found:
+        #raise Exception("No mapping file found for gene tree element '" + str($gt.element_identifier) + "'. Gene tree and mapping collection element identifiers must match exactly.")
+    #end if
+#end if
+#end for
+]]></configfile>
+    </configfiles>
+    <inputs>
+        
+<conditional name="species_tree_input">
+    <param name="source" type="select" label="Species tree source"
+           help="Choose an existing species tree or generate an initial tree.">
+        <option value="file" selected="true">From history</option>
+        <option value="MiniNJ">Infer with MiniNJ</option>
+        <option value="random">Random tree</option>
+    </param>
+
+    <when value="file">
+        <param name="species_tree" type="data" format="newick"
+               label="Species tree"
+               help="One rooted, bifurcating species tree in Newick format. Species names must match those in the mapping files."/>
+
+        <param name="species_tree_search" type="select"
+               label="Optimization of species tree"
+               help="Choose how AleRax optimizes your starting species tree.">
+            <option value="SKIP" selected="true">SKIP: skip the species tree search (default)</option>
+            <option value="REROOT">REROOT: only re-estimate the root</option>
+            <option value="HYBRID">HYBRID: standard search (transfer-guided and local SPR moves)</option>
+        </param>
+    </when>
+
+    <when value="MiniNJ">
+        <param name="species_tree_search" type="hidden" value="HYBRID"/>
+    </when>
+
+    <when value="random">
+        <param name="species_tree_search" type="hidden" value="HYBRID"/>
+    </when>
+</conditional>
+        <param name="gene_trees" type="data_collection" collection_type="list" format="newick"
+               label="Gene tree samples (one file per gene family)"
+               help="A list collection: each element is one gene family."/>
+        <param name="mappings" type="data_collection" collection_type="list" format="txt" optional="true"
+               label="Gene to species mapping files (optional)"
+               help="Optional. One gene to species mapping file per gene family."/>
+        <section name="model" title="Reconciliation model" expanded="false">
+            <param name="rec_model" type="select" label="Reconciliation model"
+                   help="--rec-model. UndatedDTL models duplications, transfers and losses. UndatedDL models only duplications and losses (no transfers).">
+                <option value="UndatedDTL" selected="true">UndatedDTL (default)</option>
+                <option value="UndatedDL">UndatedDL</option>
+            </param>
+            <param name="model_parametrization" type="select" label="Model parametrization"
+                   help="--model-parametrization. Defines which model parameters are shared among species or families. PER-SPECIES only works with your own species tree and the species tree search set to SKIP.">
+                <option value="GLOBAL" selected="true">GLOBAL (default)</option>
+                <option value="PER-FAMILY">PER-FAMILY</option>
+                <option value="PER-SPECIES">PER-SPECIES</option>
+            </param>
+        </section>
+        <section name="advanced" title="Advanced options" expanded="false">
+            <param name="gene_tree_samples" type="integer" value="100" min="1"
+                   label="Number of output reconciled gene tree samples per family."
+                   help="--gene-tree-samples. Default is 100. More samples give more stable averages but take longer."/>
+            <param name="seed" type="integer" value="123"
+                   label="Random seed"
+                   help="--seed. Default is 123. Use the same seed to get exactly the same results again."/>
+            <param name="archive" type="boolean" checked="false"
+                   label="Also output the complete results folder as one archive (.tar)"
+                   help="Contains all AleRax result files, including every sampled reconciliation."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="species_tree_out" format="newick" from_work_dir="output/species_trees/inferred_species_tree.newick"
+              label="${tool.name} on ${on_string}: species tree"/>
+        <data name="log" format="txt" from_work_dir="output/alerax.log"
+              label="${tool.name} on ${on_string}: log"/>
+        <data name="likelihoods" format="tabular" from_work_dir="output/per_fam_likelihoods.txt"
+              label="${tool.name} on ${on_string}: per-family likelihoods"/>
+        <collection name="event_counts" type="list" label="${tool.name} on ${on_string}: per-family event counts">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_meanSpeciesEventCounts\.txt"
+                               directory="output/reconciliations/summaries" format="tabular"/>
+        </collection>
+        <collection name="transfers" type="list" label="${tool.name} on ${on_string}: per-family transfers">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_meanTransfers\.txt"
+                               directory="output/reconciliations/summaries" format="tabular"/>
+        </collection>
+        <data name="archive_out" format="tar" from_work_dir="alerax_output.tar"
+              label="${tool.name} on ${on_string}: all results (archive)">
+            <filter>advanced['archive']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: own species tree, no optimization (SKIP), UndatedDTL, GLOBAL rates, seed 42, archive on: 6 outputs -->
+        <test expect_num_outputs="6">
+            <expand macro="test_species_tree_file" search="SKIP"/>
+            <expand macro="test_inputs"/>
+            <section name="model">
+                <param name="rec_model" value="UndatedDTL"/>
+                <param name="model_parametrization" value="GLOBAL"/>
+            </section>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+                <param name="seed" value="42"/>
+                <param name="archive" value="true"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="Random seed: 42"/>
+                    <has_text text="will be imported from the user file"/>
+                    <has_text text="skip species tree search"/>
+                    <has_text text="Reconciliation model: UndatedDTL"/>
+                    <has_text text="rates are global to all species and families"/>
+                </assert_contents>
+            </output>
+            <output name="likelihoods">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="2"/>
+                    <has_text text="family_381"/>
+                    <has_text text="family_497"/>
+                </assert_contents>
+            </output>
+            <output name="archive_out">
+                <assert_contents>
+                    <has_archive_member path="output/alerax.log"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: no species tree: MiniNJ start (HYBRID search is set automatically): 5 outputs -->
+        <test expect_num_outputs="5">
+            <conditional name="species_tree_input">
+                <param name="source" value="MiniNJ"/>
+            </conditional>
+            <expand macro="test_inputs"/>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="will be generated with the method MiniNJ"/>
+                    <has_text text="infer the optimal species tree topology"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: no species tree: random start (HYBRID search is set automatically): 5 outputs -->
+        <test expect_num_outputs="5">
+            <conditional name="species_tree_input">
+                <param name="source" value="random"/>
+            </conditional>
+            <expand macro="test_inputs"/>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="will be generated randomly"/>
+                    <has_text text="infer the optimal species tree topology"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: own species tree, only the root is optimized (REROOT): 5 outputs -->
+        <test expect_num_outputs="5">
+            <expand macro="test_species_tree_file" search="REROOT"/>
+            <expand macro="test_inputs"/>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="reroot the starting species tree"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: duplication and loss only (UndatedDL): 5 outputs -->
+        <test expect_num_outputs="5">
+            <expand macro="test_species_tree_file" search="SKIP"/>
+            <expand macro="test_inputs"/>
+            <section name="model">
+                <param name="rec_model" value="UndatedDL"/>
+            </section>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <output name="species_tree_out">
+                <assert_contents>
+                    <has_text text="HomoUUUSapiens"/>
+                </assert_contents>
+            </output>
+            <output_collection name="event_counts" type="list" count="2">
+                <element name="family_381">
+                    <assert_contents>
+                        <has_text text="duplications"/>
+                        <has_n_columns n="10"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <!-- UndatedDL has no transfers, so the transfers files must be empty -->
+            <output_collection name="transfers" type="list" count="2">
+                <element name="family_381">
+                    <assert_contents>
+                        <has_size size="0"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="Reconciliation model: UndatedDL"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: rates per gene family (PER-FAMILY): 5 outputs -->
+        <test expect_num_outputs="5">
+            <expand macro="test_species_tree_file" search="SKIP"/>
+            <expand macro="test_inputs"/>
+            <section name="model">
+                <param name="model_parametrization" value="PER-FAMILY"/>
+            </section>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="each family has a different set of rates"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: rates per species (PER-SPECIES): 5 outputs -->
+        <test expect_num_outputs="5">
+            <expand macro="test_species_tree_file" search="SKIP"/>
+            <expand macro="test_inputs"/>
+            <section name="model">
+                <param name="model_parametrization" value="PER-SPECIES"/>
+            </section>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+            <output name="log">
+                <assert_contents>
+                    <has_text text="each species has a different set of rates"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: mapping element name does not match the gene tree element name: the tool must fail -->
+        <test expect_failure="true">
+            <expand macro="test_species_tree_file" search="SKIP"/>
+            <param name="gene_trees">
+                <collection type="list">
+                    <element name="family_381" value="family_381.newick" ftype="newick"/>
+                </collection>
+            </param>
+            <param name="mappings">
+                <collection type="list">
+                    <element name="family_381.link" value="family_381.link" ftype="txt"/>
+                </collection>
+            </param>
+        </test>
+        <!-- Test 9: no mapping files: species names are read from the gene tree leaf labels (Species_gene) -->
+        <test expect_num_outputs="5">
+            <expand macro="test_species_tree_file" search="SKIP"/>
+            <param name="gene_trees">
+                <collection type="list">
+                    <element name="family_381" value="family_381_nomap.newick" ftype="newick"/>
+                    <element name="family_497" value="family_497_nomap.newick" ftype="newick"/>
+                </collection>
+            </param>
+            <section name="advanced">
+                <param name="gene_tree_samples" value="10"/>
+            </section>
+            <expand macro="test_common_outputs"/>
+        </test>
+        <!-- Test 10: PER-SPECIES together with species tree inference (random start, HYBRID): the tool must fail -->
+        <test expect_failure="true">
+            <conditional name="species_tree_input">
+                <param name="source" value="random"/>
+            </conditional>
+            <expand macro="test_inputs"/>
+            <section name="model">
+                <param name="model_parametrization" value="PER-SPECIES"/>
+            </section>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+AleRax performs species tree - gene tree inference and reconciliation
+under gene duplication, loss, and horizontal gene transfer (HGT).
+
+For each gene family, it takes as input a gene tree distribution (typically inferred
+with Bayesian inference tools such as MrBayes or PhyloBayes).
+
+**Two ways to use it**
+
+- *You already have a species tree*: choose "From history", select your tree, and keep the
+  search on SKIP. AleRax reconstructs the history of each gene family on your tree.
+- *You do not have a species tree*: choose "Infer with MiniNJ". AleRax then automatically
+  searches for the best species tree (HYBRID), and reconstructs the history of each gene
+  family on it.
+
+**Inputs**
+
+- A starting species tree: your own rooted tree (Newick), a MiniNJ estimate, or a random tree.
+- A list collection of gene tree samples, one element per gene family.
+- Optionally, a list collection of gene-to-species mapping files.
+
+Each mapping file must have exactly the same collection element identifier as its corresponding gene tree. For example, a gene tree element named `family_381` must have a mapping element named `family_381`. The dataset filenames themselves do not need to be identical.
+
+Each line of a mapping file contains a gene name and a species name, for example:
+
+```
+ENSPTRP00000091955 PanUUUTroglodytes
+ENSCSAP00000007477 ChlorocebusUUUSabaeus
+```
+
+Gene and species names can be separated by a space or a tab.
+Species names must be written exactly as in the species tree.
+
+If you do not provide mapping files, AleRax reads the species name from each gene tree leaf
+label: everything before the first underscore. For example, the leaf `HomoUUUSapiens_ENSP00000363832`
+belongs to the species `HomoUUUSapiens`.
+
+**Species tree search** (only asked when you use your own species tree; MiniNJ and random trees always use HYBRID)
+
+- SKIP: skip the species tree search (default)
+- REROOT: only re-estimate the root of the starting species tree
+- HYBRID: standard search (a mix of transfer-guided and local SPR moves)
+
+**Reconciliation model**
+
+- UndatedDTL (default): gene duplication, transfer and loss.
+- UndatedDL: gene duplication and loss only (no transfers).
+- Model parametrization: GLOBAL (default) estimates one set of rates for all families and
+  species, PER-FAMILY one set per gene family, PER-SPECIES one set per species.
+  According to the AleRax documentation, PER-SPECIES is not compatible with species tree
+  inference, so use it only with SKIP.
+
+**Advanced options**
+
+- Number of samples: how many reconciled gene trees AleRax samples per family (default 100).
+- Random seed: use the same seed to reproduce a run exactly (default 123).
+- Archive: also return the complete AleRax results folder as one .tar file.
+
+**Outputs**
+
+- The species tree (your tree, or the one AleRax built).
+- The AleRax log (settings used, progress and likelihood scores).
+- The per-family likelihoods (tabular).
+- A collection with the per-family event counts (tabular: duplications, transfers, losses per species).
+- A collection with the per-family transfers (tabular: which species passed genes to which).
+- Optionally, an archive with all result files.
+
+**More information**
+
+See the AleRax wiki: [Running AleRax](https://github.com/BenoitMorel/AleRax/wiki/Running-AleRax),
+[Gene-to-species mapping](https://github.com/BenoitMorel/AleRax/wiki/Gene-to-species-mapping)
+and [Outputs](https://github.com/BenoitMorel/AleRax/wiki/Outputs).
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btae162</citation>
+    </citations>
+    <creator>
+        <person givenName="Aparamita" familyName="Rana" url="https://github.com/aparamitarana009-boop"/>
+        <person givenName="Deepti" familyName="Varshney" url="https://github.com/deeptivarshney"/>
+    </creator>
+</tool>
