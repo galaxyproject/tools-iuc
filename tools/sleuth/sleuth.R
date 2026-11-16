@@ -4,6 +4,7 @@ library(sleuth,
 )
 library(annotables, quietly = TRUE, warn.conflicts = FALSE)
 library(argparse, quietly = TRUE, warn.conflicts = FALSE)
+library(jsonlite, quietly = TRUE, warn.conflicts = FALSE)
 library(tidyverse)
 
 
@@ -42,6 +43,7 @@ parser$add_argument("--metadata_file",
     action = "append",
     required = FALSE
 )
+parser$add_argument("--counts_identifiers", required = FALSE)
 parser$add_argument("--experiment_design", required = FALSE)
 
 args <- parser$parse_args()
@@ -54,13 +56,25 @@ if (args$experiment_design == "complex") {
         read.table(
             file = args$metadata_file,
             header = TRUE,
-            sep = "\t"
+            sep = "\t",
+            encoding = "UTF-8"
         )
 
-    s2c$path <- file.path("./kallisto_outputs/", paste(s2c$path, ".h5", sep = ""))
-    for (f in args$factorLevel_counts) {
-        file.rename(f, paste(f, ".h5", sep = ""))
+    # The count files are linked under generated names, in the order of the
+    # element identifiers listed in the JSON file. Match the path column of the
+    # design table against the identifiers to find each sample's file.
+    identifiers <- as.character(unlist(fromJSON(args$counts_identifiers)))
+    if (anyDuplicated(identifiers) > 0) {
+        stop("The counts files do not have unique names")
     }
+    file_index <- match(as.character(s2c$path), identifiers)
+    if (anyNA(file_index)) {
+        stop(
+            "No counts file is named like these entries of the path column: ",
+            paste(s2c$path[is.na(file_index)], collapse = ", ")
+        )
+    }
+    s2c$path <- unlist(args$factorLevel_counts)[file_index]
 
     so <- sleuth_prep(s2c, full_model = ~condition, num_cores = 1)
     so <- sleuth_fit(so)
