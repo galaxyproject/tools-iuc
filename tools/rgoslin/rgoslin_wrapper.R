@@ -10,8 +10,8 @@ parse_args <- function(args) {
         output_full = "output_full.tsv",
         output_summary = "output_summary.tsv"
     )
- 
-    # Substitute template arguments with command line arguments 
+
+    # Substitute template arguments with command line arguments
     i <- 1
     while (i <= length(args)) {
         if (args[i] == "--input" && (i + 1) <= length(args)) {
@@ -50,7 +50,7 @@ col_idx <- suppressWarnings(as.integer(target_col))
 if (!is.na(col_idx)) {
     if (col_idx > 0 && col_idx <= ncol(df)) {
         target_col <- colnames(df)[col_idx]
-    }else {
+    } else {
         stop(paste0("Column index ", col_idx, " is out of bounds."), call. = FALSE)
     }
 }
@@ -76,25 +76,25 @@ suppressPackageStartupMessages({
 })
 
 lipid_names <- as.character(df[[target_col]])
-lipid_names[is.na(lipid_names)] <- "" 
+lipid_names[is.na(lipid_names)] <- ""
 
 parsed_results <- rgoslin::parseLipidNames(
-  lipidNames = lipid_names
+    lipidNames = lipid_names
 )
 
 # Improve error messages for users
 empty_idx <- is.na(df[[target_col]]) |
-  trimws(as.character(df[[target_col]])) == ""
+    trimws(as.character(df[[target_col]])) == ""
 
 unparsed_idx <- parsed_results$Grammar == "NOT_PARSEABLE" |
-  is.na(parsed_results$Normalized.Name)
+    is.na(parsed_results$Normalized.Name)
 
 # Empty input
 parsed_results$Message[empty_idx] <- "No lipid name provided."
 
 # Unparseable lipid names
 parsed_results$Message[!empty_idx & unparsed_idx] <-
-  "Unsupported lipid nomenclature."
+    "Unsupported lipid nomenclature."
 
 # Full output with all generated columns
 full_results <- cbind(df, parsed_results)
