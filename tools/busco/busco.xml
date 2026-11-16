@@ -40,6 +40,49 @@
     cp -r '$cached_db.fields.path'/* mock_db_path/ &&
 #end if
 
+## Offline auto-lineage needs, for one OrthoDB version, the root lineage datasets
+## (archaea/bacteria/eukaryota_odbXX) AND the matching placement files in the cached
+## database. BUSCO otherwise uses its default --datasets_version (odb12.2 for BUSCO 6),
+## which databases downloaded with "all_odb12"/"all_odb10" or by older BUSCO versions
+## do not contain. BUSCO then fails with an unrelated `UnboundLocalError` (the real
+## "dataset does not exist" error is swallowed) or later at the placement step.
+## Use the version from the data table entry's name when it has one (the data manager
+## writes "<lineage> <odb version> <date>"), else pick the newest version the cached
+## database supports. Either way, require the root lineages and placement files, or
+## fail with a clear message.
+#if $lineage.lineage_mode == 'auto_detect' and $test != 'true':
+    #if $lineage.auto_lineage == '--auto-lineage-euk':
+        #set $root_lineages = 'eukaryota'
+    #elif $lineage.auto_lineage == '--auto-lineage-prok':
+        #set $root_lineages = 'archaea bacteria'
+    #else:
+        #set $root_lineages = 'archaea bacteria eukaryota'
+    #end if
+    #set $name_versions = [t for t in str($cached_db.fields.name).split() if t.startswith('odb')]
+    #if $name_versions:
+        #set $candidate_versions = $name_versions[0]
+    #else:
+        #set $candidate_versions = 'odb12.2 odb12 odb10'
+    #end if
+    datasets_version='' &&
+    for version in $candidate_versions; do
+        complete=true;
+        for root in $root_lineages; do
+            if [ ! -d '$cached_db.fields.path'/lineages/\${root}_\${version} ] || ! ls '$cached_db.fields.path'/placement_files/list_of_reference_markers.\${root}_\${version}.[0-9][0-9][0-9][0-9]-*.txt > /dev/null 2>&1; then
+                complete=false;
+            fi;
+        done;
+        if [ "\$complete" = true ]; then
+            datasets_version=\$version;
+            break;
+        fi;
+    done &&
+    if [ -z "\$datasets_version" ]; then
+        >&2 echo "The selected cached database does not support automated lineage selection: it lacks the root lineage datasets ($root_lineages) and/or their placement files for OrthoDB version(s) $candidate_versions. Please select a lineage, or ask your Galaxy administrator for a database that includes placement files." &&
+        exit 1;
+    fi &&
+#end if
+
 #if $busco_mode.mode == 'geno' and $busco_mode.use_augustus.use_augustus_selector == 'augustus':
 
 if [ -z "\$AUGUSTUS_CONFIG_PATH" ] ; then BUSCO_PATH=\$(dirname \$(which busco)) ; export AUGUSTUS_CONFIG_PATH=\$(realpath \${BUSCO_PATH}/../config) ; fi &&
@@ -75,6 +118,9 @@ busco
 #end if
 
 #if $lineage.lineage_mode == "auto_detect":
+    #if $test != 'true':
+        --datasets_version "\$datasets_version"
+    #end if
     $lineage.auto_lineage
 #else if $lineage.lineage_mode == "select_lineage":
     --lineage_dataset '${lineage.lineage_dataset}'
@@ -200,7 +246,7 @@ busco
                 <option value="select_lineage">Select lineage</option>
             </param>
             <when value="auto_detect">
-                <param name="auto_lineage" type="select" label="auto-lineage group" help="Taxonomic group to run with auto-lineage.">
+                <param name="auto_lineage" type="select" label="auto-lineage group" help="Taxonomic group to run with auto-lineage. Requires a cached database that includes the root lineages and placement files; otherwise select a lineage.">
                     <option value="--auto-lineage">All taxonomic groups (--auto-lineage)</option>
                     <option value="--auto-lineage-prok">Prokaryotes (--auto-lineage-prok)</option>
                     <option value="--auto-lineage-euk">Eukaryotes (--auto-lineage-euk)</option>
@@ -596,6 +642,24 @@ busco
             <assert_stdout>
                 <has_text text="BUSCO analysis done"/>
             </assert_stdout>
+        </test>
+        <!-- offline auto-lineage with a cached database that lacks the bacteria/eukaryota root
+             lineages: fail early with a clear message instead of BUSCO's UnboundLocalError -->
+        <test expect_failure="true" expect_exit_code="1">
+            <param name="test" value="false"/>
+            <param name="input" value="proteome.fa"/>
+            <conditional name="busco_mode">
+                <param name="mode" value="prot"/>
+            </conditional>
+            <conditional name="lineage">
+                <param name="lineage_mode" value="auto_detect"/>
+                <param name="auto_lineage" value="--auto-lineage"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="does not support automated lineage selection"/>
+                <has_text text="archaea bacteria eukaryota"/>
+                <has_text text="odb12.2 odb12 odb10"/>
+            </assert_stderr>
         </test>
     </tests>
     <help><![CDATA[
