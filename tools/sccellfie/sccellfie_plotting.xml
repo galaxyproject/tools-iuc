@@ -1,0 +1,397 @@
+<tool id="sccellfie_plotting" name="scCellFie plotting" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>visualize differential analysis, metabolic task, and expression results</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creator"/>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output'
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+import matplotlib
+matplotlib.use('Agg')
+import sccellfie
+import scanpy as sc
+import pandas as pd
+import numpy as np
+
+## Plotting functions append a fixed prefix (e.g. 'volcano_') to the basename below and, by
+## default, save into Scanpy's figure directory. Force it to the current working directory
+## so the generated file can be discovered with a glob pattern.
+sc.settings.figdir = '.'
+
+#if str($method.method) in ['volcano', 'beeswarm']:
+de_results = pd.read_csv('$method.de_results', sep='\t')
+#end if
+
+#if str($method.method) == 'volcano':
+significant = sccellfie.plotting.create_volcano_plot(
+    de_results,
+    effect_threshold=$method.effect_threshold,
+    padj_threshold=$method.padj_threshold,
+    #if str($method.cell_type) != '':
+    cell_type='$method.cell_type',
+    #end if
+    #if str($method.group1) != '':
+    group1='$method.group1',
+    #end if
+    #if str($method.group2) != '':
+    group2='$method.group2',
+    #end if
+    effect_col='$method.effect_col',
+    effect_title='$method.effect_title',
+    save='plot.$method.format',
+    dpi=$method.dpi)
+print("Significant features:", significant)
+pd.DataFrame({'significant_features': significant}).to_csv('significant_features.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'comparative_violin':
+adata = sc.read_h5ad('$method.adata')
+    #set sig_features_list = [str(x.strip()) for x in str($method.significant_features).split(',') if x.strip()]
+sccellfie.plotting.create_comparative_violin(
+    adata,
+    significant_features=$sig_features_list,
+    group1='$method.group1',
+    group2='$method.group2',
+    condition_key='$method.condition_key',
+    celltype='$method.celltype',
+    cell_type_key='$method.cell_type_key',
+    xlabel='Feature',
+    ylabel='Metabolic Activity',
+    figsize=(16, 7), fontsize=10,
+    dpi=$method.dpi,
+    save='plot.$method.format')
+
+#else if str($method.method) == 'beeswarm':
+fig, ax, sig_df = sccellfie.plotting.create_beeswarm_plot(
+    de_results,
+    cohen_threshold=$method.cohen_threshold,
+    pval_threshold=$method.pval_threshold,
+    logfc_threshold=$method.logfc_threshold,
+    save='plot.$method.format',
+    dpi=$method.dpi)
+sig_df.to_csv('significant_features.tsv', sep='\t')
+
+#else if str($method.method) == 'multi_violin':
+adata = sc.read_h5ad('$method.adata')
+    #set features_list = [str(x.strip()) for x in str($method.features).split(',') if x.strip()]
+sccellfie.plotting.create_multi_violin_plots(
+    adata,
+    features=$features_list,
+    groupby='$method.groupby',
+    n_cols=$method.n_cols,
+    #if str($method.ylabel) != '':
+    ylabel='$method.ylabel',
+    #end if
+    save='plot.$method.format',
+    dpi=$method.dpi)
+
+#else if str($method.method) == 'radial_plot':
+metabolic_df = pd.read_csv('$method.metabolic_df', sep='\t')
+task_info_df = pd.read_csv('$method.task_info_df', sep='\t')
+sccellfie.plotting.create_radial_plot(
+    metabolic_df,
+    task_info_df,
+    #if str($method.cell_type) != '':
+    cell_type='$method.cell_type',
+    #end if
+    #if str($method.tissue) != '':
+    tissue='$method.tissue',
+    #end if
+    task_col='$method.task_col',
+    category_col='$method.category_col',
+    value_col='$method.value_col',
+    tissue_col='$method.tissue_col',
+    cell_type_col='$method.cell_type_col',
+    sort_by_value=$method.sort_by_value,
+    save='plot.$method.format',
+    dpi=$method.dpi)
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="method">
+            <param name="method" type="select" label="Plot type">
+                <option value="volcano">Volcano plot of differential analysis results</option>
+                <option value="comparative_violin">Comparative violin plot between two groups</option>
+                <option value="beeswarm">Beeswarm plot of differential analysis results</option>
+                <option value="multi_violin">Grid of violin plots for multiple features</option>
+                <option value="radial_plot">Radial plot of metabolic task activities</option>
+            </param>
+            <when value="volcano">
+                <param name="de_results" type="data" format="tabular" label="Differential analysis results table" help="Output of the scCellFie analysis tool (differential analysis)"/>
+                <param argument="effect_threshold" type="float" value="0.75" label="Effect size threshold"/>
+                <param argument="padj_threshold" type="float" value="0.05" label="Adjusted p-value threshold"/>
+                <param argument="cell_type" type="text" value="" optional="true" label="Cell type to plot" help="Leave empty to plot all cell types">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="group1" type="text" value="" optional="true" label="First group in the comparison" help="Leave empty to include all group1 values">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="group2" type="text" value="" optional="true" label="Second group in the comparison" help="Leave empty to include all group2 values">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="effect_col" type="text" value="cohens_d" label="Column with the effect size values">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="effect_title" type="text" value="Cohens_d" label="Title to use for the effect size in the plot">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_plot_format"/>
+            </when>
+            <when value="comparative_violin">
+                <expand macro="input_adata"/>
+                <param name="significant_features" type="text" area="true" label="Comma-separated list of significant features to plot" help="e.g. output from the volcano plot">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="group1" type="text" label="First group to compare">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="group2" type="text" label="Second group to compare">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="condition_key" type="text" label="Column in adata.obs with condition information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="celltype" type="text" label="Cell type to analyze">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="cell_type_key" type="text" label="Column in adata.obs with cell type information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_plot_format"/>
+            </when>
+            <when value="beeswarm">
+                <param name="de_results" type="data" format="tabular" label="Differential analysis results table" help="Output of the scCellFie analysis tool (differential analysis), must include 'cell_type', 'feature', 'group1', 'group2', 'log2FC', 'cohens_d', 'adj_p_value' columns"/>
+                <param argument="cohen_threshold" type="float" value="0.5" label="Cohen's D threshold to consider a feature significant"/>
+                <param argument="pval_threshold" type="float" value="0.05" label="Adjusted p-value threshold to consider a feature significant"/>
+                <param argument="logfc_threshold" type="float" value="1.0" label="Log2 fold change threshold to consider a feature significant"/>
+                <expand macro="param_plot_format"/>
+            </when>
+            <when value="multi_violin">
+                <expand macro="input_adata"/>
+                <param name="features" type="text" area="true" label="Comma-separated list of feature names to plot" help="Should match names in adata.var_names">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_groupby" label="Column in adata.obs to group cells by"/>
+                <param argument="n_cols" type="integer" min="1" value="4" label="Number of columns in the grid"/>
+                <param argument="ylabel" type="text" value="" optional="true" label="Label for the y-axis" help="Leave empty to use the feature name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_plot_format"/>
+            </when>
+            <when value="radial_plot">
+                <param name="metabolic_df" type="data" format="tabular" label="Melted metabolic activity table" help="e.g. the 'melted' table from the scCellFie pipeline tool (summary report)"/>
+                <param name="task_info_df" type="data" format="tabular" label="Task information table" help="Table with task categorization information (columns: task name and category)"/>
+                <param argument="cell_type" type="text" value="" optional="true" label="Cell type to plot" help="Leave empty to use the maximum activity across all cell types">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="tissue" type="text" value="" optional="true" label="Tissue to plot" help="Leave empty to include all tissues">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="task_col" type="text" value="metabolic_task" label="Column with task identifiers">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="category_col" type="text" value="System" label="Column with task category information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="value_col" type="text" value="scaled_trimean" label="Column with activity values">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="tissue_col" type="text" value="tissue" label="Column with tissue information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="cell_type_col" type="text" value="cell_type" label="Column with cell type information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="sort_by_value" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort tasks by value instead of alphabetically?"/>
+                <expand macro="param_plot_format"/>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <expand macro="plot_outputs"/>
+        <data name="significant_features_out" format="tabular" from_work_dir="significant_features.tsv" label="${tool.name} (${method.method}) on ${on_string}: significant features">
+            <filter>method['method'] in ['volcano', 'beeswarm']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test 1: volcano plot -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="volcano"/>
+                <param name="de_results" value="sccellfie_de_results.tsv"/>
+                <param name="format" value="png"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="create_volcano_plot"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="1485,1183" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="2368"/>
+                    <has_image_width width="2967"/>
+                </assert_contents>
+            </output>
+            <output name="significant_features_out">
+                <assert_contents>
+                    <has_text_matching expression="SDHB"/>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 2: multi violin plot -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="multi_violin"/>
+                <param name="adata" value="sccellfie_test.h5ad"/>
+                <param name="features" value="HK1,HK2,GAPDH"/>
+                <param name="groupby" value="celltype"/>
+                <param name="format" value="png"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="create_multi_violin_plots"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="2233,723" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="1469"/>
+                    <has_image_width width="4484"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 3: comparative violin plot -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="comparative_violin"/>
+                <param name="adata" value="sccellfie_test.h5ad"/>
+                <param name="significant_features" value="HK1,SDHB,LDHB"/>
+                <param name="group1" value="Control"/>
+                <param name="group2" value="Treated"/>
+                <param name="condition_key" value="condition"/>
+                <param name="celltype" value="TypeA"/>
+                <param name="cell_type_key" value="celltype"/>
+                <param name="format" value="png"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="create_comparative_violin"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="2404,1024" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="2069"/>
+                    <has_image_width width="4788"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 4: beeswarm plot -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="beeswarm"/>
+                <param name="de_results" value="sccellfie_de_results.tsv"/>
+                <param name="format" value="png"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="create_beeswarm_plot"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="1455,1787" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="3563"/>
+                    <has_image_width width="2885"/>
+                </assert_contents>
+            </output>
+            <output name="significant_features_out">
+                <assert_contents>
+                    <has_text_matching expression="SDHB"/>
+                    <has_n_lines n="9"/>
+                    <has_n_columns n="15"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 5: radial plot -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="radial_plot"/>
+                <param name="metabolic_df" value="sccellfie_melted.tsv"/>
+                <param name="task_info_df" value="sccellfie_task_info.tsv"/>
+                <param name="format" value="png"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="create_radial_plot"/>
+                </assert_contents>
+            </output>
+            <output name="out_png">
+                <assert_contents>
+                    <has_image_center_of_mass center_of_mass="1019,864" eps="30"/>
+                    <has_image_channels channels="4"/>
+                    <has_image_height height="1717"/>
+                    <has_image_width width="1997"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+Provides scCellFie's downstream visualizations:
+
+- **Volcano plot**: effect size vs. -log10(adjusted p-value) for differential analysis results.
+- **Comparative violin plot**: compares significant features between two groups for a specific cell type.
+- **Beeswarm plot**: effect size per cell type (or other grouping) for differential analysis results.
+- **Grid of violin plots**: violin plots for multiple features across groups.
+- **Radial plot**: circular bar plot of metabolic task activities grouped by category.
+
+**Input**
+
+- Differential analysis result tables (tabular, from the scCellFie analysis tool) for volcano/beeswarm
+  plots, or AnnData objects (``.h5ad``) for violin plots, or the melted table from the summary report of
+  the scCellFie pipeline tool together with the corresponding task information table (both tabular)
+  for radial plots.
+
+**Output**
+
+- A plot image (PNG, PDF, or SVG).
+- For the beeswarm plot, the list of significant features as a tabular file.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

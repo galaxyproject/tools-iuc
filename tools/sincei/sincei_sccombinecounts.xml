@@ -1,0 +1,120 @@
+<tool id="sincei_sccombinecounts" name="sincei scCombineCounts" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="@LICENSE@">
+    <description>merge count matrices of several samples or modalities</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements">
+        <requirement type="package" version="0.4.1">mudata</requirement>
+    </expand>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        #import re
+        #set $labels = []
+        #set $seen_labels = set()
+        #for $i, $h5ad in enumerate($inputs)
+            ln -s '$h5ad' 'input_${i}.h5ad' &&
+            ## sanitize the dataset name; labels that collide afterwards get a numeric suffix,
+            ## otherwise sincei's multi-modal mode silently drops all but one of them
+            #set $base_label = re.sub(r'[^\w\-.]', '_', re.sub(r'\.h5ad$', '', str($h5ad.element_identifier)))
+            #set $label = $base_label
+            #set $n = 2
+            #while $label in $seen_labels
+                #set $label = '%s_%d' % ($base_label, $n)
+                #set $n += 1
+            #end while
+            #silent $seen_labels.add($label)
+            #silent $labels.append("'%s'" % $label)
+        #end for
+        scCombineCounts
+            --input
+            #for $i, $h5ad in enumerate($inputs)
+                'input_${i}.h5ad'
+            #end for
+            --labels #echo ' '.join($labels)#
+            --method '$method'
+            #if str($method) == 'multi-sample':
+                --outFile combined.h5ad
+            #else:
+                --outFile combined.h5mu
+            #end if
+        #if str($method) == 'multi-sample':
+            && mv combined.h5ad '$combined_h5ad'
+        #else:
+            && mv combined.h5mu '$combined_h5mu'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="inputs" argument="--input" type="data" format="h5ad" multiple="true" min="2" label="Count matrices (AnnData)" help="Two or more AnnData (h5ad) objects from sincei. The dataset names are used as sample (or modality) labels."/>
+        <param argument="--method" type="select" label="Method" help="How to merge the counts from the provided samples.">
+            <option value="multi-sample" selected="true">multi-sample: each sample is independent, but counted in the same manner (on the same features); looks for feature overlaps, not barcode overlaps</option>
+            <option value="multi-modal">multi-modal: counts generated in different ways from the same set of cells (e.g. a multi-omic assay); looks for barcode overlaps, not feature overlaps</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="combined_h5ad" format="h5ad" label="${tool.name} on ${on_string}: combined counts (AnnData)">
+            <filter>method == 'multi-sample'</filter>
+        </data>
+        <data name="combined_h5mu" format="h5mu" label="${tool.name} on ${on_string}: combined modalities (MuData)">
+            <filter>method == 'multi-modal'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="inputs" value="bins_SL2-1.h5ad,bins_SL2-2.h5ad"/>
+            <output name="combined_h5ad" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="X,obs,var"/>
+                    <has_h5_attribute key="encoding-type" value="anndata"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="inputs" value="counts.h5ad,counts_features.h5ad"/>
+            <param name="method" value="multi-modal"/>
+            <output name="combined_h5mu" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/counts,mod/counts_features"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- identical dataset names: both modalities must survive under distinct labels -->
+        <test expect_num_outputs="1">
+            <param name="inputs" value="counts.h5ad,counts.h5ad"/>
+            <param name="method" value="multi-modal"/>
+            <output name="combined_h5mu" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/counts,mod/counts_2"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+`scCombineCounts` merges several count matrices produced by `scCountReads` into one.
+
+- **multi-sample**: the inputs are independent samples counted on the same features (e.g. the
+  same bins). Features are matched between inputs and cells are concatenated. The result is an
+  AnnData (`h5ad`) object usable by all sincei tools. Only features present in all inputs are kept.
+- **multi-modal**: the inputs are different measurements (e.g. RNA and ATAC) of the same cells.
+  Cells are matched between inputs. The result is a MuData (`h5mu`) object.
+
+No batch-effect correction or integration is performed.
+
+-----
+
+**Inputs**
+
+- Two or more AnnData (`h5ad`) count matrices. The dataset names are used as sample (or
+  modality) labels. Characters other than letters, digits, `_`, `-` and `.` are replaced by
+  `_`. If two names end up identical, the later ones get a numeric suffix (`_2`, `_3`).
+
+**Outputs**
+
+- A combined AnnData (`h5ad`) or MuData (`h5mu`) object.
+@HELP_FOOTER@
+    ]]></help>
+    <expand macro="creator"/>
+    <expand macro="citations"/>
+</tool>

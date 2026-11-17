@@ -2,8 +2,22 @@
 import json
 import optparse
 import os
+import re
 import subprocess
 import sys
+
+
+def getSnpeffVersion():
+    snpeff_version = 'SnpEff ?.?'
+    args = ['snpEff', '-version']
+    try:
+        version_output = subprocess.check_output(args, shell=False).decode()
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+    m = re.match(r'^(SnpEff)\s*(\d+\.\d+).*$', version_output)
+    if m:
+        snpeff_version = m.groups()[0] + m.groups()[1]
+    return snpeff_version
 
 
 def fetch_databases(data_manager_dict, target_directory):
@@ -18,6 +32,8 @@ def fetch_databases(data_manager_dict, target_directory):
     data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
     data_manager_dict['data_tables']['snpeffv_databases'] = data_manager_dict['data_tables'].get('snpeffv_databases', [])
     data_table_entries = []
+    snpeff_version = getSnpeffVersion()
+
     with open(databases_path, 'r') as fh:
         for line in fh:
             fields = line.split('\t')
@@ -29,7 +45,7 @@ def fetch_databases(data_manager_dict, target_directory):
                 if genome_version == '30c2c903' or fields[1].strip() == 'TestCase' or fields[1].strip().startswith('Test_'):
                     continue
                 description = fields[1].strip() + ' : ' + genome_version
-                data_table_entries.append(dict(value=genome_version, name=description))
+                data_table_entries.append(dict(key=snpeff_version + '_' + genome_version, version=snpeff_version, value=genome_version, name=description))
     data_manager_dict['data_tables']['snpeffv_databases'] = data_table_entries
     return data_manager_dict
 

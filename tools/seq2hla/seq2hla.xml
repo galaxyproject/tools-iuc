@@ -1,22 +1,31 @@
-<tool id="seq2hla" name="seq2HLA" version="2.2.0+galaxy1">
+<tool id="seq2hla" name="seq2HLA" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
     <description>HLA genotype and expression from RNA-seq</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.3</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
     <xrefs>
         <xref type="bio.tools">seq2hla</xref>
     </xrefs>
     <requirements>
-        <!-- needed because of some non POSIX compliant wc usage -->
-        <requirement type="package" version="8.31">coreutils</requirement>
-        <requirement type="package" version="2.2">seq2hla</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">seq2hla</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        seq2HLA --runName='$run_name' -1 '$fastq_input1' -2 '$fastq_input2'
+        seq2HLA --runName='$run_name'
+        #if str( $fastq_input.fastq_input_selector ) == "paired":
+            -1 '${fastq_input.fastq_input1}'
+            -2 '${fastq_input.fastq_input2}'
+        #elif str( $fastq_input.fastq_input_selector ) == "paired_collection":
+            -1 '${fastq_input.fastq_input1.forward}'
+            -2 '${fastq_input.fastq_input1.reverse}'
+        #end if
         #if str($trim) != '':
             --trim3=$trim
         #end if
         -p \${GALAXY_SLOTS:-1} >> '$seq2hla_log'
-        && cp -p '${run_name}-ClassI.HLAgenotype2digits' '${c1_genotype2digits}'
-        && cp -p '${run_name}-ClassI.HLAgenotype4digits' '${c1_genotype4digits}'
-        && echo '#Locus_RPKM' | cat - '${run_name}-ClassI.expression' | sed 's/^\(.*\): \([0-9.]*\).*$/\1_\2/' | tr '_' '\t' > '${c1_expression}'
+        && cp -p '${run_name}-ClassI-class.HLAgenotype2digits' '${c1_genotype2digits}'
+        && cp -p '${run_name}-ClassI-class.HLAgenotype4digits' '${c1_genotype4digits}'
+        && echo '#Locus_RPKM' | cat - '${run_name}-ClassI-class.expression' | sed 's/^\(.*\): \([0-9.]*\).*$/\1_\2/' | tr '_' '\t' > '${c1_expression}'
         && cp -p '${run_name}-ClassII.HLAgenotype4digits' '${c2_genotype4digits}'
         && echo '#Locus_RPKM' | cat - '${run_name}-ClassII.expression' | sed 's/^\(.*\): \([0-9.]*\).*$/\1_\2/' | tr '_' '\t' > '${c2_expression}'
         && cp -p '${run_name}.ambiguity' '${ambiguity}'
@@ -25,8 +34,19 @@
         <param name="run_name" type="text" value="sample1" label="Name prefix for this analysis">
             <validator type="regex" message="Use letters,digits,_.-">^[A-Za-z0-9_\-+.]+$</validator>
         </param>
-        <param name="fastq_input1" type="data" format="fastqsanger,fastqsanger.gz" label="Select first set of reads" help="Specify dataset with forward reads"/>
-        <param name="fastq_input2" type="data" format="fastqsanger,fastqsanger.gz" label="Select second set of reads" help="Specify dataset with reverse reads"/>
+        <conditional name="fastq_input">
+            <param name="fastq_input_selector" type="select" label="Paired-end reads" help="Select between paired and paired-collection data">
+                <option value="paired">Paired</option>
+                <option value="paired_collection">Paired Collection</option>
+            </param>
+            <when value="paired">
+                <param name="fastq_input1" type="data" format="fastqsanger,fastqsanger.gz" label="Select first set of reads" help="Specify dataset with forward reads"/>
+                <param name="fastq_input2" type="data" format="fastqsanger,fastqsanger.gz" label="Select second set of reads" help="Specify dataset with reverse reads"/>
+            </when>
+            <when value="paired_collection">
+                <param name="fastq_input1" format="fastqsanger,fastqsanger.gz" type="data_collection" collection_type="paired" label="Select a collection of paired-end reads"/>
+            </when>
+        </conditional>
         <param name="trim" type="integer" value="" min="0" optional="true" label="Trim bases from 3 prime" 
                help="trim this many bases from the low-quality end of each read" />
     </inputs>
@@ -37,14 +57,33 @@
         <data format="tabular" name="c2_genotype4digits" label="${tool.name} on ${on_string}: ${run_name}-ClassII.HLAgenotype4digits"/>
         <data format="tabular" name="c1_expression" label="${tool.name} on ${on_string}: ${run_name}-ClassI.expression"/>
         <data format="tabular" name="c2_expression" label="${tool.name} on ${on_string}: ${run_name}-ClassII.expression"/>
-        <data format="tabular" name="c2_expression" label="${tool.name} on ${on_string}: ${run_name}-ClassII.expression"/>
         <data format="txt" name="ambiguity" label="${tool.name} on ${on_string}: ${run_name}.ambiguity"/>
     </outputs>
     <tests>
         <test>
             <param name="run_name" value="test"/>
-            <param name="fastq_input1" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
-            <param name="fastq_input2" ftype="fastqsanger.gz" value="reads2.fastq.gz"/>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired"/>
+                <param name="fastq_input1" ftype="fastqsanger" value="reads1.fastq"/>
+                <param name="fastq_input2" ftype="fastqsanger" value="reads2.fastq"/>
+            </conditional>
+            <output name="c1_genotype4digits">
+                <assert_contents>
+                    <has_text text="A*24:02" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="run_name" value="test_collection"/>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired_collection"/>
+                <param name="fastq_input1">
+                    <collection type="paired">
+                        <element name="forward" ftype="fastqsanger" value="reads1.fastq" />
+                        <element name="reverse" ftype="fastqsanger" value="reads2.fastq" />
+                    </collection>
+                </param>
+            </conditional>
             <output name="c1_genotype4digits">
                 <assert_contents>
                     <has_text text="A*24:02" />
@@ -100,7 +139,7 @@ a p-value for each call, and the expression of each class
        =======  ======
 
 
-.. _seq2HLA: https://bitbucket.org/sebastian_boegel/seq2hla
+.. _seq2HLA: https://github.com/TRON-Bioinformatics/seq2HLA
 
     ]]></help>
     <citations>

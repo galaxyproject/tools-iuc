@@ -230,18 +230,18 @@ def frequency_histogram(freqs, dataset_path, labels=[], title=''):
     pyplot.ylabel(Y_LABEL)
     pyplot.subplots_adjust(left=ADJUST[0], right=ADJUST[1], top=ADJUST[2], bottom=ADJUST[3])
     ax = pyplot.gca()
-    for l in ax.get_xticklines() + ax.get_yticklines():
-        l.set_markeredgewidth(TICK_WIDTH)
+    for line in ax.get_xticklines() + ax.get_yticklines():
+        line.set_markeredgewidth(TICK_WIDTH)
     pyplot.savefig(dataset_path)
 
 
 METHODS = {'closest': match_closest, 'largest': match_largest}
 
 
-def gff_attrs(l):
-    if len(l) == 0:
+def gff_attrs(attrs):
+    if len(attrs) == 0:
         return '.'
-    return ';'.join('%s=%s' % (tup[0], tup[1]) for tup in l)
+    return ';'.join('%s=%s' % (tup[0], tup[1]) for tup in attrs)
 
 
 def parse_gff_attrs(s):

@@ -26,7 +26,7 @@ plt.switch_backend('agg')
 def readFileReferenceFree(file):
     with open(file, 'r') as dest_f:
         data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter='\t', comments='#', dtype=str)
-        return(data_array)
+        return data_array
 
 
 def make_argparser():

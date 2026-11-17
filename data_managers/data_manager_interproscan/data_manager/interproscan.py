@@ -79,6 +79,14 @@ def main():
     else:
         tag = all_tags[-1]
 
+    setup_script = 'initial_setup.py'
+    sub_version = re.match(r"^[0-9]\.([0-9]{2})-[0-9]{2}\.[0-9]$", tag)
+    if sub_version and len(sub_version.groups()) == 1 and int(sub_version.group(1)) >= 58:
+        # The setup script was renamed in 5.58
+        setup_script = 'setup.py'
+    else:
+        raise RuntimeError("Sorry, this data manager can only download data for InterProScan >= 5.58-91.0. Use the 0.0.2 version for older versions of InterProScan.")
+
     print("Will download data for InterProScan version: %s" % tag)
 
     print("Getting MD5 checksum:")
@@ -125,7 +133,7 @@ def main():
     os.remove(dest_tar)
     shutil.rmtree(os.path.join(output_directory, 'interproscan-%s' % tag))
 
-    print("Running initial_setup.py (index hmm models)...")
+    print("Running {} (index hmm models)...".format(setup_script))
     # Write a temp properties file in work dir
     prop_file_src = os.path.join(os.path.dirname(os.path.realpath(shutil.which("interproscan.sh"))), 'interproscan.properties')
     with open(prop_file_src, 'r') as prop:
@@ -134,14 +142,14 @@ def main():
     with open('interproscan.properties', 'w') as prop:
         prop.write(prop_content)
     # Run the index command
-    cmd_args = [os.path.join(os.path.dirname(os.path.realpath(shutil.which("interproscan.sh"))), 'initial_setup.py')]
+    cmd_args = [os.path.join(os.path.dirname(os.path.realpath(shutil.which("interproscan.sh"))), setup_script), 'interproscan.properties']
     proc = subprocess.Popen(args=cmd_args, shell=False)
     out, err = proc.communicate()
     print(out)
     print(err, file=sys.stderr)
     return_code = proc.wait()
     if return_code:
-        print("Error running initial_setup.py.", file=sys.stderr)
+        print("Error running {}.".format(setup_script), file=sys.stderr)
         sys.exit(return_code)
 
     data_manager_dict["data_tables"][args.datatable_name].append(

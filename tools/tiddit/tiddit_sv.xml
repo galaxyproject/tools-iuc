@@ -1,0 +1,366 @@
+<tool id="tiddit_sv" name="TIDDIT SV" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>call structural variants from paired-end WGS alignments</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+@LINK_BAM@
+
+#if str($reference_source.ref_selector) == 'cached':
+    ln -s '${reference_source.ref.fields.path}' reference.fa &&
+    ln -s '${reference_source.ref.fields.path}.fai' reference.fa.fai &&
+#elif $reference_source.ref.is_of_type('fasta.gz'):
+    ## TIDDIT and bwa index want a plain FASTA they can index in place
+    gunzip -c '${reference_source.ref}' > reference.fa &&
+#elif $reference_source.ref.is_of_type('fasta.bz2'):
+    bunzip2 -c '${reference_source.ref}' > reference.fa &&
+#else:
+    ln -s '${reference_source.ref}' reference.fa &&
+#end if
+
+#if str($assembly.mode) == 'build_index':
+    bwa index reference.fa &&
+#end if
+
+python '$check_header' './${sample_name}.bam' $calling.min_contig &&
+
+tiddit --sv
+    --bam './${sample_name}.bam'
+    --ref reference.fa
+    -o tiddit
+    --threads "\${GALAXY_SLOTS:-1}"
+    #if str($assembly.mode) == 'skip':
+        --skip_assembly
+    #end if
+    -q $calling.min_mapq
+    -p $calling.min_pairs
+    -r $calling.min_split_reads
+    -z $calling.min_size
+    -n $calling.ploidy
+    --min_contig $calling.min_contig
+    #if str($calling.insert_size):
+        -i $calling.insert_size
+    #end if
+    #if str($calling.coverage):
+        -c $calling.coverage
+    #end if
+    --p_ratio $filtering.p_ratio
+    --r_ratio $filtering.r_ratio
+    --max_coverage $filtering.max_coverage
+
+## TIDDIT reports its own errors on stdout and still exits 0.
+&& if [ ! -s tiddit.vcf ]; then echo 'TIDDIT did not produce a VCF; see the tool standard output for the reason.' >&2; exit 1; fi
+    ]]></command>
+    <configfiles>
+        <!-- TIDDIT builds work file paths from the sample name (SM) and the names (SN) of the contigs
+             it calls, and pools every read group under the first sample name. Check the header first. -->
+        <configfile name="check_header"><![CDATA[
+import sys
+
+import pysam
+
+header = pysam.AlignmentFile(sys.argv[1], check_sq=False).header.to_dict()
+samples = sorted(set(rg["SM"] for rg in header.get("RG", []) if "SM" in rg))
+if len(samples) > 1:
+    sys.exit(
+        "The BAM file has read groups for %d samples. TIDDIT would call them as one sample; "
+        "give it one sample per BAM file." % len(samples)
+    )
+min_contig = int(sys.argv[2])
+contigs = [sq["SN"] for sq in header.get("SQ", []) if sq["LN"] >= min_contig]
+if any("/" in name for name in samples + contigs):
+    sys.exit(
+        "TIDDIT cannot use sample names that contain a slash, or contig names that do unless the contig "
+        "is shorter than the minimum contig length; rename them in the BAM header first."
+    )
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="bam_input"/>
+        <conditional name="reference_source">
+            <param name="ref_selector" type="select" label="Reference genome source">
+                <option value="cached" selected="true">Use a built-in genome</option>
+                <option value="history">Use a genome from the history</option>
+            </param>
+            <when value="cached">
+                <param argument="--ref" type="select" label="Reference genome" help="Must be the genome the reads were aligned to.">
+                    <options from_data_table="fasta_indexes">
+                        <filter type="data_meta" column="dbkey" key="dbkey" ref="input"/>
+                        <validator type="no_options" message="No built-in reference genome is available for the build associated with the selected BAM file"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param argument="--ref" type="data" format="fasta,fasta.gz,fasta.bz2" label="Reference genome" help="Must be the genome the reads were aligned to."/>
+            </when>
+        </conditional>
+        <conditional name="assembly">
+            <param name="mode" type="select" label="Local assembly of soft-clipped reads" help="TIDDIT can refine breakpoints by assembling soft-clipped reads and realigning the contigs with BWA. This needs a BWA index of the reference, which this tool builds for the job. Indexing is quick for bacterial or small genomes but takes about an hour and several GB of memory for a human genome.">
+                <option value="skip" selected="true">Skip local assembly (--skip_assembly)</option>
+                <option value="build_index">Run local assembly, building a BWA index of the reference</option>
+            </param>
+            <when value="skip"/>
+            <when value="build_index"/>
+        </conditional>
+        <section name="calling" title="Variant calling options" expanded="false">
+            <param name="min_mapq" argument="-q" type="integer" min="0" value="5" label="Minimum mapping quality" help="Alignments with a lower mapping quality are ignored."/>
+            <param name="min_pairs" argument="-p" type="integer" min="1" value="3" label="Minimum supporting discordant pairs" help="Minimum number of supporting read pairs needed to call a variant."/>
+            <param name="min_split_reads" argument="-r" type="integer" min="1" value="3" label="Minimum supporting split reads" help="Minimum number of supporting split reads needed to call a variant."/>
+            <param name="min_size" argument="-z" type="integer" min="1" value="50" label="Minimum variant size (bp)" help="Smaller variants are not reported. Values below 10 are not recommended."/>
+            <param name="ploidy" argument="-n" type="integer" min="1" value="2" label="Ploidy of the organism"/>
+            <param argument="--min_contig" type="integer" min="0" value="10000" label="Minimum contig length (bp)" help="Contigs shorter than this are skipped."/>
+            <param name="insert_size" argument="-i" type="integer" min="1" optional="true" label="Maximum insert size of normal pairs (bp)" help="Pairs on the same chromosome further apart than this are SV candidates. Leave empty to use the 99.9th percentile of the observed insert size."/>
+            <param name="coverage" argument="-c" type="float" min="0" optional="true" label="Average coverage" help="Overrides the estimated average coverage. Useful for exome or panel data. Leave empty to estimate it from the BAM file."/>
+        </section>
+        <section name="filtering" title="Filtering options" expanded="false">
+            <param argument="--p_ratio" type="float" min="0" max="1" value="0.1" label="Minimum discordant pair to normal pair ratio at the breakpoint"/>
+            <param argument="--r_ratio" type="float" min="0" max="1" value="0.1" label="Minimum split read to coverage ratio at the breakpoint"/>
+            <param argument="--max_coverage" type="float" min="0" value="4" label="Maximum coverage relative to the chromosome average" help="Calls with coverage this many times higher than the chromosome average are filtered."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="vcf" format="vcf" from_work_dir="tiddit.vcf" label="${tool.name} on ${on_string}: VCF"/>
+        <data name="ploidy" format="tabular" from_work_dir="tiddit.ploidies.tab" label="${tool.name} on ${on_string}: ploidy table"/>
+    </outputs>
+    <tests>
+        <!-- defaults: history reference, assembly skipped, planted 1 kb deletion is called -->
+        <test expect_num_outputs="2">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="reference.fasta"/>
+            </conditional>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##source=TIDDIT-@TOOL_VERSION@"/>
+                    <has_line_matching expression="#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample1"/>
+                    <has_line_matching expression="chr1\t10002\tSV_1_1\tN\t&lt;DEL&gt;\t\d+\tPASS\tSVTYPE=DEL;SVLEN=999;END=11001;.*\t1/1:.*"/>
+                </assert_contents>
+            </output>
+            <output name="ploidy" ftype="tabular">
+                <assert_contents>
+                    <has_line line="Chromosome&#9;Ploidy&#9;Ploidy_rounded&#9;Mean_coverage"/>
+                    <has_line_matching expression="chr1\t2\.\d+\t2\t\d+\.\d+"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--skip_assembly"/>
+                <has_text text="bwa index" negate="true"/>
+            </assert_command>
+            <assert_stdout>
+                <has_text text="Performing clip read assembly" negate="true"/>
+            </assert_stdout>
+        </test>
+        <!-- defaults only: built-in genome picked by the BAM's dbkey, local assembly skipped -->
+        <test expect_num_outputs="2">
+            <param name="input" value="sample1.bam" ftype="bam" dbkey="test"/>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t10002\tSV_1_1\tN\t&lt;DEL&gt;\t\d+\tPASS\tSVTYPE=DEL;SVLEN=999;END=11001;.*\t1/1:.*"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--skip_assembly"/>
+                <has_text text="bwa index" negate="true"/>
+            </assert_command>
+        </test>
+        <!-- a bzip2-compressed history reference is decompressed first and gives the same call -->
+        <test expect_num_outputs="2">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="reference.fasta.bz2" ftype="fasta.bz2"/>
+            </conditional>
+            <assert_command>
+                <has_text text="bunzip2 -c"/>
+            </assert_command>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t10002\tSV_1_1\tN\t&lt;DEL&gt;\t\d+\tPASS\tSVTYPE=DEL;SVLEN=999;END=11001;.*\t1/1:.*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a gzipped history reference is decompressed first and gives the same call -->
+        <test expect_num_outputs="2">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="reference.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <assert_command>
+                <has_text text="gunzip -c"/>
+            </assert_command>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t10002\tSV_1_1\tN\t&lt;DEL&gt;\t\d+\tPASS\tSVTYPE=DEL;SVLEN=999;END=11001;.*\t1/1:.*"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a reference without the contigs of the BAM cannot be used and must fail -->
+        <test expect_failure="true">
+            <param name="input" value="sample1.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="other_reference.fasta"/>
+            </conditional>
+        </test>
+        <!-- TIDDIT uses contig names as file names, so a name with a slash is refused before it runs -->
+        <test expect_failure="true">
+            <param name="input" value="slash_in_contig_name.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="reference.fasta"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="names that contain a slash"/>
+            </assert_stderr>
+        </test>
+        <!-- ...but TIDDIT writes no files for a contig below the minimum length, so there the name is fine -->
+        <test expect_num_outputs="2">
+            <param name="input" value="slash_in_contig_name.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="slash_in_contig_name_reference.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <section name="calling">
+                <param name="min_contig" value="30000"/>
+            </section>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##contig=&lt;ID=chr1/alt,length=20000&gt;"/>
+                    <has_line_matching expression="#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- read groups from two samples would be pooled under the first sample name -->
+        <test expect_failure="true">
+            <param name="input" value="two_samples.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="reference.fasta"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="read groups for 2 samples"/>
+            </assert_stderr>
+        </test>
+        <!-- cached reference with an on-the-fly BWA index, so local assembly runs -->
+        <test expect_num_outputs="2">
+            <param name="input" value="sample1.bam" ftype="bam" dbkey="test"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="cached"/>
+                <param name="ref" value="test_buildid"/>
+            </conditional>
+            <conditional name="assembly">
+                <param name="mode" value="build_index"/>
+            </conditional>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t10002\tSV_1_1\tN\t&lt;DEL&gt;\t\d+\tPASS\tSVTYPE=DEL;SVLEN=999;END=11001;.*"/>
+                </assert_contents>
+            </output>
+            <output name="ploidy" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t2\.\d+\t2\t\d+\.\d+"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="bwa index reference.fa"/>
+                <has_text text="--skip_assembly" negate="true"/>
+            </assert_command>
+            <assert_stdout>
+                <has_text text="Performing clip read assembly"/>
+            </assert_stdout>
+        </test>
+        <!-- calling options reach the command line, a size cutoff above the deletion drops it,
+             and a BAM without a read group gets its sample name from the dataset name -->
+        <test expect_num_outputs="2">
+            <param name="input" value="no_read_group.bam" ftype="bam"/>
+            <conditional name="reference_source">
+                <param name="ref_selector" value="history"/>
+                <param name="ref" value="reference.fasta"/>
+            </conditional>
+            <section name="calling">
+                <param name="min_mapq" value="10"/>
+                <param name="min_pairs" value="2"/>
+                <param name="min_split_reads" value="4"/>
+                <param name="min_size" value="2000"/>
+                <param name="ploidy" value="1"/>
+                <param name="insert_size" value="600"/>
+                <param name="coverage" value="20"/>
+            </section>
+            <section name="filtering">
+                <param name="p_ratio" value="0.2"/>
+                <param name="r_ratio" value="0.2"/>
+                <param name="max_coverage" value="5"/>
+            </section>
+            <output name="vcf" ftype="vcf">
+                <assert_contents>
+                    <has_line_matching expression="#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tno_read_group"/>
+                    <has_text text="SVTYPE=DEL" negate="true"/>
+                </assert_contents>
+            </output>
+            <output name="ploidy" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="chr1\t1\.\d+\t1\t\d+\.\d+"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="-q 10"/>
+                <has_text text="-p 2"/>
+                <has_text text="-r 4"/>
+                <has_text text="-z 2000"/>
+                <has_text text="-n 1"/>
+                <has_text text="-i 600"/>
+                <has_text text="-c 20"/>
+                <has_text text="--p_ratio 0.2"/>
+                <has_text text="--r_ratio 0.2"/>
+                <has_text text="--max_coverage 5"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+[TIDDIT](https://github.com/SciLifeLab/TIDDIT) calls structural variants
+(deletions, duplications, inversions, insertions and translocations) from
+short-read whole-genome sequencing data. It combines discordant read pairs,
+split reads and read depth, and can refine breakpoints by local assembly of
+soft-clipped reads.
+
+## Inputs
+
+- A coordinate-sorted BAM file of paired-end (or mate-pair) reads.
+- The reference genome the reads were aligned to, either a built-in genome or
+  a FASTA dataset from your history.
+
+If the BAM file has a read group with a sample (`SM`) tag, that name is used
+as the sample column of the VCF. Otherwise the dataset name is used, with a
+trailing `.bam` removed and any character other than letters, digits, `_` and
+`-` replaced by `_`.
+
+## Local assembly
+
+By default the tool runs TIDDIT with `--skip_assembly`. This is faster and
+does not need a BWA index of the reference, at the cost of somewhat less precise
+breakpoints. Choosing *Run local assembly* builds a BWA index of the reference
+inside the job and lets TIDDIT assemble soft-clipped reads. Indexing is quick
+for small genomes, but for a human-sized genome it takes about an hour and
+several GB of memory, on every run.
+
+## Small genomes
+
+TIDDIT skips contigs shorter than 10 kb by default. Lower *Minimum contig
+length* if your genome has small chromosomes or plasmids you want called.
+
+## Outputs
+
+- **VCF**: the structural variant calls. Calls failing TIDDIT's filters are
+  kept and marked in the `FILTER` column.
+- **Ploidy table**: per-chromosome estimated ploidy and mean coverage.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

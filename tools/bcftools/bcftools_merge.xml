@@ -1,15 +1,13 @@
-<?xml version='1.0' encoding='utf-8'?>
-<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@">
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Merge multiple VCF/BCF files from non-overlapping sample sets to create one multi-sample file</description>
-    <expand macro="bio_tools" />
     <macros>
         <token name="@EXECUTABLE@">merge</token>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" />
-    <expand macro="version_command" />
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
     <command detect_errors="aggressive"><![CDATA[
-@PREPARE_ENV@
 @PREPARE_INPUT_FILES@
 #set $section = $sec_restrict
 @PREPARE_REGIONS_FILE@
@@ -20,23 +18,52 @@ bcftools @EXECUTABLE@
 #set $section = $sec_header
 ${section.print_header}
 #if $section.use_header:
-  --use-header "${section.use_header}"
+  --use-header '${section.use_header}'
 #end if
 
 ## Merge section
 #set $section = $sec_merge
 ${section.force_samples}
+${section.force_single}
+${section.missing_to_ref}
+
+#if str($section.gvcf.gvcf_merge) == "without_ref":
+  --gvcf -
+#elif str($section.gvcf.gvcf_merge) == "with_ref":
+  --gvcf '${section.gvcf.ref_file}'
+#end if
 
 #if $section.info_rules:
-  --info-rules "${section.info_rules}"
+  --info-rules '${section.info_rules}'
+#end if
+
+#if $section.local_alleles > 0:
+  --local-alleles ${section.local_alleles}
 #end if
 
 #if $section.merge:
-  --merge "${section.merge}"
+  #if str($section.unobserved) != "none":
+      --merge '${section.merge},${section.unobserved}'
+  #else:
+      --merge '${section.merge}'
+  #end if
+  ${section.no_index}
 #end if
 
+#if $section.missing_rules:
+  --missing-rules '${section.missing_rules}'
+#end if
+
+@NO_VERSION@
+
+## Restrict section
 #set $section = $sec_restrict
 @APPLY_FILTERS@
+
+#if $section.filter_logic:
+  --filter-logic '$section.filter_logic'
+#end if
+
 @REGIONS@
 
 @OUTPUT_TYPE@
@@ -48,51 +75,86 @@ ${section.force_samples}
 ]]>
     </command>
     <inputs>
-        <expand macro="macro_inputs" />
+        <expand macro="macro_inputs"/>
         <section name="sec_restrict" expanded="false" title="Restrict to">
-            <expand macro="macro_apply_filters" />
-            <expand macro="macro_restrict" />
+            <expand macro="macro_apply_filters"/>
+            <param name="filter_logic" type="select" label="Filter Logic" help="Remove filters if some input is PASS ('x'), or apply all filters ('+') (-F)">
+                <option value="+" selected="True">Apply all filters (+)</option>
+                <option value="x">Remove filters if some input is PASS (x)</option>
+            </param>
+            <expand macro="macro_region_restrict"/>
         </section>
         <section name="sec_merge" expanded="true" title="Merge Options">
-            <param name="force_samples" type="boolean" truevalue="--force-samples" falsevalue="" label="Force Samples" help="Resolve duplicate sample names" />
-            <param name="info_rules" type="text" label="Info Rules" help="Rules for merging INFO fields (method is one of sum,avg,min,max,join) or &quot;-&quot; to turn off the default [DP:sum,DP4:sum]" />
-            <param name="merge" type="select" label="Merge" optional="True" 
-                  help="Allow multiallelic records for: snps|indels|both|all|none|id, see man page for details [both]" >
-                  <option value="none">none - no new multiallelics, output multiple records instead</option>
-                  <option value="snps">snps - allow multiallelic SNP records</option>
-                  <option value="indels">indels - allow multiallelic indel records</option>
-                  <option value="both">both - both SNP and indel records can be multiallelic</option>
-                  <option value="all">all - SNP records can be merged with indel records</option>
-                  <option value="id">id - merge by ID</option>
+            <param name="force_samples" type="boolean" truevalue="--force-samples" falsevalue="" label="Force Samples" help="Resolve duplicate sample names"/>
+            <param name="force_single" type="boolean" truevalue="--force-single" falsevalue="" label="Force Single" help="Run even if only one file is given on input"/>
+            <param name="missing_to_ref" type="boolean" truevalue="-0" falsevalue="" label="Assume genotypes at missing sites are 0/0" help="--missing-to-ref (-0)"/>
+
+            <conditional name="gvcf">
+                <param name="gvcf_merge" type="select" label="Merge gVCF blocks (-g)">
+                    <option value="none" selected="True">Do not merge gVCF blocks</option>
+                    <option value="without_ref">Merge without reference (-g -)</option>
+                    <option value="with_ref">Merge with reference FASTA (-g REF.FA)</option>
+                </param>
+                <when value="none"/>
+                <when value="without_ref"/>
+                <when value="with_ref">
+                    <param name="ref_file" type="data" format="fasta" label="Reference FASTA"/>
+                </when>
+            </conditional>
+
+            <param name="info_rules" type="text" label="Info Rules" help="Rules for merging INFO fields (method is one of sum,avg,min,max,join) or &quot;-&quot; to turn off the default [DP:sum,DP4:sum]"/>
+            <param name="local_alleles" type="integer" value="0" min="0" label="Local Alleles limit" help="If more than INT alt alleles are encountered, drop FMT/PL and output LAA+LPL instead; 0=unlimited (-L)"/>
+
+            <param name="merge" type="select" label="Merge multiallelic records" optional="True" help="Controls what types of multiallelic records can be created (-m)">
+                <option value="none">None - no new multiallelics, output multiple records instead</option>
+                <option value="snps">Snps - allow multiallelic SNP records</option>
+                <option value="indels">Indels - allow multiallelic indel records</option>
+                <option value="both">Both - both SNP and indel records can be multiallelic</option>
+                <option value="snp-ins-del">Snp-ins-del - allow multiallelic SNVs, insertions, deletions, but don't mix them</option>
+                <option value="all">All - SNP records can be merged with indel records</option>
+                <option value="id">Id - merge by ID</option>
             </param>
+            <param name="unobserved" type="select" label="Drop unobserved alleles" help="Remove the unobserved allele &lt;*&gt; or &lt;NON_REF&gt; (* or **)">
+                <option value="none" selected="True">Do not remove</option>
+                <option value="*">Remove from variant sites (*)</option>
+                <option value="**">Remove from all sites (**)</option>
+            </param>
+
+            <param name="missing_rules" type="text" value="" optional="true" label="Missing Rules" help="Rules for replacing missing values in numeric vectors (.,0,max) when unknown allele is not present (-M)"/>
+            <param argument="--no-index" type="boolean" truevalue="--no-index" falsevalue="" checked="false" label="Allow merge unindexed files" help="Requires the input files to have chromosomes in th same order and consistent with the order of sequences in the header"/>
+            <expand macro="macro_no_version" />
         </section>
         <section name="sec_header" expanded="false" title="Header Options">
-          <param name="use_header" type="data" format="vcf" label="Use Header" optional="True" help="Use the provided header" />
-          <param name="print_header" type="boolean" truevalue="--print-header" falsevalue="" label="Print Header" help="Print only the merged header and exit" />
+            <param name="use_header" type="data" format="vcf" label="Use Header" optional="True" help="Use the provided header"/>
+            <param name="print_header" type="boolean" truevalue="--print-header" falsevalue="" label="Print Header" help="Print only the merged header and exit"/>
         </section>
-        <expand macro="macro_select_output_type" />
+        <expand macro="macro_select_output_type"/>
     </inputs>
     <outputs>
         <expand macro="macro_vcf_output"/>
     </outputs>
     <tests>
         <test>
-            <param name="input_files" ftype="vcf" value="merge.a.vcf,merge.b.vcf,merge.c.vcf" />
-            <param name="force_samples" value="true" />
-            <param name="output_type" value="v" />
+            <param name="input_files" ftype="vcf" value="merge.a.vcf,merge.b.vcf,merge.c.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+            </section>
+            <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
-                    <has_text text="3000150" />
-                    <has_text text="3188209" />
+                    <has_text text="3000150"/>
+                    <has_text text="3188209"/>
                     <has_text_matching expression="\tq10;q20\t[\s]*INDEL"/>
                 </assert_contents>
             </output>
         </test>
         <test>
-            <param name="input_files" ftype="vcf" value="merge.2.a.vcf,merge.2.b.vcf" />
-            <param name="force_samples" value="true" />
-            <param name="merge" value="none" />
-            <param name="output_type" value="v" />
+            <param name="input_files" ftype="vcf" value="merge.2.a.vcf,merge.2.b.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+                <param name="merge" value="none"/>
+            </section>
+            <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="1\t3000000\t.\tC\tCCG\t"/>
@@ -101,10 +163,12 @@ ${section.force_samples}
             </output>
         </test>
         <test>
-            <param name="input_files" ftype="vcf" value="merge.2.a.vcf,merge.2.b.vcf" />
-            <param name="force_samples" value="true" />
-            <param name="merge" value="both" />
-            <param name="output_type" value="v" />
+            <param name="input_files" ftype="vcf" value="merge.2.a.vcf,merge.2.b.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+                <param name="merge" value="both"/>
+            </section>
+            <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="1\t3000150\t\.\tC\t(A,G|G,A)\t"/>
@@ -113,10 +177,12 @@ ${section.force_samples}
             </output>
         </test>
         <test>
-            <param name="input_files" ftype="vcf" value="merge.2.a.vcf,merge.2.b.vcf" />
-            <param name="force_samples" value="true" />
-            <param name="merge" value="all" />
-            <param name="output_type" value="v" />
+            <param name="input_files" ftype="vcf" value="merge.2.a.vcf,merge.2.b.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+                <param name="merge" value="all"/>
+            </section>
+            <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="1\t3000000\t\.\tC\t(CCG,G|G,CCG)\t"/>
@@ -124,10 +190,12 @@ ${section.force_samples}
             </output>
         </test>
         <test>
-            <param name="input_files" ftype="vcf" value="merge.3.a.vcf,merge.3.b.vcf" />
-            <param name="force_samples" value="true" />
-            <param name="info_rules" value="TR:sum,TA:sum,TG:sum" />
-            <param name="output_type" value="v" />
+            <param name="input_files" ftype="vcf" value="merge.3.a.vcf,merge.3.b.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+                <param name="info_rules" value="TR:sum,TA:sum,TG:sum"/>
+            </section>
+            <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="1\t3000000\t.\tC\t(CG,CCG|CCG,CG)\t"/>
@@ -135,16 +203,87 @@ ${section.force_samples}
                 </assert_contents>
             </output>
         </test>
+        <!-- Test no_index option -->
         <test>
-            <param name="input_files" ftype="vcf" value="merge.4.a.vcf,merge.4.b.vcf" />
-            <param name="force_samples" value="true" />
-            <param name="merge" value="id" />
-            <param name="output_type" value="v" />
+            <param name="input_files" ftype="vcf" value="merge.4.a.vcf,merge.4.b.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+                <param name="merge" value="id"/>
+                <param name="no_index" value="true"/>
+            </section>
+            <param name="output_type" value="v"/>
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="1\t3000000\tid1\tC\t(A,CCG|CCG,A)\t"/>
                 </assert_contents>
             </output>
+            <assert_command>
+                <has_text text="--no-index"/>
+            </assert_command>
+        </test>
+        <!-- Test region overlap option -->
+        <test>
+            <param name="input_files" ftype="vcf" value="merge.4.a.vcf,merge.4.b.vcf"/>
+            <section name="sec_merge">
+                <param name="force_samples" value="true"/>
+                <param name="merge" value="id"/>
+            </section>
+            <param name="output_type" value="v"/>
+            <section name="sec_restrict">
+                <conditional name="regions">
+                    <param name="regions_src" value="regions" />
+                    <repeat name="region_specs">
+                        <param name="chrom" value="1" />
+                    </repeat>
+                </conditional>
+            </section>
+            <output name="output_file">
+                <assert_contents>
+                    <has_text_matching expression="1\t3000000\tid1\tC\t(A,CCG|CCG,A)\t"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--regions-overlap"/>
+            </assert_command>
+        </test>
+        <!-- Test missing parameters -->
+        <test>
+            <param name="input_files" ftype="vcf" value="merge.2.a.vcf"/>
+            <section name="sec_merge">
+                <param name="force_single" value="true"/>
+                <param name="missing_to_ref" value="true"/>
+                <conditional name="gvcf">
+                    <param name="gvcf_merge" value="without_ref"/>
+                </conditional>
+                <param name="local_alleles" value="1"/>
+                <param name="missing_rules" value="DP:max"/>
+                <param name="no_version" value="true"/>
+            </section>
+            <section name="sec_restrict">
+                <param name="apply_filters" value="PASS"/>
+                <param name="filter_logic" value="x"/>
+            </section>
+            <section name="sec_header">
+                <param name="print_header" value="true"/>
+            </section>
+            <param name="output_type" value="v"/>
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="#CHROM"/>
+                    <not_has_text text="bcftools_mergeCommand" />
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--force-single"/>
+                <has_text text="-0"/>
+                <has_text text="--gvcf -"/>
+                <has_text text="--local-alleles 1"/>
+                <has_text text="--missing-rules &apos;DP:max&apos;"/>
+                <has_text text="--no-version"/>
+                <has_text text="--apply-filters 'PASS'"/>
+                <has_text text="--filter-logic &apos;x&apos;"/>
+                <has_text text="--print-header"/>
+            </assert_command>
         </test>
     </tests>
     <help><![CDATA[
@@ -153,17 +292,17 @@ ${section.force_samples}
 =====================================
 
 
-Merge multiple VCF/BCF files from non-overlapping sample sets to create one multi-sample file. 
+Merge multiple VCF/BCF files from non-overlapping sample sets to create one multi-sample file.
 
-Note that only records from different files can be merged, never from the same file. 
+Note that only records from different files can be merged, never from the same file.
 For "vertical" merge take a look at "bcftools norm" instead.
 
 @REGIONS_HELP@
 
 @BCFTOOLS_MANPAGE@#@EXECUTABLE@
 
-@BCFTOOLS_WIKI@
+@BCFTOOLS_HOWTOS@
 ]]>
     </help>
-    <expand macro="citations" />
+    <expand macro="citations"/>
 </tool>

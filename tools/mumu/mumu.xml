@@ -1,0 +1,175 @@
+<tool id="mumu" name="mumu" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="GPL-3.0-or-later">
+    <description>post-clustering curation of OTU or ASV tables (LULU algorithm)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>mumu --version | head -n 1</version_command>
+    <!-- mumu 1.1.4 runs on one thread: a threads value other than 1 prints the warning "mumu is not yet multithreaded" and gives the same results. GALAXY_SLOTS is passed so that later multithreaded versions use the slots. -->
+    <command detect_errors="exit_code"><![CDATA[
+mumu
+    --threads "\${GALAXY_SLOTS:-4}"
+    --otu_table '$otu_table'
+    --match_list '$match_list'
+    --new_otu_table '$new_otu_table'
+    --log '$log'
+    --minimum_match $settings.minimum_match
+    --minimum_ratio_type '$settings.minimum_ratio_type'
+    --minimum_ratio $settings.minimum_ratio
+    --minimum_relative_cooccurrence $settings.minimum_relative_cooccurrence
+    $settings.legacy
+    ]]></command>
+    <inputs>
+        <param argument="--otu_table" type="data" format="tabular" label="OTU or ASV table" help="A tab-separated table with one row per OTU or ASV and one column per sample. The first line holds the sample names, and the first column holds unique OTU or ASV names. The other columns must hold only read counts, so remove any sequence or taxonomy column first."/>
+        <param argument="--match_list" type="data" format="tabular" label="Match list" help="Tab-separated, no header line, three columns: query OTU or ASV name, hit OTU or ASV name, percent similarity (for example 97.5). For example, BLASTN or VSEARCH output of all sequences against each other."/>
+        <section name="settings" title="Curation settings" expanded="false" help="The defaults are the same as in mumu and in the LULU R package.">
+            <param argument="--minimum_match" type="float" value="84.0" min="50" max="100" label="Minimum similarity (%)" help="A potential parent with a lower similarity to the OTU or ASV is rejected. With the LULU strategy (legacy), a parent with a similarity equal to this value is also rejected."/>
+            <param argument="--minimum_ratio_type" type="select" label="Abundance ratio type" help="Use the smallest (min) or the average (avg) of the per-sample ratios: parent reads divided by OTU or ASV reads, in samples that have both.">
+                <option value="min" selected="true">Minimum (min)</option>
+                <option value="avg">Average (avg)</option>
+            </param>
+            <param argument="--minimum_ratio" type="float" value="1.0" label="Minimum abundance ratio" help="A potential parent is rejected if its abundance ratio to the OTU or ASV (minimum or average, as set in Abundance ratio type) is less than or equal to this value. Must be greater than 0.">
+                <validator type="in_range" min="0" exclude_min="true" message="The value must be greater than 0."/>
+            </param>
+            <param argument="--minimum_relative_cooccurrence" type="float" value="0.95" label="Minimum relative co-occurrence" help="Number of samples with both the OTU or ASV and the potential parent, divided by the number of samples with the OTU or ASV. A potential parent with a smaller value is rejected. Greater than 0, up to 1.">
+                <validator type="in_range" min="0" max="1" exclude_min="true" message="The value must be greater than 0 and not more than 1."/>
+            </param>
+            <param argument="--legacy" type="boolean" truevalue="--legacy" falsevalue="" checked="false" label="Use LULU merging strategy (legacy)" help="Yes: use the LULU strategy, which should give the same results as the LULU R package with the minimum (min) ratio type. No: use the mumu strategy, which also accepts a parent that is absent from some samples of the OTU or ASV. The differences are listed in the help below the form."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="new_otu_table" format="tabular" label="${tool.name} on ${on_string}: curated table"/>
+        <data name="log" format="tabular" label="${tool.name} on ${on_string}: log"/>
+    </outputs>
+    <tests>
+        <!-- mumu strategy: partial overlap allowed (otu_B merged), similarity equal to the threshold accepted (otu_C merged) -->
+        <test expect_num_outputs="2">
+            <param name="otu_table" value="otu_table.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <output name="new_otu_table" file="mumu_default_table.tsv" ftype="tabular"/>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="^query_id\tparent_id\tsimilarity\t.*\tstatus$"/>
+                    <has_text text="accepted" n="3"/>
+                    <has_n_columns n="18"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- LULU strategy: only otu_F is merged -->
+        <test expect_num_outputs="2">
+            <param name="otu_table" value="otu_table.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <section name="settings">
+                <param name="legacy" value="true"/>
+            </section>
+            <output name="new_otu_table" file="mumu_legacy_table.tsv" ftype="tabular"/>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <has_text text="accepted" n="1"/>
+                    <has_n_columns n="18"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- average abundance ratio: otu_D is also merged -->
+        <test expect_num_outputs="2">
+            <param name="otu_table" value="otu_table.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <section name="settings">
+                <param name="minimum_ratio_type" value="avg"/>
+            </section>
+            <output name="new_otu_table" file="mumu_avg_table.tsv" ftype="tabular"/>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <has_text text="accepted" n="4"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- non-default thresholds: otu_C is not tested (84 is below 85), otu_B is rejected (co-occurrence 0.95), otu_F is rejected (ratio 25 is not greater than 25) -->
+        <test expect_num_outputs="2">
+            <param name="otu_table" value="otu_table.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <section name="settings">
+                <param name="minimum_match" value="85"/>
+                <param name="minimum_ratio" value="25"/>
+                <param name="minimum_relative_cooccurrence" value="0.96"/>
+            </section>
+            <output name="new_otu_table" file="mumu_params_table.tsv" ftype="tabular"/>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <not_has_text text="accepted"/>
+                    <has_text text="rejected" n="3"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- duplicated OTU name: mumu stops with an error -->
+        <test expect_failure="true">
+            <param name="otu_table" value="otu_table_duplicated.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <assert_stderr>
+                <has_text text="duplicated OTU name"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+In this help, OTU means OTU or ASV.
+
+mumu merges OTUs that are probably errors of a more abundant OTU (the parent) into that parent. It is a C++ implementation of LULU (Frøslev et al. 2017).
+
+For each OTU, mumu tests the more abundant OTUs that the match list pairs with it. It tests them in order of decreasing similarity, then decreasing total abundance, and stops at the first one that passes all tests. A potential parent passes if all of these are true:
+
+- the similarity is at least the minimum similarity;
+- the parent is more abundant in total than the OTU;
+- the relative co-occurrence is at least the minimum relative co-occurrence;
+- the smallest (min) or the average (avg) of the per-sample abundance ratios (parent divided by OTU, in samples that have both) is greater than the minimum abundance ratio.
+
+mumu adds the reads of a merged OTU to its parent. If that parent is also merged, the reads go to the last parent in the chain.
+
+**mumu strategy and LULU strategy**
+
+By default, mumu differs from LULU in three ways, so the results can differ:
+
+- In samples that have the OTU but not the parent, LULU uses an abundance ratio of 0. With the minimum (min) ratio type, LULU thus rejects any parent that is absent from one or more samples of the OTU, whatever the minimum relative co-occurrence. With the average (avg) ratio type, these zeros make the average smaller. mumu ignores these samples with both ratio types.
+- LULU rejects a parent with a similarity equal to the minimum similarity. mumu accepts it.
+- The two tools test potential parents in a different order.
+
+Set **Use LULU merging strategy (legacy)** to Yes to use the LULU strategy. With the minimum (min) ratio type, this should give the same results as the LULU R package. With the average (avg) ratio type, the legacy results can differ from LULU, because the legacy strategy rejects any parent that is absent from one or more samples of the OTU. The mumu documentation calls this option experimental.
+
+**Inputs**
+
+- OTU or ASV table: tab-separated, one OTU per line, one sample per column. The first line holds the sample names. The first column holds unique OTU names. All other columns must hold read counts.
+
+  - mumu reads every column after the first as a number. Text that does not start with a digit is read as 0, and text such as 12S is read as 12. So remove sequence or taxonomy columns first (for example with the Cut tool).
+  - Counts must be whole numbers. mumu drops the decimal part (0.9 is read as 0), so do not use a table of proportions. Scientific notation is read wrong (1e+05 is read as 1).
+
+- Match list: tab-separated, exactly three columns: query OTU name, hit OTU name, percent similarity. The OTU names must be the same as in the table.
+
+  - A header line causes an error. mumu also stops with an error if a line does not have three columns.
+  - Self-hits (an OTU against itself) can stay in the list. mumu ignores them.
+  - mumu ignores lines with names that are not in the table, with a warning. If the log has only its header line, check that the names in the match list and the table are the same.
+
+**Making the inputs (for example after DADA2)**
+
+1. If the table has a sequence or taxonomy column, remove it with the Cut tool. Short OTU names (for example ASV_1) are safest, because some tools change or shorten long names such as full sequences.
+2. Make a FASTA file of the OTU sequences (for example with the Tabular-to-FASTA tool). The sequence names must be the same as the OTU names in the table.
+3. Search all sequences against each other with BLASTN or VSEARCH to make the match list.
+
+   - BLASTN: select the tabular output columns qseqid, sseqid and pident, or keep columns 1 to 3 of the standard tabular output with the Cut tool. Percent identity covers only the aligned part, so a short partial match can pass the minimum similarity. In the advanced options, set the percent identity cutoff (-perc_identity) to 84 and the minimum query coverage per HSP (-qcov_hsp_perc) to 80, as in the LULU tutorial.
+   - VSEARCH (search tool): set the user fields to query, target and id only (remove evalue), the identity definition (--iddef) to 1, the minimum identity (--id) to 0.84 or lower, and the number of hits to accept (--maxaccepts) to 0 (all hits). With the default (1), each sequence usually finds only itself. Check that the output columns are in the order query, target, id. If not, put them in this order with the Cut tool.
+
+**Outputs**
+
+- Curated table: same format as the input table. Merged OTUs are removed and their reads are added to their parents. OTUs are sorted by decreasing total abundance, then by decreasing number of samples, then by name.
+- Log: a header line with the column names, then one line for each potential parent that was tested, with 18 columns (statistics and the status, accepted or rejected). Columns 14 and 15 are the min and avg abundance ratios that mumu tests, and column 17 (relative_incidence) is the relative co-occurrence. In lines that were rejected before these tests, these columns can show 0.
+
+**More information**
+
+https://github.com/frederic-mahe/mumu
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

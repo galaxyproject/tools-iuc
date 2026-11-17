@@ -176,7 +176,7 @@ class Client(object):
         except Exception as e:
             print("Error parsing...")
             print(xml_str)
-            raise(e)
+            raise e
 
         return history
 
@@ -221,7 +221,7 @@ class Client(object):
         except Exception as e:
             print("Error parsing...")
             print(xml_str)
-            raise(e)
+            raise e
 
         return histories
 

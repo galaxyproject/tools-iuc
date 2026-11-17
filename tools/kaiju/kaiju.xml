@@ -1,0 +1,212 @@
+<tool id="kaiju_kaiju" name="kaiju" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+    #if $task == "tax"
+        kaiju
+        -t '$reference.fields.path'/nodes.dmp
+        -o '$output_tax'
+    #else
+        #if $protein
+            kaijup
+        #else
+            kaijux
+        #end if
+        -o '$output_best'
+    #end if
+    -f '$reference.fields.path'/database.fmi
+    #if $input.type == "single"
+        -i '$input.reads'
+    #else
+        -i '$input.reads.forward'
+        -j '$input.reads.reverse'
+    #end if
+    
+    -z "\${GALAXY_SLOTS:-1}"
+    $protein
+    $low_complexity
+    -a $mode_cond.mode
+    #if $mode_cond.mode == "greedy"
+        -e $mode_cond.mismatches
+        -m $mode_cond.match_length
+        -s $mode_cond.match_score
+        -E $mode_cond.evalue
+    #end if
+    $verbose
+    ]]></command>
+    <inputs>
+        <conditional name="input">
+            <param name="type" type="select" label="Read types">
+                <option value="paired">Paired reads</option>
+                <option value="single">Single reads</option>
+            </param>
+            <when value="single">
+                <param name="reads" type="data" format="fasta,fastqsanger" label="Reads"/>
+            </when>
+            <when value="paired">
+                <param name="reads" type="data_collection" format="fasta,fastqsanger" collection_type="paired" label="Paired reads"/>
+            </when>
+        </conditional>
+        <expand macro="reference"/>
+        <param name="task" type="select" label="Task">
+            <option value="tax">taxonomic classification</option>
+            <option value="best_sequence">find best matching database sequence</option>
+        </param>
+        <param argument="-p" name="protein" type="boolean" truevalue="-p" falsevalue="" label="Input sequences are protein sequences"/>
+        <param argument="-X" name="low_complexity" type="boolean" truevalue="-x" falsevalue="-X" checked="true" label="Enable SEG low complexity filter"/>
+        <conditional name="mode_cond">
+            <param argument="-a" name="mode" type="select" label="Run mode">
+                <option value="greedy">greedy</option>
+                <option value="mem">mem</option>
+            </param>
+            <when value="greedy">
+                <param argument="-e" name="mismatches" type="integer" value="3" min="0" label="Number of mismatches allowed"/>
+                <param argument="-m" name="match_length" type="integer" value="11" min="1" label="Minimum match length"/>
+                <param argument="-s" name="match_score" type="integer" value="65" min="1" label="Minimum match score"/>
+                <param argument="-E" name="evalue" type="float" value="0.01" min="0" label="Minimum E-value"/>
+            </when>
+            <when value="mem"/>
+        </conditional>
+        <param argument="-v" name="verbose" type="boolean" truevalue="-v" falsevalue="" checked="false" label="Verbose" help="will add additional columns to output, see help"/>
+    </inputs>
+    <outputs>
+        <data name="output_tax" format="tabular">
+            <actions>
+                <conditional name="verbose">
+                    <when value="false">
+                        <action type="metadata" name="column_names" default="classified,name,taxid" />
+                    </when>
+                    <when value="true">
+                        <action type="metadata" name="column_names" default="classified,name,taxid,length/score,best-match-taxid,best-match-accession,fragment-sequence" />
+                    </when>
+                </conditional>
+            </actions>
+            <filter>task == "tax"</filter>
+        </data>
+        <data name="output_best" format="tabular" label="${tool.name} on ${on_string}: Best sequences">
+            <actions>
+                <action type="metadata" name="column_names" default="classified,name,score,accession,sequence" />
+            </actions>
+            <filter>task == "best_sequence"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="query.fa"/>
+            </conditional>
+            <param name="reference" value="test"/>
+            <output name="output_tax" value="kaiju.out">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,taxid" />
+            </output>
+        </test>
+        <!-- paired -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="paired"/>
+                <param name="reads">
+                    <collection type="paired">
+                        <element name="forward" value="query.fa"/>
+                        <element name="reverse" value="query.fa"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="reference" value="test"/>
+            <output name="output_tax" value="kaiju.out">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,taxid" />
+            </output>
+        </test>
+        <!-- verbose  -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="query.fa"/>
+            </conditional>
+            <param name="reference" value="test"/>
+            <param name="verbose" value="true"/>
+            <output name="output_tax">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="7"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,taxid,length/score,best-match-taxid,best-match-accession,fragment-sequence" />
+            </output>
+        </test>
+
+        <!-- kaijux -->
+        <test expect_num_outputs="1">
+            <conditional name="input">
+                <param name="type" value="single"/>
+                <param name="reads" value="query.fa"/>
+            </conditional>
+            <param name="task" value="best_sequence"/>
+            <param name="reference" value="test"/>
+            <param name="verbose" value="true"/>
+            <assert_command>
+                <has_text text="kaijux"/>
+            </assert_command>
+            <output name="output_best" value="kaijux.out">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+                <metadata name="column_names" value="classified,name,score,accession,sequence" />
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+Taxonomic classification of high-throughput sequencing reads, e.g., Illumina or Roche/454, from whole-genome sequencing of metagenomic DNA.
+In mode "find best matching database sequence" only the best matching sequences from the reference databases are used. 
+
+Usage
+.....
+
+**Input**
+
+Sequences or paired sequences in FASTA/FASTQ format. Adapters need to be already removed from the reads.
+
+**Output**
+
+Tabular dataset with 3 columns:
+
+- either C or U, indicating whether the read is classified or unclassified.
+- name of the read
+- NCBI taxon identifier of the assigned taxon
+
+In verbose mode four more columns are added
+
+- the length or score of the best match used for classification
+- the taxon identifiers of all database sequences with the best match
+- the accession numbers of all database sequences with the best match
+- matching fragment sequence(s)
+
+
+In mode "find best matching database sequence"
+
+- C or U, with C = a matching sequence was found or, U = not found
+- query sequence name from input file (e.g. read name)
+- the length or score of the best match used for classification
+- database Sequence ID(s), e.g. accession number(s), of the sequence(s) with the best match length (MEM mode) or match score (Greedy mode)
+- sequence(s) with best match length (MEM mode) or match score (Greedy mode). Column 4 is only shown in verbose mode using command line option -v.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

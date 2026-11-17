@@ -26,11 +26,14 @@ def get_id_name(params, dbkey, fasta_description=None):
     return sequence_id, sequence_name
 
 
-def build_twobit(data_manager_dict, fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name):
+def build_twobit(data_manager_dict, fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, long):
     twobit_base_name = "%s.2bit" % (sequence_id)
     twobit_filename = os.path.join(target_directory, twobit_base_name)
 
-    args = ['faToTwoBit', fasta_filename, twobit_filename]
+    args = ['faToTwoBit']
+    if long:
+        args.append('-long')
+    args.extend([fasta_filename, twobit_filename])
     tmp_stderr = tempfile.NamedTemporaryFile(prefix="tmp-data-manager-twobit-builder-stderr")
     proc = subprocess.Popen(args=args, shell=False, cwd=target_directory, stderr=tmp_stderr.fileno())
     return_code = proc.wait()
@@ -42,7 +45,7 @@ def build_twobit(data_manager_dict, fasta_filename, params, target_directory, db
             chunk = tmp_stderr.read(CHUNK_SIZE)
             if not chunk:
                 break
-            sys.stderr.write(chunk)
+            sys.stderr.write(chunk.decode('utf-8'))
         sys.exit(return_code)
     tmp_stderr.close()
     # lastz_seqs
@@ -71,6 +74,8 @@ def main():
     parser.add_option('-f', '--fasta_filename', dest='fasta_filename', action='store', type="string", default=None, help='fasta_filename')
     parser.add_option('-d', '--fasta_dbkey', dest='fasta_dbkey', action='store', type="string", default=None, help='fasta_dbkey')
     parser.add_option('-t', '--fasta_description', dest='fasta_description', action='store', type="string", default=None, help='fasta_description')
+    parser.add_option('-l', '--long', dest='long', action="store_true", default=False, help='For big genomes you need to pass the -long option.')
+
     (options, args) = parser.parse_args()
 
     filename = args[0]
@@ -90,7 +95,7 @@ def main():
     sequence_id, sequence_name = get_id_name(params, dbkey=dbkey, fasta_description=options.fasta_description)
 
     # build the index
-    build_twobit(data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name)
+    build_twobit(data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, options.long)
 
     # save info to json file
     with open(filename, 'w') as fh:

@@ -4,11 +4,12 @@ suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(tidyverse))
 
 tsv_eff_from_vcf <- function(input_vcf, output_tab) {
-    read_vcf <- readVcf(input_vcf)  # nolint
+    read_vcf <- readVcf(input_vcf) # nolint
     if (!nrow(read_vcf@fixed)) {
         # no variants in file -> just write a valid header line
         write(c("CHROM", "POS", "REF", "ALT", "AF", "EFF[*].GENE", "EFF[*].EFFECT"),
-              ncolumns = 7, file = output_tab, sep = "\t")
+            ncolumns = 7, file = output_tab, sep = "\t"
+        )
         return()
     }
     chrom_pos <- data.frame(read_vcf@rowRanges)[, c("seqnames", "start")]
@@ -22,7 +23,8 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
         ALT = sapply(seq_len(nrow(ref_alt_filter)), function(i) {
             as.character(ref_alt_filter$ALT[[i]])
         }),
-        FILTER = as.character(ref_alt_filter$FILTER))
+        FILTER = as.character(ref_alt_filter$FILTER)
+    )
     # nolint end
     ##
     ## Don't unwrap EFF yet, we need to preserve rows
@@ -43,15 +45,19 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
 
     ## EFF columns are defined here:
     ## https://pcingola.github.io/SnpEff/se_inputoutput/
-    options(warn = -1)  ## suppress warnings
+    options(warn = -1) ## suppress warnings
     seperated_info <- united_exploderows %>%
-        separate(EFF, sep = "[(|)]",
-                 extra = "merge",  ## extra values merged into "extra" column
-                 into = c("EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
-                          "codon.change", "EFF[*].AA", "AA.length",
-                          "EFF[*].GENE", "trans.biotype", "gene.coding",
-                          "trans.id", "exon.rank", "gt.num", "warnings",
-                          "extra"))
+        separate(EFF,
+            sep = "[(|)]",
+            extra = "merge", ## extra values merged into "extra" column
+            into = c(
+                "EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
+                "codon.change", "EFF[*].AA", "AA.length",
+                "EFF[*].GENE", "trans.biotype", "gene.coding",
+                "trans.id", "exon.rank", "gt.num", "warnings",
+                "extra"
+            )
+        )
     options(warn = 0)
     ## If there is data that has been dropped or filled-in, we will see it in
     ## the "extra" column if it isn't NA or an empty quote.
@@ -66,9 +72,11 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
     }
 
     vcf_info <- seperated_info %>%
-        dplyr::select("CHROM", "POS", "REF", "ALT", "FILTER", "DP", "AF",
-                      "EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
-                      "EFF[*].AA", "EFF[*].GENE") %>%
+        dplyr::select(
+            "CHROM", "POS", "REF", "ALT", "FILTER", "DP", "AF",
+            "EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
+            "EFF[*].AA", "EFF[*].GENE"
+        ) %>%
         ## now we de-duplicate any rows that arise from subselecting columns
         dplyr::distinct()
 
@@ -77,16 +85,18 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
     ##
     ## This is not something to worry about here, and is resolved in the heatmap
     ## script later.
-    write.table(vcf_info, file = output_tab,
-                quote = F, sep = "\t", row.names = F)
+    write.table(vcf_info,
+        file = output_tab,
+        quote = F, sep = "\t", row.names = F
+    )
 }
 
 
-                                        # M A I N
+# M A I N
 stopifnot(exists("samples"))
 
 for (i in seq_len(nrow(samples))) {
-    entry <- samples[i, ];
+    entry <- samples[i, ]
     if (entry$exts %in% c("vcf", "vcf.gz")) {
         in_vcf <- entry$files
         out_tsv <- paste0(entry$ids, ".tsv") ## use local dir

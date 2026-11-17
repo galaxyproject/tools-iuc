@@ -279,6 +279,8 @@ def add_fasta_to_table(data_manager_dict, fasta_readers, target_directory, dbkey
                            target_directory=target_directory,
                            dbkey=dbkey,
                            dbkey_name=dbkey_name,
+                           sequence_id=sequence_id,
+                           sequence_name=sequence_name,
                            fasta_filename=fasta_filename)
     _add_data_table_entry(data_manager_dict,
                           data_table_entry=dict(value=sequence_id, dbkey=dbkey, name=sequence_name, path=os.path.basename(fasta_filename)),
@@ -286,11 +288,11 @@ def add_fasta_to_table(data_manager_dict, fasta_readers, target_directory, dbkey
     return fasta_filename
 
 
-def add_dbkey_to_table(data_manager_dict, target_directory, dbkey, dbkey_name, fasta_filename):
+def add_dbkey_to_table(data_manager_dict, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, fasta_filename):
     # do len calc here
-    len_base_name = "%s.len" % (dbkey)
+    len_base_name = f"{sequence_id}.len"
     compute_fasta_length(fasta_filename, os.path.join(target_directory, len_base_name), keep_first_word=True)
-    dbkey_dict = dict(value=dbkey, name=dbkey_name, len_path=len_base_name)
+    dbkey_dict = dict(dbkey=dbkey, value=sequence_id, name=sequence_name, len_path=len_base_name)
     _add_data_table_entry(data_manager_dict,
                           data_table_entry=dbkey_dict,
                           data_table_name='__dbkeys__')
@@ -345,7 +347,7 @@ def copy_from_directory(data_manager_dict, params, target_directory, dbkey, dbke
         if isinstance(input_filename, list):
             fasta_readers = [get_stream_reader(open(filename, 'rb'), tmp_dir) for filename in input_filename]
         else:
-            fasta_readers = get_stream_reader(open(input_filename), tmp_dir)
+            fasta_readers = get_stream_reader(open(input_filename, 'rb'), tmp_dir)
         return fasta_readers
     for data_table_name, data_table_entry in data_table_entries:
         if data_table_entry:
@@ -360,6 +362,15 @@ def _add_data_table_entry(data_manager_dict, data_table_entry, data_table_name):
 
 
 def _stream_fasta_to_file(fasta_stream, target_directory, sequence_id, close_stream=True):
+    """
+    Concatenate FASTA streams, adding a newline only where a stream does not end with one.
+
+    >>> from io import BytesIO
+    >>> readers = [BytesIO(b'>seq1\\nACGT\\n'), BytesIO(b'>seq2\\nTTGG'), BytesIO(b'>seq3\\nCC\\n')]
+    >>> fasta_filename = _stream_fasta_to_file(readers, tempfile.mkdtemp(), 'test')
+    >>> open(fasta_filename, 'rb').read()
+    b'>seq1\\nACGT\\n>seq2\\nTTGG\\n>seq3\\nCC\\n'
+    """
     fasta_base_filename = "%s.fa" % sequence_id
     fasta_filename = os.path.join(target_directory, fasta_base_filename)
     with open(fasta_filename, 'wb+') as fasta_writer:
@@ -376,7 +387,7 @@ def _stream_fasta_to_file(fasta_stream, target_directory, sequence_id, close_str
                     data = fh.read(CHUNK_SIZE)
                     if data:
                         fasta_writer.write(data)
-                        last_char = data[-1]
+                        last_char = data[-1:]
                     else:
                         break
                 if close_stream:

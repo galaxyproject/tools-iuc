@@ -1,0 +1,171 @@
+<tool id="mmuphin" name="mmuphin" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Performing meta-analyses of microbiome studies</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript '$rscript' &&
+        mv 'adjust_batch_diagnostic.pdf' '$diagnostic_plot_output' 
+    ]]></command>
+    
+    <configfiles>
+        <configfile name="rscript"><![CDATA[
+        
+        library(MMUPHin)
+
+        ## input files
+        print("Read input files")
+        data <- read.csv("$input_data", sep = "\t", row.names=1, check.names = FALSE)
+        meta_data <- read.csv("$input_metadata", sep = "\t", row.names=1, check.names = FALSE)
+        
+        # Define control list
+        controls <- list("$additional_options.zero_inflation", 
+                         "$additional_options.pseudo_count", 
+                         "$additional_options.conv", 
+                         "$additional_options.maxit", 
+                         "$additional_options.verbose", 
+                         "$additional_options.diagnostic_plot")
+        
+        #Perform batch adjustment
+        
+        # Convert the batch column in the data frame to character or factor
+
+        batch <- colnames(meta_data[$batch_input - 1])  # Adjust to fetch the column name
+        meta_data[[batch]] <- as.factor(meta_data[[batch]])  # Convert the column to factor
+        cat("Batch Name:", unique(meta_data[[batch]]), "\n")    # Print unique batch names for confirmation
+        cat("Batch Name:", batch, "\n")
+
+        ## handle the optional command line input
+        #if $covariates_input:
+            covariates_val <- list($covariates_input)
+        #else:
+            covariates_val <- list()  # Assign an empty list if input is NULL or does not exist
+        #end if
+
+        covariates <- c()
+
+        # Process covariates only if they exist
+        if (length(covariates_val) > 0) {     
+            for (i in covariates_val) {
+                covariates <- c(covariates, colnames(meta_data[i - 1]))
+            }
+            cat("Covariates Names:", covariates, "\n")
+        } else {
+            cat("No covariates provided.\n")
+        }
+  
+        result <- adjust_batch(feature_abd = data, 
+                               batch = batch, 
+                               covariates = covariates, 
+                               data = meta_data,
+                               control=controls
+                               )
+        
+        # Save results into output files
+
+        write.table(result\$feature_abd_adj, file="$output", quote = FALSE, sep="\t", col.names=NA)
+
+    ]]></configfile>
+        </configfiles>
+ 
+    <inputs>
+        <param name="input_data" type="data" format="tabular" label="Abundance (or features) file" help="TSV file where columns represent samples and rows include abundance values for features such as taxa, genes, or other biological entities across those samples."/>
+        <param name="input_metadata" type="data" format="tabular" label="Metadata file" help="TSV file with sample metadata, where columns represent attributes and rows include attribute values for a sample"/>
+        <param argument="batch_input" type="data_column" data_ref="input_metadata" use_header_names="true"  label="Batch identifier column" help="Select the column in your metadata file that contains the batch identifier (e.g., studyID, batchID) used to group samples for batch correction."/>
+        <param argument="covariates_input" type="data_column" data_ref="input_metadata" use_header_names="true" multiple="true" optional="true" label="Covariates Column(s)" help="Select the column(s) in your metadata file that contain covariates (e.g., age, gender, or environmental factors) to be included in the batch correction process." />
+        <section name="additional_options" title="Additional Options" expanded="true">
+            <param argument="zero_inflation" type="boolean" truevalue="zero_inflation TRUE" falsevalue="zero_inflation FALSE" checked="true" label="Run zero-inflated model"/>            
+            <param argument="pseudo_count" type="float" optional="true" label="Pseudo_count" help="Pseudo count to add feature_abd before the methods' log transformation. Default to the half of the minimal non-zero values in feature_abd" />
+            <param argument="conv" type="float" value="0.0001"  min="0.000001" max="0.001" optional="true" label="Convergence threshold" help="Convergence threshold for the method's iterative algorithm for shrinking batch effect parameters."/>
+            <param argument="maxit" type="float" optional="true" value="1000" label="Maximum number of iterations" help="Maximum number of iterations allowed for the method's iterative algorithm. Default to 1000"/>
+            <param argument="verbose" type="hidden" value="False" label="Print verbose information"/> 
+            <param argument="diagnostic_plot" type="boolean" truevalue="diagnostic_plot TRUE" falsevalue="diagnostic_plot FALSE" checked="true"  label="Generate diagnostic figure file"/>
+         </section>
+    </inputs>
+
+    <outputs>
+          <data name="output" format="tabular"  label="Adjusted abundance table"/>
+          <data name="diagnostic_plot_output" format="pdf" label="diagnostic figure file">
+              <filter>
+                   additional_options['diagnostic_plot'] is True
+              </filter>
+          </data>
+   </outputs>
+
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input_data" value="CRC_abd.tsv"/>
+            <param name="input_metadata" value="CRC_meta.tsv"/>
+            <param name="batch_input" value="29"/> 
+            <param name="covariates_input" value="4"/> 
+            <section name="additional_options">
+                <param name="zero_inflation" value="True"/>
+                <param name="pseudo_count" value="3"/>
+                <param name="conv" value="0.0001"/>
+                <param name="maxit" value="1000"/>
+                <param name="diagnostic_plot" value="True"/>
+            </section>
+            <output name="output" file="CRC_abd_corrected.tsv" ftype="tabular"/>
+            <output name="diagnostic_plot_output" file="diagnostic.pdf" ftype="pdf"/>          
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_data" value="CRC_abd.tsv"/>
+            <param name="input_metadata" value="CRC_meta.tsv"/>
+            <param name="batch_input" value="7"/> 
+            <section name="additional_options">
+                <param name="zero_inflation" value="True"/>
+                <param name="pseudo_count" value="3"/>
+                <param name="conv" value="0.0001"/>
+                <param name="maxit" value="1000"/>
+                <param name="diagnostic_plot" value="True"/>
+            </section>
+            <output name="output" file="CRC_abd_corrected2.tsv" ftype="tabular"/>
+            <output name="diagnostic_plot_output" file="diagnostic2.pdf" ftype="pdf"/>          
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_data" value="CRC_abd.tsv"/>
+            <param name="input_metadata" value="CRC_meta.tsv"/>
+            <param name="batch_input" value="29"/>
+            <param name="covariates_input" value="4,6"/> 
+            <section name="additional_options">
+                <param name="zero_inflation" value="True"/>
+                <param name="pseudo_count" value="3"/>
+                <param name="conv" value="0.0001"/>
+                <param name="maxit" value="1000"/>
+                <param name="diagnostic_plot" value="True"/>
+            </section>
+            <output name="output" file="CRC_abd_corrected3.tsv" ftype="tabular"/>
+            <output name="diagnostic_plot_output" file="diagnostic3.pdf" ftype="pdf"/>          
+        </test>
+    </tests>
+    <help><![CDATA[ 
+@HELP_HEADER@
+MmuPHin
+=========
+MMUPHin is an R package implementing meta-analysis methods for microbial community profiles. Meta-analysis methods are statistical techniques used to combine and synthesize data from multiple independent studies, typically to derive a more precise or generalizable conclusion. This approach is commonly used in fields such as medicine, psychology, and biology to aggregate research findings and increase the statistical power of analyses by pooling data from different experiments or studies. MMUPHin has interface for: 
+
+Performing batch effect adjustment : 
+------------------------------------------------------------------
+It aims to correct for technical batch effects in microbial feature abundances. Batch effects refer to variations in data that arise not from the biological or experimental variables of interest but due to differences in technical or procedural factors during data collection or processing. For example:
+
+    Different equipment or lab environments.
+    Different operators handling the experiment.
+    Variations in sample preparation, sequencing runs, or platforms.
+    
+These unwanted variations can obscure true biological signals and introduce bias, making it critical to adjust for batch effects to ensure accurate and comparable results across datasets.
+
+Inputs for batch effect adjustment:
+======================================
+A feature-by-sample abundance matrix (e.g., microbial abundances).
+A metadata file, which contains information about samples, including batch identifiers and optional covariates.
+
+Output:
+=========
+A batch-adjusted abundance matrix for downstream analyses.
+A diagnostic plot output showing change before and after batch correction.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

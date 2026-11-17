@@ -57,9 +57,11 @@ def split_levels(metaphlan_output_fp, out_dp, legacy_output):
                 # skip headers
                 if line.startswith("#"):
                     continue
-                # skip UNKNOWN lines in Predicted taxon relative abundances
-                if "UNKNOWN" in line:
+
+                # skip UNKNOWN (v3) or UNCLASSIFIED (v4) lines in predicted taxon relative abundances
+                if "UNKNOWN" in line or 'UNCLASSIFIED' in line:
                     continue
+
                 # spit lines
                 split_line = line[:-1].split('\t')
                 taxo_n = split_line[0].split('|')

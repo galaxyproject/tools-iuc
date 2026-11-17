@@ -1,0 +1,178 @@
+<tool id="data_manager_transvar_download" name="TransVar annotations" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" tool_type="manage_data" profile="24.2">
+    <description>download transcript annotation databases</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.5.10.20211024</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <xml name="sources">
+            <param name="sources" type="select" multiple="true" optional="false" label="Transcript annotation sources" help="TransVar can consult several transcript sets at once. Every selected source is downloaded and can then be switched on individually in the TransVar tool.">
+                <yield/>
+            </param>
+        </xml>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">transvar</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+python '$__tool_directory__/data_manager_transvar_download.py'
+    '$out_file'
+    --refversion '$reference.refversion'
+    --sources '$reference.sources'
+    #if str($name).strip()
+        --name '$name'
+    #end if
+    $test_data_manager
+    ]]></command>
+    <inputs>
+        <conditional name="reference">
+            <param name="refversion" type="select" label="Reference version" help="TransVar builds its coordinates against a specific genome assembly. The wrapper passes this value on as --refversion.">
+                <option value="hg19" selected="true">Human hg19 / GRCh37</option>
+                <option value="hg38">Human hg38 / GRCh38</option>
+                <option value="mm10">Mouse mm10 / GRCm38</option>
+            </param>
+            <when value="hg19">
+                <expand macro="sources">
+                    <option value="ucsc" selected="true">UCSC RefGene</option>
+                    <option value="refseq">RefSeq</option>
+                    <option value="ccds">CCDS</option>
+                    <option value="ensembl">Ensembl</option>
+                    <option value="gencode">GENCODE</option>
+                    <option value="kg">UCSC knownGene</option>
+                </expand>
+            </when>
+            <when value="hg38">
+                <expand macro="sources">
+                    <option value="ucsc" selected="true">UCSC RefGene</option>
+                    <option value="refseq">RefSeq</option>
+                    <option value="ccds">CCDS</option>
+                    <option value="ensembl">Ensembl</option>
+                    <option value="gencode">GENCODE</option>
+                </expand>
+            </when>
+            <when value="mm10">
+                <expand macro="sources">
+                    <option value="refseq" selected="true">RefSeq</option>
+                    <option value="ccds">CCDS</option>
+                    <option value="ensembl">Ensembl</option>
+                    <option value="gencode">GENCODE</option>
+                </expand>
+            </when>
+        </conditional>
+        <param name="name" type="text" optional="true" label="Display name" help="Leave empty to generate a name from the reference version and the selected sources.">
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits">
+                    <add value=" "/>
+                    <add value="_"/>
+                    <add value="-"/>
+                    <add value="."/>
+                    <add value=","/>
+                    <add value="("/>
+                    <add value=")"/>
+                    <add value="/"/>
+                    <add value="+"/>
+                </valid>
+            </sanitizer>
+        </param>
+        <param name="test_data_manager" type="hidden" value=""/>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="data_manager_json" label="${tool.name}"/>
+    </outputs>
+    <tests>
+        <!-- The databases are hundreds of megabytes and live on an external
+             server, so the test runs the download step in placeholder mode.
+             What it checks is the part this data manager is responsible for:
+             that the requested sources are resolved against the installed
+             TransVar release and registered under the file names the wrapper
+             expects. -->
+        <test expect_num_outputs="1">
+            <conditional name="reference">
+                <param name="refversion" value="hg38"/>
+                <param name="sources" value="ucsc,refseq"/>
+            </conditional>
+            <param name="test_data_manager" value="--test"/>
+            <output name="out_file">
+                <assert_contents>
+                    <has_text text="&quot;refversion&quot;: &quot;hg38&quot;"/>
+                    <has_text text="&quot;sources&quot;: &quot;refseq,ucsc&quot;"/>
+                    <has_text text="&quot;value&quot;: &quot;hg38_refseq-ucsc&quot;"/>
+                    <has_text text="hg38 (RefSeq, UCSC RefGene)"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Downloads the pre-built transcript annotation databases that TransVar_ needs
+and makes them available to the TransVar tool through the
+``transvar_annotations`` data table.
+
+Running ``transvar config --download_anno`` by hand writes the databases and
+TransVar's configuration file into the installed Python package directory.
+That directory is shared between jobs and usually read-only on a Galaxy
+server, so this data manager downloads the same files into a Galaxy managed
+data directory instead.
+
+**Annotation sources**
+
+Only annotation sets that are openly licensed and freely redistributable are
+offered:
+
+============== ===================================================
+Source         Provided by
+============== ===================================================
+RefSeq         NCBI, public domain
+CCDS           NCBI/EBI consensus CDS, public domain
+Ensembl        EMBL-EBI, free of restrictions
+GENCODE        EMBL-EBI/WTSI, free of restrictions
+UCSC RefGene   UCSC Genome Browser refGene table (RefSeq derived)
+UCSC knownGene UCSC Genome Browser knownGene table
+============== ===================================================
+
+AceView is *not* offered, because it is published for use with attribution
+but states no redistribution licence. The genome sequence and dbSNP downloads
+that TransVar also offers are not fetched either: Galaxy already manages
+reference genomes through the ``fasta_indexes`` data table, and the TransVar
+tool takes its reference genome from there.
+
+Not every source exists for every assembly, so the list of sources changes
+with the selected reference version. TransVar also names mm9 as a supported
+assembly, but no pre-built databases are published for it, so it is not
+offered here.
+
+**Download size**
+
+Each source is a database file plus its indices, together roughly 10 MB
+(CCDS) to 70 MB (Ensembl, GENCODE). Selecting every source for one human
+assembly downloads in the order of 250 MB.
+
+**Servers behind an HTTP proxy**
+
+The download runs inside a Galaxy job, and Galaxy reduces a job's environment
+to ``HOME``, ``LC_CTYPE``, ``PATH`` and ``TMPDIR``. A proxy configured in the
+shell or in the Galaxy server's own environment therefore does not reach this
+tool, and the download fails with a connection timeout. Set it on the job
+destination instead, for example in ``job_conf.yml``::
+
+    execution:
+      environments:
+        local:
+          runner: local
+          env:
+          - name: https_proxy
+            value: ADDRESS-OF-YOUR-PROXY
+          - name: http_proxy
+            value: ADDRESS-OF-YOUR-PROXY
+
+**Repeated runs**
+
+Each combination of reference version and sources becomes one data table
+entry, so re-running with the same selection refreshes that entry rather than
+adding a duplicate.
+
+.. _TransVar: https://bioinformatics.mdanderson.org/public-software/transvar/
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/nmeth.3622</citation>
+    </citations>
+</tool>

@@ -1,0 +1,493 @@
+<tool id="bambu" name="Bambu" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>transcript discovery and quantification from long-read RNA-seq</description>
+    <macros>
+        <token name="@TOOL_VERSION@">3.12.1</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.1</token>
+        <xml name="discovery_params">
+            <param name="ndr" type="float" min="0" max="1" optional="true" label="Novel discovery rate (NDR) threshold"
+                help="Leave empty to let Bambu choose it from the data (recommended)"/>
+            <param name="min_read_count" type="integer" min="1" value="2" label="Minimum read count for a novel transcript"
+                help="Reads a novel read class needs within one sample (opt.discovery min.readCount)"/>
+            <param name="min_sample_number" type="integer" min="1" value="1" label="Minimum number of samples reaching that count"
+                help="Samples that must reach the minimum read count (opt.discovery min.sampleNumber). Above the number of input BAMs, nothing novel is kept."/>
+        </xml>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">bioconductor-bambu</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">bioconductor-bambu</requirement>
+    </requirements>
+    <version_command><![CDATA[Rscript -e 'cat(as.character(packageVersion("bambu")))']]></version_command>
+    <command detect_errors="aggressive"><![CDATA[
+mkdir bams &&
+#for $i, $bam in enumerate($reads)
+    ln -s '$bam' 'bams/input_${i}.bam' &&
+#end for
+#if $reference.source == 'history':
+    #if $reference.genome.is_of_type('fasta.gz'):
+        ## Rsamtools cannot index a plain gzip file
+        gunzip -c '$reference.genome' > genome.fa &&
+    #else:
+        ln -s '$reference.genome' genome.fa &&
+    #end if
+#else:
+    ln -s '$reference.genome.fields.path' genome.fa &&
+    if [ -e '${reference.genome.fields.path}.fai' ]; then ln -s '${reference.genome.fields.path}.fai' genome.fa.fai; fi &&
+#end if
+ln -s '$annotation' annotation.gtf &&
+Rscript '$bambu_script'
+    ]]></command>
+    <configfiles>
+        <configfile name="bambu_script"><![CDATA[
+#import re
+## Sample names become count-table column headers, so keep them to safe characters and unique
+#set $sample_names = []
+#for $bam in $reads
+    #set $name = re.sub(r'\.bam$', '', str($bam.element_identifier))
+    #set $name = re.sub(r'[^A-Za-z0-9_\-]', '_', $name) or 'sample'
+    #set $candidate = $name
+    #set $n = 2
+    ## rn, TXNAME and GENEID are column names in Bambu's own tables
+    #while $candidate in $sample_names or $candidate in ('rn', 'TXNAME', 'GENEID')
+        #set $candidate = '%s_%d' % ($name, $n)
+        #set $n += 1
+    #end while
+    #silent $sample_names.append($candidate)
+#end for
+suppressPackageStartupMessages(library(bambu))
+
+ncore <- as.integer(Sys.getenv("GALAXY_SLOTS", "1"))
+#set $names_r = ', '.join(['"%s"' % $s for $s in $sample_names])
+sample_names <- c($names_r)
+## Bambu names each sample after its BAM file and uses that name in more than one table,
+## so give it the files under their final names instead of renaming columns afterwards
+dir.create("named")
+reads <- file.path("named", paste0(sample_names, ".bam"))
+stopifnot(file.rename(sprintf("bams/input_%d.bam", seq_along(sample_names) - 1L), reads))
+
+## cached genomes come with an index; only build one when there is none
+if (!file.exists("genome.fa.fai")) Rsamtools::indexFa("genome.fa")
+## a character genome is first looked up as a BSgenome name, which needs network access
+genome <- Rsamtools::FaFile("genome.fa")
+annotations <- prepareAnnotations("annotation.gtf")
+
+#if $analysis.mode == 'quant':
+discovery <- FALSE
+ndr <- NULL
+opt_discovery <- NULL
+#else:
+discovery <- TRUE
+#if str($analysis.ndr):
+ndr <- $analysis.ndr
+#else:
+ndr <- NULL
+#end if
+opt_discovery <- list(min.readCount = $analysis.min_read_count, min.sampleNumber = $analysis.min_sample_number)
+#end if
+
+result <- bambu(
+    reads = reads,
+    annotations = annotations,
+    genome = genome,
+    NDR = ndr,
+    opt.discovery = opt_discovery,
+    discovery = discovery,
+    quant = #if $analysis.mode == 'discovery' then 'FALSE' else 'TRUE'#,
+    stranded = $stranded,
+    ncore = ncore,
+    verbose = TRUE
+)
+
+#if $analysis.mode == 'discovery':
+## without quantification bambu returns only the extended annotation
+dir.create("output")
+writeToGTF(result, "output/extended_annotations.gtf")
+#else:
+writeBambuOutput(result, path = "output")
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="reads" type="data" format="bam" multiple="true" label="Long-read alignments"
+            help="One BAM per sample, from minimap2 in spliced mode (-ax splice). Sample names are taken from the dataset or collection element names."/>
+        <conditional name="reference">
+            <param name="source" type="select" label="Reference genome">
+                <option value="cached" selected="true">Use a built-in genome</option>
+                <option value="history">Use a genome from the history</option>
+            </param>
+            <when value="cached">
+                <param name="genome" type="select" label="Genome">
+                    <options from_data_table="fasta_indexes">
+                        <validator type="no_options" message="No reference genomes are available"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="genome" type="data" format="fasta,fasta.gz" label="Genome (FASTA)"
+                    help="The genome the reads were aligned to"/>
+            </when>
+        </conditional>
+        <param name="annotation" type="data" format="gtf" label="Reference annotation (GTF)"
+            help="Chromosome names must match the genome and the alignments"/>
+        <conditional name="analysis">
+            <param name="mode" type="select" label="Analysis">
+                <option value="discovery_quant" selected="true">Discover novel transcripts and quantify</option>
+                <option value="quant">Quantify annotated transcripts only</option>
+                <option value="discovery">Discover novel transcripts only (no quantification)</option>
+            </param>
+            <when value="discovery_quant">
+                <expand macro="discovery_params"/>
+            </when>
+            <when value="quant"/>
+            <when value="discovery">
+                <expand macro="discovery_params"/>
+            </when>
+        </conditional>
+        <param name="stranded" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Stranded reads?"
+            help="Enable for direct RNA or stranded cDNA protocols, where the read strand is the transcript strand. Leave off for standard cDNA, whose reads come from either strand."/>
+    </inputs>
+    <outputs>
+        <data name="extended_annotation" format="gtf" from_work_dir="output/extended_annotations.gtf" label="${tool.name} on ${on_string}: extended annotation">
+            <filter>analysis['mode'] != 'quant'</filter>
+        </data>
+        <data name="counts_transcript" format="tabular" from_work_dir="output/counts_transcript.txt" label="${tool.name} on ${on_string}: transcript counts">
+            <filter>analysis['mode'] != 'discovery'</filter>
+        </data>
+        <data name="cpm_transcript" format="tabular" from_work_dir="output/CPM_transcript.txt" label="${tool.name} on ${on_string}: transcript CPM">
+            <filter>analysis['mode'] != 'discovery'</filter>
+        </data>
+        <data name="full_length_counts" format="tabular" from_work_dir="output/fullLengthCounts_transcript.txt" label="${tool.name} on ${on_string}: full-length transcript counts">
+            <filter>analysis['mode'] != 'discovery'</filter>
+        </data>
+        <data name="unique_counts" format="tabular" from_work_dir="output/uniqueCounts_transcript.txt" label="${tool.name} on ${on_string}: unique transcript counts">
+            <filter>analysis['mode'] != 'discovery'</filter>
+        </data>
+        <data name="counts_gene" format="tabular" from_work_dir="output/counts_gene.txt" label="${tool.name} on ${on_string}: gene counts">
+            <filter>analysis['mode'] != 'discovery'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- default discovery and quantification; recovers the simulated counts and finds the
+             unannotated geneB isoform that skips exon 3. The dot in sample.1 is replaced in the
+             column name. -->
+        <test expect_num_outputs="6">
+            <param name="reads" value="sample.1.bam,sample2.bam"/>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="genome" value="genome.fasta"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <output name="extended_annotation">
+                <assert_contents>
+                    <has_line_matching expression='^chr1\tBambu\ttranscript\t3352\t5996\t\.\t-\t\.\tgene_id "geneB"; transcript_id "BambuTx1";$'/>
+                    <has_line_matching expression='^chr1\tBambu\texon\t4901\t5200\t.*transcript_id "BambuTx1"; exon_number "2";$'/>
+                    <not_has_text text='4201&#9;4400&#9;.&#9;-&#9;.&#9;gene_id "geneB"; transcript_id "BambuTx1"'/>
+                    <has_n_lines n="16"/>
+                </assert_contents>
+            </output>
+            <output name="counts_transcript">
+                <assert_contents>
+                    <has_line_matching expression="^TXNAME\tGENEID\tsample_1\tsample2$"/>
+                    <has_line_matching expression="^BambuTx1\tgeneB\t12\t18$"/>
+                    <has_line_matching expression="^txA1\tgeneA\t30\t20$"/>
+                    <has_line_matching expression="^txA2\tgeneA\t10\t15$"/>
+                    <has_line_matching expression="^txB1\tgeneB\t20\t10$"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+            <output name="cpm_transcript">
+                <assert_contents>
+                    <has_line_matching expression="^TXNAME\tGENEID\tsample_1\tsample2$"/>
+                    <has_line_matching expression="^txA1\tgeneA\t416666\.66667\t317460\.31746$"/>
+                </assert_contents>
+            </output>
+            <output name="full_length_counts">
+                <assert_contents>
+                    <has_line_matching expression="^BambuTx1\tgeneB\t12\t18$"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+            <output name="unique_counts">
+                <assert_contents>
+                    <has_line_matching expression="^txB1\tgeneB\t20\t10$"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+            <output name="counts_gene">
+                <assert_contents>
+                    <has_line_matching expression="^GENEID\tsample_1\tsample2$"/>
+                    <has_line_matching expression="^geneA\t40\t35$"/>
+                    <has_line_matching expression="^geneB\t32\t28$"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- quantification against the annotation only: no novel transcript, and the 12 reads of
+             the unannotated isoform are not assigned to txB1. The same BAM given twice gets a
+             de-duplicated sample name. -->
+        <test expect_num_outputs="5">
+            <param name="reads" value="sample.1.bam,sample.1.bam"/>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="genome" value="genome.fasta"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <conditional name="analysis">
+                <param name="mode" value="quant"/>
+            </conditional>
+            <output name="counts_transcript">
+                <assert_contents>
+                    <has_line_matching expression="^TXNAME\tGENEID\tsample_1\tsample_1_2$"/>
+                    <has_line_matching expression="^txB1\tgeneB\t20\t20$"/>
+                    <not_has_text text="BambuTx"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="cpm_transcript">
+                <assert_contents>
+                    <not_has_text text="BambuTx"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="full_length_counts">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="unique_counts">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="counts_gene">
+                <assert_contents>
+                    <has_line_matching expression="^GENEID\tsample_1\tsample_1_2$"/>
+                    <has_line_matching expression="^geneB\t32\t32$"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- stranded reads: only alignments on the transcript strand are used, so txB1 in sample_1
+             drops from the 20 reads of the unstranded test above to 10 -->
+        <test expect_num_outputs="5">
+            <param name="reads" value="sample.1.bam,sample2.bam"/>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="genome" value="genome.fasta"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <conditional name="analysis">
+                <param name="mode" value="quant"/>
+            </conditional>
+            <param name="stranded" value="true"/>
+            <output name="counts_transcript">
+                <assert_contents>
+                    <has_line_matching expression="^TXNAME\tGENEID\tsample_1\tsample2$"/>
+                    <has_line_matching expression="^txA1\tgeneA\t10\t9$"/>
+                    <has_line_matching expression="^txA2\tgeneA\t3\t8$"/>
+                    <has_line_matching expression="^txB1\tgeneB\t10\t7$"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="counts_gene">
+                <assert_contents>
+                    <has_line_matching expression="^geneA\t13\t17$"/>
+                    <has_line_matching expression="^geneB\t19\t20$"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- discovery only writes just the extended annotation. The novel isoform has 12 and 18
+             reads, so with a threshold of 15 one sample is enough to keep it (next test: two are not). -->
+        <test expect_num_outputs="1">
+            <param name="reads" value="sample.1.bam,sample2.bam"/>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="genome" value="genome.fasta"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <conditional name="analysis">
+                <param name="mode" value="discovery"/>
+                <param name="min_read_count" value="15"/>
+                <param name="min_sample_number" value="1"/>
+            </conditional>
+            <output name="extended_annotation">
+                <assert_contents>
+                    <has_line_matching expression='^chr1\tBambu\ttranscript\t3352\t5996\t.*transcript_id "BambuTx1";$'/>
+                    <has_line_matching expression='^chr1\tBambu\ttranscript\t301\t2550\t.*transcript_id "txA2";$'/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a gzipped genome is decompressed before indexing and gives the same result -->
+        <test expect_num_outputs="1">
+            <param name="reads" value="sample.1.bam,sample2.bam"/>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="genome" value="genome.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <conditional name="analysis">
+                <param name="mode" value="discovery"/>
+                <param name="min_read_count" value="15"/>
+                <param name="min_sample_number" value="1"/>
+            </conditional>
+            <assert_command>
+                <has_text text="gunzip -c"/>
+            </assert_command>
+            <output name="extended_annotation">
+                <assert_contents>
+                    <has_line_matching expression='^chr1\tBambu\ttranscript\t3352\t5996\t.*transcript_id "BambuTx1";$'/>
+                    <has_line_matching expression='^chr1\tBambu\ttranscript\t301\t2550\t.*transcript_id "txA2";$'/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- the same threshold, but required in both samples: the novel isoform is dropped -->
+        <test expect_num_outputs="1">
+            <param name="reads" value="sample.1.bam,sample2.bam"/>
+            <conditional name="reference">
+                <param name="source" value="history"/>
+                <param name="genome" value="genome.fasta"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <conditional name="analysis">
+                <param name="mode" value="discovery"/>
+                <param name="min_read_count" value="15"/>
+                <param name="min_sample_number" value="2"/>
+            </conditional>
+            <output name="extended_annotation">
+                <assert_contents>
+                    <not_has_text text="BambuTx"/>
+                    <has_line_matching expression='^chr1\tBambu\ttranscript\t3351\t6000\t.*transcript_id "txB1";$'/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a fixed NDR stricter than the novel isoform's score (about 0.21) filters it out, where
+             the automatic threshold (0.25) in the first test keeps it; uses the cached genome -->
+        <test expect_num_outputs="6">
+            <param name="reads" value="sample.1.bam,sample2.bam"/>
+            <conditional name="reference">
+                <param name="source" value="cached"/>
+                <param name="genome" value="test_buildid"/>
+            </conditional>
+            <param name="annotation" value="annotation.gtf"/>
+            <conditional name="analysis">
+                <param name="mode" value="discovery_quant"/>
+                <param name="ndr" value="0.1"/>
+            </conditional>
+            <output name="extended_annotation">
+                <assert_contents>
+                    <not_has_text text="BambuTx"/>
+                </assert_contents>
+            </output>
+            <output name="counts_transcript">
+                <assert_contents>
+                    <has_line_matching expression="^txA1\tgeneA\t30\t20$"/>
+                    <not_has_text text="BambuTx"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="cpm_transcript">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="full_length_counts">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="unique_counts">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="counts_gene">
+                <assert_contents>
+                    <has_line_matching expression="^GENEID\tsample_1\tsample2$"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+## What it does
+
+Bambu discovers and quantifies transcripts from long-read RNA-seq (Oxford Nanopore or PacBio).
+It groups spliced read alignments into *read classes* that share the same intron chain, scores
+read classes that do not match the reference annotation with a model trained on the annotated
+ones, and adds the high-confidence candidates to the annotation as novel transcripts. It then
+estimates the expression of every known and novel transcript with an EM algorithm.
+
+This wrapper runs `prepareAnnotations`, `bambu` and `writeBambuOutput` from the
+[Bioconductor package](https://bioconductor.org/packages/bambu), the same steps as the
+nf-core/nanoseq pipeline. In discovery-only mode there are no counts to write, so it calls
+`writeToGTF` instead of `writeBambuOutput`.
+
+## Input
+
+- One or more **BAM** files of long reads aligned to the genome with a spliced aligner such as
+  minimap2 (`-ax splice`, or `-ax splice -uf -k14` for direct RNA). Give one BAM per sample;
+  a collection works.
+- The **reference genome** the reads were aligned to.
+- The reference **annotation** in GTF format, with chromosome names matching the genome.
+
+Two kinds of GTF give wrong results without an error in Bambu 3.12.1:
+
+- A GTF with other attributes that end in `gene_id` or `transcript_id`, such as StringTie's
+  `ref_gene_id` or NCBI's `orig_transcript_id`. Bambu can read those instead of the real IDs;
+  remove them first.
+- An extended annotation written by an earlier Bambu run. Numbering of novel transcripts
+  starts again at `BambuTx1`, so new and old novel transcripts can share an ID.
+
+### Sample names
+
+The sample columns of the count tables are named after the datasets or collection elements:
+
+- a trailing `.bam` is removed;
+- every character other than a letter, a digit, `_` or `-` is replaced by `_`;
+- names that end up the same (`s.1` and `s_1`, or the same dataset given twice) get `_2`, `_3`
+  and so on appended, in input order.
+
+## Options
+
+- **Analysis**: discovery plus quantification (the default, as nf-core/nanoseq runs it),
+  quantification of the annotated transcripts only, or discovery only, which writes the extended
+  annotation without counts.
+- **Novel discovery rate (NDR)**: the maximum expected fraction of novel transcripts among those
+  kept, between 0 and 1. Leave it empty to let Bambu pick a threshold from the data, which is
+  the recommended setting; it then reports the value it chose in the job's standard error. Use
+  a lower value for a well-annotated genome and a higher one for a poorly annotated organism.
+- **Minimum read count**: a novel read class needs at least this many reads *within a sample*
+  to count for that sample; reads are not summed across samples (Bambu's `min.readCount`).
+  The same threshold decides which read classes Bambu scores and trains its model on.
+- **Minimum number of samples**: how many samples must reach the minimum read count
+  (`min.sampleNumber`). A value above the number of input BAMs keeps no novel transcripts.
+- **Stranded reads**: turn on for direct RNA and other stranded protocols.
+
+## Output
+
+With discovery on (every mode except quantification only):
+
+- **Extended annotation** (GTF): the reference annotation plus the novel transcripts.
+
+With quantification on (every mode except discovery only):
+
+- **Transcript counts**: the estimated number of reads per transcript and sample.
+- **Transcript CPM**: the same estimates as counts per million.
+- **Full-length transcript counts**: reads that cover the full intron chain of the transcript.
+- **Unique transcript counts**: reads compatible with only that transcript.
+- **Gene counts**: reads per gene. This is the sum of the transcript counts plus the reads
+  that fall in the gene but are not compatible with any of its transcripts, so it can be larger
+  than the sum of the transcript rows.
+
+Novel transcripts are named `BambuTx1`, `BambuTx2` and so on. Those in unannotated loci get
+the gene IDs `BambuGene1` and so on.
+
+The count tables have one row per transcript (with its gene) or per gene, and one column per
+sample.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41592-023-01908-w</citation>
+    </citations>
+</tool>
