@@ -1,0 +1,106 @@
+<tool id="fastan" name="FasTAN" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>find tandem-repeat arrays and report them as BED6</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>echo "@TOOL_VERSION@"</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+set -o pipefail &&
+#if $input.is_of_type('fasta.gz')
+    #set $fasta = 'in.fa.gz'
+#else
+    #set $fasta = 'in.fa'
+#end if
+ln -s '$input' '$fasta' &&
+FAtoGDB
+    #if $max_n_run > 0
+        -n$max_n_run
+    #end if
+    '$fasta' gdb &&
+FasTAN -m -p -T\${GALAXY_SLOTS:-1} gdb &&
+ONEview gdb.1ano
+| awk -f '$__tool_directory__/ano2bed6.awk'
+| LC_ALL=C sort -k1,1 -k2,2n > '$output'
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="fasta,fasta.gz" label="Assembly FASTA"/>
+        <param name="max_n_run" argument="-n" type="integer" min="0" value="0" label="Bridge N runs shorter than (bp)" help="FAtoGDB changes each N run shorter than this length to A. FasTAN can then find an array across a short gap. 0 keeps every N run as a gap."/>
+    </inputs>
+    <outputs>
+        <data name="output" format="bed" label="${tool.name} on ${on_string}: tandem arrays (BED6)"/>
+    </outputs>
+    <tests>
+        <!-- Defaults on a soft-masked assembly: same BED as on its upper-cased copy -->
+        <test expect_num_outputs="1">
+            <param name="input" value="cs10_A.fa" ftype="fasta"/>
+            <output name="output" file="cs10_A.bed" ftype="bed"/>
+        </test>
+        <!-- fasta.gz input; the 10 bp N run splits the 23 bp array in two -->
+        <test expect_num_outputs="1">
+            <param name="input" value="tandem_gaps.fa.gz" ftype="fasta.gz"/>
+            <output name="output" file="tandem_gaps.bed" ftype="bed"/>
+        </test>
+        <!-- -n20 bridges the 10 bp N run but not the 200 bp one -->
+        <test expect_num_outputs="1">
+            <param name="input" value="tandem_gaps.fa" ftype="fasta"/>
+            <param name="max_n_run" value="20"/>
+            <output name="output" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_line line="chrG&#9;300&#9;840&#9;u23&#9;980&#9;."/>
+                    <has_line line="chrG&#9;1561&#9;1649&#9;u3&#9;1000&#9;."/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- No tandem arrays: the job succeeds with an empty BED -->
+        <test expect_num_outputs="1">
+            <param name="input" value="cs10_B.fa" ftype="fasta"/>
+            <output name="output" ftype="bed">
+                <assert_contents>
+                    <has_size value="0"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+FasTAN finds tandem-repeat arrays in an assembly. The tool writes one BED6 line for each array.
+
+-----
+
+**Input**
+
+A FASTA or gzipped FASTA file. FAtoGDB does not keep the case of the bases. Thus a soft-masked file and its uppercase copy give the same result.
+
+Each record must contain at least one base that is not N. FAtoGDB stops with an error on an empty or all-N record. The last line must end with a newline.
+
+-----
+
+**Output**
+
+BED6, sorted by sequence name and start. The coordinates are 0-based and relative to the scaffold. N runs do not shift them.
+
+| Column | Value |
+|---|---|
+| 4 (name) | `u` and the repeat unit length in bp, for example `u23` |
+| 5 (score) | `1000 - 10 * divergence`, from 0 to 1000. Divergence is the FasTAN `X` value, roughly a percentage. A perfect array scores 1000. |
+| 6 (strand) | `.` |
+
+If the input has no tandem arrays, the output is an empty file.
+
+-----
+
+**Option**
+
+*Bridge N runs shorter than* (`-n`) is a FAtoGDB option. FAtoGDB changes each N run shorter than this length to A. FasTAN then reads it as sequence. An array can then continue across a short gap. The A bases count as mismatches, so the divergence goes up.
+
+-----
+
+**Method**
+
+`FAtoGDB` → `FasTAN -m -p` → `ONEview` → `ano2bed6.awk`. The awk script reads scaffold coordinates from the `.1ano` file. It does not use `ANOtoBED`, because ANOtoBED reports contig coordinates under the scaffold name.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
