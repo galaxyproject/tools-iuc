@@ -3,72 +3,22 @@
 # Parse command line arguments input, column, full and summary output
 args <- commandArgs(trailingOnly = TRUE)
 
-parse_args <- function(args) {
-    opts <- list(
-        input = NULL,
-        column = "Lipid_Name",
-        output_full = "output_full.tsv",
-        output_summary = "output_summary.tsv"
-    )
-
-    # Substitute template arguments with command line arguments
-    i <- 1
-    while (i <= length(args)) {
-        if (args[i] == "--input" && (i + 1) <= length(args)) {
-            opts$input <- args[i + 1]
-            i <- i + 2
-        } else if (args[i] == "--column" && (i + 1) <= length(args)) {
-            opts$column <- args[i + 1]
-            i <- i + 2
-        } else if (args[i] == "--output_full" && (i + 1) <= length(args)) {
-            opts$output_full <- args[i + 1]
-            i <- i + 2
-        } else if (args[i] == "--output_summary" && (i + 1) <= length(args)) {
-            opts$output_summary <- args[i + 1]
-            i <- i + 2
-        } else {
-            i <- i + 1
-        }
-    }
-    return(opts)
-}
-
-opts <- parse_args(args)
-
-# Check for mandatory input
-if (is.null(opts$input)) {
-    stop("Please define the input file.", call. = FALSE)
-}
+input <- args[1]
+column <- args[2]
+output_full <- args[3]
+output_summary <- args[4]
 
 # Read input data
-df <- read.delim(opts$input, check.names = FALSE, stringsAsFactors = FALSE)
+df <- read.delim(input, check.names = FALSE, stringsAsFactors = FALSE)
 
 # Resolve target column
-target_col <- opts$column
-col_idx <- suppressWarnings(as.integer(target_col))
+col_idx <- as.integer(column)
 
-if (!is.na(col_idx)) {
-    if (col_idx > 0 && col_idx <= ncol(df)) {
-        target_col <- colnames(df)[col_idx]
-    } else {
-        stop(paste0("Column index ", col_idx, " is out of bounds."), call. = FALSE)
-    }
+if (is.na(col_idx) || col_idx < 1 || col_idx > ncol(df)) {
+  stop("Invalid lipid name column selection.", call. = FALSE)
 }
 
-# Check if target column exists in dataset
-if (!target_col %in% colnames(df)) {
-    if ("--column" %in% args) {
-        stop(
-            paste0("Specified column '", target_col, "' not found in input dataset."),
-            call. = FALSE
-        )
-    } else {
-        stop(
-            "Default column 'Lipid_Name' was not found in the input file. Please specify the target column using --column.",
-            call. = FALSE
-        )
-    }
-}
+target_col <- colnames(df)[col_idx]
 
 # Load rgoslin
 suppressPackageStartupMessages({
@@ -98,7 +48,7 @@ parsed_results$Message[!empty_idx & unparsed_idx] <-
 
 # Full output with all generated columns
 full_results <- cbind(df, parsed_results)
-write.table(full_results, file = opts$output_full, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(full_results, file = output_full, sep = "\t", quote = FALSE, row.names = FALSE)
 
 # Summary output with selected columns
 summary_cols <- c(
@@ -115,4 +65,4 @@ if (length(keep_cols) > 0) {
 }
 
 summary_results <- cbind(df, parsed_summary)
-write.table(summary_results, file = opts$output_summary, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(summary_results, file = output_summary, sep = "\t", quote = FALSE, row.names = FALSE)
