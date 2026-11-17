@@ -1,54 +1,57 @@
 #!/usr/bin/env Rscript
 
-# Parse command line arguments input, column, full and summary output
-args <- commandArgs(trailingOnly = TRUE)
-
-input <- args[1]
-column <- args[2]
-output_full <- args[3]
-output_summary <- args[4]
-
-# Read input data
-df <- read.delim(input, check.names = FALSE, stringsAsFactors = FALSE)
-
-# Resolve target column
-col_idx <- as.integer(column)
-
-if (is.na(col_idx) || col_idx < 1 || col_idx > ncol(df)) {
-  stop("Invalid lipid name column selection.", call. = FALSE)
-}
-
-target_col <- colnames(df)[col_idx]
-
 # Load rgoslin
 suppressPackageStartupMessages({
     library(rgoslin)
 })
 
-lipid_names <- as.character(df[[target_col]])
+# Parse command line arguments input, column, full and summary output
+args <- commandArgs(trailingOnly = TRUE)
+
+input <- args[1]
+column <- as.integer(args[2])
+has_header <- as.logical(args[3])
+full_output <- as.logical(args[4])
+output_full <- args[5]
+output_summary <- args[6]
+
+# Read input data
+df <- read.delim(
+    input,
+    header = has_header,
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+)
+
+# Resolve target column
+if (is.na(column) || column < 1 || column > ncol(df)) {
+    stop("Invalid lipid name column selection.", call. = FALSE)
+}
+
+lipid_names <- as.character(df[[column]])
 lipid_names[is.na(lipid_names)] <- ""
 
-parsed_results <- rgoslin::parseLipidNames(
+parsed_results <- parseLipidNames(
     lipidNames = lipid_names
 )
 
-# Improve error messages for users
-empty_idx <- is.na(df[[target_col]]) |
-    trimws(as.character(df[[target_col]])) == ""
+empty_idx <- is.na(df[[column]]) |
+    trimws(as.character(df[[column]])) == ""
 
-unparsed_idx <- parsed_results$Grammar == "NOT_PARSEABLE" |
-    is.na(parsed_results$Normalized.Name)
-
-# Empty input
 parsed_results$Message[empty_idx] <- "No lipid name provided."
 
-# Unparseable lipid names
-parsed_results$Message[!empty_idx & unparsed_idx] <-
-    "Unsupported lipid nomenclature."
-
 # Full output with all generated columns
-full_results <- cbind(df, parsed_results)
-write.table(full_results, file = output_full, sep = "\t", quote = FALSE, row.names = FALSE)
+if (full_output) {
+    full_results <- cbind(df, parsed_results)
+    write.table(
+        full_results,
+        file = output_full,
+        sep = "\t",
+        quote = FALSE,
+        row.names = FALSE,
+        na = ""
+    )
+}
 
 # Summary output with selected columns
 summary_cols <- c(
@@ -57,12 +60,15 @@ summary_cols <- c(
     "Species.Name", "Molecular.Species.Name",
     "Level", "Total.C", "Total.DB", "Mass", "Sum.Formula"
 )
-keep_cols <- intersect(summary_cols, colnames(parsed_results))
-if (length(keep_cols) > 0) {
-    parsed_summary <- parsed_results[, keep_cols, drop = FALSE]
-} else {
-    parsed_summary <- parsed_results
-}
+
+parsed_summary <- parsed_results[, summary_cols, drop = FALSE]
 
 summary_results <- cbind(df, parsed_summary)
-write.table(summary_results, file = output_summary, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(
+    summary_results,
+    file = output_summary,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    na = ""
+)
