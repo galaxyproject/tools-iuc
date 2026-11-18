@@ -6,8 +6,21 @@
     <expand macro="requirements"/>
     <expand macro="creator"/>
     <command detect_errors="exit_code"><![CDATA[
+        ## CODEX
+        #if $method_condi.method == 'codex':
+            ## codex reader reads CSV/TIF from cwd without joining path
+            mkdir -p 'output' &&
+            #if str($method_condi.fcs_or_csv_condi.fcs) == 'True':
+                ln -s '$method_condi.fcs_or_csv_condi.fcs_file' 'codex_data.fcs' &&
+            #else:
+                ln -s '$method_condi.fcs_or_csv_condi.csv_file' 'codex_data.csv' &&
+            #end if
+            #if $method_condi.image_tif:
+                ln -s '$method_condi.image_tif' 'codex_image.tif' &&
+            #end if
+
         ## CosMX
-        #if $method_condi.method == 'cosmx':
+        #else if $method_condi.method == 'cosmx':
             ## puting all files in working directory instead of input. cosmx should run inside same directory
             mkdir -p 'CellComposite' 'CellLabels' 'output' &&
             #for $image in $method_condi.CellComposite:
@@ -73,6 +86,62 @@
                 #else:
                     ln -s '$image' 'input/${image.element_identifier}.tif' &&
                 #end if
+            #end for
+
+        ## MCMICRO
+        #else if $method_condi.method == 'mcmicro':
+            mkdir -p 'input/qc' 'input/registration' 'input/segmentation/seg' 'input/quantification' 'output' &&
+            ln -s '$method_condi.markers_csv' 'input/markers.csv' &&
+            ln -s '$method_condi.registration_image' 'input/registration/${method_condi.sample_id}.ome.tif' &&
+            #if $method_condi.segmentation_mask:
+                ln -s '$method_condi.segmentation_mask' 'input/segmentation/seg/cell.ome.tif' &&
+            #end if
+            ln -s '$method_condi.quantification_csv' 'input/quantification/${method_condi.sample_id}--seg_cell.csv' &&
+            #if $method_condi.params_yml:
+                ln -s '$method_condi.params_yml' 'input/qc/params.yml' &&
+            #else:
+                printf 'workflow:\n  tma: false\n' > 'input/qc/params.yml' &&
+            #end if
+
+        ## seqFISH
+        #else if $method_condi.method == 'seqfish':
+            mkdir -p 'input' 'output' &&
+            ln -s '$method_condi.cell_coordinates' 'input/${method_condi.roi_name}_CellCoordinates.csv' &&
+            ln -s '$method_condi.cell_x_gene' 'input/${method_condi.roi_name}_CellxGene.csv' &&
+            ln -s '$method_condi.dapi_image' 'input/${method_condi.roi_name}_DAPI.tiff' &&
+            #if $method_condi.segmentation_labels:
+                ln -s '$method_condi.segmentation_labels' 'input/${method_condi.roi_name}_Segmentation.tiff' &&
+            #end if
+            #if $method_condi.transcript_list:
+                ln -s '$method_condi.transcript_list' 'input/${method_condi.roi_name}_TranscriptList.csv' &&
+            #end if
+            #if $method_condi.boundaries_geojson:
+                ln -s '$method_condi.boundaries_geojson' 'input/${method_condi.roi_name}_Boundaries.geojson' &&
+            #end if
+
+        ## Steinbock
+        #else if $method_condi.method == 'steinbock':
+            mkdir -p 'input/ome' 'input/masks_${method_condi.labels_kind}' 'output' &&
+            ln -s '$method_condi.cells_h5ad' 'input/cells.h5ad' &&
+            #for $img in $method_condi.ome_images:
+                #set $stem = str($img.element_identifier)
+                #for $ext in ['.ome.tiff', '.ome.tif', '.tiff', '.tif']:
+                    #if $stem.endswith($ext):
+                        #set $stem = $stem[:-len($ext)]
+                        #break
+                    #end if
+                #end for
+                ln -s '$img' 'input/ome/${stem}.ome.tiff' &&
+            #end for
+            #for $mask in $method_condi.mask_images:
+                #set $stem = str($mask.element_identifier)
+                #for $ext in ['.ome.tiff', '.ome.tif', '.tiff', '.tif']:
+                    #if $stem.endswith($ext):
+                        #set $stem = $stem[:-len($ext)]
+                        #break
+                    #end if
+                #end for
+                ln -s '$mask' 'input/masks_${method_condi.labels_kind}/${stem}.tiff' &&
             #end for
 
         ## MERSCOPE
@@ -253,12 +322,21 @@
         <configfile name="spdata_config" filename="spdata_io.py">
 import os
 import dask
-
+@ANNDATA_SETTINGS@
 ## enable multi-threading for Dask operations.
 n_workers = int(os.getenv("GALAXY_SLOTS", "1"))
 dask.config.set(scheduler="threads", num_workers=n_workers)
 
-#if $method_condi.method == 'cosmx':
+#if $method_condi.method == 'codex':
+from spatialdata_io import codex
+spdata = codex(path=".", fcs=$method_condi.fcs_or_csv_condi.fcs)
+## Convert CodexKeys enum attrs to str for Zarr serialization in spatialdata-io 0.7.0
+_attrs = spdata.tables["table"].uns.get("spatialdata_attrs", {})
+for _k in ("region", "region_key", "instance_key"):
+    if _k in _attrs:
+        _attrs[_k] = str(_attrs[_k].value if hasattr(_attrs[_k], "value") else _attrs[_k])
+
+#else if $method_condi.method == 'cosmx':
 from spatialdata_io import cosmx
 spdata = cosmx(path="./",
                dataset_id="$method_condi.dataset_id",
@@ -306,6 +384,49 @@ spdata = macsima(path="./input",
                 #end if
                 include_cycle_in_channel_name=$method_condi.include_cycle_in_channel_name,
                 )
+
+#else if $method_condi.method == 'mcmicro':
+import spatialdata_io.readers.mcmicro as _mcmicro_mod
+from anndata import AnnData as _OrigAnnData
+## Compatibility shim for spatialdata-io 0.7.0 passing removed dtype= arg to AnnData>=0.11
+def _compat_anndata(X=None, *args, dtype=None, **kwargs):
+    if dtype is not None and X is not None:
+        X = X.astype(dtype)
+    return _OrigAnnData(X, *args, **kwargs)
+_mcmicro_mod.AnnData = _compat_anndata
+from spatialdata_io import mcmicro
+spdata = mcmicro(path="./input")
+
+#else if $method_condi.method == 'seqfish':
+from spatialdata_io import seqfish
+spdata = seqfish(
+    path="./input",
+    load_images=$method_condi.load_images,
+    #if $method_condi.segmentation_labels:
+    load_labels=True,
+    #else:
+    load_labels=False,
+    #end if
+    #if $method_condi.transcript_list:
+    load_points=True,
+    #else:
+    load_points=False,
+    #end if
+    #if $method_condi.boundaries_geojson:
+    load_shapes=True,
+    #else:
+    load_shapes=False,
+    #end if
+    cells_as_circles=$method_condi.cells_as_circles,
+    #if $method_condi.raster_models_scale_factors:
+        #set $sf_list = [int(x.strip()) for x in str($method_condi.raster_models_scale_factors).split(',')]
+    raster_models_scale_factors=$sf_list,
+    #end if
+)
+
+#else if $method_condi.method == 'steinbock':
+from spatialdata_io import steinbock
+spdata = steinbock(path="./input", labels_kind="$method_condi.labels_kind")
 
 #else if $method_condi.method == 'merscope':
 from spatialdata_io import merscope
@@ -439,17 +560,36 @@ spdata.write("./output/spatialdata.zarr", overwrite=True)
     <inputs>
         <conditional name="method_condi">
             <param name="method" type="select" label="Spatial Technology">
+                <option value="codex">CODEX (Akoya PhenoCycler)</option>
                 <option value="cosmx">CosMx</option>
                 <!-- works locally with my fix. I made a PR upstream. Please enable this option in the next update. Xref: https://github.com/scverse/spatialdata-io/pull/440 -->
                 <!-- <option value="curio">Curio Seeker</option> -->
                 <option value="dbit">DBiT-seq</option>
                 <option value="macsima">MACSima</option>
+                <option value="mcmicro">MCMICRO</option>
                 <option value="merscope">MERSCOPE</option>
+                <option value="seqfish">seqFISH</option>
+                <option value="steinbock">Steinbock (IMC)</option>
                 <option value="visium">10x Genomics Visium</option>
                 <option value="visium_hd">10x Genomics Visium HD</option>
                 <option value="xenium">10x Genomics Xenium</option>
                 <option value="from_legacy_anndata">Legacy spatial AnnData (from_legacy_anndata)</option>
             </param>
+            <when value="codex">
+                <conditional name="fcs_or_csv_condi">
+                    <param name="fcs" type="select" label="Input expression table format">
+                        <option value="False" selected="true">CSV (.csv)</option>
+                        <option value="True">FCS (.fcs)</option>
+                    </param>
+                    <when value="False">
+                        <param name="csv_file" type="data" format="csv" label="CODEX expression CSV file"/>
+                    </when>
+                    <when value="True">
+                        <param name="fcs_file" type="data" format="fcs" label="CODEX expression FCS file"/>
+                    </when>
+                </conditional>
+                <param name="image_tif" type="data" format="tiff" optional="true" label="High-resolution TIFF image"/>
+            </when>
             <when value="cosmx">
                 <param name="CellComposite" type="data" format="jpg,png,tiff" multiple="true" label="Cell Composite images"/>
                 <param name="CellLabels" type="data" format="tiff" multiple="true" label="Cell Labels images"/>
@@ -510,6 +650,53 @@ spdata.write("./output/spatialdata.zarr", overwrite=True)
                 <param argument="nuclei_channel_name" type="text" value="DAPI" label="Nuclei channel name"/>
                 <param argument="split_threshold_nuclei_channel" type="integer" min="0" value="2" optional="true" label="Split threshold for nuclei channels" help="If the number of channels that include nuclei_channel_name is greater than this threshold, the nuclei channels are split into a separate stack.."/>
                 <param argument="include_cycle_in_channel_name" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include cycle number in channel name?" help="If True, prepend cycle number to channel names (e.g., 'R1 DAPI')"/>
+            </when>
+            <when value="mcmicro">
+                <param name="sample_id" type="text" value="sample" label="Sample identifier">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="_"/>
+                            <add value="-"/>
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9a-zA-Z_-]+</validator>
+                </param>
+                <param name="markers_csv" type="data" format="csv" label="Markers CSV file (markers.csv)"/>
+                <param name="registration_image" type="data" format="ome.tiff,tiff" label="Registered OME-TIFF image"/>
+                <param name="segmentation_mask" type="data" format="ome.tiff,tiff" optional="true" label="Cell segmentation mask OME-TIFF"/>
+                <param name="quantification_csv" type="data" format="csv" label="Quantification CSV table"/>
+                <param name="params_yml" type="data" format="yaml,txt" optional="true" label="MCMICRO params.yml file" help="Optional. If omitted, defaults to whole-slide imaging (tma: false)."/>
+            </when>
+            <when value="seqfish">
+                <param name="roi_name" type="text" value="Roi1" label="ROI name prefix">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="_"/>
+                            <add value="-"/>
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9a-zA-Z_-]+</validator>
+                </param>
+                <param name="cell_coordinates" type="data" format="csv" label="Cell coordinates CSV (*_CellCoordinates.csv)"/>
+                <param name="cell_x_gene" type="data" format="csv" label="Cell-by-gene expression CSV (*_CellxGene.csv)"/>
+                <param name="dapi_image" type="data" format="ome.tiff,tiff" label="DAPI OME-TIFF image (*_DAPI.tiff)"/>
+                <param name="segmentation_labels" type="data" format="tiff,ome.tiff" optional="true" label="Cell segmentation mask TIFF (*_Segmentation.tiff)"/>
+                <param name="transcript_list" type="data" format="csv" optional="true" label="Transcript coordinates CSV (*_TranscriptList.csv)"/>
+                <param name="boundaries_geojson" type="data" format="geojson" optional="true" label="Cell boundaries GeoJSON (*_Boundaries.geojson)"/>
+                <param argument="load_images" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Load images?"/>
+                <param argument="cells_as_circles" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Represent cells as circles?"/>
+                <param argument="raster_models_scale_factors" type="text" optional="true" label="Raster scale factors" help="Comma-separated integers (e.g., 2,2,2). Leave empty for automatic selection.">
+                    <expand macro="sanitize_digits"/>
+                </param>
+            </when>
+            <when value="steinbock">
+                <param name="cells_h5ad" type="data" format="h5ad" label="Steinbock cells AnnData file (cells.h5ad)"/>
+                <param argument="labels_kind" type="select" label="Segmentation labels kind">
+                    <option value="deepcell" selected="true">DeepCell (masks_deepcell)</option>
+                    <option value="ilastik">Ilastik (masks_ilastik)</option>
+                </param>
+                <param name="ome_images" type="data" format="ome.tiff,tiff" multiple="true" label="Steinbock OME-TIFF images (ome/*.ome.tiff)"/>
+                <param name="mask_images" type="data" format="tiff,ome.tiff" multiple="true" label="Steinbock segmentation mask TIFFs (masks_*/*.tiff)"/>
             </when>
             <when value="merscope">
                 <param argument="slide_name" type="text" value="Galaxy" label="Dataset identifier" help="Prefix used to name the constructed SpatialData elements.">
@@ -992,6 +1179,115 @@ spdata.write("./output/spatialdata.zarr", overwrite=True)
                 </assert_contents>
             </output>
         </test> -->
+        <!-- test 11: io CODEX CSV -->
+        <test>
+            <conditional name="method_condi">
+                <param name="method" value="codex"/>
+                <conditional name="fcs_or_csv_condi">
+                    <param name="fcs" value="False"/>
+                    <param name="csv_file" location="https://zenodo.org/records/21358431/files/codex_experiment_002_fcs.csv"/>
+                </conditional>
+                <param name="image_tif" location="https://zenodo.org/records/21358431/files/codex_experiment_002_image.tif"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="'images': DataTree"/>
+                <has_text text="'region_0': GeoDataFrame shape: (80, 2)"/>
+                <has_text text="'table': AnnData (80, 6)"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="images/images"/>
+                        <has_text text="shapes/region_0"/>
+                        <has_text text="tables/table"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 12: io seqFISH -->
+        <test>
+            <conditional name="method_condi">
+                <param name="method" value="seqfish"/>
+                <param name="roi_name" value="Roi1"/>
+                <param name="cell_coordinates" value="seqfish_dummy_CellCoordinates.csv"/>
+                <param name="cell_x_gene" value="seqfish_dummy_CellxGene.csv"/>
+                <param name="dapi_image" value="seqfish_dummy_DAPI.ome.tiff"/>
+                <param name="segmentation_labels" value="seqfish_dummy_Segmentation.tiff"/>
+                <param name="transcript_list" value="seqfish_dummy_TranscriptList.csv"/>
+                <param name="boundaries_geojson" value="seqfish_dummy_Boundaries.geojson"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="'Roi1_DAPI': DataArray"/>
+                <has_text text="'Roi1_Segmentation': DataArray"/>
+                <has_text text="'Roi1_TranscriptList': DataFrame"/>
+                <has_text text="'Roi1_Boundaries': GeoDataFrame shape: (5, 1)"/>
+                <has_text text="'table_Roi1': AnnData (5, 4)"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="images/Roi1_DAPI"/>
+                        <has_text text="labels/Roi1_Segmentation"/>
+                        <has_text text="points/Roi1_TranscriptList"/>
+                        <has_text text="shapes/Roi1_Boundaries"/>
+                        <has_text text="tables/table_Roi1"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 13: io MCMICRO -->
+        <test>
+            <conditional name="method_condi">
+                <param name="method" value="mcmicro"/>
+                <param name="sample_id" value="sample"/>
+                <param name="markers_csv" value="mcmicro_dummy_markers.csv"/>
+                <param name="registration_image" value="mcmicro_dummy_registration.ome.tif"/>
+                <param name="segmentation_mask" value="mcmicro_dummy_cell_mask.ome.tif"/>
+                <param name="quantification_csv" value="mcmicro_dummy_quantification.csv"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="'sample_image': DataArray"/>
+                <has_text text="'sample_cell': DataArray"/>
+                <has_text text="'sample--seg_cell': AnnData (5, 2)"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="images/sample_image"/>
+                        <has_text text="labels/sample_cell"/>
+                        <has_text text="tables/sample--seg_cell"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 14: io Steinbock -->
+        <test>
+            <conditional name="method_condi">
+                <param name="method" value="steinbock"/>
+                <param name="cells_h5ad" value="steinbock_dummy_cells.h5ad"/>
+                <param name="labels_kind" value="deepcell"/>
+                <param name="ome_images" value="steinbock_sample1.ome.tiff"/>
+                <param name="mask_images" value="steinbock_sample1.tiff"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="'steinbock_sample1_image': DataArray"/>
+                <has_text text="'steinbock_sample1_labels': DataArray"/>
+                <has_text text="'table': AnnData (5, 3)"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                        <has_text text="images/steinbock_sample1_image"/>
+                        <has_text text="labels/steinbock_sample1_labels"/>
+                        <has_text text="tables/table"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
@@ -1005,10 +1301,14 @@ This tool loads common spatial omics data formats into the SpatialData framework
 - **10x Genomics Visium**: Standard Visium spatial gene expression data
 - **10x Genomics Visium HD**: High-definition Visium with multiple bin sizes and segmentation data
 - **10x Genomics Xenium**: In situ spatial transcriptomics with subcellular resolution
+- **CODEX (Akoya PhenoCycler)**: Multiplexed fluorescence imaging with single-cell quantification
 - **CosMx SMI (Nanostring)**: Spatial molecular imaging platform
 - **Curio Seeker**: Slide-seq spatial transcriptomics platform
 - **MERSCOPE (Vizgen)**: Multiplexed error-robust fluorescence in situ hybridization
 - **MACSima (Miltenyi)**: Multiplexed antibody-based imaging for cyclic staining
+- **MCMICRO**: Multiple-choice microscopy pipeline for multiplexed tissue imaging
+- **seqFISH (Spatial Genomics)**: Imaging-based spatial transcriptomics
+- **Steinbock (IMC)**: Imaging Mass Cytometry preprocessing pipeline
 - **DBiT-seq**: Deterministic Barcoding in Tissue for spatial omics
 - **Legacy Spatial AnnData**: Convert legacy spatial AnnData (`.h5ad` with `obsm['spatial']` and `uns['spatial']`) into SpatialData (`from_legacy_anndata`)
 
