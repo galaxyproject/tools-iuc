@@ -2,15 +2,18 @@
     <description>write FHR metadata for a genome assembly</description>
     <macros>
         <import>macros.xml</import>
-        <!-- Text values reach bioheaders unchanged (not sanitized). What keeps
-             the shell safe is the quoting: the command passes every value as
-             option=$q(value), one shell word in single quotes, each ' written as
-             '\'', joined to its option name by = so that a value starting with -
-             is never read as an option. The validators only report bad values
-             early (they may not run for values connected in a workflow).
-             bioheaders refuses control and line-break characters itself, but
-             Galaxy turns line breaks in the command into spaces, so $q writes
-             them as U+2028, which bioheaders refuses too. -->
+        <!-- User text never passes through the shell. The command below holds
+             only Galaxy-controlled paths ($__tool_directory__, $inputs and
+             $output). Galaxy writes all parameter values to the inputs
+             configfile (JSON), and fair_bioheaders_metadata.py reads them from
+             there and runs bioheaders with an argument list, without a shell.
+             Galaxy sanitizes the values in that file as well, so the text
+             parameters turn sanitizing off to keep quotes, backslashes, $ and
+             the like unchanged. Therefore these parameters must never be used
+             in the command or in any other template that reaches the shell.
+             The validators only report bad values early (they may not run for
+             values connected in a workflow); the script refuses line breaks
+             and control characters itself, as bioheaders does. -->
         <xml name="text_checks">
             <sanitizer sanitize="false"/>
             <validator type="regex" message="Line breaks and other control characters are not allowed">^[^\x00-\x08\x0a-\x1f\x7f-\x9f  ]*\Z</validator>
@@ -45,11 +48,6 @@
                 </param>
             </repeat>
         </xml>
-        <token name="@QUOTE@"><![CDATA[
-#def q($value)
-#return "'" + str($value).replace("\r", "\u2028").replace("\n", "\u2028").replace("'", "'\\''") + "'"
-#end def
-        ]]></token>
     </macros>
     <expand macro="edam_topics"/>
     <edam_operations>
@@ -61,94 +59,11 @@
     <expand macro="stdio"/>
     <expand macro="version_command"/>
     <command><![CDATA[
-@QUOTE@
-## NAME=VERSION=URI cannot hold = in the name or version.
-#for $item in $optional_fields.assembly_software
-    #if '=' in str($item.name) or ($item.software_version and '=' in str($item.software_version))
-        echo 'Assembly software: the name and version cannot contain =' >&2 && exit 1 &&
-    #end if
-#end for
-bioheaders metadata
-    --genome=$q($genome)
-    #for $item in $genome_synonyms
-        --genome-synonym=$q($item.value)
-    #end for
-    --taxon-name=$q($taxon_name)
-    --taxon-id=$q($taxon_id)
-    --version=$q($assembly_version)
-    #for $item in $metadata_authors
-        #if $item.orcid
-            --metadata-author=$q(str($item.name) + ' <' + str($item.orcid) + '>')
-        #else
-            --metadata-author=$q($item.name)
-        #end if
-    #end for
-    #for $item in $assembly_authors
-        #if $item.orcid
-            --assembly-author=$q(str($item.name) + ' <' + str($item.orcid) + '>')
-        #else
-            --assembly-author=$q($item.name)
-        #end if
-    #end for
-    --date-created=$q($date_created)
-    --masking=$q($masking)
-    #for $item in $optional_fields.instruments
-        --instrument=$q($item.value)
-    #end for
-    #for $item in $optional_fields.assembly_software
-        #set $spec = str($item.name)
-        #if $item.uri
-            #set $spec = $spec + '=' + (str($item.software_version) if $item.software_version else '') + '=' + str($item.uri)
-        #elif $item.software_version
-            #set $spec = $spec + '=' + str($item.software_version)
-        #end if
-        --assembly-software=$q($spec)
-    #end for
-    #if $optional_fields.assembly_protocol
-        --assembly-protocol=$q($optional_fields.assembly_protocol)
-    #end if
-    #if $optional_fields.documentation
-        --documentation=$q($optional_fields.documentation)
-    #end if
-    #if $optional_fields.accession
-        --accession=$q($optional_fields.accession)
-    #end if
-    #if $optional_fields.accession_url
-        --accession-url=$q($optional_fields.accession_url)
-    #end if
-    #for $item in $optional_fields.identifiers
-        --identifier=$q($item.value)
-    #end for
-    #if $optional_fields.reuse_conditions
-        --reuse-conditions=$q($optional_fields.reuse_conditions)
-    #end if
-    #for $item in $optional_fields.related_links
-        --related-link=$q($item.value)
-    #end for
-    #if $optional_fields.voucher_specimen
-        --voucher-specimen=$q($optional_fields.voucher_specimen)
-    #end if
-    #if $optional_fields.scholarly_article
-        --scholarly-article=$q($optional_fields.scholarly_article)
-    #end if
-    #if $optional_fields.funding
-        --funding=$q($optional_fields.funding)
-    #end if
-    #if $optional_fields.seqcol_id
-        --seqcol-id=$q($optional_fields.seqcol_id)
-    #end if
-    #if $statistics.compute == 'yes'
-        --stats-from=$q($statistics.fasta)
-    #end if
-    #for $item in $optional_fields.stats
-        --stat=$q(str($item.key) + '=' + str($item.value))
-    #end for
-    #for $item in $optional_fields.extras
-        --extra=$q(str($item.key) + '=' + str($item.value))
-    #end for
-    --format=$q($output_format)
-    --output=$q($output)
+python3 '$__tool_directory__/fair_bioheaders_metadata.py' '$inputs' '$output'
     ]]></command>
+    <configfiles>
+        <inputs name="inputs" data_style="paths"/>
+    </configfiles>
     <inputs>
         <expand macro="required_text" name="genome" label="Genome name" help="Name of the genome assembly, for example a ToLID such as mHomSap1 (genome)"/>
         <expand macro="text_repeat" name="genome_synonyms" title="Genome synonym" label="Genome synonym" help="Another common name of the genome (genomeSynonym)"/>
@@ -622,6 +537,114 @@ bioheaders metadata
                 </assert_contents>
             </output>
         </test>
+        <!-- 12: backslashes, quotes, $(...), ${...} and backticks round-trip exactly;
+             the command holds only paths, and the job log shows the bioheaders command -->
+        <test expect_num_outputs="1">
+            <param name="genome" value="a\'b \\ &quot;c&quot; $(touch injected) ${HOME} `id` $'\x41' %s \"/>
+            <param name="taxon_name" value="Homo sapiens"/>
+            <param name="taxon_id" value="9606"/>
+            <param name="assembly_version" value="1\"/>
+            <repeat name="genome_synonyms">
+                <param name="value" value="\n is not a newline"/>
+            </repeat>
+            <repeat name="metadata_authors">
+                <param name="name" value="O\'Neil &quot;Q&quot; `id`"/>
+                <param name="orcid" value="https://orcid.org/0000-0002-1825-0097"/>
+            </repeat>
+            <repeat name="assembly_authors">
+                <param name="name" value="$(id) \$HOME"/>
+            </repeat>
+            <param name="date_created" value="2026-01-02"/>
+            <param name="masking" value="unknown"/>
+            <section name="optional_fields">
+                <repeat name="assembly_software">
+                    <param name="name" value="tool\x"/>
+                    <param name="software_version" value="1.0\"/>
+                </repeat>
+                <param name="documentation" value="\&quot;; rm -rf / #"/>
+                <repeat name="stats">
+                    <param name="key" value="readTechnology"/>
+                    <param name="value" value="hi\fi"/>
+                </repeat>
+                <repeat name="extras">
+                    <param name="key" value="x-note"/>
+                    <param name="value" value="back\\slash `x` $y"/>
+                </repeat>
+            </section>
+            <param name="output_format" value="json"/>
+            <output name="output" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;genome&quot;: &quot;a\\'b \\\\ \&quot;c\&quot; $(touch injected) ${HOME} `id` $'\\x41' %s \\&quot;"/>
+                    <has_text text="&quot;\\n is not a newline&quot;"/>
+                    <has_text text="&quot;version&quot;: &quot;1\\&quot;"/>
+                    <has_text text="&quot;name&quot;: &quot;O\\'Neil \&quot;Q\&quot; `id`&quot;"/>
+                    <has_text text="&quot;name&quot;: &quot;$(id) \\$HOME&quot;"/>
+                    <has_text text="&quot;name&quot;: &quot;tool\\x&quot;"/>
+                    <has_text text="&quot;version&quot;: &quot;1.0\\&quot;"/>
+                    <has_text text="&quot;documentation&quot;: &quot;\\\&quot;; rm -rf / #&quot;"/>
+                    <has_text text="&quot;readTechnology&quot;: &quot;hi\\fi&quot;"/>
+                    <has_text text="&quot;x-note&quot;: &quot;back\\\\slash `x` $y&quot;"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="fair_bioheaders_metadata.py"/>
+                <not_has_text text="injected"/>
+                <not_has_text text="`id`"/>
+                <not_has_text text="--genome"/>
+            </assert_command>
+            <assert_stderr>
+                <has_text text="bioheaders metadata '--genome=a\'"/>
+                <has_text text="'--assembly-author=$(id) \$HOME'"/>
+            </assert_stderr>
+        </test>
+        <!-- 13: the same in YAML -->
+        <test expect_num_outputs="1">
+            <param name="genome" value="a\'b \\ &quot;c&quot; $(touch injected) ${HOME} `id` $'\x41' %s \"/>
+            <param name="taxon_name" value="Homo sapiens"/>
+            <param name="taxon_id" value="9606"/>
+            <param name="assembly_version" value="1\"/>
+            <repeat name="genome_synonyms">
+                <param name="value" value="\n is not a newline"/>
+            </repeat>
+            <repeat name="metadata_authors">
+                <param name="name" value="O\'Neil &quot;Q&quot; `id`"/>
+                <param name="orcid" value="https://orcid.org/0000-0002-1825-0097"/>
+            </repeat>
+            <repeat name="assembly_authors">
+                <param name="name" value="$(id) \$HOME"/>
+            </repeat>
+            <param name="date_created" value="2026-01-02"/>
+            <param name="masking" value="unknown"/>
+            <section name="optional_fields">
+                <repeat name="assembly_software">
+                    <param name="name" value="tool\x"/>
+                    <param name="software_version" value="1.0\"/>
+                </repeat>
+                <param name="documentation" value="\&quot;; rm -rf / #"/>
+                <repeat name="stats">
+                    <param name="key" value="readTechnology"/>
+                    <param name="value" value="hi\fi"/>
+                </repeat>
+                <repeat name="extras">
+                    <param name="key" value="x-note"/>
+                    <param name="value" value="back\\slash `x` $y"/>
+                </repeat>
+            </section>
+            <output name="output" ftype="yaml">
+                <assert_contents>
+                    <has_line line="genome: a\'b \\ &quot;c&quot; $(touch injected) ${HOME} `id` $'\x41' %s \"/>
+                    <has_line line="- \n is not a newline"/>
+                    <has_line line="version: 1\"/>
+                    <has_line line="- name: O\'Neil &quot;Q&quot; `id`"/>
+                    <has_line line="- name: $(id) \$HOME"/>
+                    <has_line line="- name: tool\x"/>
+                    <has_line line="  version: 1.0\"/>
+                    <has_line line="documentation: '\&quot;; rm -rf / #'"/>
+                    <has_line line="  readTechnology: hi\fi"/>
+                    <has_line line="x-note: back\\slash `x` $y"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -655,6 +678,9 @@ Check the result with **FAIR-bioHeaders verify**.
   fields*.
 - **Optional fields**: the other FHR fields, and extension fields whose keys
   start with ``x-``.
+- **Text values** are written exactly as entered, including quotes,
+  backslashes and ``$``. Line breaks and other control characters (except
+  tab) are refused.
 
 **Output**
 
