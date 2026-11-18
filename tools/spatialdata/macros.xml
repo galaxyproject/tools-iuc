@@ -2,17 +2,21 @@
     <token name="@TOOL_VERSION@">0.8.0</token>
     <token name="@VERSION_SUFFIX@">1</token>
     <token name="@PROFILE@">25.0</token>
+    <token name="@ANNDATA_SETTINGS@"><![CDATA[
+import anndata
+
+## Allow writing pandas StringArray/ArrowStringArray columns and indices in AnnData >= 0.11
+if hasattr(anndata, "settings") and hasattr(anndata.settings, "allow_write_nullable_strings"):
+    anndata.settings.allow_write_nullable_strings = True
+]]></token>
     <xml name="requirements">
         <requirements>
             <requirement type="package" version="@TOOL_VERSION@">spatialdata</requirement>
             <requirement type="package" version="0.7.0">spatialdata-io</requirement>
             <requirement type="package" version="0.4.2">spatialdata-plot</requirement>
-            <!-- spatialdata is not compatible with ome-zarr > 0.13.0 check here: https://github.com/conda-forge/spatialdata-feedstock/pull/33-->
-            <!-- <requirement type="package" version="0.18.0">ome-zarr</requirement> -->
-            <!-- The zarr writer in Previous anndata doesn't support serializing ArrowStringArray. pining anndata and pandas -->
-            <requirement type="package" version="0.13.4">anndata</requirement>
-            <!-- <requirement type="package" version="2.3.3">pandas</requirement> -->
-            <requirement type="package" version="0.24.0">rioxarray</requirement>
+            <!-- To make sure compatibility between anndata and spatialdata, the anndata version is pinned. -->
+            <requirement type="package" version="0.12.19">anndata</requirement>
+            <requirement type="package" version="0.22.0">rioxarray</requirement>
             <requirement type="package" version="3.0">zip</requirement>
             <requirement type="package" version="6.0">unzip</requirement>
         </requirements>
@@ -30,6 +34,7 @@
             <valid initial="string.digits">
                 <add value=","/>
                 <add value="."/>
+                <add value="-"/>
                 <yield/>
             </valid>
         </sanitizer>
@@ -280,6 +285,11 @@
             <expand macro="matplotlib_pyplot_colormap"/>
         </param>
     </xml>
+    <xml name="cmap_param_single">
+        <param argument="cmap" type="select" multiple="false" label="Matplotlib colormap name">
+            <expand macro="matplotlib_pyplot_colormap"/>
+        </param>
+    </xml>
     <xml name="palette_param">
         <param name="palette" type="select" multiple="true" label="Palette for discrete annotations" help="Must match the number of groups. The list can contain multiple palettes (one per group) to be visualized. If groups is provided but not palette, palette is set to default lightgray">
             <expand macro="matplotlib_color"/>
@@ -289,12 +299,18 @@
         <conditional name="normalize_condi">
             <param name="normalize" type="select" label="Apply matplotlib colormap normalization for continuous annotations?">
                 <option value="no">No</option>
-                <option value="yes">Yes</option>
+                <option value="yes">Yes (Linear Normalize)</option>
+                <option value="percentile">Yes (PercentileNormalize)</option>
             </param>
             <when value="no"/>
             <when value="yes">
                 <param argument="vmin" type="float" optional="true" label="Min value" help="Values within the range [vmin, vmax] from the input data will be linearly mapped to [0, 1]. If either vmin or vmax is not provided, they default to the minimum and maximum values of the input, respectively."/>
                 <param argument="vmax" type="float" optional="true" label="Max value" help="Values within the range [vmin, vmax] from the input data will be linearly mapped to [0, 1]. If either vmin or vmax is not provided, they default to the minimum and maximum values of the input, respectively."/>
+                <param argument="clip" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Clip" help="If clipping is on, values below vmin are mapped to 0 and values above vmax are mapped to 1"/>
+            </when>
+            <when value="percentile">
+                <param argument="pmin" type="float" value="0.0" min="0.0" max="100.0" label="Min percentile (pmin)" help="Lower percentile in [0, 100] (pmin &lt; pmax) used to derive vmin."/>
+                <param argument="pmax" type="float" value="100.0" min="0.0" max="100.0" label="Max percentile (pmax)" help="Upper percentile in [0, 100] used to derive vmax."/>
                 <param argument="clip" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Clip" help="If clipping is on, values below vmin are mapped to 0 and values above vmax are mapped to 1"/>
             </when>
         </conditional>
@@ -309,6 +325,24 @@
             <when value="none"/>
             <when value="cmap">
                 <expand macro="cmap_param"/>
+                <param name="zero_to_transparent" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Make zero values transparent in colormap?" help="Uses set_zero_in_cmap_to_transparent so zero-valued pixels/regions are rendered transparent."/>
+            </when>
+            <when value="palette">
+                <expand macro="palette_param"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="cmap_or_palette_single_condi">
+        <conditional name="cmap_or_palette_condi">
+            <param name="color_map_type" type="select" label="Color mapping type">
+                <option value="none">None</option>
+                <option value="cmap">Colormap (for continuous data)</option>
+                <option value="palette">Palette (for discrete/categorical data)</option>
+            </param>
+            <when value="none"/>
+            <when value="cmap">
+                <expand macro="cmap_param_single"/>
+                <param name="zero_to_transparent" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Make zero values transparent in colormap?" help="Uses set_zero_in_cmap_to_transparent so zero-valued regions/points are rendered transparent."/>
             </when>
             <when value="palette">
                 <expand macro="palette_param"/>
@@ -378,13 +412,66 @@
         <param argument="filter_label_pixels" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Filter label pixels?" help="If Yes, pixels whose instance id is not present in the table are set to zero. If False, label elements are returned unfiltered."/>
     </xml>
     <!-- Common config -->
-      <token name="@TOOL_VERSION@">0.8.0</token>
     <token name="@PIXEL_FILTER_WARNING@">
 #if str($operation_condi.filter_label_pixels) == "False":
 ##add a warning message to the user that the label pixels are not filtered
 print("Warning: The label pixels are not filtered. If you want to filter the label pixels, please set the 'Filter label pixels?' option to 'Yes'.")
 #end if
     </token>
+    <xml name="transformation_condi_macro">
+        <conditional name="transformation_condi">
+            <param name="transformation_type" type="select" label="Transformation type">
+                <option value="identity">Identity - No transformation</option>
+                <option value="map_axis">MapAxis - Map input axes to output axes</option>
+                <option value="translation">Translation</option>
+                <option value="scale">Scale</option>
+                <option value="affine">Affine - General affine transformation with matrix</option>
+                <option value="sequence">Sequence - Compose multiple transformations (Advanced)</option>
+            </param>
+            <when value="identity"/>
+            <when value="map_axis">
+                <param name="map_axis_input" type="text" label="Input axes" help="Comma-separated list of input axes (e.g., 'x,y,z')">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="map_axis_output" type="text" label="Output axes" help="Comma-separated list of output axes corresponding to input axes (e.g., 'y,x,z' to swap x and y)">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="translation">
+                <param name="translation" type="text" label="Translation vector" help="Comma-separated translation values (e.g., '10,20' or '2000,-2000' for 2D)">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that the translation applies to (e.g., 'x,y')">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="scale">
+                <param name="scale" type="text" label="Scale factors" help="Comma-separated scale values (e.g., '2,2' for 2D)">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that the scale applies to (e.g., 'x,y' or 'y' for single axis)">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="affine">
+                <param name="matrix" type="text" label="Affine matrix" help="Affine transformation matrix as nested lists, e.g., '[[1,0,0],[0,1,0],[0,0,1]]' for 2D identity. For 2D rotation by angle θ: [[cos(θ),-sin(θ),0],[sin(θ),cos(θ),0],[0,0,1]]">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="input_axes" type="text" value="x,y" label="Input axes" help="Comma-separated list of input axes (e.g., 'x,y')">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_axes" type="text" value="x,y" label="Output axes" help="Comma-separated list of output axes (e.g., 'x,y')">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="sequence">
+                <param name="transformations_code" type="text" area="true" label="Transformations list (Python code)" help="Python code to create a list of transformations. Example: [Translation([10,20], axes=('x','y')), Scale([2,2], axes=('x','y'))]. Available: Identity(), MapAxis({...}), Translation([...], axes=(...)), Scale([...], axes=(...)), Affine(matrix, input_axes=(...), output_axes=(...)). Advanced usage only.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+        </conditional>
+        <param name="inverse" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Invert transformation? (.inverse())" help="If Yes, applies .inverse() to the constructed transformation."/>
+    </xml>
     <!-- Option group macros -->
     <xml name="join_type_options">
         <option value="left_exclusive">Left Exclusive</option>
@@ -462,6 +549,19 @@ print("Warning: The label pixels are not filtered. If you want to filter the lab
             <option value="last">last</option>
             <option value="var">var</option>
             <option value="std">std</option>
+        </param>
+    </xml>
+    <xml name="param_points_shapes_datashader_reduction">
+        <param argument="datashader_reduction" type="select" label="Reduction method used by the datashader path">
+            <option value="None" selected="true">Default (max)</option>
+            <option value="sum">sum</option>
+            <option value="mean">mean</option>
+            <option value="any">any</option>
+            <option value="count">count</option>
+            <option value="std">std</option>
+            <option value="var">var</option>
+            <option value="max">max</option>
+            <option value="min">min</option>
         </param>
     </xml>
     <xml name="citations">
