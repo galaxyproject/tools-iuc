@@ -13,10 +13,37 @@
             --matrices $matrices
             --labels $mlabels
 
-            #if $method and $method is not None:
-                --method $method
+            #if $method_cond.method and $method_cond.method is not None:
+                --method $method_cond.method
+            #end if
+            #if $method_cond.method == 'scc':
+                --sccSmoothWindow $method_cond.sccSmoothWindow
+                --sccMaxDistance $method_cond.sccMaxDistance
+                $method_cond.sccDownsample
+            #else if $method_cond.method == 'genomedisco':
+                --genomediscoTmin $method_cond.genomediscoTmin
+                --genomediscoTmax $method_cond.genomediscoTmax
+                $method_cond.genomediscoNoSubsample
+            #else if $method_cond.method == 'hicspector':
+                --hicspectorNumEvec $method_cond.hicspectorNumEvec
+                --hicspectorIprCut $method_cond.hicspectorIprCut
+            #else if $method_cond.method == 'quasar':
+                --quasarWidth $method_cond.quasarWidth
+            #else if $method_cond.method == 'ent3c':
+                --ent3cSubmatrixSize $method_cond.ent3cSubmatrixSize
+                --ent3cChromosomeSplit $method_cond.ent3cChromosomeSplit
+                --ent3cWindowShift $method_cond.ent3cWindowShift
+                --ent3cMaxWindows $method_cond.ent3cMaxWindows
+                --threads \${GALAXY_SLOTS:-4}
             #end if
             $log1p
+            #if str($zMin) != '':
+                --zMin $zMin
+            #end if
+            #if str($zMax) != '':
+                --zMax $zMax
+            #end if
+            $plotNumbers
 
             @USE_RANGE@
 
@@ -30,21 +57,63 @@
 
             --outFileNameHeatmap heatmap.png
             --outFileNameScatter scatter.png
+
+            ## scc/genomedisco/hicspector/quasar/ent3c have no per-bin vectors to
+            ## scatter-plot (hicCorrelate.cpp: "outFileNameScatter is still
+            ## required but left untouched"), so the file is never written
+            ## by the tool for those methods; make sure the declared output
+            ## dataset still exists.
+            && touch -a scatter.png
 ]]>
     </command>
     <inputs>
         <expand macro="multiple_input_matrices" />
 
-        <param argument="--method" type="select" label="Correlation method to use">
-            <option value="spearman">Spearman</option>
-            <option selected="true" value="pearson">Pearson</option>
-        </param>
+        <conditional name="method_cond">
+            <param argument="--method" type="select" label="Correlation method to use">
+                <option selected="true" value="pearson">Pearson</option>
+                <option value="spearman">Spearman</option>
+                <option value="scc">SCC (HiCRep's stratum-adjusted correlation coefficient)</option>
+                <option value="genomedisco">GenomeDISCO</option>
+                <option value="hicspector">HiC-Spector</option>
+                <option value="quasar">QuASAR-Rep</option>
+                <option value="ent3c">ENT3C</option>
+            </param>
+            <when value="pearson" />
+            <when value="spearman" />
+            <when value="scc">
+                <param argument="--sccSmoothWindow" type="integer" value="0" min="0" label="Smoothing window half-size" help="Half-size of the 2D mean filter used to smooth the matrices before computing SCC (hicrep's --h). 0 disables smoothing. hicrep's own guidance: roughly 200000 / bin size, e.g. 20 at 10kb, 10 at 25kb, 5 at 40kb bins." />
+                <param argument="--sccMaxDistance" type="integer" value="-1" label="Maximum distance from the diagonal (bp)" help="Only consider contacts at most this many bp from the diagonal (hicrep's --dBPMax). -1 uses the whole chromosome. The original HiCRep paper used 5000000 for the human genome." />
+                <param argument="--sccDownsample" type="boolean" truevalue="--sccDownsample" falsevalue="" checked="false" label="Downsample instead of normalize" help="Downsample the matrix with more contacts to the other's total instead of normalizing each by its own total (hicrep's --bDownSample)." />
+            </when>
+            <when value="genomedisco">
+                <param argument="--genomediscoTmin" type="integer" value="3" min="1" label="Minimum random-walk step" help="GenomeDISCO's --tmin: the first random-walk step whose score counts toward the reported value." />
+                <param argument="--genomediscoTmax" type="integer" value="3" min="1" label="Maximum random-walk step" help="GenomeDISCO's --tmax: the last random-walk step. GenomeDISCO's own recommended standard configuration uses tmin = tmax = 3." />
+                <param argument="--genomediscoNoSubsample" type="boolean" truevalue="--genomediscoNoSubsample" falsevalue="" checked="false" label="Do not downsample to the lower-depth matrix" help="GenomeDISCO's recommended standard configuration downsamples the higher-depth matrix to the lower-depth one's total contacts before normalizing. Check this to normalize by each matrix's own total instead." />
+            </when>
+            <when value="hicspector">
+                <param argument="--hicspectorNumEvec" type="integer" value="20" min="1" label="Number of Laplacian eigenpairs to compare" help="HiC-Spector's own num_evec: how many of the normalized Laplacian's smallest eigenpairs to compare." />
+                <param argument="--hicspectorIprCut" type="float" value="5.0" label="Inverse-participation-ratio cutoff" help="HiC-Spector's own ipr_cut: an eigenvector is only compared if its inverse participation ratio (a delocalization measure) exceeds this." />
+            </when>
+            <when value="quasar">
+                <param argument="--quasarWidth" type="integer" value="100" min="1" label="Half-window size (bins)" help="hifive's own hardcoded width: how many bins on each side a bin's background-corrected contact profile covers, and the largest genomic distance (in bins) two positions can be compared at." />
+            </when>
+            <when value="ent3c">
+                <param argument="--ent3cSubmatrixSize" type="integer" value="0" min="0" label="Submatrix size (bins)" help="ENT3C's SUB_M_SIZE_FIX: the dimension of the submatrices along the diagonal. 0 derives it from the chromosome split." />
+                <param argument="--ent3cChromosomeSplit" type="integer" value="7" min="1" label="Chromosome split" help="ENT3C's CHRSPLIT: the submatrix size is the number of non-empty bins of a chromosome divided by this value, rounded. 7 is the default of the ENT3C publication." />
+                <param argument="--ent3cWindowShift" type="integer" value="1" min="1" label="Window shift (bins)" help="ENT3C's phi: the shift between consecutive submatrices. It is raised until there are at most the maximum number of submatrices." />
+                <param argument="--ent3cMaxWindows" type="integer" value="1000" min="0" label="Maximum number of submatrices per chromosome" help="ENT3C's PHI_MAX: the largest number of values of the entropy signal of a chromosome. 0 sets no limit." />
+            </when>
+        </conditional>
         <param argument="--log1p" type="boolean" truevalue="--log1p" falsevalue="" label="Use the log1p of the matrix values" help="If set, then the log1p of the matrix values is used.
             This parameter has no effect for Spearman correlations
             but changes the output of Pearson correlation and, for
             the scatter plot, if set, the visualization of the
-            values is easier." />
+            values is easier. Ignored for scc/genomedisco/hicspector/quasar/ent3c." />
 
+        <param argument="--zMin" type="float" optional="true" label="Minimum value of the heatmap colour scale" help="Set automatically when empty." />
+        <param argument="--zMax" type="float" optional="true" label="Maximum value of the heatmap colour scale" help="Set automatically when empty." />
+        <param argument="--plotNumbers" type="boolean" truevalue="--plotNumbers" falsevalue="" checked="false" label="Print the correlation values on the heatmap" />
         <expand macro="use_range" />
 
         <repeat name="chromosomes" title="List of chromosomes to be included in the correlation" min="0">
@@ -70,7 +139,7 @@
             </repeat>
             <param name="log1p" value="True" />
             <param name="colormap" value="jet" />
-            <param name="method" value="spearman" />
+            <param name="method_cond|method" value="spearman" />
             <output name="outFileNameHeatmap" file="hicCorrelate_heatmap_result1.png" ftype="png" compare="sim_size" />
             <output name="outFileNameScatter" file="hicCorrelate_scatter_result1.png" ftype="png" compare="sim_size" />
         </test>
@@ -86,9 +155,168 @@
 
             <param name="log1p" value="True" />
             <param name="colormap" value="jet" />
-            <param name="method" value="spearman" />
+            <param name="method_cond|method" value="spearman" />
             <output name="outFileNameHeatmap" file="hicCorrelate_heatmap_result1.png" ftype="png" compare="sim_size" />
             <output name="outFileNameScatter" file="hicCorrelate_scatter_result1.png" ftype="png" compare="sim_size" />
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.h5" ftype="h5" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.h5" ftype="h5" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="pearson" />
+            <param name="zMin" value="0.5" />
+            <param name="zMax" value="1.0" />
+            <param name="plotNumbers" value="true" />
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="scc" />
+            <param name="method_cond|sccSmoothWindow" value="2" />
+            <param name="method_cond|sccMaxDistance" value="500000" />
+            <param name="method_cond|sccDownsample" value="true" />
+            <param name="colormap" value="Reds" />
+            <conditional name="use_range">
+                <param name="select_use_range" value="yes_use_range" />
+                <param name="range_min" value="10000" />
+                <param name="range_max" value="1000000" />
+            </conditional>
+            <repeat name="chromosomes">
+                <param name="chromosome" value="chr3R" />
+            </repeat>
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="genomedisco" />
+            <param name="method_cond|genomediscoTmin" value="2" />
+            <param name="method_cond|genomediscoTmax" value="4" />
+            <param name="method_cond|genomediscoNoSubsample" value="true" />
+            <repeat name="chromosomes">
+                <param name="chromosome" value="chr3R" />
+            </repeat>
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="hicspector" />
+            <param name="method_cond|hicspectorNumEvec" value="5" />
+            <param name="method_cond|hicspectorIprCut" value="2.0" />
+            <param name="plotNumbers" value="true" />
+            <repeat name="chromosomes">
+                <param name="chromosome" value="chr3R" />
+            </repeat>
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="quasar" />
+            <param name="method_cond|quasarWidth" value="20" />
+            <repeat name="chromosomes">
+                <param name="chromosome" value="chr3R" />
+            </repeat>
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="ent3c" />
+            <param name="method_cond|ent3cSubmatrixSize" value="30" />
+            <param name="method_cond|ent3cChromosomeSplit" value="5" />
+            <param name="method_cond|ent3cWindowShift" value="2" />
+            <param name="method_cond|ent3cMaxWindows" value="50" />
+            <repeat name="chromosomes">
+                <param name="chromosome" value="chr3R" />
+            </repeat>
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="first" />
+            </repeat>
+            <repeat name="input_files">
+                <param name="matrix" value="small_test_matrix.cool" ftype="cool" />
+                <param name="mlabel" value="second" />
+            </repeat>
+            <param name="method_cond|method" value="pearson" />
+            <param name="log1p" value="true" />
+            <conditional name="use_range">
+                <param name="select_use_range" value="yes_use_range" />
+                <param name="range_min" value="10000" />
+                <param name="range_max" value="1000000" />
+            </conditional>
+            <repeat name="chromosomes">
+                <param name="chromosome" value="chr3R" />
+            </repeat>
+            <output name="outFileNameHeatmap" ftype="png">
+                <assert_contents>
+                    <has_size value="15000" delta="14000" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -106,6 +334,10 @@ Usage
 -----
 
 It is recommended to use this tool on corrected matrices (``hicCorrectMatrix``) at restriction enzyme resolution (unmerged bins).
+
+In addition to Pearson and Spearman, five reproducibility measures are available: **SCC** (HiCRep's stratum-adjusted correlation coefficient), **GenomeDISCO**, **HiC-Spector**, **QuASAR-Rep** and **ENT3C** (an entropy-based similarity). Each uses the same clustering and heatmap as Pearson and Spearman and reports the mean of its score over the chromosomes. They only accept cool/mcool input, ignore *Use the log1p of the matrix values* and *Range restriction*, and produce no scatter plot; the scatter plot output is still produced, but empty.
+
+ENT3C removes the bins that are empty in any of the given matrices before comparing them, so the score of a pair can change with the other matrices given.
 
 _________________
 
@@ -140,5 +372,11 @@ For more information about HiCExplorer please consider our documentation on read
 .. _Colormap: https://matplotlib.org/examples/color/colormaps_reference.html
 
 ]]>    </help>
-    <expand macro="citations" />
+    <expand macro="citations">
+        <citation type="doi">10.1101/gr.220640.117</citation>
+        <citation type="doi">10.1093/bioinformatics/bty164</citation>
+        <citation type="doi">10.1093/bioinformatics/btx152</citation>
+        <citation type="doi">10.1186/s13059-017-1270-4</citation>
+        <citation type="doi">10.1093/nargab/lqae076</citation>
+    </expand>
 </tool>

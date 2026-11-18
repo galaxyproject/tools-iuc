@@ -1,0 +1,142 @@
+<tool id="hicexplorer_hicdetectstripes" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>detects architectural stripes</description>
+    <macros>
+        <token name="@BINARY@">hicDetectStripes</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        ln -s '$matrix_h5_cooler' 'matrix.$matrix_h5_cooler.ext' &&
+        @BINARY@
+
+            --matrix 'matrix.$matrix_h5_cooler.ext'
+            --outFileName stripes.tsv
+
+            @CHROMOSOME_LIST@
+
+            --norm '$norm'
+            --minStripeLength $minStripeLength
+            --maxWidth $maxWidth
+            --canny $canny
+            --blurFilter $blurFilter
+
+            #if $maxPixelPercentiles:
+                --maxPixelPercentiles #echo " ".join(str($maxPixelPercentiles).split(','))#
+            #end if
+
+            #if $significance.select_significance == 'pvalue':
+                --pValue $significance.pValue
+            #else if $significance.select_significance == 'fdr':
+                --fdr $significance.fdr
+            #end if
+
+            --seed $seed
+            --threads @THREADS@
+]]>
+    </command>
+    <inputs>
+        <expand macro="matrix_h5_cooler_macro" />
+        <expand macro="chromosome_list" />
+        <param argument="--norm" type="select" label="Normalization" help="The balancing weights need a balanced cool file (bins/weight, for example from hicCorrectMatrix or cooler balance); an unbalanced matrix stops with an error asking for raw counts.">
+            <option value="weight" selected="true">Balancing weights of the cool file (weight)</option>
+            <option value="None">Raw counts (None)</option>
+        </param>
+        <param argument="--minStripeLength" type="integer" value="100000" min="0" label="Shortest candidate stripe length (bp)" />
+        <param argument="--maxWidth" type="integer" value="8" min="1" label="Maximum stripe width (bins)" />
+        <param argument="--canny" type="float" value="2.0" label="Canny edge detection sigma" />
+        <param argument="--blurFilter" type="integer" value="3" min="1" label="Mean filter size" help="An odd number." />
+        <param argument="--maxPixelPercentiles" type="text" optional="true" value="" label="Percentiles of the contact frequency data to saturate the image" help="Comma separated, e.g. 0.95,0.96,0.97,0.98,0.99. If not set, those five percentiles are used.">
+            <validator type="regex" message="Comma separated numbers between 0 and 1, e.g. 0.95,0.96,0.97">^[0-9.,\s]*$</validator>
+        </param>
+        <conditional name="significance">
+            <param name="select_significance" type="select" label="Significance cutoff">
+                <option value="pvalue" selected="true">Raw p-value</option>
+                <option value="fdr">Benjamini-Hochberg q-value (FDR)</option>
+            </param>
+            <when value="pvalue">
+                <param argument="--pValue" type="float" value="0.1" label="Raw p-value cutoff for the final call set" />
+            </when>
+            <when value="fdr">
+                <param argument="--fdr" type="float" value="0.05" label="Benjamini-Hochberg q-value threshold" />
+            </when>
+        </conditional>
+        <param argument="--seed" type="integer" value="20260915" label="Seed for the background sample" />
+    </inputs>
+    <outputs>
+        <data name="outFileName" from_work_dir="stripes.tsv" format="tabular" label="${tool.name} on ${on_string}: Detected stripes" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="matrix_h5_cooler" value="hicDetectStripes/balanced.cool" ftype="cool" />
+            <repeat name="chromosome_list">
+                <param name="chromosomes" value="chr4" />
+            </repeat>
+            <param name="norm" value="weight" />
+            <param name="minStripeLength" value="50000" />
+            <param name="maxWidth" value="4" />
+            <param name="canny" value="1.5" />
+            <param name="blurFilter" value="5" />
+            <param name="maxPixelPercentiles" value="0.9,0.95" />
+            <conditional name="significance">
+                <param name="select_significance" value="fdr" />
+                <param name="fdr" value="0.9" />
+            </conditional>
+            <param name="seed" value="3" />
+            <output name="outFileName" ftype="tabular">
+                <assert_contents>
+                    <has_line line="chrom&#009;anchor_start&#009;anchor_end&#009;orientation&#009;extent_start&#009;extent_end&#009;enrichment&#009;pvalue&#009;qvalue" />
+                    <has_n_columns n="9" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="matrix_h5_cooler" value="hicDetectStripes/small_chr4.h5" ftype="h5" />
+            <param name="norm" value="None" />
+            <param name="minStripeLength" value="100000" />
+            <conditional name="significance">
+                <param name="select_significance" value="pvalue" />
+                <param name="pValue" value="0.5" />
+            </conditional>
+            <output name="outFileName" ftype="tabular">
+                <assert_contents>
+                    <has_line line="chrom&#009;anchor_start&#009;anchor_end&#009;orientation&#009;extent_start&#009;extent_end&#009;enrichment&#009;pvalue&#009;qvalue" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Stripe detection
+=================
+
+**hicDetectStripes** detects architectural stripes: one-sided, extended contact domains anchored near a boundary and extending along one axis (typically associated with loop extrusion stalling at a single CTCF site), as opposed to the two-sided point interactions ``hicDetectLoops`` finds.
+
+A reimplementation of Stripenn's own detection method (Yoon et al. 2022).
+
+_________________
+
+Usage
+-----
+
+The candidate search scans each chromosome at several contact-frequency saturation percentiles (*Percentiles of the contact frequency data to saturate the image*), runs Canny edge detection, and looks for extended, roughly axis-aligned runs of edge pixels anchored near the diagonal. *Maximum stripe width* bounds the narrow (anchor) axis; *Shortest candidate stripe length* is the minimum extent along the long axis. Each candidate is scored against an empirical background model built from random same-distance samples of the chromosome's own data (*Random samples per chromosome*) and filtered at either a raw p-value or a Benjamini-Hochberg q-value (FDR) cutoff.
+
+Matching Stripenn's own practice, no multiple-testing correction is applied by default (the raw p-value cutoff); the stricter FDR cutoff is available as an alternative.
+
+_________________
+
+Output
+------
+
+The output is a tab separated file, one row per detected stripe: chromosome, anchor start, anchor end, orientation ("horizontal" when the narrow axis sits near the start of the long axis, "vertical" when it sits near the end), extent start, extent end, enrichment (mean contact value over the stripe divided by the chromosome's expected value at its offset from the diagonal; contact values are the matrix balanced with its stored weights, as in Stripenn), p-value and q-value.
+
+_________________
+
+For more information about HiCExplorer please consider our documentation on readthedocs.io_.
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+
+]]>    </help>
+    <expand macro="citations">
+        <citation type="doi">10.1093/bioinformatics/btac049</citation>
+    </expand>
+</tool>

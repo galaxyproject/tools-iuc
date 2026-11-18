@@ -1,7 +1,7 @@
 <macros>
     <token name="@THREADS@">\${GALAXY_SLOTS:-4}</token>
-    <token name="@TOOL_VERSION@">3.7.6</token>
-    <token name="@VERSION_SUFFIX@">1</token>
+    <token name="@TOOL_VERSION@">4.0.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
     <token name="@PROFILE@">23.0</token>
     <token name="@USE_RANGE@">
         #if $use_range.select_use_range == "yes_use_range":
@@ -48,13 +48,38 @@
     </xml>
 
     <xml name="samFiles">
-        <param name="samFile1" type="data" format="sam,qname_input_sorted.bam" label="Forward SAM/BAM file to process" help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
-            <validator type="unspecified_build" />
-        </param>
-        <param name="samFile2" type="data" format="sam,qname_input_sorted.bam" label="Reverse SAM/BAM file to process" help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
-            <validator type="unspecified_build" />
-        </param>
+        <conditional name="input_type">
+            <param name="input_type_selector" type="select" label="Mapped reads">
+                <option value="single" selected="true">Two files, one per mate</option>
+                <option value="paired_collection">Paired collection (a list of pairs runs once per pair)</option>
+                <yield name="extra_input_options" />
+            </param>
+            <when value="single">
+                <param name="samFile1" type="data" format="sam,qname_input_sorted.bam" label="Forward SAM/BAM file to process" help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
+                    <validator type="unspecified_build" />
+                </param>
+                <param name="samFile2" type="data" format="sam,qname_input_sorted.bam" label="Reverse SAM/BAM file to process" help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
+                    <validator type="unspecified_build" />
+                </param>
+                <yield name="sam_options" />
+            </when>
+            <when value="paired_collection">
+                <param name="sam_pair" type="data_collection" collection_type="paired" format="sam,qname_input_sorted.bam" label="Paired collection of the forward and reverse SAM/BAM files" help="The forward and reverse mates mapped separately, as qname_input_sorted.bam or SAM. A list of pairs (list:paired) runs the tool once per pair." />
+                <yield name="sam_options" />
+            </when>
+            <yield name="extra_input_whens" />
+        </conditional>
     </xml>
+
+    <token name="@SET_SAM_FILES@"><![CDATA[
+        #if $input_type.input_type_selector == 'paired_collection':
+            #set $sam1 = $input_type.sam_pair.forward
+            #set $sam2 = $input_type.sam_pair.reverse
+        #else:
+            #set $sam1 = $input_type.samFile1
+            #set $sam2 = $input_type.samFile2
+        #end if
+    ]]></token>
 
     <xml name="restrictionCutFile">
         <param argument="--restrictionCutFile" type="data" format="bed" optional="false" label="BED file with all restriction cut places" help="Should contaion only mappable restriction sites. If given, the bins are set to match the restriction fragments
@@ -275,6 +300,43 @@
     <token name="@ESCAPE_IDENTIFIER_MATRIX@"><![CDATA[re.sub('[^\s\w\-\.]', '_', str($matrix.element_identifier))]]></token>
     <token name="@ESCAPE_IDENTIFIER_M@"><![CDATA[re.sub('[^\s\w\-\.]', '_', str($m.element_identifier))]]></token>
 
+    <!-- CHiCAGO's own chinput/matrices mutually exclusive required source,
+         shared by chicChicagoBackgroundModel and chicChicagoScores. -->
+    <xml name="chicago_input_source">
+        <conditional name="input_source">
+            <param name="select_input_source" type="select" label="Interaction counts source">
+                <option value="chinput" selected="true">CHiCAGO .chinput file</option>
+                <option value="matrices">Hi-C matrices (derive fragment-pair counts directly)</option>
+            </param>
+            <when value="chinput">
+                <param argument="--chinput" type="data" format="tabular,txt" label="CHiCAGO .chinput file" />
+            </when>
+            <when value="matrices">
+                <expand macro="matrix_h5_cooler_multiple_macro" />
+            </when>
+        </conditional>
+    </xml>
+    <!-- Placed before @BINARY@: symlinks every matrix by its sanitised
+         identifier when the matrices branch is selected; a no-op otherwise. -->
+    <token name="@CHICAGO_LINK_MATRICES@">
+        #if $input_source.select_input_source == 'matrices'
+            #import re
+            #for $m in $input_source.matrix_h5_cooler_multiple
+                #set identifier = @ESCAPE_IDENTIFIER_M@
+                ln -s '$m' '$identifier';
+            #end for
+        #end if
+    </token>
+    <!-- Placed inside @BINARY@'s own argument list. -->
+    <token name="@CHICAGO_INPUT_SOURCE@">
+        #if $input_source.select_input_source == 'chinput'
+            --chinput '$input_source.chinput'
+        #else
+            #import re
+            --matrices #echo ' '.join([ "'%s'" % re.sub('[^\s\w\-\.]', '_', str($matrix.element_identifier)) for $matrix in $input_source.matrix_h5_cooler_multiple ])#
+        #end if
+    </token>
+
     <xml name="region">
         <param argument="--region" type="text" label="Region of the genome to limit the operation" help="The format is chr:start-end. Also valid is just to specify a chromosome, for example chr10:10-500">
             <validator type="expression" message="Only alphanumeric characters, the colon or a dash are allowed.">not value or value.replace(':', '').replace('-', '').isalnum()</validator>
@@ -372,7 +434,7 @@
                 <option value="optionHomer">Homer</option>
                 <option value="optionHicpro">HiCPro</option>
                 <option value="option2Dtext">2D-text</option>
-
+                <option value="optionChinput">CHiCAGO chinput</option>
             </param>
             <when value="optionCool">
                 <expand macro='matrix_h5_cooler_macro' />
@@ -404,6 +466,11 @@
                     <validator type="expression" message="Only numeric characters and the a space as seperator are allowed.">value.replace(' ', '').isnumeric()</validator>
                 </param>
                 <param name='chromosomeSizes' type='data' format='txt' label='Chromosome sizes file' />
+            </when>
+            <!-- Galaxy has no chinput or rmap datatype; both are tab-separated text. -->
+            <when value="optionChinput">
+                <param name='matrixChinput' type='data' format='tabular,txt' label='CHiCAGO .chinput file' help="The interaction counts of a CHiCAGO .chinput file. The matrix gets one bin per restriction fragment of the .rmap file." />
+                <param argument='--rmap' type='data' format='tabular,txt' label='CHiCAGO .rmap restriction fragment file' help="Tab-separated chromosome, start, end and fragment ID, the digest the .chinput file was made with." />
             </when>
         </conditional>
     </xml>
@@ -455,16 +522,30 @@
                 <option value="homer">Homer</option>
                 <option value="ginteractions">ginteractions</option>
                 <option value="hicpro">hicpro</option>
-
+                <option value="hic">hic</option>
             </param>
-            <when value="cool">
-                <param name='storeAppliedCorrection' type="boolean" truevalue="yes" falsevalue="" label='Store applied correction factors in column count' />
-                <param name='enforceInteger' type="boolean" truevalue="yes" falsevalue="" label='Enforce integer for count column' />
-            </when>
+            <!-- storeAppliedCorrection and enforceInteger are top-level parameters of hicConvertFormat.xml -->
+            <when value="cool" />
             <when value='h5' />
             <when value='homer' />
             <when value='ginteractions' />
             <when value='hicpro' />
+            <when value='hic'>
+                <param argument="--hicVersion" type="select" label="Version of the .hic file" help="Not passed by default, the tool then writes version 8.">
+                    <option value="" selected="true">Tool default (not passed)</option>
+                    <option value="8">8</option>
+                    <option value="9">9</option>
+                </param>
+                <param argument="--hicNormalizations" type="select" multiple="true" optional="true" label="Normalizations stored in the .hic file" help="auto: the normalization vectors a cool or mcool input stores in its bins table (Juicer names such as VC, KR, SCALE; never the cooler weight column), or VC, VC_SQRT, KR and SCALE computed as Juicer tools addNorm does if the input stores none. VC, VC_SQRT, KR, SCALE: compute these. none: no normalization. The pixels are always the raw counts. Nothing selected means the tool default, auto.">
+                    <option value="auto">auto</option>
+                    <option value="VC">VC</option>
+                    <option value="VC_SQRT">VC_SQRT</option>
+                    <option value="KR">KR</option>
+                    <option value="SCALE">SCALE</option>
+                    <option value="none">none</option>
+                </param>
+                <param name="hic_threads" type="boolean" truevalue="yes" falsevalue="" checked="false" label="Use the cores of the Galaxy job to write the .hic file" help="Passes --threads with the number of cores of the job. The file does not depend on the number of threads." />
+            </when>
         </conditional>
     </xml>
     <token name="@REFERENCES@">
