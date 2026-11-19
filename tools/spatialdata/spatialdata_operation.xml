@@ -18,7 +18,7 @@
         ## run the operation pipeline
         cat 'spdata_operation.py' &&
         python3 'spdata_operation.py'
-        #if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table', 'import_table', 'add_shape']:
+        #if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'set_transformation', 'align_elements_using_landmarks', 'subset', 'filter_by_coordinate_system', 'delete_element', 'set_table_annotates_spatialelement', 'set_channel_names', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table', 'import_table', 'add_shape', 'add_image', 'add_labels', 'add_points'] or ($operation_condi.operation == 'get_pyramid_levels' and not str($operation_condi.attr).strip()):
             && cd output && zip -r ../spatialdata.spatialdata.zip spatialdata.zarr/ && cd ..
         #end if
     ]]></command>
@@ -26,7 +26,7 @@
         <configfile name="spdata_operation_config" filename="spdata_operation.py">
 import os
 import dask
-
+@ANNDATA_SETTINGS@
 ## enable multi-threading for Dask operations.
 n_workers = int(os.getenv("GALAXY_SLOTS", "1"))
 dask.config.set(scheduler="threads", num_workers=n_workers)
@@ -44,6 +44,18 @@ print(sdata)
     #set axes_list = [str(x.strip()) for x in str($operation_condi.axes).split(',')]
     #set min_coord_list = [float(x.strip()) for x in str($operation_condi.min_coordinate).split(',')]
     #set max_coord_list = [float(x.strip()) for x in str($operation_condi.max_coordinate).split(',')]
+    #if $operation_condi.elment_name:
+queried_elem = sd.bounding_box_query(
+    sdata['$operation_condi.elment_name'],
+    axes=tuple($axes_list),
+    min_coordinate=$min_coord_list,
+    max_coordinate=$max_coord_list,
+    target_coordinate_system='$operation_condi.target_coordinate_system',
+)
+out_name = sd.sanitize_name('$operation_condi.output_element_name') if '$operation_condi.output_element_name' else 'queried_${operation_condi.elment_name}'
+sdata[out_name] = queried_elem
+result = sdata
+    #else:
 result = sd.bounding_box_query(
     sdata,
     axes=tuple($axes_list),
@@ -52,11 +64,49 @@ result = sd.bounding_box_query(
     target_coordinate_system='$operation_condi.target_coordinate_system',
     filter_table=$operation_condi.filter_table
 )
+    #end if
 
 #else if $operation_condi.operation == 'polygon_query':
 ## Polygon query
-from shapely.geometry import Polygon
-coords_str = '$operation_condi.polygon_coords'
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import unary_union
+import pandas as pd
+
+#if str($operation_condi.polygon_source_condi.polygon_source) == 'shapes_element':
+    #set shape_names = [str(x.strip()) for x in str($operation_condi.polygon_source_condi.shapes_elements).split(',')]
+    #if $operation_condi.polygon_source_condi.annotate_obs_key:
+tname = '$operation_condi.polygon_source_condi.table_name' if '$operation_condi.polygon_source_condi.table_name' else 'table'
+obs_key = '$operation_condi.polygon_source_condi.annotate_obs_key'
+categories = ['unassigned'] + $shape_names
+sdata[tname].obs[obs_key] = pd.Categorical(['unassigned'] * len(sdata[tname]), categories=categories)
+for sh_name in $shape_names:
+    for poly in sdata[sh_name].geometry:
+        sub_sdata = sd.polygon_query(
+            sdata,
+            polygon=poly,
+            target_coordinate_system='$operation_condi.target_coordinate_system',
+            filter_table=True,
+            clip=$operation_condi.clip
+        )
+        if tname in sub_sdata.tables:
+            in_shape = sub_sdata[tname].obs.index
+            sdata[tname].obs.loc[in_shape, obs_key] = sh_name
+result = sdata
+    #else:
+geoms = []
+for sh_name in $shape_names:
+    geoms.extend(list(sdata[sh_name].geometry))
+polygon = unary_union(geoms)
+result = sd.polygon_query(
+    sdata,
+    polygon=polygon,
+    target_coordinate_system='$operation_condi.target_coordinate_system',
+    filter_table=$operation_condi.filter_table,
+    clip=$operation_condi.clip
+)
+    #end if
+#else:
+coords_str = '$operation_condi.polygon_source_condi.polygon_coords'
 coords_list = [tuple(float(y.strip()) for y in x.split(',')) for x in coords_str.split(';')]
 polygon = Polygon(coords_list)
 result = sd.polygon_query(
@@ -66,6 +116,7 @@ result = sd.polygon_query(
     filter_table=$operation_condi.filter_table,
     clip=$operation_condi.clip
 )
+#end if
 
 #else if $operation_condi.operation == 'get_values':
 ## Get values
@@ -91,6 +142,13 @@ result = sd.get_element_instances(
     element,
     return_background=$operation_condi.return_background
 )
+
+#else if $operation_condi.operation == 'get_element_annotators':
+## Get tables annotating a SpatialElement
+result = {
+    "element_name": '$operation_condi.elment_name',
+    "annotating_tables": sorted(list(sd.get_element_annotators(sdata=sdata, element_name='$operation_condi.elment_name')))
+}
 
 #else if $operation_condi.operation == 'get_extent':
 ## Get extent
@@ -244,7 +302,9 @@ sdatas_list = [sdata]
 os.makedirs(f"./input_{$i}", exist_ok=True)
 with zipfile.ZipFile('$filepath', 'r') as zip_ref:
     zip_ref.extractall(f"./input_{$i}")
-sdata_$i = sd.read_zarr(f"./input_{$i}/spatialdata")
+extracted_dirs_$i = [d for d in os.listdir(f"./input_{$i}") if os.path.isdir(os.path.join(f"./input_{$i}", d))]
+zarr_dir_$i = os.path.join(f"./input_{$i}", extracted_dirs_${i}[0]) if extracted_dirs_$i else f"./input_{$i}/spatialdata.zarr"
+sdata_$i = sd.read_zarr(zarr_dir_$i)
 sdatas_list.append(sdata_$i)
     #end for
 result = sd.concatenate(
@@ -301,9 +361,13 @@ transformation = Affine(
 )
         #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'sequence':
 from spatialdata.transformations import Sequence, Identity, MapAxis, Translation, Scale, Affine
+import math
 ## Execute user-provided code to create transformation list
 transformations_list = eval('$operation_condi.maintain_positioning_condi.transformation_condi.transformations_code')
 transformation = Sequence(transformations_list)
+        #end if
+        #if str($operation_condi.maintain_positioning_condi.inverse) == 'True':
+transformation = transformation.inverse()
         #end if
 result_element = sd.transform(
     element,
@@ -322,6 +386,221 @@ sanitized_name = sd.sanitize_name('$operation_condi.output_element_name')
 sdata[sanitized_name] = result_element
 result = sdata
 
+#else if $operation_condi.operation == 'set_transformation':
+## Manage coordinate system transformations (set, postpone, remove, rename, transform_to_cs, transform_to_data_extent)
+## get_transformation_between_coordinate_systems(sdata, source_coordinate_system, target_coordinate_system, intermediate_coordinate_systems=None) can be added here if requested by users
+from spatialdata.transformations import (
+    Identity, MapAxis, Translation, Scale, Affine, Sequence,
+    get_transformation, set_transformation, remove_transformation,
+    remove_transformations_to_coordinate_system
+)
+import ast, math
+
+    #if str($operation_condi.action_condi.action) in ['set', 'postpone']:
+        #if $operation_condi.action_condi.transformation_condi.transformation_type == 'identity':
+transformation = Identity()
+        #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'map_axis':
+            #set input_axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.map_axis_input).split(',')]
+            #set output_axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.map_axis_output).split(',')]
+transformation = MapAxis(dict(zip($input_axes_list, $output_axes_list)))
+        #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'translation':
+            #set translation_list = [float(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.translation).split(',')]
+            #set axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.axes).split(',')]
+transformation = Translation($translation_list, axes=tuple($axes_list))
+        #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'scale':
+            #set scale_list = [float(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.scale).split(',')]
+            #set axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.axes).split(',')]
+transformation = Scale($scale_list, axes=tuple($axes_list))
+        #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'affine':
+            #set input_axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.input_axes).split(',')]
+            #set output_axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.output_axes).split(',')]
+matrix = eval('$operation_condi.action_condi.transformation_condi.matrix')
+transformation = Affine(matrix, input_axes=tuple($input_axes_list), output_axes=tuple($output_axes_list))
+        #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'sequence':
+transformations_list = eval('$operation_condi.action_condi.transformation_condi.transformations_code')
+transformation = Sequence(transformations_list)
+        #end if
+        #if str($operation_condi.action_condi.inverse) == 'True':
+transformation = transformation.inverse()
+        #end if
+    #end if
+
+    #if str($operation_condi.action_condi.action) == 'set':
+        #if $operation_condi.action_condi.elment_name:
+            #set elem_names = [str(x.strip()) for x in str($operation_condi.action_condi.elment_name).split(',')]
+for el_name in $elem_names:
+    set_transformation(sdata[el_name], transformation, to_coordinate_system='$operation_condi.action_condi.to_coordinate_system')
+        #else:
+for _, el_name, el in sdata._gen_elements():
+    set_transformation(el, transformation, to_coordinate_system='$operation_condi.action_condi.to_coordinate_system')
+        #end if
+result = sdata
+    #else if str($operation_condi.action_condi.action) == 'postpone':
+for _, el_name, el in sdata._gen_elements():
+    old_transformations = get_transformation(el, get_all=True)
+    if '$operation_condi.action_condi.source_coordinate_system' in old_transformations:
+        old_t = old_transformations['$operation_condi.action_condi.source_coordinate_system']
+        seq = Sequence([old_t, transformation])
+        set_transformation(el, seq, '$operation_condi.action_condi.target_coordinate_system')
+result = sdata
+    #else if str($operation_condi.action_condi.action) == 'remove':
+        #if $operation_condi.action_condi.elment_name:
+            #set elem_names = [str(x.strip()) for x in str($operation_condi.action_condi.elment_name).split(',')]
+for el_name in $elem_names:
+            #if str($operation_condi.action_condi.remove_all) == 'True':
+    remove_transformation(sdata[el_name], remove_all=True)
+            #else:
+    remove_transformation(sdata[el_name], to_coordinate_system='$operation_condi.action_condi.to_coordinate_system')
+            #end if
+        #else:
+remove_transformations_to_coordinate_system(sdata, '$operation_condi.action_condi.to_coordinate_system')
+        #end if
+result = sdata
+    #else if str($operation_condi.action_condi.action) == 'rename_cs':
+rename_pairs = [x.strip().split(':') for x in '$operation_condi.action_condi.rename_map'.split(',') if ':' in x]
+rename_dict = {k.strip(): v.strip() for k, v in rename_pairs}
+sdata.rename_coordinate_systems(rename_dict)
+result = sdata
+    #else if str($operation_condi.action_condi.action) == 'transform_to_cs':
+        #if $operation_condi.action_condi.elment_name:
+transformed_el = sdata.transform_element_to_coordinate_system(
+    '$operation_condi.action_condi.elment_name',
+    target_coordinate_system='$operation_condi.action_condi.target_coordinate_system',
+    maintain_positioning=$operation_condi.action_condi.maintain_positioning
+)
+out_name = sd.sanitize_name('$operation_condi.action_condi.output_element_name') if '$operation_condi.action_condi.output_element_name' else '$operation_condi.action_condi.elment_name'
+sdata[out_name] = transformed_el
+result = sdata
+        #else:
+result = sdata.transform_to_coordinate_system(
+    target_coordinate_system='$operation_condi.action_condi.target_coordinate_system',
+    maintain_positioning=$operation_condi.action_condi.maintain_positioning
+)
+        #end if
+    #else if str($operation_condi.action_condi.action) == 'transform_to_data_extent':
+from spatialdata._core.operations._utils import transform_to_data_extent
+result = transform_to_data_extent(
+    sdata,
+    coordinate_system='$operation_condi.action_condi.coordinate_system',
+    maintain_positioning=$operation_condi.action_condi.maintain_positioning,
+        #if $operation_condi.action_condi.target_unit_to_pixels:
+    target_unit_to_pixels=$operation_condi.action_condi.target_unit_to_pixels,
+        #end if
+        #if $operation_condi.action_condi.target_width:
+    target_width=$operation_condi.action_condi.target_width,
+        #end if
+        #if $operation_condi.action_condi.target_height:
+    target_height=$operation_condi.action_condi.target_height,
+        #end if
+        #if $operation_condi.action_condi.target_depth:
+    target_depth=$operation_condi.action_condi.target_depth,
+        #end if
+)
+    #end if
+
+#else if $operation_condi.operation == 'align_elements_using_landmarks':
+## Align elements using landmarks
+import zipfile
+from spatialdata.transformations import (
+    align_elements_using_landmarks,
+    get_transformation_between_landmarks,
+    get_transformation,
+    set_transformation,
+    Sequence
+)
+    #if $operation_condi.moving_sdata:
+os.makedirs("./moving_input", exist_ok=True)
+with zipfile.ZipFile('$operation_condi.moving_sdata', 'r') as zip_ref:
+    zip_ref.extractall("./moving_input")
+mov_dirs = [d for d in os.listdir("./moving_input") if os.path.isdir(os.path.join("./moving_input", d))]
+mov_zarr = os.path.join("./moving_input", mov_dirs[0]) if mov_dirs else "./moving_input/spatialdata.zarr"
+moving_sdata_obj = sd.read_zarr(mov_zarr)
+    #else:
+moving_sdata_obj = sdata
+    #end if
+
+affine = get_transformation_between_landmarks(
+    references_coords=sdata['$operation_condi.references_coords'],
+    moving_coords=moving_sdata_obj['$operation_condi.moving_coords']
+)
+align_elements_using_landmarks(
+    references_coords=sdata['$operation_condi.references_coords'],
+    moving_coords=moving_sdata_obj['$operation_condi.moving_coords'],
+    reference_element=sdata['$operation_condi.reference_element'],
+    moving_element=moving_sdata_obj['$operation_condi.moving_element'],
+    reference_coordinate_system='$operation_condi.reference_coordinate_system',
+    moving_coordinate_system='$operation_condi.moving_coordinate_system',
+    new_coordinate_system='$operation_condi.new_coordinate_system'
+)
+    #if str($operation_condi.align_all_moving_elements) == 'True':
+for _, el_name, el in moving_sdata_obj._gen_elements():
+    old_transformations = get_transformation(el, get_all=True)
+    if '$operation_condi.moving_coordinate_system' in old_transformations:
+        old_t = old_transformations['$operation_condi.moving_coordinate_system']
+        seq = Sequence([old_t, affine])
+        set_transformation(el, seq, '$operation_condi.new_coordinate_system')
+    #end if
+result = moving_sdata_obj if '$operation_condi.moving_sdata' and str($operation_condi.return_moving) == 'True' else sdata
+
+#else if $operation_condi.operation == 'subset':
+## Subset SpatialData object by element names
+    #set element_names_list = [str(x.strip()) for x in str($operation_condi.element_names).split(',')]
+result = sdata.subset(
+    element_names=$element_names_list,
+    filter_tables=$operation_condi.filter_tables,
+    include_orphan_tables=$operation_condi.include_orphan_tables
+)
+
+#else if $operation_condi.operation == 'filter_by_coordinate_system':
+## Filter SpatialData object by coordinate system(s)
+    #set cs_list = [str(x.strip()) for x in str($operation_condi.coordinate_system).split(',')]
+result = sdata.filter_by_coordinate_system(
+    coordinate_system=$cs_list if len($cs_list) > 1 else '$cs_list[0]',
+    filter_tables=$operation_condi.filter_tables,
+    include_orphan_tables=$operation_condi.include_orphan_tables
+)
+
+#else if $operation_condi.operation == 'delete_element':
+## Delete elements from SpatialData object
+    #set element_names_list = [str(x.strip()) for x in str($operation_condi.element_names).split(',')]
+for elem_name in $element_names_list:
+    if elem_name in sdata:
+        del sdata[elem_name]
+result = sdata
+
+#else if $operation_condi.operation == 'set_table_annotates_spatialelement':
+## Set or change table annotation target
+import pandas as pd
+from spatialdata.models import TableModel
+table = sdata.tables['$operation_condi.table_name']
+    #set region_list = [str(x.strip()) for x in str($operation_condi.region).split(',')]
+region_arg = $region_list if len($region_list) > 1 else '$region_list[0]'
+    #if $operation_condi.region_key:
+rk = '$operation_condi.region_key'
+    #else:
+rk = table.uns.get(TableModel.ATTRS_KEY, {}).get(TableModel.REGION_KEY_KEY, 'region')
+    #end if
+    #if str($operation_condi.update_obs_region) == 'True' and len($region_list) == 1:
+table.obs[rk] = pd.Categorical(['$region_list[0]'] * len(table))
+    #end if
+sdata.set_table_annotates_spatialelement(
+    table_name='$operation_condi.table_name',
+    region=region_arg,
+    #if $operation_condi.region_key:
+    region_key='$operation_condi.region_key',
+    #end if
+    #if $operation_condi.instance_key:
+    instance_key='$operation_condi.instance_key',
+    #end if
+)
+result = sdata
+
+#else if $operation_condi.operation == 'set_channel_names':
+## Set channel names for an image element
+    #set ch_list = [str(x.strip()) for x in str($operation_condi.channel_names).split(',')]
+sdata.set_channel_names('$operation_condi.elment_name', $ch_list)
+result = sdata
+
 
 
 
@@ -330,6 +609,13 @@ result = sdata
     #set axes_list = [str(x.strip()) for x in str($operation_condi.axes).split(',')]
     #set min_coord_list = [float(x.strip()) for x in str($operation_condi.min_coordinate).split(',')]
     #set max_coord_list = [float(x.strip()) for x in str($operation_condi.max_coordinate).split(',')]
+    #if $operation_condi.value_key:
+        #if ',' in str($operation_condi.value_key):
+            #set rast_value_key = [str(x.strip()) for x in str($operation_condi.value_key).split(',')]
+        #else:
+            #set rast_value_key = str($operation_condi.value_key).strip()
+        #end if
+    #end if
 
 rasterized = sd.rasterize(
     data='$operation_condi.elment_name',
@@ -351,7 +637,12 @@ rasterized = sd.rasterize(
     #end if
     sdata=sdata,
     #if $operation_condi.value_key:
+        #if ',' in str($operation_condi.value_key):
+            #set rast_value_key = [str(x.strip()) for x in str($operation_condi.value_key).split(',')]
+    value_key=$rast_value_key,
+        #else:
     value_key='$operation_condi.value_key',
+        #end if
     #end if
     #if $operation_condi.table_name:
     table_name='$operation_condi.table_name',
@@ -362,11 +653,27 @@ rasterized = sd.rasterize(
     return_regions_as_labels=$operation_condi.return_regions_as_labels,
     return_single_channel=$operation_condi.return_single_channel
 )
+#if str($operation_condi.return_regions_as_labels) == "True":
+sdata.labels['rasterized_' + '$operation_condi.elment_name'] = rasterized
+#else:
 sdata.images['rasterized_' + '$operation_condi.elment_name'] = rasterized
+#end if
 result = sdata
 
 #else if $operation_condi.operation == 'rasterize_bins':
 ## Rasterize bins
+from scipy.sparse import issparse
+if issparse(sdata.tables['$operation_condi.table_name'].X):
+    sdata.tables['$operation_condi.table_name'].X = sdata.tables['$operation_condi.table_name'].X.tocsc()
+
+    #if $operation_condi.value_key:
+        #if ',' in str($operation_condi.value_key):
+            #set rbins_value_key = [str(x.strip()) for x in str($operation_condi.value_key).split(',')]
+        #else:
+            #set rbins_value_key = str($operation_condi.value_key).strip()
+        #end if
+    #end if
+
 rasterized = sd.rasterize_bins(
     sdata=sdata,
     bins='$operation_condi.bins_element',
@@ -374,7 +681,12 @@ rasterized = sd.rasterize_bins(
     col_key='$operation_condi.col_key',
     row_key='$operation_condi.row_key',
     #if $operation_condi.value_key:
+        #if ',' in str($operation_condi.value_key):
+            #set rbins_value_key = [str(x.strip()) for x in str($operation_condi.value_key).split(',')]
+    value_key=$rbins_value_key,
+        #else:
     value_key='$operation_condi.value_key',
+        #end if
     #end if
     return_region_as_labels=$operation_condi.return_regions_as_labels
 )
@@ -439,7 +751,12 @@ result = sd.aggregate(
     by_sdata=sdata,
     by='$operation_condi.by_element',
     #if $operation_condi.value_key:
-    value_key=repr($value_key_arg),
+        #if ',' in str($operation_condi.value_key):
+            #set value_key_arg = [str(x.strip()) for x in str($operation_condi.value_key).split(',')]
+    value_key=$value_key_arg,
+        #else:
+    value_key='$operation_condi.value_key',
+        #end if
     #end if
     agg_func='$operation_condi.agg_func',
     target_coordinate_system='$operation_condi.target_coordinate_system',
@@ -502,13 +819,18 @@ sdata.images['unpadded_${operation_condi.elment_name}'] = unpadded
 result = sdata
 
 #else if $operation_condi.operation == 'relabel_sequential':
-## no good example to see how this should work and also when it works, the sdata can not be written
 ## Relabel sequential
-import dask.array as da
+from xarray import DataArray
+from spatialdata.models import Labels2DModel, Labels3DModel, get_axes_names
+from spatialdata.transformations import get_transformation
+
 element = sdata['$operation_condi.elment_name']
-relabeled_arr = sd.relabel_sequential(element.data)
-relabeled = element.copy()
-relabeled.data = relabeled_arr
+arr = element.data if isinstance(element, DataArray) else element["scale0"]["image"].data
+## Cast unsigned integer labels to signed int to avoid OverflowError(-1) in Dask/NumPy 2
+relabeled_arr = sd.relabel_sequential(arr.astype(int))
+axes = get_axes_names(element)
+model = Labels3DModel if 'z' in axes else Labels2DModel
+relabeled = model.parse(relabeled_arr, dims=axes, transformations=get_transformation(element, get_all=True))
 sanitized_name = sd.sanitize_name('$operation_condi.output_element_name')
 sdata[sanitized_name] = relabeled
 result = sdata
@@ -520,19 +842,29 @@ extent2 = sd.get_extent(sdata['$operation_condi.element2_name'], coordinate_syst
 result = sd.are_extents_equal(extent1, extent2, atol=$operation_condi.atol)
 
 #else if $operation_condi.operation == 'get_pyramid_levels':
-## no good example to see how this should work and also when it works, the sdata can not be written
 ## Get pyramid levels
-element = sdata.images['$operation_condi.elment_name']
-result = sd.get_pyramid_levels(
+element = sdata['$operation_condi.elment_name']
+res_pyramid = sd.get_pyramid_levels(
     element,
     #if $operation_condi.attr:
     attr='$operation_condi.attr',
     #end if
-    #if $operation_condi.n:
+    #if str($operation_condi.n):
     n=$operation_condi.n
     #end if
 )
-result[f"pyramid_{$operation_condi.elment_name}"] = result.pop('pyramid')
+#if $operation_condi.attr:
+result = {"element": '$operation_condi.elment_name', "attr": '$operation_condi.attr', "value": res_pyramid}
+#else:
+    #if str($operation_condi.n):
+out_name = sd.sanitize_name('$operation_condi.output_element_name') if '$operation_condi.output_element_name' else 'pyramid_level_${operation_condi.n}_${operation_condi.elment_name}'
+sdata[out_name] = res_pyramid
+    #else:
+for idx, lvl in enumerate(res_pyramid):
+    sdata[sd.sanitize_name(f"pyramid_level_{idx}_${operation_condi.elment_name}")] = lvl
+    #end if
+result = sdata
+#end if
 
 #else if $operation_condi.operation == 'sanitize_table':
 ## Sanitize table
@@ -546,22 +878,295 @@ result = sdata
 result = sdata['$operation_condi.table_name']
 result.write_h5ad('./output/anndata.h5ad', compression='gzip')
 
+#else if $operation_condi.operation == 'to_legacy_anndata':
+## Convert SpatialData to legacy spatial AnnData
+from spatialdata_io.experimental import to_legacy_anndata
+result = to_legacy_anndata(
+    sdata,
+    include_images=$operation_condi.include_images,
+    #if $operation_condi.coordinate_system:
+    coordinate_system='$operation_condi.coordinate_system',
+    #end if
+    #if $operation_condi.table_name:
+    table_name='$operation_condi.table_name',
+    #end if
+)
+result.write_h5ad('./output/anndata.h5ad', compression='gzip')
+
 #else if $operation_condi.operation == 'import_table':
 ## Import anndata table
 import anndata as ad
-adata = ad.read_h5ad('$operation_condi.adata')
+import pandas as pd
+from spatialdata.models import TableModel
 
+adata = ad.read_h5ad('$operation_condi.adata')
+#if $operation_condi.region:
+    #set reg_list = [str(x.strip()) for x in str($operation_condi.region).split(',')]
+region_arg = $reg_list if len($reg_list) > 1 else '$reg_list[0]'
+rk = '$operation_condi.region_key' if '$operation_condi.region_key' else 'region'
+ik = '$operation_condi.instance_key' if '$operation_condi.instance_key' else 'instance_id'
+    #if str($operation_condi.populate_obs_columns) == 'True':
+if rk not in adata.obs and len($reg_list) == 1:
+    adata.obs[rk] = pd.Categorical(['$reg_list[0]'] * len(adata))
+if ik not in adata.obs:
+    if len($reg_list) == 1 and '$reg_list[0]' in sdata and hasattr(sdata['$reg_list[0]'], 'index') and len(sdata['$reg_list[0]']) == len(adata):
+        adata.obs[ik] = sdata['$reg_list[0]'].index.values
+    else:
+        adata.obs[ik] = adata.obs.index.values
+    #end if
+adata = TableModel.parse(
+    adata,
+    region=region_arg,
+    region_key=rk,
+    instance_key=ik,
+    overwrite_metadata=$operation_condi.overwrite_metadata
+)
+#end if
 table_name = sd.sanitize_name('$operation_condi.table_name')
 sdata[table_name] = adata
 result = sdata
 
 #else if $operation_condi.operation == 'add_shape':
 ## Add shape to SpatialData
+## force_2d(gdf) from spatialdata.models can be added here if requested by users
+import numpy as np
+from geopandas import GeoDataFrame
+from shapely.geometry import Polygon, Point
 from spatialdata.models import ShapesModel
-shape_data = ShapesModel.parse('$operation_condi.shape')
+from spatialdata.transformations import Identity
+
+cs_name = '$operation_condi.coordinate_system' if '$operation_condi.coordinate_system' else 'global'
+transformations_dict = {cs_name: Identity()}
+
+#if str($operation_condi.shape_source_condi.shape_source) == 'geojson':
+shape_data = ShapesModel.parse(
+    '$operation_condi.shape_source_condi.shape',
+    #if $operation_condi.shape_source_condi.radius:
+    radius=$operation_condi.shape_source_condi.radius,
+    #end if
+    transformations=transformations_dict
+)
+#else if str($operation_condi.shape_source_condi.shape_source) == 'circles_coords':
+coords_str = '$operation_condi.shape_source_condi.coords'
+coords_arr = np.array([[float(y.strip()) for y in x.split(',')] for x in coords_str.split(';')])
+    #if ',' in str($operation_condi.shape_source_condi.radius):
+radii = np.array([float(r.strip()) for r in '$operation_condi.shape_source_condi.radius'.split(',')])
+    #else:
+radii = float('$operation_condi.shape_source_condi.radius')
+    #end if
+shape_data = ShapesModel.parse(coords_arr, geometry=0, radius=radii, transformations=transformations_dict)
+#else if str($operation_condi.shape_source_condi.shape_source) == 'polygon_coords':
+polys = []
+for poly_str in '$operation_condi.shape_source_condi.coords'.split('|'):
+    pts = [tuple(float(y.strip()) for y in x.split(',')) for x in poly_str.strip().split(';') if x.strip()]
+    polys.append(Polygon(pts))
+shape_data = ShapesModel.parse(GeoDataFrame({"geometry": polys}), transformations=transformations_dict)
+#else if str($operation_condi.shape_source_condi.shape_source) == 'grid':
+    #if $operation_condi.shape_source_condi.bounds:
+        #set b_vals = [float(x.strip()) for x in str($operation_condi.shape_source_condi.bounds).split(',')]
+x_min, x_max, y_min, y_max = $b_vals[0], $b_vals[1], $b_vals[2], $b_vals[3]
+    #else:
+ext = sd.get_extent(sdata, coordinate_system=cs_name)
+x_min, x_max = float(ext["x"][0]), float(ext["x"][1])
+y_min, y_max = float(ext["y"][0]), float(ext["y"][1])
+    #end if
+n_cells_x = $operation_condi.shape_source_condi.n_cells_x
+n_cells_y = $operation_condi.shape_source_condi.n_cells_y
+grid_polys = []
+    #if str($operation_condi.shape_source_condi.grid_type) == 'checkerboard':
+x_cell_size = (x_max - x_min) / n_cells_x
+y_cell_size = (y_max - y_min) / n_cells_y
+for x0 in np.arange(x_min, x_max, x_cell_size):
+    for y0 in np.arange(y_min, y_max, y_cell_size):
+        grid_polys.append(Polygon([(x0, y0), (x0 + x_cell_size, y0), (x0 + x_cell_size, y0 + y_cell_size), (x0, y0 + y_cell_size)]))
+    #else:
+x_hex_size = (x_max - x_min) / (n_cells_x * 3 / 2)
+y_hex_size = (y_max - y_min) / (n_cells_y * np.sqrt(3))
+for i in range(n_cells_x):
+    for j in range(n_cells_y):
+        x_offset = x_min + i * 3 / 2 * x_hex_size
+        y_offset = y_min + j * np.sqrt(3) * y_hex_size
+        if i % 2 == 1:
+            y_offset += np.sqrt(3) / 2 * y_hex_size
+        grid_polys.append(Polygon([
+            (x_offset, y_offset),
+            (x_offset + x_hex_size / 2, y_offset + np.sqrt(3) / 2 * y_hex_size),
+            (x_offset + x_hex_size * 3 / 2, y_offset + np.sqrt(3) / 2 * y_hex_size),
+            (x_offset + x_hex_size * 2, y_offset),
+            (x_offset + x_hex_size * 3 / 2, y_offset - np.sqrt(3) / 2 * y_hex_size),
+            (x_offset + x_hex_size / 2, y_offset - np.sqrt(3) / 2 * y_hex_size),
+            (x_offset, y_offset),
+        ]))
+    #end if
+shape_data = ShapesModel.parse(GeoDataFrame(grid_polys, columns=["geometry"]), transformations=transformations_dict)
+#end if
 element_name = sd.sanitize_name('$operation_condi.elment_name')
 sdata[element_name] = shape_data
 result = sdata
+
+#else if $operation_condi.operation == 'add_image':
+## Add 2D/3D image element via Image2DModel / Image3DModel
+import numpy as np
+import tifffile
+from PIL import Image
+from spatialdata.models import Image2DModel, Image3DModel
+from spatialdata.transformations import Identity
+
+img_path = '$operation_condi.image_file'
+try:
+    img_arr = tifffile.imread(img_path)
+except Exception:
+    try:
+        img_arr = np.load(img_path)
+    except Exception:
+        img_arr = np.asarray(Image.open(img_path))
+
+if img_arr.ndim == 2:
+    img_arr = np.expand_dims(img_arr, axis=0)
+
+    #set dims_tuple = tuple([str(x.strip()) for x in str($operation_condi.dims).split(',')])
+model = Image3DModel if 'z' in $dims_tuple else Image2DModel
+cs_name = '$operation_condi.coordinate_system' if '$operation_condi.coordinate_system' else 'global'
+parsed_img = model.parse(
+    img_arr,
+    dims=$dims_tuple,
+    #if $operation_condi.c_coords:
+        #set c_coords_list = [str(x.strip()) for x in str($operation_condi.c_coords).split(',')]
+    c_coords=$c_coords_list,
+    #end if
+    #if $operation_condi.scale_factors:
+        #set sf_list = [int(x.strip()) for x in str($operation_condi.scale_factors).split(',')]
+    scale_factors=$sf_list,
+    #end if
+    transformations={cs_name: Identity()}
+)
+element_name = sd.sanitize_name('$operation_condi.elment_name')
+sdata[element_name] = parsed_img
+result = sdata
+
+#else if $operation_condi.operation == 'add_labels':
+## Add 2D/3D labels element via Labels2DModel / Labels3DModel
+import numpy as np
+import tifffile
+from PIL import Image
+from spatialdata.models import Labels2DModel, Labels3DModel
+from spatialdata.transformations import Identity
+
+lbl_path = '$operation_condi.labels_file'
+try:
+    lbl_arr = tifffile.imread(lbl_path)
+except Exception:
+    try:
+        lbl_arr = np.load(lbl_path)
+    except Exception:
+        lbl_arr = np.asarray(Image.open(lbl_path))
+
+if not np.issubdtype(lbl_arr.dtype, np.integer):
+    lbl_arr = lbl_arr.astype(np.int32)
+
+    #set dims_tuple = tuple([str(x.strip()) for x in str($operation_condi.dims).split(',')])
+model = Labels3DModel if 'z' in $dims_tuple else Labels2DModel
+cs_name = '$operation_condi.coordinate_system' if '$operation_condi.coordinate_system' else 'global'
+parsed_lbl = model.parse(
+    lbl_arr,
+    dims=$dims_tuple,
+    #if $operation_condi.scale_factors:
+        #set sf_list = [int(x.strip()) for x in str($operation_condi.scale_factors).split(',')]
+    scale_factors=$sf_list,
+    #end if
+    transformations={cs_name: Identity()}
+)
+element_name = sd.sanitize_name('$operation_condi.elment_name')
+sdata[element_name] = parsed_lbl
+result = sdata
+
+#else if $operation_condi.operation == 'add_points':
+## Add or subsample Points element
+import pandas as pd
+from spatialdata.models import PointsModel
+from spatialdata.transformations import Identity
+
+#if str($operation_condi.points_action_condi.points_action) == 'subsample':
+orig_pts = sdata.points['$operation_condi.points_action_condi.source_element']
+sampled_pts = orig_pts.sample(frac=$operation_condi.points_action_condi.frac, random_state=$operation_condi.points_action_condi.random_state)
+sampled_pts.attrs = orig_pts.attrs
+element_name = sd.sanitize_name('$operation_condi.elment_name')
+sdata.points[element_name] = sampled_pts
+result = sdata
+#else:
+pts_path = '$operation_condi.points_action_condi.points_file'
+try:
+    df = pd.read_parquet(pts_path)
+except Exception:
+    try:
+        df = pd.read_csv(pts_path, sep=None, engine='python')
+    except Exception:
+        df = pd.read_csv(pts_path, sep='\t')
+coords_map = {'x': '$operation_condi.points_action_condi.x_col', 'y': '$operation_condi.points_action_condi.y_col'}
+    #if $operation_condi.points_action_condi.z_col:
+coords_map['z'] = '$operation_condi.points_action_condi.z_col'
+    #end if
+cs_name = '$operation_condi.coordinate_system' if '$operation_condi.coordinate_system' else 'global'
+parsed_pts = PointsModel.parse(
+    df,
+    coordinates=coords_map,
+    #if $operation_condi.points_action_condi.feature_key:
+    feature_key='$operation_condi.points_action_condi.feature_key',
+    #end if
+    #if $operation_condi.points_action_condi.instance_key:
+    instance_key='$operation_condi.points_action_condi.instance_key',
+    #end if
+    transformations={cs_name: Identity()}
+)
+element_name = sd.sanitize_name('$operation_condi.elment_name')
+sdata[element_name] = parsed_pts
+result = sdata
+#end if
+
+#else if $operation_condi.operation == 'inspect':
+## Inspect SpatialData metadata, models, axes, channels, transformations, and tables
+from spatialdata.models import get_model, get_axes_names, get_channel_names, get_table_keys
+from spatialdata.transformations import get_transformation
+
+elements_info = {}
+for el_type, el_name, el in sdata._gen_elements():
+    model_cls = get_model(el)
+    axes = list(get_axes_names(el))
+    tx = {cs: str(t) for cs, t in get_transformation(el, get_all=True).items()}
+    info = {
+        "element_type": el_type,
+        "model": model_cls.__name__,
+        "axes": axes,
+        "transformations": tx,
+        "annotating_tables": sorted(list(sd.get_element_annotators(sdata=sdata, element_name=el_name))),
+    }
+    if el_type == "images":
+        info["channels"] = [str(c) for c in get_channel_names(el)]
+    elements_info[el_name] = info
+
+tables_info = {}
+for t_name, tbl in sdata.tables.items():
+    t_info = {
+        "n_obs": int(tbl.n_obs),
+        "n_vars": int(tbl.n_vars),
+        "obs_columns": list(tbl.obs.columns),
+        "var_names_preview": list(tbl.var_names[:50]),
+    }
+    try:
+        reg, rk, ik = get_table_keys(tbl)
+        t_info["region"] = reg
+        t_info["region_key"] = rk
+        t_info["instance_key"] = ik
+        t_info["annotated_regions"] = sd.SpatialData.get_annotated_regions(tbl)
+    except Exception:
+        t_info["region"] = None
+    tables_info[t_name] = t_info
+
+result = {
+    "coordinate_systems": list(sdata.coordinate_systems),
+    "elements": elements_info,
+    "tables": tables_info,
+}
 
 #end if
 
@@ -569,7 +1174,7 @@ print("\nOperation result:")
 print(result)
 
 ## Save the result
-#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table', 'import_table', 'add_shape']:
+#if $operation_condi.operation in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'set_transformation', 'align_elements_using_landmarks', 'subset', 'filter_by_coordinate_system', 'delete_element', 'set_table_annotates_spatialelement', 'set_channel_names', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table', 'import_table', 'add_shape', 'add_image', 'add_labels', 'add_points'] or ($operation_condi.operation == 'get_pyramid_levels' and not str($operation_condi.attr).strip()):
 result.write("./output/spatialdata.zarr", overwrite=True)
 
 #else if $operation_condi.operation in ['get_values']:
@@ -581,7 +1186,7 @@ else:
     ## If result is a Series or other, convert to DataFrame
     pd.DataFrame(result).to_csv('./output/result.tabular', sep='\t', index=True)
 
-#else if $operation_condi.operation in ['get_extent', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels']:
+#else if $operation_condi.operation in ['get_extent', 'get_element_instances', 'get_element_annotators', 'are_extents_equal', 'inspect'] or ($operation_condi.operation == 'get_pyramid_levels' and str($operation_condi.attr).strip()):
 import json
 import pandas as pd
 import numpy as np
@@ -617,16 +1222,23 @@ print("\nOperation completed successfully!")
                 <option value="polygon_query">Query a SpatialData object or a SpatialElement by a polygon or multipolygon. (sd.polygon_query)</option>
                 <option value="get_values">Get the values from the element, from any location: df columns, obs or var columns (table). (sd.get_values)</option>
                 <option value="get_element_instances">Get the instances (index values) of the SpatialElement. (sd.get_element_instances)</option>
+                <option value="get_element_annotators">Get the name(s) of the table(s) annotating a SpatialElement. (sd.get_element_annotators)</option>
                 <option value="get_extent">Get the extent (bounding box) of a SpatialData object or a SpatialElement. (sd.get_extent)</option>
                 <option value="get_centroids">Get the centroids of the geometries contained in a SpatialElement, as a new Points element. (sd.get_centroids)</option>
                 <option value="join_spatialelement_table">Perform SQL like joins of SpatialElements and a table. (sd.join_spatialelement_table)</option>
                 <option value="match_element_to_table">Filter the elements and make the indices match those in the table. (sd.match_element_to_table)</option>
                 <option value="match_table_to_element">Filter the table and reorders the rows to match the instances (rows/labels) of the specified SpatialElement. (sd.match_table_to_element)</option>
                 <option value="match_sdata_to_table">Filter the elements of a SpatialData object to match only the rows present in the table. (sd.match_sdata_to_table)</option>
-                <!-- will be available in next release -->
                 <option value="filter_by_table_query">Filter the SpatialData object based on a set of table queries. (sd.filter_by_table_query)</option>
+                <option value="subset">Subset the SpatialData object by element names. (sdata.subset)</option>
+                <option value="filter_by_coordinate_system">Filter the SpatialData object by coordinate system(s). (sdata.filter_by_coordinate_system)</option>
+                <option value="delete_element">Delete element(s) from the SpatialData object. (del sdata[key])</option>
+                <option value="set_table_annotates_spatialelement">Set or change the SpatialElement annotation target of a table. (sdata.set_table_annotates_spatialelement)</option>
+                <option value="set_channel_names">Set channel names for an image element. (sdata.set_channel_names)</option>
                 <option value="concatenate">Concatenate a list of spatial data objects (sd.concatenate)</option>
                 <option value="transform">Transform a SpatialElement using the transformation to a coordinate system, and returns the transformed element. (sd.transform)</option>
+                <option value="set_transformation">Manage coordinate system transformations (set_transformation, postpone_transformation, remove_transformation, rename_coordinate_systems, transform_to_coordinate_system, transform_to_data_extent)</option>
+                <option value="align_elements_using_landmarks">Align elements using landmark annotations. (align_elements_using_landmarks)</option>
                 <option value="rasterize">Rasterize a SpatialData object or a SpatialElement (image, labels, points, shapes). (sd.rasterize)</option>
                 <option value="rasterize_bins">Rasterizes grid-like binned shapes/points annotated by a table (e.g. Visium HD data). (sd.rasterize_bins)</option>
                 <option value="rasterize_bins_link_table_to_labels">Change the annotation target of the table to the rasterized labels. (sd.rasterize_bins_link_table_to_labels)</option>
@@ -635,17 +1247,24 @@ print("\nOperation completed successfully!")
                 <option value="aggregate">Aggregate values by given region. (sd.aggregate)</option>
                 <option value="map_raster">Apply a callable to raster data. (sd.map_raster)</option>
                 <option value="unpad_raster">Remove padding from a raster type that was eventually added by the rotation component of a transformation. (sd.unpad_raster)</option>
-                <!-- no good example to see how this should work and also when it works, the sdata can not be written
-                <option value="relabel_sequential">Relabels integers in a Dask array sequentially. (sd.relabel_sequential)</option> -->
+                <option value="relabel_sequential">Relabels integers in a Dask array sequentially. (sd.relabel_sequential)</option>
                 <option value="are_extents_equal">Check if two data extents, as returned by get_extent() are equal up to approximation errors. (sd.are_extents_equal)</option>
-                <!-- no good example to see how this should work and also when it works, the sdata can not be written
-                <option value="get_pyramid_levels">Access the data/attribute of the pyramid levels of a multiscale spatial image. (sd.get_pyramid_levels)</option> -->
+                <option value="get_pyramid_levels">Access the data/attribute of the pyramid levels of a multiscale spatial image. (sd.get_pyramid_levels)</option>
                 <option value="sanitize_table">Sanitize all keys in an AnnData table to comply with SpatialData naming rules. (sd.sanitize_table)</option>
                 <option value="export_table">Export the table of a SpatialData object to anndata</option>
-                <option value="import_table">Import anndata table to a SpatialData object</option>
-                <option value="add_shape">Add a shape to a SpatialData object</option>
+                <option value="to_legacy_anndata">Convert SpatialData object to legacy spatial AnnData (to_legacy_anndata)</option>
+                <option value="import_table">Import anndata table to a SpatialData object (TableModel.parse)</option>
+                <option value="add_shape">Add a shape or grid to a SpatialData object (ShapesModel.parse)</option>
+                <option value="add_image">Add an image to a SpatialData object (Image2DModel / Image3DModel)</option>
+                <option value="add_labels">Add a segmentation mask (labels) to a SpatialData object (Labels2DModel / Labels3DModel)</option>
+                <option value="add_points">Add or subsample points in a SpatialData object (PointsModel.parse)</option>
+                <option value="inspect">Inspect SpatialData metadata, models, axes, channels, transformations, and tables</option>
             </param>
             <when value="bounding_box_query">
+                <expand macro="param_element_name" optional="true" label="Element name (optional)" help="Leave empty to query the entire SpatialData object, or specify a single element name to crop and save as a new element."/>
+                <param name="output_element_name" type="text" optional="true" label="Output element name (when querying a single element)" help="Name to store the cropped element under in the SpatialData object">
+                    <expand macro="sanitize_query"/>
+                </param>
                 <param argument="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that min_coordinate and max_coordinate refer to (e.g., 'x,y' or 'x,y,z')">
                     <expand macro="sanitize_query"/>
                 </param>
@@ -661,11 +1280,28 @@ print("\nOperation completed successfully!")
                 <param argument="filter_table" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter table?" help="If True, the table is filtered to only contain rows annotating regions within the bounding box"/>
             </when>
             <when value="polygon_query">
-                <param name="polygon_coords" type="text" label="Polygon coordinates" help="Semicolon-separated list of coordinate pairs (x,y). Example: '0,0;100,0;100,100;0,100' for a square">
-                    <expand macro="sanitize_digits">
-                        <add value=";"/>
-                    </expand>
-                </param>
+                <conditional name="polygon_source_condi">
+                    <param name="polygon_source" type="select" label="Polygon definition source">
+                        <option value="coords" selected="true">Manual polygon coordinates</option>
+                        <option value="shapes_element">Existing Shapes element(s) in SpatialData (e.g. ROIs/lasso)</option>
+                    </param>
+                    <when value="coords">
+                        <param name="polygon_coords" type="text" label="Polygon coordinates" help="Semicolon-separated list of coordinate pairs (x,y). Example: '0,0;100,0;100,100;0,100' for a square">
+                            <expand macro="sanitize_digits">
+                                <add value=";"/>
+                            </expand>
+                        </param>
+                    </when>
+                    <when value="shapes_element">
+                        <param name="shapes_elements" type="text" label="Shapes element name(s)" help="Comma-separated name(s) of polygon Shapes elements in the SpatialData object (e.g., 'lasso,my_shapes')">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param name="annotate_obs_key" type="text" optional="true" label="Annotate table.obs column with ROI name (optional)" help="If specified (e.g., 'annotation'), instead of cropping, labels each row in table.obs with the name of the ROI shape it falls inside (or 'unassigned').">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <expand macro="param_table_name" value="table" optional="true" label="Table name to annotate"/>
+                    </when>
+                </conditional>
                 <expand macro="param_target_coordinate_system" help="The coordinate system of the polygon"/>
                 <param argument="filter_table" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter table?" help="Filter tables to only include tables annotating elements in the query result"/>
                 <param argument="clip" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Clip shapes?" help="If True, shapes are clipped to the polygon. This behavior is implemented only when querying polygons/multipolygons or circles, and it is ignored for other types of elements (images, labels, points). Importantly, when clipping is enabled, the circles will be converted to polygons before the clipping. This may affect downstream operations that rely on the circle radius or on performance, so it is recommended to disable clipping when querying circles or when querying a SpatialData object that contains circles."/>
@@ -691,6 +1327,11 @@ print("\nOperation completed successfully!")
                     <validator type="empty_field"/>
                 </expand>
                 <param argument="return_background" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include background?" help="If True, background label (0) is included"/>
+            </when>
+            <when value="get_element_annotators">
+                <expand macro="param_element_name" help="Name of the SpatialElement to check for annotating tables" argument="element_name">
+                    <validator type="empty_field"/>
+                </expand>
             </when>
             <when value="get_extent">
                 <expand macro="param_element_name" optional="true" label="Element name" help="Name of a specific element to get extent from. Leave empty to get extent of entire SpatialData object"/>
@@ -775,7 +1416,7 @@ print("\nOperation completed successfully!")
                 <param argument="var_names_expr" type="text" optional="true" label="Var names expression (optional)" help="Narwhals expression to filter .var_names">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="layer" type="text" value="table" label="The layer of the anndata.AnnData to filter the SpatialData object by" help="Only used with x_expr">
+                <param argument="layer" type="text" value="" optional="true" label="The layer of the anndata.AnnData to filter the SpatialData object by (optional)" help="Only used with x_expr. Leave empty to query .X.">
                     <expand macro="sanitize_query"/>
                 </param>
                 <param argument="how" type="select" label="Join type">
@@ -786,6 +1427,45 @@ print("\nOperation completed successfully!")
                     <option value="right_exclusive">Right Exclusive</option>
                 </param>
                 <expand macro="param_filter_label_pixels"/>
+            </when>
+            <when value="subset">
+                <param argument="element_names" type="text" label="Element names" help="Comma-separated list of element names to keep in the subset">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="filter_tables" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter tables?" help="If True, tables are filtered to only contain rows annotating regions in element_names"/>
+                <param argument="include_orphan_tables" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include orphan tables?" help="Include tables that do not annotate any SpatialElement"/>
+            </when>
+            <when value="filter_by_coordinate_system">
+                <param argument="coordinate_system" type="text" value="global" label="Coordinate system(s)" help="Comma-separated list of coordinate system names to filter by">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="filter_tables" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Filter tables?"/>
+                <param argument="include_orphan_tables" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include orphan tables?"/>
+            </when>
+            <when value="delete_element">
+                <param name="element_names" type="text" label="Element name(s) to delete" help="Comma-separated list of element names to remove from the SpatialData object">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="set_table_annotates_spatialelement">
+                <expand macro="param_table_name"/>
+                <param argument="region" type="text" label="Target region element name(s)" help="Comma-separated SpatialElement name(s) that the table annotates">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_region_key" value="" optional="true" help="Leave empty to reuse the table's existing region_key"/>
+                <expand macro="param_instance_key" value="" optional="true" help="Leave empty to reuse the table's existing instance_key"/>
+                <param name="update_obs_region" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Update table.obs[region_key] column to match the target region?" help="Required when switching a table to annotate a single newly created element (e.g., after to_circles or to_polygons)"/>
+            </when>
+            <when value="set_channel_names">
+                <expand macro="param_element_name" label="Image element name"/>
+                <param argument="channel_names" type="text" label="Channel names" help="Comma-separated channel names (e.g., 'r,g,b' or 'DAPI,CD45,PanCK')">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
             </when>
             <when value="concatenate">
                 <param name="other_sdatas" type="data" format="spatialdata.zip" multiple="true" label="Other SpatialData objects to concatenate"/>
@@ -814,59 +1494,7 @@ print("\nOperation completed successfully!")
                         <option value="no" selected="true">No - Transform to a different coordinate system</option>
                     </param>
                     <when value="yes">
-                        <conditional name="transformation_condi">
-                            <param name="transformation_type" type="select" label="Transformation type">
-                                <option value="identity">Identity - No transformation</option>
-                                <option value="map_axis">MapAxis - Map input axes to output axes</option>
-                                <option value="translation">Translation</option>
-                                <option value="scale">Scale</option>
-                                <option value="affine">Affine - General affine transformation with matrix</option>
-                                <option value="sequence">Sequence - Compose multiple transformations (Advanced)</option>
-                            </param>
-                            <when value="identity">
-                                <!-- Identity transformation has no parameters -->
-                            </when>
-                            <when value="map_axis">
-                                <param name="map_axis_input" type="text" label="Input axes" help="Comma-separated list of input axes (e.g., 'x,y,z')">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                                <param name="map_axis_output" type="text" label="Output axes" help="Comma-separated list of output axes corresponding to input axes (e.g., 'y,x,z' to swap x and y)">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                            </when>
-                            <when value="translation">
-                                <param name="translation" type="text" label="Translation vector" help="Comma-separated translation values (e.g., '10,20' for 2D)">
-                                    <expand macro="sanitize_digits"/>
-                                </param>
-                                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that the translation applies to (e.g., 'x,y')">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                            </when>
-                            <when value="scale">
-                                <param name="scale" type="text" label="Scale factors" help="Comma-separated scale values (e.g., '2,2' for 2D)">
-                                    <expand macro="sanitize_digits"/>
-                                </param>
-                                <param name="axes" type="text" value="x,y" label="Axes" help="Comma-separated list of axes that the scale applies to (e.g., 'x,y' or 'y' for single axis)">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                            </when>
-                            <when value="affine">
-                                <param name="matrix" type="text" label="Affine matrix" help="Affine transformation matrix as nested lists, e.g., '[[1,0,0],[0,1,0],[0,0,1]]' for 2D identity. For 2D rotation by angle θ: [[cos(θ),-sin(θ),0],[sin(θ),cos(θ),0],[0,0,1]]">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                                <param name="input_axes" type="text" value="x,y" label="Input axes" help="Comma-separated list of input axes (e.g., 'x,y')">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                                <param name="output_axes" type="text" value="x,y" label="Output axes" help="Comma-separated list of output axes (e.g., 'x,y')">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                            </when>
-                            <when value="sequence">
-                                <param name="transformations_code" type="text" area="true" label="Transformations list (Python code)" help="Python code to create a list of transformations. Example: [Translation([10,20], axes=('x','y')), Scale([2,2], axes=('x','y'))]. Available: Identity(), MapAxis({...}), Translation([...], axes=(...)), Scale([...], axes=(...)), Affine(matrix, input_axes=(...), output_axes=(...)). Advanced usage only.">
-                                    <expand macro="sanitize_query"/>
-                                </param>
-                            </when>
-                        </conditional>
+                        <expand macro="transformation_condi_macro"/>
                     </when>
                     <when value="no">
                         <param argument="to_coordinate_system" type="text" value="global" label="Target coordinate system" help="The coordinate system to which the data should be transformed. Must be present in the element.">
@@ -874,6 +1502,93 @@ print("\nOperation completed successfully!")
                         </param>
                     </when>
                 </conditional>
+            </when>
+            <when value="set_transformation">
+                <conditional name="action_condi">
+                    <param name="action" type="select" label="Transformation action">
+                        <option value="set" selected="true">Set transformation on element(s) (set_transformation)</option>
+                        <option value="postpone">Chain transformation from source to target coordinate system across all elements (postpone_transformation)</option>
+                        <option value="remove">Remove transformation from element(s) or coordinate system (remove_transformation)</option>
+                        <option value="rename_cs">Rename coordinate systems (rename_coordinate_systems)</option>
+                        <option value="transform_to_cs">Transform all/single element to coordinate system (transform_to_coordinate_system)</option>
+                        <option value="transform_to_data_extent">Transform SpatialData to match data extent (transform_to_data_extent)</option>
+                    </param>
+                    <when value="set">
+                        <expand macro="param_element_name" optional="true" label="Element name(s) (optional)" help="Comma-separated element names, or leave empty to set on all spatial elements"/>
+                        <param argument="to_coordinate_system" type="text" value="global" label="Target coordinate system">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <expand macro="transformation_condi_macro"/>
+                    </when>
+                    <when value="postpone">
+                        <param name="source_coordinate_system" type="text" value="global" label="Source coordinate system">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param name="target_coordinate_system" type="text" value="aligned" label="Target coordinate system">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <expand macro="transformation_condi_macro"/>
+                    </when>
+                    <when value="remove">
+                        <expand macro="param_element_name" optional="true" label="Element name(s) (optional)" help="Comma-separated element names, or leave empty to remove the coordinate system from all elements"/>
+                        <param argument="to_coordinate_system" type="text" value="global" label="Coordinate system to remove">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param argument="remove_all" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Remove all transformations from specified element(s)?"/>
+                    </when>
+                    <when value="rename_cs">
+                        <param name="rename_map" type="text" label="Coordinate system rename mapping" help="Comma-separated old_name:new_name pairs (e.g., 'global:space1,old_cs:new_cs')">
+                            <validator type="empty_field"/>
+                            <expand macro="sanitize_query"/>
+                        </param>
+                    </when>
+                    <when value="transform_to_cs">
+                        <expand macro="param_element_name" optional="true" label="Element name (optional)" help="Leave empty to transform the entire SpatialData object to the target coordinate system"/>
+                        <param name="output_element_name" type="text" optional="true" label="Output element name (optional)">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <expand macro="param_target_coordinate_system"/>
+                        <param argument="maintain_positioning" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Maintain positioning?"/>
+                    </when>
+                    <when value="transform_to_data_extent">
+                        <expand macro="param_coordinate_system"/>
+                        <param argument="maintain_positioning" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Maintain positioning?"/>
+                        <param argument="target_unit_to_pixels" type="float" optional="true" label="Target unit to pixels (optional)"/>
+                        <param argument="target_width" type="float" optional="true" label="Target width (optional)"/>
+                        <param argument="target_height" type="float" optional="true" label="Target height (optional)"/>
+                        <param argument="target_depth" type="float" optional="true" label="Target depth (optional)"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="align_elements_using_landmarks">
+                <param name="moving_sdata" type="data" format="spatialdata.zip" optional="true" label="Moving SpatialData object (optional)" help="Leave empty if both reference and moving elements are in the primary SpatialData input"/>
+                <param argument="references_coords" type="text" label="Reference landmarks element name" help="Name of Points or Circles element with reference landmarks">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="moving_coords" type="text" label="Moving landmarks element name" help="Name of Points or Circles element with moving landmarks">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="reference_element" type="text" label="Reference element name">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="moving_element" type="text" label="Moving element name">
+                    <validator type="empty_field"/>
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="reference_coordinate_system" type="text" value="global" label="Reference coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="moving_coordinate_system" type="text" value="global" label="Moving coordinate system">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="new_coordinate_system" type="text" value="aligned" label="New shared coordinate system name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="align_all_moving_elements" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Propagate alignment transformation to all elements in the moving SpatialData?"/>
+                <param name="return_moving" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Output the aligned moving SpatialData object (when a separate moving SpatialData is provided)?"/>
             </when>
             <when value="rasterize">
                 <expand macro="param_element_name" help="Name of element to rasterize"/>
@@ -963,15 +1678,14 @@ print("\nOperation completed successfully!")
             <when value="unpad_raster">
                 <expand macro="param_element_name" label="Raster element name" help="Name of raster element to unpad"/>
             </when>
-            <!-- no good example to see how this should work and also when it works, the sdata can not be written
             <when value="relabel_sequential">
-                <param name="elment_name" type="text" label="Labels element name" help="Name of labels element to relabel. Note that currently if a cell or entity to be labeled is split across adjacent chunks the same label is not assigned to the cell across blocks.">
+                <param name="elment_name" type="text" label="Labels element name" help="Name of labels element to relabel sequentially.">
                     <expand macro="sanitize_query"/>
                 </param>
                 <param name="output_element_name" type="text" value="relabeled_element" label="Output element name">
                     <expand macro="sanitize_query"/>
                 </param>
-            </when> -->
+            </when>
             <when value="are_extents_equal">
                 <param argument="extent0" name="element1_name" type="text" label="First element name">
                     <expand macro="sanitize_query"/>
@@ -982,44 +1696,163 @@ print("\nOperation completed successfully!")
                 <expand macro="param_coordinate_system"/>
                 <param argument="atol" type="float" value="0.1" label="Absolute tolerance"/>
             </when>
-            <!-- no good example to see how this should work and also when it works, the sdata can not be written
             <when value="get_pyramid_levels">
-                <param name="elment_name" type="text" label="Multiscale image element name">
+                <param name="elment_name" type="text" label="Multiscale image or labels element name">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param name="attr" type="text" optional="true" label="Attribute name (optional)" help="Return specific attribute instead of data.  If None, return the data of the pyramid level as a DataArray, if not None, return the specified attribute within the DataArray data.">
+                <param name="attr" type="text" optional="true" label="Attribute name (optional)" help="If empty, extracts pyramid level(s) as single-scale SpatialElement(s) in the output SpatialData object. If specified (e.g. 'shape'), returns the attribute as JSON.">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param name="n" type="integer" min="0" optional="true" label="Level number (optional)" help="Return only specific pyramid level"/>
-            </when> -->
+                <param name="n" type="integer" min="0" optional="true" label="Level number (optional)" help="Return only specific pyramid level (e.g. 0 for scale0)"/>
+                <param name="output_element_name" type="text" optional="true" label="Output element name (when extracting a single level)">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
             <when value="sanitize_table">
                 <expand macro="param_table_name"/>
             </when>
             <when value="export_table">
                 <expand macro="param_table_name"/>
             </when>
+            <when value="to_legacy_anndata">
+                <param argument="include_images" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include hires/lowres images in uns['spatial']?"/>
+                <param argument="coordinate_system" type="text" optional="true" label="Coordinate system (optional)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_table_name" value="" optional="true"/>
+            </when>
             <when value="import_table">
                 <param name="adata" type="data" format="h5ad" label="annotated data object to add"/>
                 <expand macro="param_table_name" help="If a table name in the spatialdata is used, it will overwite"/>
+                <param argument="region" type="text" optional="true" label="Annotated SpatialElement region(s) (optional)" help="Comma-separated element name(s) that this table annotates (via TableModel.parse)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_region_key" value="" optional="true" label="Region key in adata.obs (optional)" help="Defaults to 'region' when region is specified"/>
+                <expand macro="param_instance_key" value="" optional="true" label="Instance key in adata.obs (optional)" help="Defaults to 'instance_id' when region is specified"/>
+                <param name="populate_obs_columns" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Automatically populate region_key and instance_key columns in adata.obs if missing?"/>
+                <param argument="overwrite_metadata" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Overwrite existing spatialdata_attrs metadata in adata.uns?"/>
             </when>
             <when value="add_shape">
-                <expand macro="param_element_name" help="Name of the element to add shape to"/>
-                <param name="shape" type="data" format="geojson" label="Shapes annotations"/>
+                <expand macro="param_element_name" help="Name of the new Shapes element"/>
+                <expand macro="param_coordinate_system" help="Coordinate system for the new Shapes element"/>
+                <conditional name="shape_source_condi">
+                    <param name="shape_source" type="select" label="Shape source">
+                        <option value="geojson" selected="true">GeoJSON file</option>
+                        <option value="circles_coords">Circles / Landmarks from coordinates</option>
+                        <option value="polygon_coords">Polygon(s) from coordinates</option>
+                        <option value="grid">Regular grid (Checkerboard or Hexagonal)</option>
+                    </param>
+                    <when value="geojson">
+                        <param name="shape" type="data" format="geojson,json" label="Shapes GeoJSON file"/>
+                        <param argument="radius" type="float" optional="true" label="Radius (required if GeoJSON contains Point geometries)"/>
+                    </when>
+                    <when value="circles_coords">
+                        <param name="coords" type="text" label="Center coordinates (x,y)" help="Semicolon-separated (x,y) pairs, e.g. '10556.7,7829.8;13959.2,13522.0;10621.2,17392.1'">
+                            <expand macro="sanitize_digits">
+                                <add value=";"/>
+                            </expand>
+                        </param>
+                        <param name="radius" type="text" value="500" label="Radius (single value or comma-separated per circle)">
+                            <expand macro="sanitize_digits"/>
+                        </param>
+                    </when>
+                    <when value="polygon_coords">
+                        <param name="coords" type="text" label="Polygon vertex coordinates" help="Semicolon-separated (x,y) vertex pairs. Separate multiple polygons with '|'. Example: '0,0;100,0;100,100;0,100|200,200;300,200;250,300'">
+                            <expand macro="sanitize_digits">
+                                <add value=";"/>
+                                <add value="|"/>
+                            </expand>
+                        </param>
+                    </when>
+                    <when value="grid">
+                        <param name="grid_type" type="select" label="Grid geometry type">
+                            <option value="checkerboard" selected="true">Checkerboard grid (squares/rectangles)</option>
+                            <option value="hexagonal">Hexagonal grid</option>
+                        </param>
+                        <param name="n_cells_x" type="integer" min="1" value="20" label="Number of grid cells along X"/>
+                        <param name="n_cells_y" type="integer" min="1" value="20" label="Number of grid cells along Y"/>
+                        <param name="bounds" type="text" optional="true" label="Custom bounds x_min,x_max,y_min,y_max (optional)" help="Leave empty to use the spatial extent of the SpatialData object">
+                            <expand macro="sanitize_digits"/>
+                        </param>
+                    </when>
+                </conditional>
             </when>
+            <when value="add_image">
+                <expand macro="param_element_name" label="New image element name"/>
+                <param name="image_file" type="data" format="tiff,ome.tiff,png,jpg,npy" label="Image file"/>
+                <param argument="dims" type="text" value="c,y,x" label="Dimensions order of input array" help="e.g., 'c,y,x', 'y,x,c', or 'c,z,y,x'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="c_coords" type="text" optional="true" label="Channel names (optional)" help="Comma-separated channel names (e.g. 'r,g,b')">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="scale_factors" type="text" optional="true" label="Multiscale downsampling factors (optional)" help="Comma-separated integers (e.g. '2,2,2')">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <expand macro="param_coordinate_system"/>
+            </when>
+            <when value="add_labels">
+                <expand macro="param_element_name" label="New labels element name"/>
+                <param name="labels_file" type="data" format="tiff,png,npy" label="Labels mask file"/>
+                <param argument="dims" type="text" value="y,x" label="Dimensions order of input array" help="e.g., 'y,x' or 'z,y,x'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="scale_factors" type="text" optional="true" label="Multiscale downsampling factors (optional)" help="Comma-separated integers (e.g. '2,2')">
+                    <expand macro="sanitize_digits"/>
+                </param>
+                <expand macro="param_coordinate_system"/>
+            </when>
+            <when value="add_points">
+                <expand macro="param_element_name" label="Points element name"/>
+                <expand macro="param_coordinate_system"/>
+                <conditional name="points_action_condi">
+                    <param name="points_action" type="select" label="Points action">
+                        <option value="parse_file" selected="true">Parse Points from tabular/CSV/Parquet file (PointsModel.parse)</option>
+                        <option value="subsample">Subsample an existing Points element (.sample())</option>
+                    </param>
+                    <when value="parse_file">
+                        <param name="points_file" type="data" format="tabular,csv,parquet" label="Points table (CSV/TSV/Parquet)"/>
+                        <param name="x_col" type="text" value="x" label="X coordinate column name">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param name="y_col" type="text" value="y" label="Y coordinate column name">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param name="z_col" type="text" optional="true" label="Z coordinate column name (optional)">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param argument="feature_key" type="text" optional="true" label="Feature key column (optional, e.g. 'gene')">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param argument="instance_key" type="text" optional="true" label="Instance key column (optional, e.g. 'cell_id')">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                    </when>
+                    <when value="subsample">
+                        <param name="source_element" type="text" label="Source Points element name to subsample">
+                            <validator type="empty_field"/>
+                            <expand macro="sanitize_query"/>
+                        </param>
+                        <param name="frac" type="float" value="0.01" min="0.0" max="1.0" label="Fraction of points to sample"/>
+                        <param name="random_state" type="integer" value="0" label="Random seed"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="inspect"/>
         </conditional>
     </inputs>
     <outputs>
         <data name="spatialdata_output" format="spatialdata.zip" from_work_dir="spatialdata.spatialdata.zip" label="${tool.name} on ${on_string}: ${operation_condi.operation}">
-            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table', 'import_table', 'add_shape']</filter>
+            <filter>operation_condi['operation'] in ['bounding_box_query', 'polygon_query', 'concatenate', 'transform', 'set_transformation', 'align_elements_using_landmarks', 'subset', 'filter_by_coordinate_system', 'delete_element', 'set_table_annotates_spatialelement', 'set_channel_names', 'aggregate', 'to_circles', 'to_polygons', 'get_centroids', 'join_spatialelement_table', 'match_element_to_table', 'match_table_to_element', 'match_sdata_to_table', 'filter_by_table_query', 'rasterize', 'rasterize_bins', 'rasterize_bins_link_table_to_labels', 'map_raster', 'unpad_raster', 'relabel_sequential', 'sanitize_table', 'import_table', 'add_shape', 'add_image', 'add_labels', 'add_points'] or (operation_condi['operation'] == 'get_pyramid_levels' and not operation_condi['attr'])</filter>
         </data>
         <data name="result_tabular" format="tabular" from_work_dir="output/result.tabular" label="${tool.name} on ${on_string}: ${operation_condi.operation} tabular result">
             <filter>operation_condi['operation'] == 'get_values'</filter>
         </data>
         <data name="result_json" format="json" from_work_dir="output/result.json" label="${tool.name} on ${on_string}: ${operation_condi.operation} json result">
-            <filter>operation_condi['operation'] in ['get_extent', 'get_element_instances', 'are_extents_equal', 'get_pyramid_levels']</filter>
+            <filter>operation_condi['operation'] in ['get_extent', 'get_element_instances', 'get_element_annotators', 'are_extents_equal', 'inspect'] or (operation_condi['operation'] == 'get_pyramid_levels' and bool(operation_condi['attr']))</filter>
         </data>
         <data name="result_adata" format="h5ad" from_work_dir="output/anndata.h5ad" label="${tool.name} on ${on_string}: ${operation_condi.operation} anndata result">
-            <filter>operation_condi['operation'] == 'export_table'</filter>
+            <filter>operation_condi['operation'] in ['export_table', 'to_legacy_anndata']</filter>
         </data>
     </outputs>
     <tests>
@@ -1053,7 +1886,10 @@ print("\nOperation completed successfully!")
             <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
             <conditional name="operation_condi">
                 <param name="operation" value="polygon_query"/>
-                <param name="polygon_coords" value="0,0;1000,0;1000,1000;0,1000"/>
+                <conditional name="polygon_source_condi">
+                    <param name="polygon_source" value="coords"/>
+                    <param name="polygon_coords" value="0,0;1000,0;1000,1000;0,1000"/>
+                </conditional>
                 <param name="target_coordinate_system" value="global"/>
             </conditional>
             <assert_stdout>
@@ -1647,7 +2483,10 @@ print("\nOperation completed successfully!")
             <conditional name="operation_condi">
                 <param name="operation" value="add_shape"/>
                 <param name="elment_name" value="new_shapes"/>
-                <param name="shape" location="https://zenodo.org/records/21358431/files/visiumhd_cell_segmentations.geojson"/>
+                <conditional name="shape_source_condi">
+                    <param name="shape_source" value="geojson"/>
+                    <param name="shape" location="https://zenodo.org/records/21358431/files/visiumhd_cell_segmentations.geojson"/>
+                </conditional>
             </conditional>
             <assert_stdout>
                 <has_text text="Operation completed successfully"/>
@@ -1680,6 +2519,321 @@ print("\nOperation completed successfully!")
                 </assert_contents>
             </output>
         </test>
+        <!-- Test 29: subset -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="subset"/>
+                <param name="element_names" value="he_image,cell_labels"/>
+                <param name="filter_tables" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="sdata.subset"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 30: filter_by_coordinate_system -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="filter_by_coordinate_system"/>
+                <param name="coordinate_system" value="global"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="filter_by_coordinate_system"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 31: set_table_annotates_spatialelement -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="set_table_annotates_spatialelement"/>
+                <param name="table_name" value="table"/>
+                <param name="region" value="nucleus_labels"/>
+                <param name="update_obs_region" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="set_table_annotates_spatialelement"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 32: inspect -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="inspect"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_json">
+                <assert_contents>
+                    <has_text text="coordinate_systems"/>
+                    <has_text text="elements"/>
+                    <has_text text="tables"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 33: delete_element -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="delete_element"/>
+                <param name="element_names" value="landmarks2"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 34: set_channel_names -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="set_channel_names"/>
+                <param name="elment_name" value="image1"/>
+                <param name="channel_names" value="DAPI,CD3"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="set_channel_names"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 35: set_transformation -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="set_transformation"/>
+                <conditional name="action_condi">
+                    <param name="action" value="set"/>
+                    <param name="elment_name" value="image1"/>
+                    <param name="to_coordinate_system" value="translated_cs"/>
+                    <conditional name="transformation_condi">
+                        <param name="transformation_type" value="translation"/>
+                        <param name="translation" value="10,20"/>
+                        <param name="axes" value="x,y"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_stdout>
+                <has_text text="translated_cs"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 36: align_elements_using_landmarks -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="align_elements_using_landmarks"/>
+                <param name="references_coords" value="landmarks1"/>
+                <param name="moving_coords" value="landmarks2"/>
+                <param name="reference_element" value="image1"/>
+                <param name="moving_element" value="labels1"/>
+                <param name="reference_coordinate_system" value="global"/>
+                <param name="moving_coordinate_system" value="global"/>
+                <param name="new_coordinate_system" value="aligned"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="align_elements_using_landmarks"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 37: relabel_sequential -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="relabel_sequential"/>
+                <param name="elment_name" value="labels1"/>
+                <param name="output_element_name" value="relabeled_labels1"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="relabeled_labels1"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="labels/relabeled_labels1"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 38: get_pyramid_levels -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_pyramid_levels"/>
+                <param name="elment_name" value="image1"/>
+                <param name="n" value="0"/>
+                <param name="output_element_name" value="image1_level0"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_pyramid_levels"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="images/image1_level0"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 39: to_legacy_anndata -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="to_legacy_anndata"/>
+                <param name="include_images" value="false"/>
+                <param name="coordinate_system" value="global"/>
+                <param name="table_name" value="table"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="to_legacy_anndata"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_adata">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/spatial"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 40: add_image -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="add_image"/>
+                <param name="elment_name" value="new_image"/>
+                <param name="image_file" value="mcmicro_dummy_registration.ome.tif"/>
+                <param name="dims" value="c,y,x"/>
+                <param name="c_coords" value="DAPI,CD3"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="new_image"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="images/new_image"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 41: add_labels -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="add_labels"/>
+                <param name="elment_name" value="new_labels"/>
+                <param name="labels_file" value="seqfish_dummy_Segmentation.tiff"/>
+                <param name="dims" value="y,x"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="new_labels"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="labels/new_labels"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 42: add_points -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="add_points"/>
+                <param name="elment_name" value="new_points"/>
+                <conditional name="points_action_condi">
+                    <param name="points_action" value="parse_file"/>
+                    <param name="points_file" value="seqfish_dummy_TranscriptList.csv"/>
+                    <param name="x_col" value="x"/>
+                    <param name="y_col" value="y"/>
+                    <param name="feature_key" value="name"/>
+                </conditional>
+            </conditional>
+            <assert_stdout>
+                <has_text text="new_points"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="points/new_points"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 43: get_element_annotators -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="get_element_annotators"/>
+                <param name="elment_name" value="landmarks1"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="get_element_annotators"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="result_json">
+                <assert_contents>
+                    <has_text text="&quot;element_name&quot;: &quot;landmarks1&quot;"/>
+                    <has_text text="&quot;table&quot;"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 
@@ -1687,37 +2841,47 @@ print("\nOperation completed successfully!")
 
 This tool performs various operations on SpatialData objects, including:
 
-**Spatial Operations:**
-- **Bounding Box Query**: Extract data within a specified bounding box
-- **Polygon Query**: Extract data within a polygon region
+**Spatial & Element Operations:**
+- **Bounding Box Query**: Extract data (entire SpatialData or a single element) within a specified bounding box
+- **Polygon Query**: Extract data within a polygon region (manual coordinates or existing ROI/lasso Shapes elements, with optional table.obs ROI annotation)
+- **Subset**: Subset SpatialData by element names
+- **Filter by Coordinate System**: Filter SpatialData to elements mapped to specified coordinate system(s)
+- **Delete Element**: Remove element(s) from a SpatialData object
 - **Get Extent**: Calculate the spatial extent (bounding box) of elements
-- **Transform**: Apply geometric transformations (Identity, MapAxis, Translation, Scale, Affine, Sequence)
+- **Transform**: Apply geometric transformations (Identity, MapAxis, Translation, Scale, Affine, Sequence, with optional `.inverse()`)
+- **Set / Manage Transformations**: Set, remove, postpone/chain transformations across elements, rename coordinate systems, `transform_to_coordinate_system`, and `transform_to_data_extent`
+- **Align Elements Using Landmarks**: Align moving and reference elements/SpatialData objects using landmark coordinates
 - **Aggregate**: Aggregate values from one element by regions defined in another
 - **Convert to Circles**: Approximate geometries as circles
 - **Convert to Polygons**: Convert geometries to polygons
 - **Get Values**: Extract values from elements or tables
 - **Get Element Instances**: Get the instance IDs of elements
 - **Get Centroids**: Calculate centroids of geometries
+- **Add Shape / Image / Labels / Points**: Parse and add new Shapes (GeoJSON, circle/landmark coordinates, polygon coordinates, or regular checkerboard/hexagonal grids), Images, Labels, or Points (including subsampling Points)
 
 **Table Operations:**
+- **Set Table Annotation Target**: Change or set the SpatialElement annotated by a table (`set_table_annotates_spatialelement`)
 - **Join SpatialElement and Table**: SQL-like joins between elements and tables
 - **Match Element to Table**: Filter elements to match table indices
 - **Match Table to Element**: Filter and reorder table to match element instances
 - **Match SpatialData to Table**: Filter SpatialData to match table rows
-- **Filter by Table Query**: Filter SpatialData based on table queries
+- **Filter by Table Query**: Filter SpatialData based on `annsel` table queries (`obs_expr`, `var_expr`, `x_expr`, etc.)
+- **Import / Export Table / To Legacy AnnData**: Import `AnnData` tables (`TableModel.parse`), export tables to `.h5ad`, or convert to legacy spatial `AnnData` (`to_legacy_anndata`)
 
 **Rasterization Operations:**
-- **Rasterize**: Convert spatial elements to raster images
-- **Rasterize Bins**: Rasterize grid-like binned data (e.g., Visium HD)
+- **Rasterize**: Convert spatial elements to raster images or labels
+- **Rasterize Bins**: Rasterize grid-like binned data (e.g., Visium HD) with automatic CSR-to-CSC conversion
 - **Link Bins Table to Labels**: Link table to rasterized labels
 - **Map Raster**: Apply functions to raster data
 - **Unpad Raster**: Remove padding from rasterized data
 
 **Utility Operations:**
+- **Set Channel Names**: Rename channels of an image element
 - **Relabel Sequential**: Relabel integers in labels sequentially
 - **Are Extents Equal**: Check if two extents are equal
-- **Get Pyramid Levels**: Access multiscale image pyramid levels
+- **Get Pyramid Levels**: Extract a multiscale pyramid level as a single-scale element or inspect pyramid attributes
 - **Sanitize Table**: Sanitize all keys in an AnnData table
+- **Inspect**: Output a JSON summary of coordinate systems, elements (models, axes, channels, transformations), and tables
 
 -----
 
