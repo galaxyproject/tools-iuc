@@ -18,6 +18,7 @@ There are two labels that allow to ignore specific (false positive) tool linter 
 
 To request a review once your PR is ready, comment "please review" on the PR. This will
 automatically apply the `ready-for-review` label if the PR is not a draft, all review
-threads are resolved, and all CI checks have passed.
+threads are resolved, and all CI checks have passed. The label is removed once a reviewer
+submits a review; after addressing it, comment "please review" again to ping the reviewers.
 
 [tool-update-guide]: https://github.com/galaxyproject/tools-iuc/blob/main/docs/guide_for_tool_updates.md
