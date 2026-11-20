@@ -1,8 +1,15 @@
 import json
 import os
+import re
 import sys
 
 import yaml
+
+
+def safe_name(name):
+    """Clean a file name the way the wrapper's safe_element_identifier helper does."""
+    name = re.sub(r'[^\w\-.]', '_', name) or '_'
+    return re.sub(r'^[-.]', '_', name)
 
 
 def get_section_string(f, start_line, end_line, return_string=False):
@@ -92,6 +99,11 @@ def main():
             else:
                 sample_alias = fasta_file[:-6]
 
+            # The wrapper names the files in ./fasta after the cleaned dataset names
+            fasta_name = safe_name(sample_alias + '.fasta.gz')
+            agp_name = safe_name(sample_alias + '.agp')
+            chr_list_name = safe_name(sample_alias + '.tsv.gz')
+
             print(f'Processing {sample_alias}')
             found_metadata = False
 
@@ -112,13 +124,13 @@ def main():
                         output_handle.write("PLATFORM\t" + platform + "\n")
                         output_handle.write("STUDY\t" + study_accession + "\n")
                         output_handle.write("SAMPLE\t" + sample_accession + "\n")
-                        output_handle.write("FASTA\t" + sample_alias + '.fasta.gz' + "\n")
-                        agp_path = os.path.join("./fasta", sample_alias + ".agp")
+                        output_handle.write("FASTA\t" + fasta_name + "\n")
+                        agp_path = os.path.join("./fasta", agp_name)
                         if os.path.exists(agp_path):
-                            output_handle.write("AGP\t" + sample_alias + ".agp\n")
-                        chr_list_path = os.path.join("./fasta", sample_alias + ".tsv.gz")
+                            output_handle.write("AGP\t" + agp_name + "\n")
+                        chr_list_path = os.path.join("./fasta", chr_list_name)
                         if os.path.exists(chr_list_path):
-                            output_handle.write("CHROMOSOME_LIST\t" + sample_alias + ".tsv.gz\n")
+                            output_handle.write("CHROMOSOME_LIST\t" + chr_list_name + "\n")
 
                     found_metadata = True
                     written_manifests_out.write(manifest_path + '\n')
