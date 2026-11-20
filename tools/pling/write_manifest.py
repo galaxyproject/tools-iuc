@@ -11,6 +11,7 @@ that its plasmid names match the generated FASTA stems.
 import argparse
 import csv
 import gzip
+import json
 import os
 import re
 import shutil
@@ -40,14 +41,11 @@ def parse_args():
         help="Directory where prepared FASTA inputs are created.",
     )
     parser.add_argument(
-        "--genome",
-        nargs=2,
-        action="append",
-        metavar=("PATH", "LABEL"),
+        "--genomes",
         required=True,
         help=(
-            "Input FASTA path and Galaxy dataset identifier. "
-            "May be supplied multiple times."
+            "JSON file holding a list of [path, label] pairs: each input "
+            "FASTA path with its Galaxy dataset identifier."
         ),
     )
     parser.add_argument(
@@ -65,6 +63,13 @@ def parse_args():
             "--topology-input and --topology-output must be supplied together"
         )
     return args
+
+
+def read_genomes(path):
+    """Read the [path, label] pairs written by the Galaxy wrapper."""
+    with open(path, encoding="utf-8") as handle:
+        genomes = json.load(handle)
+    return [(str(source), str(label)) for source, label in genomes]
 
 
 def is_gzip(path):
@@ -198,7 +203,7 @@ def write_topology(path, rows):
 def main():
     args = parse_args()
     manifest_paths, label_to_name = prepare_inputs(
-        args.genome,
+        read_genomes(args.genomes),
         Path(args.input_dir),
     )
     write_manifest(args.output, manifest_paths)
