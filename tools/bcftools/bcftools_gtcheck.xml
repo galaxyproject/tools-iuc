@@ -12,6 +12,18 @@
                 <yield />
             </param>
         </xml>
+        <xml name="gtcheck_samples_when">
+            <when value="list">
+                <param argument="--samples" name="samples_list" type="text" optional="false" label="Sample names"
+                       help="Comma-separated list of sample names (e.g. sample1,sample2).">
+                    <validator type="expression" message="Please specify a single sample name or a comma-separated list of sample names">value.strip() and value[0] not in "^," and ",," not in value</validator>
+                </param>
+            </when>
+            <when value="file">
+                <param argument="--samples-file" type="data" format="tabular,txt" label="Samples file"
+                       help="File listing sample names to include, one per line." />
+            </when>
+        </xml>
     </macros>
     <expand macro="bio_tools" />
     <expand macro="requirements" />
@@ -53,6 +65,48 @@ bcftools @EXECUTABLE@
 
 #if $section.comparison_mode.use_tag:
   --use '${str($section.comparison_mode.use_tag).replace("_", ",")}'
+#end if
+
+#if $section.analysis_type.analysis_mode == 'discordance':
+  #if $section.analysis_type.pairs_src.pairs_type == 'file':
+    --pairs-file '${section.analysis_type.pairs_src.pairs_file}'
+  #elif $section.analysis_type.pairs_src.pairs_type == 'text':
+    #if str($section.analysis_type.pairs_src.pairs) != '':
+      --pairs '${section.analysis_type.pairs_src.pairs}'
+    #end if
+  #else:
+    #if $section.analysis_type.pairs_src.qry_samples.how == 'list':
+      --samples 'qry:${section.analysis_type.pairs_src.qry_samples.samples_list}'
+    #elif $section.analysis_type.pairs_src.qry_samples.how == 'file':
+      --samples-file 'qry:${section.analysis_type.pairs_src.qry_samples.samples_file}'
+    #end if
+    #if $section.analysis_type.pairs_src.gt_samples.how == 'list':
+      --samples 'gt:${section.analysis_type.pairs_src.gt_samples.samples_list}'
+    #elif $section.analysis_type.pairs_src.gt_samples.how == 'file':
+      --samples-file 'gt:${section.analysis_type.pairs_src.gt_samples.samples_file}'
+    #elif $section.analysis_type.pairs_src.gt_samples.how == 'all_in_file':
+      --samples 'gt:-'
+    #end if
+    #if $section.analysis_type.pairs_src.matches_output.selector == 'score':
+      --n-matches $section.analysis_type.pairs_src.matches_output.top_n
+    #elif $section.analysis_type.pairs_src.matches_output.selector == 'hwe':
+      --n-matches -${section.analysis_type.pairs_src.matches_output.top_n}
+    #end if
+  #end if
+  #if str($section.analysis_type.error_probability) != '':
+    --error-probability $section.analysis_type.error_probability
+  #end if
+  ${section.analysis_type.no_HWE_prob}
+  ${section.analysis_type.keep_refs}
+#elif $section.analysis_type.analysis_mode == 'distinctive':
+  --distinctive-sites ${section.analysis_type.distinctive_sites.num}
+  #if $section.analysis_type.pairs_src.pairs_type == 'file':
+    --pairs-file '${section.analysis_type.pairs_src.pairs_file}'
+  #else:
+    #if str($section.analysis_type.pairs_src.pairs) != '':
+      --pairs '${section.analysis_type.pairs_src.pairs}'
+    #end if
+  #end if
 #end if
 
 #set $section = $sec_restrict
@@ -97,6 +151,95 @@ bcftools @EXECUTABLE@
                         <option value="PL_PL">Query: PL, Reference: PL</option>
                         <option value="GT_PL">Query: GT, Reference: PL</option>
                     </expand>
+                </when>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_mode" type="select" label="Analysis type" help="Select the type of analysis to perform.">
+                    <option value="discordance" selected="true">Check sample identity / discordance</option>
+                    <option value="distinctive">Find distinctive sites (--distinctive-sites)</option>
+                </param>
+                <when value="discordance">
+                    <conditional name="pairs_src">
+                        <param name="pairs_type" type="select" label="Sample pairs to compare" help="Optionally restrict comparisons to specific sample pairs, or specify sample subsets.">
+                            <option value="all" selected="true">All sample pairs</option>
+                            <option value="file">Tabular file of sample pairs (-P)</option>
+                            <option value="text">Comma-separated list of sample pairs (-p)</option>
+                        </param>
+                        <when value="all">
+                            <conditional name="qry_samples">
+                                <param name="how" type="select" label="Query samples to check (qry:)" help="Restrict which samples from the query dataset are evaluated.">
+                                    <option value="default" selected="true">Default (all samples)</option>
+                                    <option value="list">Specify sample names manually (-s qry:...)</option>
+                                    <option value="file">Provide file with sample names (-S qry:...)</option>
+                                </param>
+                                <when value="default" />
+                                <expand macro="gtcheck_samples_when" />
+                            </conditional>
+                            <conditional name="gt_samples">
+                                <param name="how" type="select" label="Target / genotype samples to compare against (gt:)" help="Restrict samples from the reference (-g) dataset, or define the second sample group when cross-checking a single file.">
+                                    <option value="default" selected="true">Default (all reference samples, or match query selection in cross-check)</option>
+                                    <option value="all_in_file">All samples in file (-s gt:-)</option>
+                                    <option value="list">Specify sample names manually (-s gt:...)</option>
+                                    <option value="file">Provide file with sample names (-S gt:...)</option>
+                                </param>
+                                <when value="default" />
+                                <when value="all_in_file" />
+                                <expand macro="gtcheck_samples_when" />
+                            </conditional>
+                            <conditional name="matches_output">
+                                <param name="selector" type="select" label="Report matches for each sample" help="Control how many sample comparisons are reported in the output table and how they are ranked.">
+                                    <option value="all" selected="true">All matches (unlimited)</option>
+                                    <option value="score">Top matches sorted by discordance (average score)</option>
+                                    <option value="hwe">Top matches sorted by HWE probability</option>
+                                </param>
+                                <when value="all" />
+                                <when value="score">
+                                    <param name="top_n" type="integer" min="1" label="Number of top matches to report" help="Output the top N best matches with the lowest discordance score." />
+                                </when>
+                                <when value="hwe">
+                                    <param name="top_n" type="integer" min="1" label="Number of top matches to report" help="Output the top N matches with the highest HWE probability." />
+                                </when>
+                            </conditional>
+                        </when>
+                        <when value="file">
+                            <param argument="--pairs-file" type="data" format="tabular,tsv,txt" label="File with sample pairs" help="Tab-delimited file containing sample pairs to compare" />
+                        </when>
+                        <when value="text">
+                            <param argument="--pairs" type="text" label="Sample pairs" help="Comma-separated sample pairs (e.g. s1,s2,s3,s4)" />
+                        </when>
+                    </conditional>
+                    <param argument="--error-probability" type="integer" min="0" optional="true" label="Genotyping error probability (Phred score)"
+                           help="Phred-scaled probability of genotyping error (e.g. 40 for 0.01% error rate, 30 for 0.1%, 20 for 1%). Set to 0 to disable error modeling for faster but less accurate results. Leave blank to use default [40]." />
+                    <param argument="--no-HWE-prob" type="boolean" truevalue="--no-HWE-prob" falsevalue="" label="Disable HWE probability calculation"
+                           help="Disable calculation of Hardy-Weinberg equilibrium probability to speed up execution" />
+                    <param argument="--keep-refs" type="boolean" truevalue="--keep-refs" falsevalue="" label="Keep monoallelic reference sites"
+                           help="Keep monoallelic sites with no alternate allele" />
+                </when>
+                <when value="distinctive">
+                    <conditional name="distinctive_sites">
+                        <param name="dist_type" type="select" label="Distinction threshold" help="Specify the minimum fraction or count of sample pairs that must be distinguished.">
+                            <option value="fraction" selected="true">By fraction of sample pairs</option>
+                            <option value="count">By minimum number of sample pairs</option>
+                        </param>
+                        <when value="fraction">
+                            <param name="num" type="float" min="0.0" max="1.0" label="Fraction of sample pairs" help="Value between 0.0 and 1.0 (e.g. 0.8 to distinguish between at least 80% of pairs)" />
+                        </when>
+                        <when value="count">
+                            <param name="num" type="integer" min="2" label="Number of sample pairs" help="Minimum number of sample pairs that must be distinguished (must be greater than 1)" />
+                        </when>
+                    </conditional>
+                    <conditional name="pairs_src">
+                        <param name="pairs_type" type="select" label="Sample pairs to compare" help="Finding distinctive sites requires specifying sample pairs.">
+                            <option value="file" selected="true">Tabular file of sample pairs (-P)</option>
+                            <option value="text">Comma-separated list of sample pairs (-p)</option>
+                        </param>
+                        <when value="file">
+                            <param argument="--pairs-file" type="data" format="tabular,tsv,txt" label="File with sample pairs" help="Tab-delimited file containing sample pairs to compare" />
+                        </when>
+                        <when value="text">
+                            <param argument="--pairs" type="text" label="Sample pairs" help="Comma-separated sample pairs (e.g. s1,s2,s3,s4)" />
+                        </when>
+                    </conditional>
                 </when>
             </conditional>
         </section>
