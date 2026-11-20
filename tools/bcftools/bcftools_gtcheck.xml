@@ -3,6 +3,15 @@
     <macros>
         <token name="@EXECUTABLE@">gtcheck</token>
         <import>macros.xml</import>
+        <xml name="use_tag"
+             token_label="FORMAT tag to use"
+             token_auto_label="Auto (prefer PL, fallback to GT)"
+             token_help="Which FORMAT tag to read from the input file. By default, uses PL if present, otherwise falls back to GT.">
+            <param argument="--use" name="use_tag" type="select" label="@LABEL@" help="@HELP@">
+                <option value="" selected="true">@AUTO_LABEL@</option>
+                <yield />
+            </param>
+        </xml>
     </macros>
     <expand macro="bio_tools" />
     <expand macro="requirements" />
@@ -14,18 +23,20 @@
 @PREPARE_REGIONS_FILE@
 #set $section = $sec_default
 #set $genotypes_vcf = None
-#if $section.genotypes:
-  #if $section.genotypes.is_of_type('vcf')
-    #set $genotypes_vcf = 'genotypes.vcf.gz'
-    bgzip -c '$section.genotypes' > $genotypes_vcf &&
-    bcftools index $genotypes_vcf &&
-  #elif $section.genotypes.is_of_type('bcf')
-    #set $genotypes_vcf = 'genotypes.bcf'
-    ln -s '$section.genotypes' $genotypes_vcf &&
-    #if $section.genotypes.metadata.bcf_index:
-      ln -s $section.genotypes.metadata.bcf_index ${genotypes_vcf}.csi &&
-    #else
+#if $section.comparison_mode.mode == 'reference':
+  #if $section.comparison_mode.genotypes:
+    #if $section.comparison_mode.genotypes.is_of_type('vcf')
+      #set $genotypes_vcf = 'genotypes.vcf.gz'
+      bgzip -c '$section.comparison_mode.genotypes' > $genotypes_vcf &&
       bcftools index $genotypes_vcf &&
+    #elif $section.comparison_mode.genotypes.is_of_type('bcf')
+      #set $genotypes_vcf = 'genotypes.bcf'
+      ln -s '$section.comparison_mode.genotypes' $genotypes_vcf &&
+      #if $section.comparison_mode.genotypes.metadata.bcf_index:
+        ln -s $section.comparison_mode.genotypes.metadata.bcf_index ${genotypes_vcf}.csi &&
+      #else
+        bcftools index $genotypes_vcf &&
+      #end if
     #end if
   #end if
 #end if
@@ -37,9 +48,12 @@ bcftools @EXECUTABLE@
 
 #if $genotypes_vcf:
   --genotypes $genotypes_vcf
+  ${section.comparison_mode.homs_only}
 #end if
 
-${section.homs_only}
+#if $section.comparison_mode.use_tag:
+  --use '${str($section.comparison_mode.use_tag).replace("_", ",")}'
+#end if
 
 #set $section = $sec_restrict
 @REGIONS@
@@ -58,9 +72,33 @@ ${section.homs_only}
             <expand macro="macro_target_restrict" />
         </section>
         <section name="sec_default" expanded="true" title="Default Options">
-            <param name="genotypes" type="data" format="vcf,bcf" label="Genotypes to compare against" optional="True"
-                   help="(-g) Checks sample identity or when omitted a multi-sample cross-check is performed"/>
-            <param argument="--homs-only" type="boolean" truevalue="--homs-only" falsevalue="" label="Homs Only" help="Homozygous genotypes only (useful for low coverage data)" />
+            <conditional name="comparison_mode">
+                <param name="mode" type="select" label="Comparison mode" help="Checks sample identity or when omitted a multi-sample cross-check is performed">
+                    <option value="cross_check" selected="true">Within input dataset (cross-check)</option>
+                    <option value="reference">Against a reference genotypes dataset (-g)</option>
+                </param>
+                <when value="cross_check">
+                    <expand macro="use_tag">
+                        <option value="PL">PL (Phred-scaled genotype likelihoods)</option>
+                        <option value="GT">GT (Genotypes)</option>
+                    </expand>
+                </when>
+                <when value="reference">
+                    <param name="genotypes" type="data" format="vcf,bcf" label="Genotypes to compare against"
+                           help="(-g) Checks sample identity against this reference dataset" />
+                    <param argument="--homs-only" type="boolean" truevalue="--homs-only" falsevalue="" label="Homs Only"
+                           help="Homozygous genotypes only, useful with low coverage data (requires reference genotypes -g)" />
+                    <expand macro="use_tag"
+                            label="FORMAT tags to use (query, reference)"
+                            auto_label="Auto (Query: PL/GT, Reference: GT/PL)"
+                            help="Which FORMAT tags to read from the input (query) file and the reference (-g) file. By default, prefers PL for query and GT for reference with automatic fallback.">
+                        <option value="PL_GT">Query: PL, Reference: GT</option>
+                        <option value="GT_GT">Query: GT, Reference: GT</option>
+                        <option value="PL_PL">Query: PL, Reference: PL</option>
+                        <option value="GT_PL">Query: GT, Reference: PL</option>
+                    </expand>
+                </when>
+            </conditional>
         </section>
     </inputs>
     <outputs>
