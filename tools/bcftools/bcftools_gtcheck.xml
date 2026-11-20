@@ -3,6 +3,27 @@
     <macros>
         <token name="@EXECUTABLE@">gtcheck</token>
         <import>macros.xml</import>
+        <xml name="use_tag"
+             token_label="FORMAT tag to use"
+             token_auto_label="Auto (prefer PL, fallback to GT)"
+             token_help="Which FORMAT tag to read from the input file. By default, uses PL if present, otherwise falls back to GT.">
+            <param argument="--use" name="use_tag" type="select" label="@LABEL@" help="@HELP@">
+                <option value="" selected="true">@AUTO_LABEL@</option>
+                <yield />
+            </param>
+        </xml>
+        <xml name="gtcheck_samples_when">
+            <when value="list">
+                <param argument="--samples" name="samples_list" type="text" optional="false" label="Sample names"
+                       help="Comma-separated list of sample names (e.g. sample1,sample2).">
+                    <validator type="expression" message="Please specify a single sample name or a comma-separated list of sample names">value.strip() and value[0] not in "^," and ",," not in value</validator>
+                </param>
+            </when>
+            <when value="file">
+                <param argument="--samples-file" type="data" format="tabular,txt" label="Samples file"
+                       help="File listing sample names to include, one per line." />
+            </when>
+        </xml>
     </macros>
     <expand macro="bio_tools" />
     <expand macro="requirements" />
@@ -14,18 +35,20 @@
 @PREPARE_REGIONS_FILE@
 #set $section = $sec_default
 #set $genotypes_vcf = None
-#if $section.genotypes:
-  #if $section.genotypes.is_of_type('vcf')
-    #set $genotypes_vcf = 'genotypes.vcf.gz'
-    bgzip -c '$section.genotypes' > $genotypes_vcf &&
-    bcftools index $genotypes_vcf &&
-  #elif $section.genotypes.is_of_type('bcf')
-    #set $genotypes_vcf = 'genotypes.bcf'
-    ln -s '$section.genotypes' $genotypes_vcf &&
-    #if $section.genotypes.metadata.bcf_index:
-      ln -s $section.genotypes.metadata.bcf_index ${genotypes_vcf}.csi &&
-    #else
+#if $section.comparison_mode.mode == 'reference':
+  #if $section.comparison_mode.genotypes:
+    #if $section.comparison_mode.genotypes.is_of_type('vcf')
+      #set $genotypes_vcf = 'genotypes.vcf.gz'
+      bgzip -c '$section.comparison_mode.genotypes' > $genotypes_vcf &&
       bcftools index $genotypes_vcf &&
+    #elif $section.comparison_mode.genotypes.is_of_type('bcf')
+      #set $genotypes_vcf = 'genotypes.bcf'
+      ln -s '$section.comparison_mode.genotypes' $genotypes_vcf &&
+      #if $section.comparison_mode.genotypes.metadata.bcf_index:
+        ln -s $section.comparison_mode.genotypes.metadata.bcf_index ${genotypes_vcf}.csi &&
+      #else
+        bcftools index $genotypes_vcf &&
+      #end if
     #end if
   #end if
 #end if
@@ -37,29 +60,58 @@ bcftools @EXECUTABLE@
 
 #if $genotypes_vcf:
   --genotypes $genotypes_vcf
+  ${section.comparison_mode.homs_only}
 #end if
 
-#if $section.genotypes:
-  --genotypes '${section.genotypes}'
+#if $section.comparison_mode.use_tag:
+  --use '${str($section.comparison_mode.use_tag).replace("_", ",")}'
 #end if
 
-${section.all_sites}
-
-${section.homs_only}
-
-#if $section.plot:
-  --plot '${section.plot}'
-#end if
-
-#if $section.query_sample:
-  --query-sample '${section.query_sample}'
-#end if
-
-#if $section.target_sample:
-  --target-sample '${section.target_sample}'
+#if $section.analysis_type.analysis_mode == 'discordance':
+  #if $section.analysis_type.pairs_src.pairs_type == 'file':
+    --pairs-file '${section.analysis_type.pairs_src.pairs_file}'
+  #elif $section.analysis_type.pairs_src.pairs_type == 'text':
+    #if str($section.analysis_type.pairs_src.pairs) != '':
+      --pairs '${section.analysis_type.pairs_src.pairs}'
+    #end if
+  #else:
+    #if $section.analysis_type.pairs_src.qry_samples.how == 'list':
+      --samples 'qry:${section.analysis_type.pairs_src.qry_samples.samples_list}'
+    #elif $section.analysis_type.pairs_src.qry_samples.how == 'file':
+      --samples-file 'qry:${section.analysis_type.pairs_src.qry_samples.samples_file}'
+    #end if
+    #if $section.analysis_type.pairs_src.gt_samples.how == 'list':
+      --samples 'gt:${section.analysis_type.pairs_src.gt_samples.samples_list}'
+    #elif $section.analysis_type.pairs_src.gt_samples.how == 'file':
+      --samples-file 'gt:${section.analysis_type.pairs_src.gt_samples.samples_file}'
+    #elif $section.analysis_type.pairs_src.gt_samples.how == 'all_in_file':
+      --samples 'gt:-'
+    #end if
+    #if $section.analysis_type.pairs_src.matches_output.selector == 'score':
+      --n-matches $section.analysis_type.pairs_src.matches_output.top_n
+    #elif $section.analysis_type.pairs_src.matches_output.selector == 'hwe':
+      --n-matches -${section.analysis_type.pairs_src.matches_output.top_n}
+    #end if
+  #end if
+  #if str($section.analysis_type.error_probability) != '':
+    --error-probability $section.analysis_type.error_probability
+  #end if
+  ${section.analysis_type.no_HWE_prob}
+  ${section.analysis_type.keep_refs}
+#elif $section.analysis_type.analysis_mode == 'distinctive':
+  --distinctive-sites ${section.analysis_type.distinctive_sites.num}
+  #if $section.analysis_type.pairs_src.pairs_type == 'file':
+    --pairs-file '${section.analysis_type.pairs_src.pairs_file}'
+  #else:
+    #if str($section.analysis_type.pairs_src.pairs) != '':
+      --pairs '${section.analysis_type.pairs_src.pairs}'
+    #end if
+  #end if
 #end if
 
 #set $section = $sec_restrict
+@INCLUDE@
+@EXCLUDE@
 @REGIONS@
 @TARGETS@
 
@@ -74,15 +126,126 @@ ${section.homs_only}
         <section name="sec_restrict" expanded="false" title="Restrict to">
             <expand macro="macro_region_restrict" />
             <expand macro="macro_target_restrict" />
+            <expand macro="macro_include" />
+            <expand macro="macro_exclude" />
         </section>
         <section name="sec_default" expanded="true" title="Default Options">
-            <param name="genotypes" type="data" format="vcf,bcf" label="Genotypes to compare against" optional="True"
-                   help="(-g) Checks sample identity or wehn omitted a multi-sample cross-check is performed"/>
-            <param name="target_sample" type="text" label="Target Sample" optional="True" help="Target sample in the -g file (used only for plotting)" />
-            <param name="all_sites" type="boolean" truevalue="--all-sites" falsevalue="" label="All Sites" help="Output comparison for all sites" />
-            <param name="homs_only" type="boolean" truevalue="--homs-only" falsevalue="" label="Homs Only" help="Homozygous genotypes only (useful for low coverage data)" />
-            <param name="query_sample" type="text" label="Query Sample" optional="True" help="Query sample (by default the first sample is checked)" />
-            <param name="plot" type="text" label="Plot" help="Prefix name for plot" />
+            <conditional name="comparison_mode">
+                <param name="mode" type="select" label="Comparison mode" help="Checks sample identity or when omitted a multi-sample cross-check is performed">
+                    <option value="cross_check" selected="true">Within input dataset (cross-check)</option>
+                    <option value="reference">Against a reference genotypes dataset (-g)</option>
+                </param>
+                <when value="cross_check">
+                    <expand macro="use_tag">
+                        <option value="PL">PL (Phred-scaled genotype likelihoods)</option>
+                        <option value="GT">GT (Genotypes)</option>
+                    </expand>
+                </when>
+                <when value="reference">
+                    <param name="genotypes" type="data" format="vcf,bcf" label="Genotypes to compare against"
+                           help="(-g) Checks sample identity against this reference dataset" />
+                    <param argument="--homs-only" type="boolean" truevalue="--homs-only" falsevalue="" label="Homs Only"
+                           help="Homozygous genotypes only, useful with low coverage data (requires reference genotypes -g)" />
+                    <expand macro="use_tag"
+                            label="FORMAT tags to use (query, reference)"
+                            auto_label="Auto (Query: PL/GT, Reference: GT/PL)"
+                            help="Which FORMAT tags to read from the input (query) file and the reference (-g) file. By default, prefers PL for query and GT for reference with automatic fallback.">
+                        <option value="PL_GT">Query: PL, Reference: GT</option>
+                        <option value="GT_GT">Query: GT, Reference: GT</option>
+                        <option value="PL_PL">Query: PL, Reference: PL</option>
+                        <option value="GT_PL">Query: GT, Reference: PL</option>
+                    </expand>
+                </when>
+            </conditional>
+            <conditional name="analysis_type">
+                <param name="analysis_mode" type="select" label="Analysis type">
+                    <option value="discordance" selected="true">Check sample identity / discordance</option>
+                    <option value="distinctive">Find distinctive sites between sample pairs (--distinctive-sites)</option>
+                </param>
+                <when value="discordance">
+                    <conditional name="pairs_src">
+                        <param name="pairs_type" type="select" label="Sample pairs to compare" help="Optionally limit comparison to specific sample pairs. By default, all sample pairs are compared (or filtered by sample lists).">
+                            <option value="all" selected="true">All pairs (or restrict by sample lists -s / -S)</option>
+                            <option value="file">Tabular file of sample pairs (-P)</option>
+                            <option value="text">Comma-separated list of sample pairs (-p)</option>
+                        </param>
+                        <when value="all">
+                            <conditional name="qry_samples">
+                                <param name="how" type="select" label="Query samples to compare (qry:)" help="Restrict comparison to specific samples from the primary input (query) dataset.">
+                                    <option value="default" selected="true">All query samples (default)</option>
+                                    <option value="list">Specify sample names manually (-s qry:...)</option>
+                                    <option value="file">Provide file with sample names (-S qry:...)</option>
+                                </param>
+                                <when value="default" />
+                                <expand macro="gtcheck_samples_when" />
+                            </conditional>
+                            <conditional name="gt_samples">
+                                <param name="how" type="select" label="Target / genotype samples to compare against (gt:)" help="Restrict samples from the reference (-g) dataset, or define the second sample group when cross-checking a single file.">
+                                    <option value="default" selected="true">Default (all reference samples, or match query selection in cross-check)</option>
+                                    <option value="all_in_file">All samples in file (-s gt:-)</option>
+                                    <option value="list">Specify sample names manually (-s gt:...)</option>
+                                    <option value="file">Provide file with sample names (-S gt:...)</option>
+                                </param>
+                                <when value="default" />
+                                <when value="all_in_file" />
+                                <expand macro="gtcheck_samples_when" />
+                            </conditional>
+                            <conditional name="matches_output">
+                                <param name="selector" type="select" label="Report matches for each sample" help="Control how many sample comparisons are reported in the output table and how they are ranked.">
+                                    <option value="all" selected="true">All matches (unlimited)</option>
+                                    <option value="score">Top matches sorted by discordance (average score)</option>
+                                    <option value="hwe">Top matches sorted by HWE probability</option>
+                                </param>
+                                <when value="all" />
+                                <when value="score">
+                                    <param name="top_n" type="integer" min="1" label="Number of top matches to report" help="Output the top N best matches with the lowest discordance score." />
+                                </when>
+                                <when value="hwe">
+                                    <param name="top_n" type="integer" min="1" label="Number of top matches to report" help="Output the top N matches with the highest HWE probability." />
+                                </when>
+                            </conditional>
+                        </when>
+                        <when value="file">
+                            <param argument="--pairs-file" type="data" format="tabular,tsv,txt" label="File with sample pairs" help="Tab-delimited file containing sample pairs to compare" />
+                        </when>
+                        <when value="text">
+                            <param argument="--pairs" type="text" label="Sample pairs" help="Comma-separated sample pairs (e.g. s1,s2,s3,s4)" />
+                        </when>
+                    </conditional>
+                    <param argument="--error-probability" type="integer" min="0" optional="true" label="Genotyping error probability (Phred score)"
+                           help="Phred-scaled probability of genotyping error (e.g. 40 for 0.01% error rate, 30 for 0.1%, 20 for 1%). Set to 0 to disable error modeling for faster but less accurate results. Leave blank to use default [40]." />
+                    <param argument="--no-HWE-prob" type="boolean" truevalue="--no-HWE-prob" falsevalue="" label="Disable HWE probability calculation"
+                           help="Disable calculation of Hardy-Weinberg equilibrium probability to speed up execution" />
+                    <param argument="--keep-refs" type="boolean" truevalue="--keep-refs" falsevalue="" label="Keep monoallelic reference sites"
+                           help="Keep monoallelic sites with no alternate allele" />
+                </when>
+                <when value="distinctive">
+                    <conditional name="distinctive_sites">
+                        <param name="dist_type" type="select" label="Distinction threshold" help="Specify the minimum fraction or count of sample pairs that must be distinguished.">
+                            <option value="fraction" selected="true">By fraction of sample pairs</option>
+                            <option value="count">By minimum number of sample pairs</option>
+                        </param>
+                        <when value="fraction">
+                            <param name="num" type="float" min="0.0" max="1.0" label="Fraction of sample pairs" help="Value between 0.0 and 1.0 (e.g. 0.8 to distinguish between at least 80% of pairs)" />
+                        </when>
+                        <when value="count">
+                            <param name="num" type="integer" min="2" label="Number of sample pairs" help="Minimum number of sample pairs that must be distinguished (must be greater than 1)" />
+                        </when>
+                    </conditional>
+                    <conditional name="pairs_src">
+                        <param name="pairs_type" type="select" label="Sample pairs to compare" help="Finding distinctive sites requires specifying sample pairs.">
+                            <option value="file" selected="true">Tabular file of sample pairs (-P)</option>
+                            <option value="text">Comma-separated list of sample pairs (-p)</option>
+                        </param>
+                        <when value="file">
+                            <param argument="--pairs-file" type="data" format="tabular,tsv,txt" label="File with sample pairs" help="Tab-delimited file containing sample pairs to compare" />
+                        </when>
+                        <when value="text">
+                            <param argument="--pairs" type="text" label="Sample pairs" help="Comma-separated sample pairs (e.g. s1,s2,s3,s4)" />
+                        </when>
+                    </conditional>
+                </when>
+            </conditional>
         </section>
     </inputs>
     <outputs>
@@ -103,15 +266,58 @@ ${section.homs_only}
  bcftools @EXECUTABLE@
 =====================================
 
-Check sample identity. With no -g BCF given, multi-sample cross-check is performed.
+Check sample identity and detect potential sample swaps or contamination.
+
+The tool can operate in two primary comparison modes:
+
+* **Cross-check within input dataset (default):** Performs all pairwise comparisons between samples in a single VCF/BCF file.
+* **Against a reference genotypes dataset (``-g``):** Compares each sample from the query dataset against all or selected samples samples in a reference genotype dataset.
+
+Analysis Types
+--------------
+
+1. **Check sample identity / discordance:**
+   Evaluates pairwise genotype discordance and HWE (Hardy-Weinberg Equilibrium) probability across samples.
+   
+   * **Discordance score:** Measures genotype differences. When using GT-vs-GT comparisons without error modeling (``-E 0``), this corresponds to the number of mismatching genotypes. Using FORMAT/PL likelihoods or genotype qualities, it reflects an error-weighted discordance score. Lower values indicate better genetic matches.
+   * **Average -log P(HWE):** Measures the average negative log probability of HWE at matching sites. Rare genotype matches are much more informative than common ones; samples with similar discordance can be stratified by this score (higher score = observed concordance is less likely to occur by chance).
+   * **Pairwise filtering:** Comparisons can be evaluated for all sample combinations or restricted using a sample pairs file (``-P``) or text list (``-p``).
+   * **Sample selection:** Samples can be filtered for query (``qry:``) and reference (``gt:``) datasets using sample lists or files (``-s`` / ``-S``).
+   * **Top matches (``--n-matches``):** Output can report unlimited matches or only the top N best matches sorted by discordance or HWE probability.
+
+2. **Find distinctive sites (``--distinctive-sites``):**
+   Identifies the minimal set of informative variant sites that can distinguish between a specified fraction or number of sample pairs. Requires defining sample pairs (``-p`` or ``-P``). Outputs both discordance pairs and ``DS`` (Distinctive Sites) lines detailing chromosomal positions and distinguishing power.
+
+Output Format
+-------------
+
+The output is a tab-delimited table containing lines prefixed with:
+
+* **DCv2:** Pairwise discordance statistics containing:
+  
+  1. Record type (``DCv2``)
+  2. Query Sample
+  3. Genotyped Sample
+  4. Discordance score
+  5. Average -log P(HWE)
+  6. Number of sites compared
+  7. Number of matching genotypes
+
+* **DS (when distinctive sites mode is active):** Distinctive site records containing:
+  
+  1. Record type (``DS``)
+  2. Chromosome
+  3. Position
+  4. Number of distinguished sample pairs
+  5. Cumulative distinct pairs
 
 @REGIONS_HELP@
 @TARGETS_HELP@
+@EXPRESSIONS_HELP@
 
 @BCFTOOLS_MANPAGE@#@EXECUTABLE@
 
 @BCFTOOLS_HOWTOS@
-
 ]]>
     </help>
     <expand macro="citations" />
