@@ -2,6 +2,7 @@
 """Validate and stage an ordered Galaxy collection for clinker."""
 
 import argparse
+import json
 import os
 import re
 from pathlib import Path
@@ -30,14 +31,22 @@ def parse_args():
         help="Directory in which ordered GBFF symlinks will be created.",
     )
     parser.add_argument(
-        "--genbank",
-        action="append",
-        nargs=2,
-        metavar=("PATH", "LABEL"),
+        "--inputs",
         required=True,
-        help="GenBank path and Galaxy collection element identifier.",
+        help=(
+            "JSON file holding a list of [path, label] pairs: each GenBank "
+            "path with its Galaxy collection element identifier, in "
+            "collection order."
+        ),
     )
     return parser.parse_args()
+
+
+def read_inputs(path):
+    """Read the ordered [path, label] pairs written by the Galaxy wrapper."""
+    with open(path, encoding="utf-8") as handle:
+        inputs = json.load(handle)
+    return [(str(source), str(label)) for source, label in inputs]
 
 
 def validate_genbank(source, label):
@@ -96,7 +105,7 @@ def stage_inputs(inputs, input_dir):
 
 def main():
     args = parse_args()
-    stage_inputs(args.genbank, args.input_dir)
+    stage_inputs(read_inputs(args.inputs), args.input_dir)
 
 
 if __name__ == "__main__":
