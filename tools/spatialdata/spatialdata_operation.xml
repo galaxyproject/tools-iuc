@@ -257,7 +257,51 @@ result = sd.match_sdata_to_table(
 
 #else if $operation_condi.operation == 'filter_by_table_query':
 ## Filter by table query
+#import json
+import ast
+
 import annsel as an
+
+## The expressions are parsed, not written into the script. Only annsel column selectors
+## (an.col, an.obs_names, an.var_names), their public methods, literals and operators are accepted.
+EXPR_NODES = (
+    ast.Expression, ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.Call, ast.Attribute, ast.Name,
+    ast.Constant, ast.List, ast.Tuple, ast.keyword, ast.Load,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.BitAnd, ast.BitOr, ast.Invert, ast.Not, ast.UAdd, ast.USub,
+    ast.And, ast.Or, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+)
+EXPR_NAMES = {'an', 'True', 'False', 'None'}
+EXPR_SELECTORS = {'col', 'obs_names', 'var_names'}
+
+
+def parse_expr(param, src):
+    try:
+        tree = ast.parse(src.strip(), mode='eval')
+    except SyntaxError as e:
+        raise ValueError(f'{param}: not a valid expression: {e.msg}') from None
+    attribute_bases = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    for node in ast.walk(tree):
+        if not isinstance(node, EXPR_NODES):
+            raise ValueError(f'{param}: {type(node).__name__} is not allowed in expressions')
+        if isinstance(node, ast.Name) and node.id not in EXPR_NAMES:
+            raise ValueError(f'{param}: the name {node.id!r} is not allowed, use an.col(...), an.obs_names or an.var_names')
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith('_'):
+                raise ValueError(f'{param}: the attribute {node.attr!r} is not allowed')
+            if isinstance(node.value, ast.Name) and node.attr not in EXPR_SELECTORS:
+                raise ValueError(f'{param}: an.{node.attr} is not allowed, use an.col(...), an.obs_names or an.var_names')
+        if isinstance(node, ast.Name) and node.id == 'an' and id(node) not in attribute_bases:
+            raise ValueError(f'{param}: an must be followed by .col(...), .obs_names or .var_names')
+        if isinstance(node, ast.keyword) and node.arg is None:
+            raise ValueError(f'{param}: ** arguments are not allowed')
+        if isinstance(node, ast.Call):
+            root = node.func
+            while isinstance(root, (ast.Attribute, ast.Call)):
+                root = root.value if isinstance(root, ast.Attribute) else root.func
+            if not isinstance(node.func, ast.Attribute) or not (isinstance(root, ast.Name) and root.id == 'an'):
+                raise ValueError(f'{param}: only methods of an.col(...), an.obs_names and an.var_names can be called')
+    return eval(compile(tree, param, 'eval'), {'__builtins__': {}}, {'an': an})
+
 
 result = sd.filter_by_table_query(
     sdata=sdata,
@@ -270,19 +314,19 @@ result = sd.filter_by_table_query(
     element_names = None,
     #end if
     #if $operation_condi.obs_expr:
-    obs_expr = $operation_condi.obs_expr,
+    obs_expr = parse_expr('obs_expr', ${json.dumps(str($operation_condi.obs_expr))}),
     #end if
     #if $operation_condi.var_expr:
-    var_expr = $operation_condi.var_expr,
+    var_expr = parse_expr('var_expr', ${json.dumps(str($operation_condi.var_expr))}),
     #end if
     #if $operation_condi.x_expr:
-    x_expr = $operation_condi.x_expr,
+    x_expr = parse_expr('x_expr', ${json.dumps(str($operation_condi.x_expr))}),
     #end if
     #if $operation_condi.obs_names_expr:
-    obs_names_expr = $operation_condi.obs_names_expr,
+    obs_names_expr = parse_expr('obs_names_expr', ${json.dumps(str($operation_condi.obs_names_expr))}),
     #end if
     #if $operation_condi.var_names_expr:
-    var_names_expr = $operation_condi.var_names_expr,
+    var_names_expr = parse_expr('var_names_expr', ${json.dumps(str($operation_condi.var_names_expr))}),
     #end if
     #if $operation_condi.layer:
     layer = '$operation_condi.layer',
@@ -1399,27 +1443,19 @@ print("\nOperation completed successfully!")
                     <expand macro="sanitize_query"/>
                 </param>
                 <param argument="obs_expr" type="text" optional="true" label="Obs expression (optional)" help="Narwhals expression to filter .obs (e.g., (an.col('cell_type') == 'A') | (an.col('region') == 'blobs_labels')). Use an.col() to reference columns.">
-                    <sanitizer>
-                        <valid initial="string.printable">
-                        </valid>
-                    </sanitizer>
-                    <expand macro="validate_narwhals_expr" single_quoted="|'[^'\\\r\n]*'(?!')" quotes="single or double quotes"/>
+                    <expand macro="sanitize_narwhals_expr"/>
                 </param>
                 <param argument="var_expr" type="text" optional="true" label="Var expression (optional)" help="Narwhals expression to filter .var">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validate_narwhals_expr"/>
+                    <expand macro="sanitize_narwhals_expr"/>
                 </param>
-                <param argument="x_expr" type="text" optional="true" label="X expression (optional)" help="Narwhals expression to filter .X expression matrix (e.g., an.col(&quot;channel_0_sum&quot;) &gt; 125). Use an.col() to reference columns and double quotes for strings.">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validate_narwhals_expr"/>
+                <param argument="x_expr" type="text" optional="true" label="X expression (optional)" help="Narwhals expression to filter .X expression matrix (e.g., an.col('channel_0_sum') &gt; 125). Use an.col() to reference columns.">
+                    <expand macro="sanitize_narwhals_expr"/>
                 </param>
                 <param argument="obs_names_expr" type="text" optional="true" label="Obs names expression (optional)" help="Narwhals expression to filter .obs_names">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validate_narwhals_expr"/>
+                    <expand macro="sanitize_narwhals_expr"/>
                 </param>
                 <param argument="var_names_expr" type="text" optional="true" label="Var names expression (optional)" help="Narwhals expression to filter .var_names">
-                    <expand macro="sanitize_query"/>
-                    <expand macro="validate_narwhals_expr"/>
+                    <expand macro="sanitize_narwhals_expr"/>
                 </param>
                 <param argument="layer" type="text" value="" optional="true" label="The layer of the anndata.AnnData to filter the SpatialData object by (optional)" help="Only used with x_expr. Leave empty to query .X.">
                     <expand macro="sanitize_query"/>
@@ -2100,6 +2136,41 @@ print("\nOperation completed successfully!")
             <output name="spatialdata_output">
                 <assert_contents>
                     <has_size value="160000" delta="20000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 11b: filter_by_table_query rejects an expression that calls something other than an annsel selector method -->
+        <test expect_failure="true">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="filter_by_table_query"/>
+                <param name="table_name" value="table"/>
+                <param name="filter_tables" value="true"/>
+                <param name="obs_expr" value="an.col('region')).pipe(print"/>
+                <param name="how" value="right"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="obs_expr: not a valid expression"/>
+            </assert_stderr>
+        </test>
+        <!-- Test 11c: filter_by_table_query with single and double quoted strings -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="filter_by_table_query"/>
+                <param name="table_name" value="table"/>
+                <param name="filter_tables" value="true"/>
+                <param name="obs_expr" value="an.col(&quot;region&quot;) == &quot;cell_labels&quot;"/>
+                <param name="var_names_expr" value="an.var_names.is_in(['ABCC11', 'ACE2'])"/>
+                <param name="how" value="right"/>
+            </conditional>
+            <assert_stdout>
+                <has_text text="'table': AnnData (358, 2)"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_size min="100000"/>
                 </assert_contents>
             </output>
         </test>
