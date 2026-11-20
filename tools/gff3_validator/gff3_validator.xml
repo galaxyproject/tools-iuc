@@ -1,0 +1,338 @@
+<tool id="gff3_validator" name="GFF3 validator" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>check GFF3 files against the GFF3 1.26 specification</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <!-- No bio.tools entry exists for gff3-validator yet; add an xref once it is registered. -->
+    <expand macro="requirements"/>
+    <stdio>
+        <!-- the command maps exit status 1 (file has errors) to 0 -->
+        <exit_code range="1:" level="fatal"/>
+        <!-- an unexpected Python exception exits with status 1 too -->
+        <regex match="Traceback \(most recent call last\)" source="stderr" level="fatal"/>
+    </stdio>
+    <version_command>gff3-validate --version</version_command>
+    <command><![CDATA[
+#import re
+## Name the input after the dataset so that reports show a meaningful file name.
+#set $name = re.sub(r'[^\w\-.]', '_', str($input.element_identifier))
+#if $name.strip('.') == '':
+    #set $name = 'input.gff3'
+#end if
+ln -s '$input' '$name' &&
+
+#set $options = ''
+#if $biology.run == 'yes':
+    ## Compression is detected from the content, so the dataset is used as is.
+    #set $options += " --genome '" + str($biology.genome) + "' --translation-table " + str($biology.translation_table)
+#end if
+#if $header == 'require':
+    #set $options += ' --require-header'
+#elif $header == 'skip':
+    #set $options += ' --no-header'
+#end if
+#set $options += ' --max-findings ' + str($max_findings)
+
+## gff3-validate exits 0 when the file has no errors, 1 when it has errors
+## and 2 when the run is incomplete (unreadable input or genome). Exit status 1 is
+## a successful validation, so it is mapped to 0; any other status stops the
+## job with that status.
+accept_invalid() { status=\$?; [ "\$status" -eq 1 ] || exit "\$status"; } &&
+gff3-validate $options --format text -- '$name' || accept_invalid &&
+gff3-validate $options --format html -- '$name' > '$report_html' || accept_invalid
+#if 'json' in $extra_reports:
+    && gff3-validate $options --format json -- '$name' > '$report_json' || accept_invalid
+#end if
+#if 'sarif' in $extra_reports:
+    && gff3-validate $options --format sarif -- '$name' > '$report_sarif' || accept_invalid
+#end if
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="gff3,gff3.gz" label="GFF3 file"
+            help="Plain or gzip/BGZF-compressed GFF3."/>
+        <conditional name="biology">
+            <param name="run" type="select" label="Run the biology checks against a genome?"
+                help="Compares features with the genome sequence: seqids and bounds, CDS phases, start, stop and internal stop codons, strand consistency (BIO-* rules).">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="genome" type="data" format="fasta,fasta.gz" label="Genome FASTA"
+                    help="The genome the annotation was made on, plain or gzip/BGZF-compressed. Sequence names must match the GFF3 seqids."/>
+                <param name="translation_table" type="select" label="Translation table"
+                    help="NCBI genetic code used for start, stop and internal stop codons.">
+                    <option value="1" selected="true">1. The Standard Code</option>
+                    <option value="2">2. The Vertebrate Mitochondrial Code</option>
+                    <option value="3">3. The Yeast Mitochondrial Code</option>
+                    <option value="4">4. The Mold, Protozoan, and Coelenterate Mitochondrial Code and the Mycoplasma/Spiroplasma Code</option>
+                    <option value="5">5. The Invertebrate Mitochondrial Code</option>
+                    <option value="6">6. The Ciliate, Dasycladacean and Hexamita Nuclear Code</option>
+                    <option value="9">9. The Echinoderm and Flatworm Mitochondrial Code</option>
+                    <option value="10">10. The Euplotid Nuclear Code</option>
+                    <option value="11">11. The Bacterial, Archaeal and Plant Plastid Code</option>
+                    <option value="12">12. The Alternative Yeast Nuclear Code</option>
+                    <option value="13">13. The Ascidian Mitochondrial Code</option>
+                    <option value="14">14. The Alternative Flatworm Mitochondrial Code</option>
+                    <option value="16">16. Chlorophycean Mitochondrial Code</option>
+                    <option value="21">21. Trematode Mitochondrial Code</option>
+                    <option value="22">22. Scenedesmus obliquus Mitochondrial Code</option>
+                    <option value="23">23. Thraustochytrium Mitochondrial Code</option>
+                    <option value="24">24. Rhabdopleuridae Mitochondrial Code</option>
+                    <option value="25">25. Candidate Division SR1 and Gracilibacteria Code</option>
+                    <option value="26">26. Pachysolen tannophilus Nuclear Code</option>
+                    <option value="29">29. Mesodinium Nuclear Code</option>
+                    <option value="30">30. Peritrich Nuclear Code</option>
+                    <option value="32">32. Balanophoraceae Plastid Code</option>
+                    <option value="33">33. Cephalodiscidae Mitochondrial UAA-Tyr Code</option>
+                </param>
+            </when>
+        </conditional>
+        <param name="header" type="select" label="FAIR-bioHeaders (FHGFF3) header"
+            help="How to treat a FAIR-bioHeaders provenance header (#~ lines).">
+            <option value="auto" selected="true">Check it if present</option>
+            <option value="require">Require it (a file without a header is invalid)</option>
+            <option value="skip">Skip header checks</option>
+        </param>
+        <param name="max_findings" type="integer" value="10000" min="1" label="Maximum number of findings to report"
+            help="Counts of errors, warnings and notes stay complete."/>
+        <param name="extra_reports" type="select" multiple="true" optional="true" display="checkboxes" label="Additional reports">
+            <option value="json">JSON</option>
+            <option value="sarif">SARIF 2.1.0 (for code-scanning tools)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="report_html" format="html" label="${tool.name} on ${on_string}: report"/>
+        <data name="report_json" format="json" label="${tool.name} on ${on_string}: JSON report">
+            <filter>extra_reports and 'json' in extra_reports</filter>
+        </data>
+        <data name="report_sarif" format="json" label="${tool.name} on ${on_string}: SARIF report">
+            <filter>extra_reports and 'sarif' in extra_reports</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: a valid file; all reports -->
+        <test expect_num_outputs="3">
+            <param name="input" value="canonical-gene.gff3" ftype="gff3"/>
+            <param name="extra_reports" value="json,sarif"/>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <has_text text="GFF3 validation report"/>
+                    <has_text text="canonical-gene.gff3"/>
+                </assert_contents>
+            </output>
+            <output name="report_json" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;valid&quot;: true"/>
+                    <has_text text="&quot;error&quot;: 0"/>
+                </assert_contents>
+            </output>
+            <output name="report_sarif" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;version&quot;: &quot;2.1.0&quot;"/>
+                    <has_text text="&quot;name&quot;: &quot;gff3-validator&quot;"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="no errors (0 errors, 0 warnings, 0 notes"/>
+                <has_text text="biology: not run; needs --genome"/>
+            </assert_stdout>
+        </test>
+        <!-- 2: an invalid file (exit status 1) is a successful run -->
+        <test expect_num_outputs="2">
+            <param name="input" value="str-001-duplicate-id.gff3" ftype="gff3"/>
+            <param name="extra_reports" value="json"/>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <has_text text="GFF-STR-001"/>
+                    <has_text text="INVALID"/>
+                </assert_contents>
+            </output>
+            <output name="report_json" ftype="json">
+                <assert_contents>
+                    <has_text text="&quot;valid&quot;: false"/>
+                    <has_text text="&quot;GFF-STR-001&quot;"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="error GFF-STR-001"/>
+                <has_text text="INVALID (1 errors"/>
+            </assert_stdout>
+        </test>
+        <!-- 3: genome-backed biology check: internal stop codon under table 1 -->
+        <test expect_num_outputs="1">
+            <param name="input" value="bio-008-internal-stop.gff3" ftype="gff3"/>
+            <conditional name="biology">
+                <param name="run" value="yes"/>
+                <param name="genome" value="genome.fa" ftype="fasta"/>
+            </conditional>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <has_text text="BIO-008"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="warning BIO-008"/>
+                <has_text text="under translation table 1"/>
+                <has_text text="no errors (0 errors, 1 warnings"/>
+                <not_has_text text="biology: not run"/>
+            </assert_stdout>
+        </test>
+        <!-- 4: TGA codes for tryptophan in table 4, so no internal stop -->
+        <test expect_num_outputs="1">
+            <param name="input" value="bio-008-internal-stop.gff3" ftype="gff3"/>
+            <conditional name="biology">
+                <param name="run" value="yes"/>
+                <param name="genome" value="genome.fa" ftype="fasta"/>
+                <param name="translation_table" value="4"/>
+            </conditional>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <not_has_text text="BIO-008"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <not_has_text text="BIO-008"/>
+                <has_text text="no errors (0 errors, 0 warnings"/>
+            </assert_stdout>
+        </test>
+        <!-- 5: header required but missing -->
+        <test expect_num_outputs="1">
+            <param name="input" value="hdr-001-header-required.gff3" ftype="gff3"/>
+            <param name="header" value="require"/>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <has_text text="HDR-001"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="error HDR-001"/>
+                <has_text text="INVALID"/>
+            </assert_stdout>
+        </test>
+        <!-- 6: header checks skipped -->
+        <test expect_num_outputs="1">
+            <param name="input" value="hdr-001-header-required.gff3" ftype="gff3"/>
+            <param name="header" value="skip"/>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <has_text text="HDR-003"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="HDR-003"/>
+                <not_has_text text="INVALID"/>
+            </assert_stdout>
+        </test>
+        <!-- 7: gzip GFF3 and gzip genome; the seqids are not in the genome -->
+        <test expect_num_outputs="1">
+            <param name="input" value="canonical-gene-gzip.gff3.gz" ftype="gff3.gz"/>
+            <conditional name="biology">
+                <param name="run" value="yes"/>
+                <param name="genome" value="genome.fa.gz" ftype="fasta.gz"/>
+            </conditional>
+            <output name="report_html" ftype="html">
+                <assert_contents>
+                    <has_text text="BIO-001"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="error BIO-001"/>
+                <has_text text="INVALID"/>
+            </assert_stdout>
+        </test>
+        <!-- 8: an unusable genome (duplicate sequence names) fails the job (exit status 2) -->
+        <test expect_failure="true" expect_exit_code="2">
+            <param name="input" value="canonical-gene.gff3" ftype="gff3"/>
+            <conditional name="biology">
+                <param name="run" value="yes"/>
+                <param name="genome" value="duplicate-names.fa" ftype="fasta"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="duplicate sequence name"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+`gff3-validator`_ checks a GFF3 annotation file against the `GFF3 specification 1.26`_
+and explains every problem in plain language, with the rule id, the line and a
+suggested fix. It never changes the file.
+
+Checks:
+
+- **Syntax** (``GFF-SYN-*``): the ``##gff-version 3`` line, nine tab-separated
+  columns, percent-encoding, seqid characters, coordinates, score, strand and phase.
+- **Attributes** (``GFF-ATT-*``): tag=value pairs, reserved tags such as ``ID``,
+  ``Parent``, ``Target``, ``Gap`` and ``Dbxref``.
+- **Directives** (``GFF-DIR-*``): ``##sequence-region``, ``###``, ``##FASTA`` and others.
+- **Structure** (``GFF-STR-*``): unique IDs, resolvable ``Parent`` and
+  ``Derives_from`` references, cycles, features within their sequence region.
+- **Biology** (``BIO-*``, only with a genome): seqids and bounds against the
+  genome, CDS phases, CDS within exons, start, stop and internal stop codons
+  under the chosen translation table, strand consistency.
+- **FAIR-bioHeaders header** (``HDR-*``): whether a FAIR-bioHeaders (FHGFF3)
+  provenance header is present; it can be required or skipped.
+
+This wrapper targets the published **gff3-validator 0.1.0** package. Repository
+profiles are unavailable in that release and are not offered here. The reports
+name checks that are planned or skipped; an otherwise valid result does not
+mean that every catalogue or Sequence Ontology rule ran. Later source changes,
+including the lone-CR reader correction, are not part of this package.
+
+Each finding has a level:
+
+- **error**: the file is invalid;
+- **warning**: probably a mistake; the file stays valid;
+- **info**: a note; the file stays valid.
+
+Every rule is described, with a bad example and a fix, in the `rule catalogue`_.
+The same validator also runs `in the browser`_, where files never leave the computer.
+
+-----
+
+**Input**
+
+- A GFF3 file, plain or gzip/BGZF-compressed.
+- Optionally, the genome FASTA the annotation was made on (plain or
+  gzip/BGZF), for the biology checks, and the NCBI translation table (default
+  1, the standard code; use 11 for bacteria, archaea and plastids).
+
+**Output**
+
+- An HTML report (always).
+- Optionally the same report as JSON and as SARIF 2.1.0 (both with the
+  ``json`` datatype).
+- A text summary in the job's standard output.
+
+**Job status**
+
+A file with errors is a successful validation: the job finishes and the
+reports say the file is **INVALID**. The job fails only when validation could
+not be completed, for example when the input or the genome cannot be read or
+the genome cannot be indexed (duplicate sequence names, lines of different
+lengths inside a record); the reason is in the job's standard error.
+
+**Limitations**
+
+This is an early release (0.1.0) and the rule catalogue is a draft under
+review with the Sequence Ontology group:
+
+- Sequence Ontology checks use the SO release bundled with the validator
+  (named in every report) and follow answers proposed to, but not yet given
+  by, the SO group, so most are warnings; Derives_from types are not checked.
+- A few core rules are planned and not yet checked; the report lists them.
+- FAIR-bioHeaders header contents are not validated yet; only the presence
+  of a header is checked.
+- Rule ids, levels and report formats may change before 1.0.
+
+.. _gff3-validator: https://github.com/FAIR-bioHeaders/gff3-validator
+.. _GFF3 specification 1.26: https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
+.. _rule catalogue: https://github.com/FAIR-bioHeaders/gff3-validator/blob/main/docs/rules.md
+.. _in the browser: https://fhref.org/gff3-validator/
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
