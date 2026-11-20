@@ -12,6 +12,8 @@ tools and tool suites in this repository will be considered for inclusion.
 * Make the desired modifications - consider using a [feature branch](https://github.com/Kunena/Kunena-Forum/wiki/Create-a-new-branch-with-git-and-manage-branches).
 * Make sure you have added the necessary tests for your changes and they pass.
 * Make sure submitted tools meet IUC [Best Practices](https://galaxy-iuc-standards.readthedocs.io/)
+* If AI assisted the contribution, identify the AI harness and model used in
+  the pull request description.
 * Open a [pull request](https://docs.github.com/en/pull-requests/reference/pull-requests)
   with these changes.
 
@@ -24,6 +26,9 @@ tools and tool suites in this repository will be considered for inclusion.
 * Bug fixes
 * Documentation improvements
 * New test cases
+
+When updating an existing wrapper or tool suite to a newer upstream software
+version, follow the [Galaxy Tool Update Guide](docs/guide_for_tool_updates.md).
 
 ### Abandoned Tools
 
