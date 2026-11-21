@@ -99,7 +99,8 @@ for (i in seq_len(nrow(samples))) {
     entry <- samples[i, ]
     if (entry$exts %in% c("vcf", "vcf.gz")) {
         in_vcf <- entry$files
-        out_tsv <- paste0(entry$ids, ".tsv") ## use local dir
+        ## use local dir; the sample id is free text, so it is not part of the name
+        out_tsv <- paste0("sample_", i, ".tsv")
         tsv_eff_from_vcf(in_vcf, out_tsv)
         ## point to the new file
         samples[i, ]$files <- out_tsv

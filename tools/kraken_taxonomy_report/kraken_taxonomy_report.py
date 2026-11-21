@@ -8,6 +8,7 @@
 
 from __future__ import print_function
 
+import json
 import optparse
 import os
 import re
@@ -224,6 +225,7 @@ def __main__():
     parser.add_option('', '--show-rank', dest='show_rank', action='store_true', default=False, help='Output column with Rank name')
     parser.add_option('', '--db', dest='db', action='store', type="string", default=None, help='Name of Kraken database')
     parser.add_option('', '--output', dest='output', action='store', type="string", default=None, help='Name of output file')
+    parser.add_option('', '--sample-names', dest='sample_names', action='store', type="string", default=None, help='JSON file with a list of sample names to use in the header line, one per input file (default: the input file names)')
     parser.add_option('', '--output-tree', dest='output_tree', action='store', type="string", default=None, help='Name of output file to place newick tree')
     (options, args) = parser.parse_args()
     if options.version:
@@ -246,6 +248,15 @@ def __main__():
     else:
         options.cluster = None  # make empty string into None
         ranks_to_report = RANK_NAMES_INTS
+
+    if options.sample_names:
+        with open(options.sample_names) as names_fh:
+            sample_names = [re.sub(r'[\t\r\n]', ' ', name) for name in json.load(names_fh)]
+        if sys.version_info[0] < 3:
+            sample_names = [name.encode('utf-8') for name in sample_names]
+        assert len(sample_names) == len(args), ValueError('Got %i sample names for %i input files.' % (len(sample_names), len(args)))
+    else:
+        sample_names = args
 
     if options.output:
         output_fh = open(options.output, 'w')
@@ -272,7 +283,7 @@ def __main__():
 
     if options.header_line:
         output_fh.write("#ID\t")
-        output_fh.write("\t".join(args))
+        output_fh.write("\t".join(sample_names))
         if options.show_rank:
             output_fh.write("\trank")
         if options.taxonomy:

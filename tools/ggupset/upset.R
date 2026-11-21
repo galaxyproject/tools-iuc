@@ -7,13 +7,15 @@ x_lab <- as.character(args[2])
 y_lab <- as.character(args[3])
 width <- as.integer(args[4])
 height <- as.integer(args[5])
-files <- tail(args, -5)
+# JSON list with the name of each input, in the order of the paths that follow
+labels <- as.character(jsonlite::read_json(args[6], simplifyVector = TRUE))
+files <- tail(args, -6)
 
 # gene, (list of matching conditions)
 data <- list()
 for (idx in seq_along(files)) {
-    k <- files[idx]
-    data[k] <- read_tsv(k, col_names = c("genes"))
+    k <- labels[idx]
+    data[k] <- read_tsv(files[idx], col_names = c("genes"))
 }
 
 all_genes <- c()
