@@ -51,13 +51,27 @@
     <version_command>echo @TOOL_VERSION@</version_command>
     <command detect_errors="aggressive"><![CDATA[
 #if $model.model_parametrization == "PER-SPECIES" and $species_tree_input.species_tree_search != "SKIP":
-    #raise Exception("PER-SPECIES model parametrization does not work with species tree inference. Use your own species tree with the species tree search set to SKIP, or choose GLOBAL or PER-FAMILY.")
+    >&2 echo "PER-SPECIES model parametrization does not work with species tree inference. Use your own species tree with the species tree search set to SKIP, or choose GLOBAL or PER-FAMILY." &&
+    exit 1 &&
+#end if
+#set $tree_ids = sorted([str($x.element_identifier) for $x in $gene_trees])
+## AleRax removes all whitespace from the families file lines and treats '#' as a comment
+#if [$i for $i in $tree_ids if $i.split() != [$i] or '#' in $i]:
+    >&2 echo "Gene tree element identifiers must not contain spaces or the '#' character." &&
+    exit 1 &&
+#end if
+#if $mappings:
+    #set $map_ids = sorted([str($x.element_identifier) for $x in $mappings])
+    #if $tree_ids != $map_ids:
+        >&2 echo "The gene tree and mapping collections must contain the same element identifiers (one mapping file per gene tree, with exactly the same name)." &&
+        exit 1 &&
+    #end if
 #end if
 #set $n_families = len($gene_trees.keys())
-NP=\${GALAXY_SLOTS:-1} &&
+NP="\${GALAXY_SLOTS:-1}" &&
 if [ "\$NP" -gt $n_families ]; then NP=$n_families; fi &&
 if [ "\$NP" -gt 1 ]; then
-    MPI_PREFIX="mpiexec --allow-run-as-root --oversubscribe -np \$NP";
+    MPI_PREFIX="mpiexec --oversubscribe -np \$NP";
 else
     MPI_PREFIX="";
 fi &&
@@ -87,22 +101,21 @@ fi &&
     <configfiles>
         <configfile name="families_file"><![CDATA[
 [FAMILIES]
-#for $gt in $gene_trees:
+#set $trees = sorted($gene_trees, key=lambda x: str(x.element_identifier))
+#if $mappings:
+    ## identifiers are checked in the command block
+    #set $maps = sorted($mappings, key=lambda x: str(x.element_identifier))
+    #for $gt, $m in zip($trees, $maps):
 - ${gt.element_identifier}
 gene_tree = ${gt}
-#if $mappings:
-    #set $mapping_found = False
-    #for $m in $mappings:
-        #if $m.element_identifier == $gt.element_identifier:
-            mapping = ${m}
-            #set $mapping_found = True
-        #end if
+mapping = ${m}
     #end for
-    #if not $mapping_found:
-        #raise Exception("No mapping file found for gene tree element '" + str($gt.element_identifier) + "'. Gene tree and mapping collection element identifiers must match exactly.")
-    #end if
+#else
+    #for $gt in $trees:
+- ${gt.element_identifier}
+gene_tree = ${gt}
+    #end for
 #end if
-#end for
 ]]></configfile>
     </configfiles>
     <inputs>
@@ -115,25 +128,25 @@ gene_tree = ${gt}
             </param>
 
             <when value="file">
-                <param name="species_tree" type="data" format="newick"
+                <param argument="--species-tree" type="data" format="newick"
                        label="Species tree"
                        help="One rooted, bifurcating species tree in Newick format. Species names must match those in the mapping files."/>
 
-                <param name="species_tree_search" type="select"
+                <param argument="--species-tree-search" type="select"
                        label="Optimization of species tree"
                        help="Choose how AleRax optimizes your starting species tree.">
-                    <option value="SKIP" selected="true">SKIP: skip the species tree search (default)</option>
+                    <option value="SKIP" selected="true">SKIP: skip the species tree search</option>
                     <option value="REROOT">REROOT: only re-estimate the root</option>
                     <option value="HYBRID">HYBRID: standard search (transfer-guided and local SPR moves)</option>
                 </param>
             </when>
 
             <when value="MiniNJ">
-                <param name="species_tree_search" type="hidden" value="HYBRID"/>
+                <param argument="--species-tree-search" type="hidden" value="HYBRID"/>
             </when>
 
             <when value="random">
-                <param name="species_tree_search" type="hidden" value="HYBRID"/>
+                <param argument="--species-tree-search" type="hidden" value="HYBRID"/>
             </when>
         </conditional>
         <param name="gene_trees" type="data_collection" collection_type="list" format="newick"
@@ -143,25 +156,25 @@ gene_tree = ${gt}
                label="Gene to species mapping files (optional)"
                help="Optional. One gene to species mapping file per gene family."/>
         <section name="model" title="Reconciliation model" expanded="false">
-            <param name="rec_model" type="select" label="Reconciliation model"
-                   help="--rec-model. UndatedDTL models duplications, transfers and losses. UndatedDL models only duplications and losses (no transfers).">
-                <option value="UndatedDTL" selected="true">UndatedDTL (default)</option>
+            <param argument="--rec-model" type="select" label="Reconciliation model"
+                   help="UndatedDTL models duplications, transfers and losses. UndatedDL models only duplications and losses (no transfers).">
+                <option value="UndatedDTL" selected="true">UndatedDTL</option>
                 <option value="UndatedDL">UndatedDL</option>
             </param>
-            <param name="model_parametrization" type="select" label="Model parametrization"
-                   help="--model-parametrization. Defines which model parameters are shared among species or families. PER-SPECIES only works with your own species tree and the species tree search set to SKIP.">
-                <option value="GLOBAL" selected="true">GLOBAL (default)</option>
+            <param argument="--model-parametrization" type="select" label="Model parametrization"
+                   help="Defines which model parameters are shared among species or families. PER-SPECIES only works with your own species tree and the species tree search set to SKIP.">
+                <option value="GLOBAL" selected="true">GLOBAL</option>
                 <option value="PER-FAMILY">PER-FAMILY</option>
                 <option value="PER-SPECIES">PER-SPECIES</option>
             </param>
         </section>
         <section name="advanced" title="Advanced options" expanded="false">
-            <param name="gene_tree_samples" type="integer" value="100" min="1"
+            <param argument="--gene-tree-samples" type="integer" value="100" min="1"
                    label="Number of output reconciled gene tree samples per family."
-                   help="--gene-tree-samples. Default is 100. More samples give more stable averages but take longer."/>
-            <param name="seed" type="integer" value="123"
+                   help="More samples give more stable averages but take longer."/>
+            <param argument="--seed" type="integer" value="123"
                    label="Random seed"
-                   help="--seed. Default is 123. Use the same seed to get exactly the same results again."/>
+                   help="Use the same seed to get exactly the same results again."/>
             <param name="archive" type="boolean" checked="false"
                    label="Also output the complete results folder as one archive (.tar)"
                    help="Contains all AleRax result files, including every sampled reconciliation."/>
@@ -403,10 +416,10 @@ with Bayesian inference tools such as MrBayes or PhyloBayes).
 **Inputs**
 
 - A starting species tree: your own rooted tree (Newick), a MiniNJ estimate, or a random tree.
-- A list collection of gene tree samples, one element per gene family.
+- A list collection of gene tree samples, one element per gene family. Element identifiers must not contain spaces or the `#` character.
 - Optionally, a list collection of gene-to-species mapping files.
 
-Each mapping file must have exactly the same collection element identifier as its corresponding gene tree. For example, a gene tree element named `family_381` must have a mapping element named `family_381`. The dataset filenames themselves do not need to be identical.
+If you provide mapping files, both collections must contain the same elements: one mapping file per gene tree, with exactly the same collection element identifier. For example, a gene tree element named `family_381` must have a mapping element named `family_381`. The dataset filenames themselves do not need to be identical.
 
 Each line of a mapping file contains a gene name and a species name, for example:
 
