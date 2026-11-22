@@ -690,10 +690,11 @@ class VarScanCaller (object):
 
     def _add_ref_contigs_to_header(self, header):
         for chrom, length in zip(self.ref_contigs, self.ref_lengths):
-            header.add_meta(
-                'contig',
-                items=[('ID', chrom), ('length', length)]
-            )
+            # NB: header.add_meta('contig', items=[...]) silently does
+            # nothing with pysam >= 0.20, while header.contigs.add()
+            # works from pysam 0.15.1 (where it delegates to add_meta)
+            # through the current releases.
+            header.contigs.add(chrom, length=length)
 
     def _add_filters_to_header(self, header):
         varscan_fpfilters = {
