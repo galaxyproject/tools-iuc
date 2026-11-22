@@ -6,11 +6,14 @@
     <expand macro="requirements"/>
     <version_command>mumu --version | head -n 1</version_command>
     <!-- mumu 1.1.4 runs on one thread: a threads value other than 1 prints the warning "mumu is not yet multithreaded" and gives the same results. GALAXY_SLOTS is passed so that later multithreaded versions use the slots. -->
+    <!-- The awk scripts check the inputs and write clean copies. mumu does not warn when it reads a value wrongly (1e+05 is read as 1, 0.9 as 0, text as 0), so the scripts convert whole numbers in scientific notation and stop with a clear message for other problems. -->
     <command detect_errors="exit_code"><![CDATA[
+gawk -f '$__tool_directory__/check_otu_table.awk' '$otu_table' > otu_table.tsv &&
+gawk -f '$__tool_directory__/check_match_list.awk' '$match_list' > match_list.tsv &&
 mumu
     --threads "\${GALAXY_SLOTS:-4}"
-    --otu_table '$otu_table'
-    --match_list '$match_list'
+    --otu_table otu_table.tsv
+    --match_list match_list.tsv
     --new_otu_table '$new_otu_table'
     --log '$log'
     --minimum_match $settings.minimum_match
@@ -21,7 +24,7 @@ mumu
     ]]></command>
     <inputs>
         <param argument="--otu_table" type="data" format="tabular" label="OTU or ASV table" help="A tab-separated table with one row per OTU or ASV and one column per sample. The first line holds the sample names, and the first column holds unique OTU or ASV names. The other columns must hold only read counts, so remove any sequence or taxonomy column first."/>
-        <param argument="--match_list" type="data" format="tabular" label="Match list" help="Tab-separated, no header line, three columns: query OTU or ASV name, hit OTU or ASV name, percent similarity (for example 97.5). For example, BLASTN or VSEARCH output of all sequences against each other."/>
+        <param argument="--match_list" type="data" format="tabular" label="Match list" help="Tab-separated, three columns: query OTU or ASV name, hit OTU or ASV name, percent similarity (for example 97.5). A header line is skipped. For example, BLASTN or VSEARCH output of all sequences against each other."/>
         <section name="settings" title="Curation settings" expanded="false" help="The defaults are the same as in mumu and in the LULU R package.">
             <param argument="--minimum_match" type="float" value="84.0" min="50" max="100" label="Minimum similarity (%)" help="A potential parent with a lower similarity to the OTU or ASV is rejected. With the LULU strategy (legacy), a parent with a similarity equal to this value is also rejected."/>
             <param argument="--minimum_ratio_type" type="select" label="Abundance ratio type" help="Use the smallest (min) or the average (avg) of the per-sample ratios: parent reads divided by OTU or ASV reads, in samples that have both.">
@@ -105,6 +108,47 @@ mumu
                 </assert_contents>
             </output>
         </test>
+        <!-- whole numbers in scientific notation or with a zero decimal part, and a match list with a header line: converted and skipped, same result as test 1 -->
+        <test expect_num_outputs="2">
+            <param name="otu_table" value="otu_table_scientific.tsv"/>
+            <param name="match_list" value="match_list_header.tsv"/>
+            <output name="new_otu_table" file="mumu_default_table.tsv" ftype="tabular"/>
+            <output name="log" ftype="tabular">
+                <assert_contents>
+                    <has_text text="accepted" n="3"/>
+                    <has_n_lines n="5"/>
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="were changed to whole numbers"/>
+                <has_text text="the first line was taken as a header and skipped"/>
+            </assert_stderr>
+        </test>
+        <!-- a decimal count: stops with an error -->
+        <test expect_failure="true">
+            <param name="otu_table" value="otu_table_decimal.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <assert_stderr>
+                <has_text text="column 2 (S01) holds 0.25, which is not a whole number"/>
+            </assert_stderr>
+        </test>
+        <!-- a taxonomy column: stops with an error -->
+        <test expect_failure="true">
+            <param name="otu_table" value="otu_table_taxonomy.tsv"/>
+            <param name="match_list" value="match_list.tsv"/>
+            <assert_stderr>
+                <has_text text="column 23 (taxonomy) holds the text"/>
+                <has_text text="remove sequence or taxonomy columns first"/>
+            </assert_stderr>
+        </test>
+        <!-- similarities as fractions: stops with an error -->
+        <test expect_failure="true">
+            <param name="otu_table" value="otu_table.tsv"/>
+            <param name="match_list" value="match_list_fraction.tsv"/>
+            <assert_stderr>
+                <has_text text="They look like fractions"/>
+            </assert_stderr>
+        </test>
         <!-- duplicated OTU name: mumu stops with an error -->
         <test expect_failure="true">
             <param name="otu_table" value="otu_table_duplicated.tsv"/>
@@ -144,14 +188,25 @@ Set **Use LULU merging strategy (legacy)** to Yes to use the LULU strategy. With
 
 - OTU or ASV table: tab-separated, one OTU per line, one sample per column. The first line holds the sample names. The first column holds unique OTU names. All other columns must hold read counts.
 
-  - mumu reads every column after the first as a number. Text that does not start with a digit is read as 0, and text such as 12S is read as 12. So remove sequence or taxonomy columns first (for example with the Cut tool).
-  - Counts must be whole numbers. mumu drops the decimal part (0.9 is read as 0), so do not use a table of proportions. Scientific notation is read wrong (1e+05 is read as 1).
+  - All columns after the first must hold read counts, so remove sequence or taxonomy columns first (for example with the Cut tool).
+  - Counts must be whole numbers, so do not use a table of proportions.
 
-- Match list: tab-separated, exactly three columns: query OTU name, hit OTU name, percent similarity. The OTU names must be the same as in the table.
+- Match list: tab-separated, exactly three columns: query OTU name, hit OTU name, percent similarity (for example 97.5, not 0.975). The OTU names must be the same as in the table.
 
-  - A header line causes an error. mumu also stops with an error if a line does not have three columns.
+  - A header line is skipped.
   - Self-hits (an OTU against itself) can stay in the list. mumu ignores them.
   - mumu ignores lines with names that are not in the table, with a warning. If the log has only its header line, check that the names in the match list and the table are the same.
+
+**Input checks**
+
+mumu does not warn when it reads a value wrongly: it reads 1e+05 as 1, 0.9 as 0 and text as 0. So this tool checks both inputs before mumu runs:
+
+- Whole numbers written in scientific notation (1e+05) or with a zero decimal part (12.0) are changed to plain whole numbers.
+- Windows line endings and empty lines are removed.
+- The tool stops with a message that names the line and column if the table has decimals, negative numbers, empty cells, text, or lines with a different number of columns from the first line.
+- The tool stops with a message if a match list line does not have three columns, a similarity is not a number from 0 to 100, or all similarities are 1 or less (fractions instead of percentages, which would merge nothing).
+
+Changes and skipped header lines are reported in the job information (standard error).
 
 **Making the inputs (for example after DADA2)**
 
