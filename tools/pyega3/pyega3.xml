@@ -1,26 +1,29 @@
-<tool id="pyega3" name="EGA Download Client" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.01" >
+<tool id="pyega3" name="EGA Download Client" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.1" >
     <macros>
         <token name="@TOOL_VERSION@">5.0.2</token>
-        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@VERSION_SUFFIX@">1</token>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">pyega3</requirement>
+        <credentials name="ega_credentials" version="1.0" label="EGA (European Genome Archive) credentials" description="Credentials for accessing EGA">
+            <variable name="ega_username" inject_as_env="EGA_USERNAME" optional="false" label="EGA account username"/>
+            <secret name="ega_password" inject_as_env="EGA_PASSWORD" optional="false" label="EGA account password"/>
+        </credentials>
     </requirements>
     <version_command><![CDATA[
         pyega3 -v |& grep version | cut -d" " -f 10
     ]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
-#set $username = $__user__.extra_preferences.get('ega_account|username', "")
-#if $username == "":
-    #set $username = "ega-test-data@ebi.ac.uk (default user)"
+#if str($test_boolean) == "true"
+    python '$credentials' --test &&
+#else
+    python '$credentials' &&
 #end if
-    echo "Running as user: $username. Set your credentials via: User -> Preferences -> Manage Information"  &&
-
 #if $action.action_type == "list_datasets"
-    pyega3 -cf '$credentials'
+    pyega3 -cf credentials.json
       datasets
 #elif $action.action_type == "list_dataset_files"
-    pyega3 -cf '$credentials'
+    pyega3 -cf credentials.json
       files '$action.dataset_id'
     &&
 
@@ -31,7 +34,7 @@
     grep EGAF pyega3_output.log | sed -e 's/^\[.*\]\s\+//g' | sed 's/\s\+/\t/g' >> '$dataset_file_list'
 
 #elif $action.action_type == "download_file"
-    pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf '$credentials'
+    pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf credentials.json
       fetch '$action.file_id'
       --max-retries 10
       #if $action.range.reference_name
@@ -58,7 +61,7 @@
       && 
       echo 'Downloading $f'
       &&
-      pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf '$credentials'
+      pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf credentials.json
         fetch '$f'
           --max-retries 10
           #if $action.range.reference_name
@@ -72,26 +75,44 @@
         #end if
         --output-dir downloads
     #end for
-    && for vcf in \$(ls downloads/**/*vcf.gz); do mv "\${vcf}" "\${vcf:0:-6}vcf_bgzip"; done  ## renaming vcf.gz files to vcf_bgzip to recognize format
+    && find downloads -type f -name "*.vcf.gz" -exec sh -c 'mv "$1" "\${1%.vcf.gz}.vcf_bgzip"' _ {} \;  ## renaming vcf.gz files to vcf_bgzip to recognize format
     && rm -f downloads/**/*.md5  ## checksum validation already performed by pyEGA, clean up downloads folder
 
 #end if
     ]]></command>
     <configfiles>
         <configfile name="credentials"><![CDATA[
-#set $password = $__user__.extra_preferences.get('ega_account|password', "")
-#set $username = $__user__.extra_preferences.get('ega_account|username', "")
-#if $username == "" or $password == "":
-   #set $username = "ega-test-data@ebi.ac.uk"
-   #set $password = "egarocks"
-#end if
-{
-    "username": "$username",
-    "password": "$password"
-}
+import os
+import json
+import argparse
+
+parser = argparse.ArgumentParser(description="Create credentials.json for EGA access")
+parser.add_argument(
+    "--test",
+    action="store_true",
+)
+args = parser.parse_args()
+
+if args.test:
+    credentials = {
+        "username": "ega-test-data@ebi.ac.uk",
+        "password": "egarocks"
+    }
+else:
+    username = os.environ.get("EGA_USERNAME", "")
+    password = os.environ.get("EGA_PASSWORD", "")
+
+    credentials = {
+        "username": username,
+        "password": password
+    }
+
+with open("credentials.json", "w") as f:
+    json.dump(credentials, f, indent=2)
         ]]></configfile>
     </configfiles>
     <inputs>
+        <param name="test_boolean" type="hidden" value="false"/>
         <conditional name="action">
             <param name="action_type" type="select" label="What would you like to do?">
                 <option value="list_datasets"> List my authorized datasets </option>
@@ -148,7 +169,10 @@
     <tests>
         <!-- list datasets with default credentials -->
         <test expect_num_outputs="1">
-            <param name="action_type" value="list_datasets"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="list_datasets"/>
+            </conditional>
             <output name="authorized_datasets" ftype="txt">
                 <assert_contents>
                     <has_text text="pyEGA3 - EGA python client version @TOOL_VERSION@"/>
@@ -158,8 +182,11 @@
         </test>
         <!-- list dataset files with default credentials, and request a log output file -->
         <test expect_num_outputs="2">
-            <param name="action_type" value="list_dataset_files"/>
-            <param name="dataset_id" value="EGAD00001003338"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="list_dataset_files"/>
+                <param name="dataset_id" value="EGAD00001003338"/>
+            </conditional>
             <param name="output_log" value="true"/>
             <output name="dataset_file_list" file="filelist_EGAD00001003338.tabular"/>
             <output name="logfile" ftype="txt">
@@ -172,30 +199,45 @@
         </test>
         <!-- download a single file -->
         <test expect_num_outputs="1"> 
-            <param name="action_type" value="download_file"/>
-            <param name="file_id" value="EGAF00001775036"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="download_file"/>
+                <param name="file_id" value="EGAF00001775036"/>
+            </conditional>
             <output name="downloaded_file" md5="3b89b96387db5199fef6ba613f70e27c"/>
         </test>
         <!-- download a single vcf.gz -->
         <test expect_num_outputs="1"> 
-            <param name="action_type" value="download_file"/>
-            <param name="file_id" value="EGAF00007243775"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="download_file"/>
+                <param name="file_id" value="EGAF00007243775"/>
+            </conditional>
             <output name="downloaded_file" md5="51cfb69bf3b9416ff425381a58c18a2b" ftype="vcf_bgzip" />
         </test>
         <!-- download a single bam, with genomic range specified -->
         <test expect_num_outputs="1">
-            <param name="action_type" value="download_file"/>
-            <param name="file_id" value="EGAF00001753756"/>
-            <param name="reference_name" value="1"/>
-            <param name="start" value="0"/>
-            <param name="end" value="10000"/>
-            <output name="downloaded_file" md5="4b5344ad094c2bed7787430259205098"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="download_file"/>
+                <param name="file_id" value="EGAF00001753756"/>
+                <section name="range">
+                    <param name="reference_name" value="1"/>
+                    <param name="start" value="0"/>
+                    <param name="end" value="10000"/>
+                </section>
+            </conditional>
+            <output name="downloaded_file" md5="ec301e36ae98019e52d89a69c933ead3">
+            </output>
         </test>
         <!-- download multiple files -->
         <test expect_num_outputs="1">
-            <param name="action_type" value="download_files"/>
-            <param name="id_table" value="filelist.tabular"/>
-            <param name="id_column" value="1"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="download_files"/>
+                <param name="id_table" value="filelist.tabular"/>
+                <param name="id_column" value="1"/>
+            </conditional>
             <output_collection name="downloaded_file_collection" type="list" count="2">
                 <element name="ENCFF000VWO.bam" md5="b8ae14d5d1f717ab17d45e8fc36946a0" />
                 <element name="ENCFF284YOU.bam" md5="3b89b96387db5199fef6ba613f70e27c" />
@@ -206,15 +248,20 @@
         </test>
         <!-- download multiple files, in combination with a genomic range -->
         <test expect_num_outputs="1">
-            <param name="action_type" value="download_files"/>
-            <param name="id_table" value="filelist2.tabular"/>
-            <param name="id_column" value="1"/>
-            <param name="reference_name" value="1"/>
-            <param name="start" value="0"/>
-            <param name="end" value="10000"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="download_files"/>
+                <section name="range">
+                    <param name="start" value="0"/>
+                    <param name="end" value="10000"/>
+                    <param name="reference_name" value="1"/>
+                </section>
+                <param name="id_table" value="filelist2.tabular"/>
+                <param name="id_column" value="1"/>
+            </conditional>
             <output_collection name="downloaded_file_collection" count="2">
-                <element name="NA19239_genomic_range_1_0_10000" md5="497f443830a6a3ec2e5bb5a19c4db638" />
-                <element name="NA19240_genomic_range_1_0_10000" md5="4b5344ad094c2bed7787430259205098" />
+                <element name="NA19239_genomic_range_1_0_10000" md5="48fa7d5b6e90697911c6c273094fb63b" />
+                <element name="NA19240_genomic_range_1_0_10000" md5="ec301e36ae98019e52d89a69c933ead3" />
             </output_collection>
             <assert_stderr>
                 <has_text text="Ignoring &quot;File ID&quot;: no EGA file ID"/>
@@ -222,9 +269,12 @@
         </test>
         <!-- download multiple vcf.gz files -->
         <test expect_num_outputs="1">
-            <param name="action_type" value="download_files"/>
-            <param name="id_table" value="filelist3.tabular"/>
-            <param name="id_column" value="1"/>
+            <param name="test_boolean" value="true"/>
+            <conditional name="action">
+                <param name="action_type" value="download_files"/>
+                <param name="id_table" value="filelist3.tabular"/>
+                <param name="id_column" value="1"/>
+            </conditional>
             <output_collection name="downloaded_file_collection" type="list" count="2">
                 <element name="HG00408.novoBreak__256r__4.100100-10100100__7.200100-9000100" md5="51cfb69bf3b9416ff425381a58c18a2b" ftype="vcf_bgzip" />
                 <element name="HG01890.HGSVC__145r__1.900100-10001000__18.2001000-90001000" md5="ebad4425191a89d3e970c02190a87175" ftype="vcf_bgzip" />
@@ -250,7 +300,7 @@ pyEGA3 uses the EGA Data API and has several key features:
 - After download completes, file integrity is verified using checksums.
 - pyEGA3 implements the GA4GH-compliant htsget protocol for download of genomic ranges for data files with accompanying index files.
 
-.. _DAA: https://ega-archive.org/files/Example_DAA.doc
+.. _DAA: https://ega-archive.org/access/data-access-committee/policy-documentation/
 .. _GalaxySensitiveData-ELIXIR-IS: https://github.com/elixir-europe/GalaxySensitiveData-ELIXIR_IS
     ]]></help>
     <citations>
