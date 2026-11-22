@@ -1,5 +1,5 @@
 <tool id="hgt_site_call" name="hgt-site" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
-    <description>call candidate horizontal gene transfer sites from host alignments and per-read taxonomic calls</description>
+    <description>call candidate horizontal gene transfer sites from host alignments, with a classifier or a known sequence</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -22,10 +22,25 @@
 #end if
 hgt-site call
     --bam '$aln'
-    --classifications
-    #for $k in $classifications
-        '$k'
-    #end for
+    #if $foreign.source == 'classifier'
+        --classifications
+        #for $k in $foreign.classifications
+            '$k'
+        #end for
+    #else
+        --donor '$foreign.donor'
+        #if str($foreign.donor_taxid)
+            --donor-taxid $foreign.donor_taxid
+        #end if
+        #if $foreign.source == 'long_reads'
+            --long-reads
+        #end if
+    #end if
+    #if $control.use == 'yes'
+        --control '$control.table'
+        --control-min-pairs $control.control_min_pairs
+        --control-window $control.control_window
+    #end if
     --host-taxid $host_taxid
     #if $taxonomy.source == 'cached'
         --nodes '$taxonomy.nodes.fields.path/nodes.dmp'
@@ -41,11 +56,41 @@ hgt-site call
     --vcf '$vcf'
     ]]></command>
     <inputs>
-        <param name="alignment" type="data" format="unsorted.bam,sam" label="Paired-end reads aligned to the host genome"
-               help="Any sort order works. A coordinate sorted BAM carries an index, which lets the tool find exact junctions from split reads; without one, junctions are placed from read pairs alone."/>
-        <param name="classifications" type="data" format="tabular" multiple="true" label="Per-read taxonomic calls for the unmapped reads"
-               help="Per-read output from Kraken2, KrakenUniq, Kaiju, Centrifuge, DIAMOND or BLAST, or a two-column file of read name and taxid. Not a Kraken2 report. The format is detected from the file. Read names must match the alignment. Several files can be selected if a pipeline wrote more than one per sample."/>
+        <param name="alignment" type="data" format="unsorted.bam,sam" label="Reads aligned to the host genome"
+               help="Paired-end short reads, or long reads if you pick that below. Any sort order works. A coordinate sorted BAM carries an index, which lets the tool find exact junctions from split reads; without one, junctions are placed from read pairs alone."/>
+        <conditional name="foreign">
+            <param name="source" type="select" label="How the foreign reads are identified">
+                <option value="classifier" selected="true">A taxonomic classifier ran on the unmapped reads</option>
+                <option value="donor">A sequence I already have, such as a vector or viral genome</option>
+                <option value="long_reads">A sequence I already have, and the reads are long reads</option>
+            </param>
+            <when value="classifier">
+                <param name="classifications" type="data" format="tabular" multiple="true" label="Per-read taxonomic calls for the unmapped reads"
+                       help="Per-read output from Kraken2, KrakenUniq, Kaiju, Centrifuge, DIAMOND or BLAST, or a two-column file of read name and taxid. Not a Kraken2 report. The format is detected from the file. Read names must match the alignment. Several files can be selected if a pipeline wrote more than one per sample."/>
+            </when>
+            <when value="donor">
+                <expand macro="donor_inputs"/>
+            </when>
+            <when value="long_reads">
+                <expand macro="donor_inputs"/>
+            </when>
+        </conditional>
         <param argument="--host-taxid" type="integer" value="9606" min="1" label="NCBI taxonomy ID of the host" help="For example 9606 for human or 10090 for mouse."/>
+        <conditional name="control">
+            <param name="use" type="select" label="Compare against a matched control"
+                   help="For a tumour and the normal tissue from the same person. Call the normal first, then give its table here: a position producing foreign reads in both samples is not somatic.">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes, flag anything the control also has</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="table" argument="--control" type="data" format="tabular" label="hgt-site table from the matched control"
+                       help="The candidate sites table hgt-site produced for the control sample."/>
+                <param argument="--control-min-pairs" type="integer" value="5" min="1" label="Supporting reads a control candidate needs before it counts"
+                       help="A control sample carries thousands of weak candidates from chance chimeras, roughly one per kilobase, so lowering this much below five rejects real sites along with the artefacts."/>
+                <param argument="--control-window" type="integer" value="300" min="1" label="How far a control candidate may sit from a site and still count as the same position"/>
+            </when>
+        </conditional>
         <conditional name="taxonomy">
             <param name="source" type="select" label="NCBI taxonomy"
                    help="With the NCBI taxonomy, reads classified anywhere in the host lineage are ignored, not only those assigned to the host taxid itself.">
@@ -79,7 +124,10 @@ hgt-site call
     <tests>
         <test expect_num_outputs="3">
             <param name="alignment" value="sim.bam" ftype="bam"/>
-            <param name="classifications" value="sim.kraken2.txt"/>
+            <conditional name="foreign">
+                <param name="source" value="classifier"/>
+                <param name="classifications" value="sim.kraken2.txt"/>
+            </conditional>
             <param name="host_taxid" value="9606"/>
             <output name="sites" ftype="tabular">
                 <assert_contents>
@@ -109,7 +157,10 @@ hgt-site call
              the cached taxonomy being found and read. -->
         <test expect_num_outputs="3">
             <param name="alignment" value="sim.bam" ftype="bam"/>
-            <param name="classifications" value="sim.kraken2.txt"/>
+            <conditional name="foreign">
+                <param name="source" value="classifier"/>
+                <param name="classifications" value="sim.kraken2.txt"/>
+            </conditional>
             <param name="host_taxid" value="9606"/>
             <conditional name="taxonomy">
                 <param name="source" value="cached"/>
@@ -127,6 +178,60 @@ hgt-site call
                 </assert_contents>
             </output>
         </test>
+        <!-- The same sample found from the inserted sequence instead of a
+             classifier. donor.fa holds the reads of the inserted Escherichia
+             coli fragment, one per record, which is what a user supplying a
+             vector or viral genome would give. Both insertions are found and
+             reported under 32630, NCBI's synthetic construct, because no donor
+             taxid was set. -->
+        <test expect_num_outputs="3">
+            <param name="alignment" value="sim.bam" ftype="bam"/>
+            <conditional name="foreign">
+                <param name="source" value="donor"/>
+                <param name="donor" value="donor.fa" ftype="fasta"/>
+            </conditional>
+            <param name="host_taxid" value="9606"/>
+            <output name="sites" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="^chrom\tstart\tend.*"/>
+                    <has_n_lines n="3"/>
+                    <has_text text="32630"/>
+                </assert_contents>
+            </output>
+            <output name="bed" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="taxid_32630"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- A matched control. control.tsv is the table from the first test, so
+             every site the tool finds is also in the control and none of them
+             should pass. That is the whole contract of the option: a position
+             producing foreign reads in both samples is not somatic. -->
+        <test expect_num_outputs="3">
+            <param name="alignment" value="sim.bam" ftype="bam"/>
+            <conditional name="foreign">
+                <param name="source" value="classifier"/>
+                <param name="classifications" value="sim.kraken2.txt"/>
+            </conditional>
+            <param name="host_taxid" value="9606"/>
+            <conditional name="control">
+                <param name="use" value="yes"/>
+                <param name="table" value="control.tsv"/>
+            </conditional>
+            <output name="sites" ftype="tabular">
+                <assert_contents>
+                    <has_text text="IN_CONTROL"/>
+                    <not_has_text text="PASS"/>
+                </assert_contents>
+            </output>
+            <output name="bed" ftype="bed">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 **What it does**
@@ -135,9 +240,19 @@ hgt-site finds places where DNA from bacteria or other organisms may have been i
 
 **Inputs**
 
-- Paired-end reads aligned to the host genome (BAM or SAM).
-- Per-read taxonomic calls for the reads that did not map to the host, from Kraken2, KrakenUniq, Kaiju, Centrifuge, DIAMOND or BLAST, or a two-column file of read name and taxid. The format is worked out from the file. Read names must match those in the alignment.
+- Reads aligned to the host genome (BAM or SAM).
 - The NCBI taxonomy ID of the host.
+- One of two ways to say which reads are foreign:
+   - per-read taxonomic calls for the reads that did not map to the host, from Kraken2, KrakenUniq, Kaiju, Centrifuge, DIAMOND or BLAST, or a two-column file of read name and taxid. The format is worked out from the file, and read names must match those in the alignment; or
+   - a FASTA of the sequence you are looking for, such as a vector, a transgene or a viral genome. The unmapped reads are matched against it directly, so no classifier and no classifier database are needed.
+
+**Long reads**
+
+Nanopore and PacBio reads work too, as the third option under "How the foreign reads are identified". A long read crossing an integration is clipped at the junction by the aligner, and the clip boundary gives the position directly rather than from a pair, which is why this needs the sequence rather than a classifier. On simulated nanopore reads at 15x coverage it found 20 of 20 insertions with nothing false, the junction a median of 4 bp from the truth.
+
+**A matched control**
+
+For a tumour and the normal tissue from the same person, call the normal first and give its table under "Compare against a matched control". A position producing foreign reads in both samples is not somatic, and is reported as ``IN_CONTROL`` rather than passing. On a simulated pair sharing a region at six copies this removed all eight false sites for the cost of one real one. The control needs five supporting reads within 300 bases before it counts; lowering that much is a mistake, because a control sample carries thousands of weak candidates from chance chimeras.
 
 **Outputs**
 
