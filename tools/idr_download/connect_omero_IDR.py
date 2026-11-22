@@ -8,10 +8,10 @@ IDR_URL = "https://idr.openmicroscopy.org"
 def establish_OMERO_connection(uuid_key, usr, psw, host, port=4064):
     # join an existing session if a session key is given, otherwise log in with user/password
     if uuid_key:
-        conn = BlitzGateway(host=host, port=port)
+        conn = BlitzGateway(host=host, port=port, secure=True)
         connected = conn.connect(sUuid=uuid_key)
     else:
-        conn = BlitzGateway(usr, psw, host=host, port=port)
+        conn = BlitzGateway(usr, psw, host=host, port=port, secure=True)
         connected = conn.connect()
     if not connected:
         raise ConnectionError(f"Could not connect to OMERO server {host}:{port}")
