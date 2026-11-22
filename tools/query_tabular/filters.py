@@ -2,14 +2,31 @@
 
 from __future__ import print_function
 
+import csv
+import io
 import re
 import sys
 from itertools import chain
 
 
+def split_fields(line, quoted=False):
+    if quoted:
+        return next(csv.reader(io.StringIO(line, newline=''), delimiter='\t', strict=True))
+    return line.rstrip('\r\n').split('\t')
+
+
+def join_fields(fields, quoted=False):
+    if quoted:
+        output = io.StringIO(newline='')
+        csv.writer(output, delimiter='\t', lineterminator='\r\n').writerow(fields)
+        return output.getvalue()[:-2]
+    return '\t'.join(fields)
+
+
 class LineFilter(object):
-    def __init__(self, source, filter_dict):
+    def __init__(self, source, filter_dict, quoted=False):
         self.source = source
+        self.quoted = quoted
         self.filter_dict = filter_dict
         self.func = lambda i, line: line.rstrip('\r\n') if line else None
         self.src_lines = []
@@ -54,9 +71,9 @@ class LineFilter(object):
                                               'append',
                                               'before',
                                               'after']:
-                self.func = lambda i, line: '\t'.join(
+                self.func = lambda i, line: join_fields(
                     [x if j != c else re.sub(p, r, x)
-                     for j, x in enumerate(line.split('\t'))])
+                     for j, x in enumerate(split_fields(line, self.quoted))], self.quoted)
             else:
                 a = 0 if filter_dict['add'] == 'prepend'\
                     else min(0, c - 1) if filter_dict['add'] == 'before'\
@@ -69,10 +86,10 @@ class LineFilter(object):
             self.func = lambda i, line: '%s\t%d' % (line.rstrip('\r\n'), i)
         elif filter_dict['filter'] == 'prepend_text':
             s = filter_dict['column_text']
-            self.func = lambda i, line: '%s\t%s' % (s, line)
+            self.func = lambda i, line: join_fields([s] + split_fields(line, self.quoted), self.quoted)
         elif filter_dict['filter'] == 'append_text':
             s = filter_dict['column_text']
-            self.func = lambda i, line: '%s\t%s' % (line.rstrip('\r\n'), s)
+            self.func = lambda i, line: join_fields(split_fields(line, self.quoted) + [s], self.quoted)
         elif filter_dict['filter'] == 'skip':
             cnt = filter_dict['count']
             self.func = lambda i, line: line if i > cnt else None
@@ -94,42 +111,44 @@ class LineFilter(object):
     next = __next__
 
     def select_columns(self, line, cols):
-        fields = line.split('\t')
-        return '\t'.join([fields[x] for x in cols])
+        fields = split_fields(line, self.quoted)
+        return join_fields([fields[x] for x in cols], self.quoted)
 
     def select_slices(self, line, cols):
-        fields = line.split('\t')
-        return '\t'.join(chain.from_iterable([y if isinstance(y, list) else [y] for y in [fields[x] for x in cols]]))
+        fields = split_fields(line, self.quoted)
+        return join_fields(chain.from_iterable([y if isinstance(y, list) else [y] for y in [fields[x] for x in cols]]), self.quoted)
 
     def replace_add(self, line, pat, rep, col, pos):
-        fields = line.rstrip('\r\n').split('\t')
+        fields = split_fields(line, self.quoted)
         i = pos if pos is not None else len(fields)
         val = ''
         if col < len(fields) and re.search(pat, fields[col]):
-            val = re.sub(pat, rep, fields[col]).replace('\t', ' ')
-        return '\t'.join(fields[:i] + [val] + fields[i:])
+            val = re.sub(pat, rep, fields[col])
+            if not self.quoted:
+                val = val.replace('\t', ' ')
+        return join_fields(fields[:i] + [val] + fields[i:], self.quoted)
 
     def normalize(self, line, split_cols, sep):
         lines = []
-        fields = line.rstrip('\r\n').split('\t')
-        split_fields = dict()
+        fields = split_fields(line, self.quoted)
+        split_values = dict()
         cnt = 0
         for c in split_cols:
             if c < len(fields):
-                split_fields[c] = fields[c].split(sep)
-                cnt = max(cnt, len(split_fields[c]))
+                split_values[c] = fields[c].split(sep)
+                cnt = max(cnt, len(split_values[c]))
         if cnt == 0:
-            lines.append('\t'.join(fields))
+            lines.append(join_fields(fields, self.quoted))
         else:
             for n in range(0, cnt):
-                flds = [x if c not in split_cols else split_fields[c][n]
-                        if n < len(split_fields[c])
+                flds = [x if c not in split_cols else split_values[c][n]
+                        if n < len(split_values[c])
                         else '' for (c, x) in enumerate(fields)]
-                lines.append('\t'.join(flds))
+                lines.append(join_fields(flds, self.quoted))
         return lines
 
     def get_lines(self):
-        for i, next_line in enumerate(self.source):
+        for next_line in self.source:
             self.src_line_cnt += 1
             line = self.func(self.src_line_cnt, next_line)
             if line:
@@ -145,26 +164,42 @@ class TabularReader:
     Tabular file iterator. Returns a list
     """
     def __init__(self, input_file, skip=0, comment_char=None, col_idx=None,
-                 filters=None):
+                 filters=None, quoted=False):
         self.skip = skip
         self.comment_char = comment_char
         self.col_idx = col_idx
         self.filters = filters
+        self.quoted = quoted
+        self.owns_file = not hasattr(input_file, 'readline')
         self.tsv_file = \
-            input_file if hasattr(input_file, 'readline') else open(input_file)
+            input_file if hasattr(input_file, 'readline') else open(input_file, newline='')
         if skip and skip > 0:
-            for i in range(skip):
+            for _ in range(skip):
                 if not self.tsv_file.readline():
                     break
-        source = LineFilter(self.tsv_file, None)
+        source = self.tsv_file
+        if quoted:
+            source = (join_fields(fields, True) for fields in
+                      csv.reader(source, delimiter='\t', strict=True))
+        source = LineFilter(source, None, quoted=quoted)
         if comment_char:
             source = LineFilter(source,
                                 {"filter": "regex", "pattern": comment_char,
-                                 "action": "exclude_match"})
+                                 "action": "exclude_match"}, quoted=quoted)
         if filters:
             for f in filters:
-                source = LineFilter(source, f)
+                source = LineFilter(source, f, quoted=quoted)
         self.source = source
+
+    def close(self):
+        if self.owns_file:
+            self.tsv_file.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def __iter__(self):
         return self
@@ -172,7 +207,7 @@ class TabularReader:
     def __next__(self):
         ''' Iteration '''
         for i, line in enumerate(self.source):
-            fields = line.rstrip('\r\n').split('\t')
+            fields = split_fields(line, self.quoted)
             if self.col_idx:
                 fields = [fields[i] for i in self.col_idx]
             return fields

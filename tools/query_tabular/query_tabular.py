@@ -62,7 +62,23 @@ def __main__():
     parser.add_option('-d', '--debug', dest='debug', default=False,
                       action='store_true',
                       help='Output info to stderr')
+    parser.add_option('--quote_output', default=False, action='store_true',
+                      help='Quote output fields containing tabs, newlines or double quotes')
+    parser.add_option('--metadata_file', default=None,
+                      help='Write Galaxy column-name metadata for the query outputs')
     (options, args) = parser.parse_args()
+    metadata = {}
+
+    def output_metadata(name):
+        if options.metadata_file:
+            entry = metadata.setdefault(name, {'metadata': {}})
+            return entry['metadata']
+        return None
+
+    def write_metadata():
+        if options.metadata_file:
+            with open(options.metadata_file, 'w') as fh:
+                json.dump(metadata, fh)
 
     # determine output destination
     if options.output is not None:
@@ -100,6 +116,7 @@ def __main__():
         create_table(get_connection(options.sqlitedb), path, table_name,
                      pkey_autoincr=pkey_autoincr,
                      firstlinenames=firstlinenames,
+                     quoted=table.get('quoted', False),
                      column_names=column_names,
                      skip=comment_lines,
                      comment_char=comment_char,
@@ -118,7 +135,7 @@ def __main__():
                     for ti, table in enumerate(tdef['tables']):
                         _create_table(ti, table)
                 if 'sql_stmts' in tdef:
-                    for si, stmt in enumerate(tdef['sql_stmts']):
+                    for stmt in tdef['sql_stmts']:
                         rowcount = run_query(get_connection(options.sqlitedb), stmt, None)
                         if options.debug:
                             print('\nDB modification: %s  \nrowcount: %s' %
@@ -137,7 +154,9 @@ def __main__():
                                                  query,
                                                  fh,
                                                  no_header=no_header,
-                                                 comment_char=comment_char)
+                                                 comment_char=comment_char,
+                                                 quoted=options.quote_output,
+                                                 column_metadata=output_metadata('output%d' % (qi + 1)))
                         if options.debug:
                             print('\nSQL: %s  \nrowcount: %s' %
                                   (query, rowcount), file=sys.stderr)
@@ -155,6 +174,7 @@ def __main__():
 
     if query is None:
         try:
+            write_metadata()
             describe_tables(get_connection(options.sqlitedb), outputFile)
         except Exception as e:
             exit('Error: %s' % (e))
@@ -163,12 +183,16 @@ def __main__():
             rowcount = run_query(get_connection(options.sqlitedb),
                                  query, outputFile,
                                  no_header=options.no_header,
-                                 comment_char=options.comment_char)
+                                 comment_char=options.comment_char,
+                                 quoted=options.quote_output,
+                                 column_metadata=output_metadata('output'))
             if options.debug:
                 print('\nSQL: %s  \nrowcount: %s' %
                       (query, rowcount), file=sys.stderr)
         except Exception as e:
             exit('Error: %s' % (e))
+
+    write_metadata()
 
 
 if __name__ == "__main__":
