@@ -1,0 +1,604 @@
+<tool id="phylophlan" name="PhyloPhlAn" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        microbial genome characterization and phylogenetic analysis
+    </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements_phylophlan"/>
+    <required_files>
+        <include path="validate_mapping_file.py"/>
+        <include path="test-data/phylophlan.tsv"/>
+    </required_files>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+
+        #if "nt" in $config.analysis.value
+            #set $db_type = "n"
+        #else if "aa" in $config.analysis.value
+            #set $db_type = "a"
+        #else
+            #set $db_type = $config.db.type
+        #end if
+
+        #if $database.source == "cache"
+            #set $db_name = re.sub('[^\w\-_]', '_', str($database.db_name))
+            #set $db_file = $database.db_name.fields.path
+            #set $db_is_compressed = $db_file.endswith(".gz")
+        #else
+            #set $db_name = "database"
+            #set $db_file = $database.db_file
+            #set $db_is_compressed = $db_file.file_ext == "fasta.gz"
+        #end if
+
+        mkdir -p 'input/' &&
+        #for $i in $input
+            #set $identifier = re.sub('[^\w\-\._]', '_', str($i.element_identifier))
+            ln -s '$i' 'input/${identifier}' &&
+        #end for
+
+        mkdir -p 'database/${db_name}/' &&
+        #if not $db_is_compressed
+            ln -s '$db_file' 'database/${db_name}/${db_name}.f${db_type}a' &&
+        #else
+            gzip -d -c '$db_file' > 'database/${db_name}/${db_name}.f${db_type}a' &&
+        #end if
+
+        phylophlan_write_config_file
+            -o config.cfg
+            -d $db_type
+            #if $trimming.trim != "None"
+                --trim trimal
+            #end if
+
+            #if $config.analysis == "supermatrix_nt"
+                --db_dna makeblastdb
+                --map_dna blastn
+                --msa mafft
+                --tree1 fasttree
+                --tree2 raxml
+            #else if $config.analysis == "supertree_nt"
+                --db_dna makeblastdb
+                --map_dna blastn
+                --msa mafft
+                --gene_tree1 fasttree
+                --gene_tree2 raxml
+                --tree1 astral
+            #else if $config.analysis == "supermatrix_aa"
+                --db_aa diamond
+                --map_dna diamond
+                --map_aa diamond
+                --msa mafft
+                --tree1 fasttree
+                --tree2 raxml
+            #else if $config.analysis == "supertree_aa"
+                --db_aa diamond
+                --map_dna diamond
+                --map_aa diamond
+                --msa mafft
+                --gene_tree1 fasttree
+                --gene_tree2 raxml
+                --tree1 astral
+            #else
+                #if $config.db.type == "n"
+                    --db_dna $config.db.db_dna
+                    --map_dna $config.db.map_dna
+                #else if $config.db.type == "a"
+                    --db_aa $config.db.db_aa
+                    --map_aa $config.db.map_aa
+                    #if $config.db.map_dna
+                        --map_dna $config.db.map_dna
+                    #end if
+                #end if
+                --msa $config.msa
+
+                #if $config.analysis == "custom_supertree"
+                    --gene_tree1 $config.gene_tree.gene_tree1
+                    #if $config.gene_tree.gene_tree2
+                        --gene_tree2 $config.gene_tree.gene_tree2
+                    #end if
+                    --tree1 $config.tree.tree1
+                #else
+                    --tree1 $config.tree.tree1
+                    #if $config.tree.tree2
+                        --tree2 $config.tree.tree2
+                    #end if
+                #end if
+            #end if
+
+            $force_nucleotides
+            --overwrite &&
+
+        ## fixing astral binary path
+        sed -i "\%program_name.*astral%s%=.*%= `which astral`%" config.cfg &&
+
+        #if "supertree" in $config.analysis.value
+            #if $config.maas.source == "history"
+                #set $maas_file = $config.maas.models
+            #else
+                #set $maas_file = $__tool_directory__ + '/test-data/phylophlan.tsv'
+            #end if
+            python '$__tool_directory__/validate_mapping_file.py' '$maas_file' &&
+        #end if
+
+        phylophlan
+            -i input
+            -o output
+            -d $db_name
+            --databases_folder database
+            -f config.cfg
+
+            --diversity $diversity
+            $accuracy
+            #if "supertree" in $config.analysis.value
+                --maas '$maas_file'
+            #end if
+
+            --min_num_proteins $quality.min_num_proteins
+            --min_len_protein $quality.min_len_protein
+            #if $quality.min_num_markers
+                --min_num_markers $quality.min_num_markers
+            #end if
+            #if $quality.min_num_entries
+                --min_num_entries $quality.min_num_entries
+            #end if
+
+            $quality.remove_only_gaps_entries
+            #if not $quality.remove_only_gaps_entries
+                $quality.remove_fragmentary_entries
+                #if $quality.fragmentary_threshold
+                    --fragmentary_threshold $quality.fragmentary_threshold
+                #end if
+            #end if
+
+            #if $trimming.trim != "None"
+                --trim $trimming.trim
+                #if $trimming.trim.value in {'gap_perc', 'greedy'}
+                    --gap_perc_threshold $trimming.gap_perc_threshold
+                #end if
+                #if $trimming.trim.value in {'not_variant', 'greedy'}
+                    --not_variant_threshold $trimming.not_variant_threshold
+                #end if
+            #end if
+
+            #if $sample.subsample != "default" and not ($sample.subsample == "phylophlan" and $db_name != "phylophlan")
+                --subsample $sample.subsample
+            #end if
+            #if $sample.scoring_function
+                --scoring_function $sample.scoring_function
+            #end if
+            #if $sample.submat
+                --submat $sample.submat
+            #end if
+
+            --unknown_fraction $quality.unknown_fraction
+            $quality.convert_N2gap
+            $force_nucleotides
+            $sort
+            $mrate.mutation_rates
+            -t $db_type
+            --nproc \${GALAXY_SLOTS:-4}
+            --verbose
+    ]]></command>
+    <inputs>
+        <!-- Todo: Handle input/database files with unexpected filenames/designations -->
+        <param name="input" type="data_collection" collection_type="list" format="fasta,fasta.gz" label="Input genomes and/or proteomes"
+               help="In order for PhyloPhlAn to detect the input files in the collection, the fasta files MUST have the extensions '.fna' for nucleotide sequences and '.faa' for amino acid sequences. (Or '.fna.gz' and '.faa.gz' respectively.)"/>
+        <conditional name="database">
+            <param name="source" type="select" label="Reference database of markers">
+                <option value="cache">Locally cached</option>
+                <option value="history">From History</option>
+            </param>
+            <when value="cache">
+                <param name="db_name" type="select" argument="--database" label="Select a cached database">
+                    <options from_data_table="phylophlan_marker_database"/>
+                    <validator type="no_options" message="No database is available."/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="db_file" type="data" format="fasta,fasta.gz" argument="--database" label="Multi-fasta database"/>
+            </when>
+        </conditional>
+        <conditional name="config">
+            <param name="analysis" type="select" label="Configure which external software to use for the analysis">
+                    <option value="supermatrix_nt">Nucleotide supermatrix (blast, mafft, fasttree, raxml)</option>
+                    <option value="supertree_nt">Nucleotide supertree (blast, mafft, fasttree, raxml, astral)</option>
+                    <option value="supermatrix_aa">Amino acid supermatrix (diamond, mafft, fasttree, raxml)</option>
+                    <option value="supertree_aa">Amino acid supertree (diamond, mafft, fasttree, raxml, astral)</option>
+                    <option value="custom_supermatrix">Custom supermatrix (or concatenation) pipeline</option>
+                    <option value="custom_supertree">Custom supertree (or gene trees) pipeline</option>
+            </param>
+            <when value="supermatrix_nt"/>
+            <when value="supertree_nt">
+                <expand macro="config_supertree_maas"/>
+            </when>
+            <when value="supermatrix_aa"/>
+            <when value="supertree_aa">
+                <expand macro="config_supertree_maas"/>
+            </when>
+            <when value="custom_supermatrix">
+                <expand macro="config_select_software">
+                    <section name="tree" expanded="true" title="Phylogeny">
+                        <param argument="--tree1" type="select" label="Build phylogeny">
+                            <option value="fasttree">fasttree</option>
+                            <option value="raxml">raxml</option>
+                            <option value="iqtree">iqtree</option>
+                            <!-- Todo: Check if astral/astrid support the supermatrix pipeline. -->
+                        </param>
+                        <param argument="--tree2" type="select" optional="true" label="Refine phylogeny">
+                            <option value="raxml">raxml</option>
+                        </param>
+                    </section>
+                </expand>
+            </when>
+            <when value="custom_supertree">
+                <expand macro="config_supertree_maas"/>
+                <expand macro="config_select_software">
+                    <section name="gene_tree" expanded="true" title="Single-gene trees (Supertree)">
+                        <param argument="--gene_tree1" type="select" label="Build phylogenies">
+                            <option value="fasttree">fasttree</option>
+                            <option value="raxml">raxml</option>
+                            <option value="iqtree">iqtree</option>
+                        </param>
+                        <param argument="--gene_tree2" type="select" optional="true" label="Refine phylogenies">
+                            <option value="raxml">raxml</option>
+                        </param>
+                    </section>
+                    <section name="tree" title="Phylogeny">
+                        <param argument="--tree1" type="select" label="Build phylogeny">
+                            <option value="astral">astral</option>
+                            <!-- Todo: Find a package for astrid and add support to use the tool for building gene trees -->
+                        </param>
+                        <!-- When phylophlan_write_config writes a config for the gene tree pipeline it ignores the 'tree2'
+                             parameter as it does not expect there to be a tool that refine a consensus phylogeny (yet). -->
+                    </section>
+                </expand>
+            </when>
+        </conditional>
+        <param argument="--diversity" type="select" label="Diversity" help="Set parameters to default values in accordance with the expected diversity of the phylogeny to be build.">
+            <option value="low">low (for species- and strain-level phylogenies)</option>
+            <option value="medium">medium (for genus- and family-level phylogenies)</option>
+            <option value="high">high (for tree-of-life and higher-ranked taxonomic phylogenies)</option>
+        </param>
+        <param name="accuracy" type="boolean" truevalue="--fast" falsevalue="--accurate" argument="--fast"
+               label="Reduce the number of considered phylogenetic positions (faster, but less accurate)"
+               help="Affected parameters depend on the --diversity level."/>
+        <section name="quality" title="Input quality thresholds" help="Discard input genomes/proteomes and phylogenetic markers with insufficient quality.">
+            <!-- If PhyloPhlAn uses a consistent default value, I copied it here.
+                 Otherwise the parameter is marked as optional to allow PhyloPhlAn to set the parameter dynamically. -->
+            <param argument="--min_num_proteins" type="integer" min="1" value="1" label="Minimum proteins per proteome"/>
+            <param argument="--min_len_protein" type="integer" min="1"  value="50" label="Minimum protein length"/>
+            <param argument="--min_num_markers" type="integer" min="1" value="1" label="Minimum mapped markers"
+                   help="Discard input genomes or proteomes that map to less markers."/>
+                   <!-- The min_num_markers parameter is overwritten for the special database names phylophlan and amphora2.
+                        See tool-data/phylophlan_marker_database.loc.sample for details. -->
+            <param argument="--min_num_entries" type="integer" min="1" value="4" label="Minimum found entries."
+                   help="Discard markers that are detected in fewer genomes or proteomes than this threshold."/>
+            <param argument="--remove_fragmentary_entries" type="boolean" truevalue="--remove_fragmentary_entries" falsevalue=""
+                   label="Remove fragmentary entries"/>
+            <param argument="--fragmentary_threshold" type="float" optional="true" label="Fragmentary threshold"
+                   help="The fraction of gaps in the MSA to be considered fragmentary."/>
+            <param argument="--remove_only_gaps_entries" type="boolean" truevalue="--remove_only_gaps_entries" falsevalue=""
+                   label="Remove gap-only entries"
+                   help="Remove alignment entries that contain only gaps (&#34;-&#34;)&lt;br&gt;Equivalent to enabling 'Remove fragmentary entries' with a threshold of 1."/>
+            <param argument="--unknown_fraction" type="float" min="0.0" max="1.0" value="0.3" label="Maximum unknown fraction"
+                   help="The fraction of unknowns ('X' and '-') allowed in each column of the MSA of the markers."/>
+            <param argument="--convert_N2gap" type="boolean" truevalue="--convert_N2gap" falsevalue=""
+                   label="Convert Ns in nucleotides MSAs to gaps ('-') after MSAs"/>
+        </section>
+        <conditional name="trimming">
+            <param argument="--trim" type="select" label="Trimming strategy">
+                <option value="None">Default</option>
+                <option value="gap_trim">Use trimAl (gap_trim)</option>
+                <option value="gap_perc">Gap percentage</option>
+                <option value="not_variant">Not a variant</option>
+                <option value="greedy">All (greedy)</option>
+            </param>
+            <when value="None"/>
+            <when value="gap_trim"/>
+            <when value="gap_perc">
+                <param argument="--gap_perc_threshold" type="float" min="0.0" max="1.0" optional="true" label="Gap threshold"
+                       help="Remove columns with a percentage of gaps above the threshold."/>
+            </when>
+            <when value="not_variant">
+                <param argument="--not_variant_threshold" type="float" min="0.0" max="1.0" optional="true" label="Variant threshold"
+                       help="Remove columns where at least one amino acid appears more often than the threshold frequency."/>
+            </when>
+            <when value="greedy">
+                <param argument="--gap_perc_threshold" type="float" min="0.0" max="1.0" optional="true" label="Gap threshold"
+                       help="Remove columns with a percentage of gaps above the threshold."/>
+                <param argument="--not_variant_threshold" type="float" min="0.0" max="1.0" optional="true" label="Variant threshold"
+                       help="Remove columns lacking variation, when any amino acid exceeds the threshold."/>
+            </when>
+        </conditional>
+            <section name="sample" title="Subsampling"
+                     help="Controls how many informative positions to retain per marker in the alignment.">
+            <param argument="--subsample" type="select" label="How many positions per marker should be retained?">
+                <option value="default">Default</option>
+                <option value="full">All</option>
+                <option value="phylophlan">PhyloPhlAn (A retainment formula specific to the PhyloPhlAn marker database)</option>
+                <option value="onethousand">Retain up to 1000 positions</option>
+                <option value="sevenhundred">Retain up to 700 positions</option>
+                <option value="fivehundred">Retain up to 500 positions</option>
+                <option value="threehundred">Retain up to 300 positions</option>
+                <option value="onehundred">Retain up to 100 positions</option>
+                <option value="fifty">Retain up to 50 positions</option>
+                <option value="twentyfive">Retain up to 25 positions</option>
+                <option value="tenpercent">Retain 10%</option>
+                <option value="twentyfivepercent">Retain 25%</option>
+                <option value="fiftypercent">Retain 50%</option>
+            </param>
+            <param argument="--scoring_function" type="select" optional="true" label="Scoring function"
+                   help="Ranks alignment positions for subsampling; affects which columns are kept in the trimmed alignment.">
+                <option value="muscle">Muscle</option>
+                <option value="trident">Trident</option>
+            </param>
+            <param argument="--submat" type="select" label="Substitution matrix"
+                   help="Used by the scoring function to prioritize conserved positions.">
+                <!-- Todo: Add support for the generation and/or serialization of user-provided substitution matrices. -->
+                <option value="pfasum60">pfasum60</option>
+                <option value="vtml200">vtml200</option>
+                <option value="vtml240">vtml240</option>
+                <option value="miqs">miqs</option>
+            </param>
+        </section>
+        <param argument="--force_nucleotides" type="boolean" truevalue="--force_nucleotides" falsevalue=""
+               label="Force nucleotides"
+               help="Force PhyloPhlAn to use nucleotide sequences for phylogenetic analysis, even when the database contains amino acids. PhyloPhlAn will ignore proteomes in the input collection."/>
+        <param argument="--sort" type="boolean" truevalue="--sort" falsevalue=""
+               label="Sort markers"
+               help="Force PhyloPhlAn to sort markers in a defined order during concatenation. Only used with the supermatrix apprach."/>
+        <section name="mrate" title="Mutation rates">
+            <param argument="--mutation_rates" type="boolean" truevalue="--mutation_rates" falsevalue=""
+                   label="Calculate mutation rates"
+                   help="If enabled, generates mutation rate tables for each aligned marker and a summary table for the concatenated MSA. This process can take a long time."/>
+            <param name="discard_individual_tables" type="boolean" checked="true" label="Discard individual mutation rate tables."
+                   help="Only the summary table will be added to the Galaxy history, but individual mutation rate tables are still calculated. If unchecked, they will be saved as a dataset collection."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="txt" label="PhyloPhlAn Output">
+            <!-- Parse shorter designations for known files and assign a primary output. -->
+            <!-- RAxML -->
+            <discover_datasets pattern="(?P&lt;designation&gt;.+(bestTree|result))\.input_refined\.tre" format="newick" visible="true" directory="output" assign_primary_output="true"/>
+            <discover_datasets pattern="input_(?P&lt;designation&gt;resolved\.tre)" format="newick" visible="true" directory="output" assign_primary_output="true"/>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+(info|log))\.input_refined\.tre" format="txt" visible="true" directory="output"/>
+            <!-- fasttree -->
+            <discover_datasets pattern="(?P&lt;designation&gt;input\.tre)$" format="newick" visible="true" directory="output" assign_primary_output="true"/>
+            <!-- iqtree -->
+            <discover_datasets pattern="(?P&lt;designation&gt;input\.tre\.(bionj|treefile))" format="newick" visible="true" directory="output" assign_primary_output="true"/>
+            <discover_datasets pattern="(?P&lt;designation&gt;input\.tre\.iqtree)" format="txt" visible="true" directory="output"/>
+            <discover_datasets pattern="(?P&lt;designation&gt;input\.tre\.mldist)" format="mldist" visible="true" directory="output"/>
+            <!-- misc -->
+            <discover_datasets pattern="input_(?P&lt;designation&gt;.+\.aln)" format="fasta" visible="true" directory="output"/>
+            <discover_datasets pattern="(?P&lt;designation&gt;mutation_rates)\.tsv" format="tabular" visible="true" directory="output"/>
+            <!-- astral -->
+            <discover_datasets pattern="(?P&lt;designation&gt;gene_trees\.tre)" format="newick" visible="true" directory="output/tmp"/>
+        </data>
+        <collection name="mrates_collection" type="list" label="Mutation rate tables">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv\.bz2" format="tabular" visible="false" directory="output/mutation_rates"/>
+            <filter>mrate['mutation_rates'] and not mrate['discard_individual_tables']</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input">
+                <collection type="list">
+                    <element name="GCA_003236755_trunc.fna" ftype="fasta" value="GCA_003236755_trunc.fna"/>
+                    <element name="GCA_003236765_trunc.fna" ftype="fasta" value="GCA_003236765_trunc.fna"/>
+                    <element name="GCA_003236795_trunc.fna" ftype="fasta" value="GCA_003236795_trunc.fna"/>
+                    <element name="GCA_003236805_trunc.fna" ftype="fasta" value="GCA_003236805_trunc.fna"/>
+                </collection>
+            </param>
+            <conditional name="database">
+                <param name="source" value="history"/>
+                <param name="db_file" ftype="fasta" value="database_trunc.faa"/>
+            </conditional>
+            <conditional name="config">
+                <param name="analysis" value="supermatrix_aa"/>
+            </conditional>
+            <param name="diversity" value="low"/>
+            <param name="accuracy" value="false"/>
+            <section name="quality">
+                <param name="min_num_entries" value="1"/>
+                <param name="remove_fragmentary_entries" value="true"/>
+                <param name="fragmentary_threshold" value="0.67"/>
+            </section>
+            <conditional name="trimming">
+                <param name="trim" value="gap_trim"/>
+            </conditional>
+            <param name="force_nucleotides" value="true"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text_matching expression="\(.?(?:GCA_003236(?:805|755|765|795)_trunc:.+)+\):\d+\.\d+;"/>
+                </assert_contents>
+                <discovered_dataset designation="concatenated.aln"> <!-- ftype="txt" value="input_concatenated.aln" compare="contains" -->
+                    <assert_contents>
+                        <has_line_matching n="4" expression=">GCA_003236(?:805|755|765|795)_trunc"/>
+                        <has_n_lines n="736" delta="1"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input">
+                <collection type="list">
+                    <element name="GCA_000007905_truncated.fna" ftype="fasta" value="GCA_000007905_truncated.fna"/>
+                    <element name="GCA_000008525_truncated.fna" ftype="fasta" value="GCA_000008525_truncated.fna"/>
+                    <element name="GCA_000012345_truncated.fna" ftype="fasta" value="GCA_000012345_truncated.fna"/>
+                    <element name="GCA_000012965_truncated.fna" ftype="fasta" value="GCA_000012965_truncated.fna"/>
+                    <element name="GCA_000014865_truncated.fna" ftype="fasta" value="GCA_000014865_truncated.fna"/>
+                    <element name="GCA_000020825_truncated.fna" ftype="fasta" value="GCA_000020825_truncated.fna"/>
+                </collection>
+            </param>
+            <conditional name="database">
+                <param name="source" value="cache"/>
+                <param name="db_name" ftype="fasta" value="phylophlan_markers_filtered"/>
+            </conditional>
+            <conditional name="config">
+                <param name="analysis" value="custom_supermatrix"/>
+                <conditional name="db">
+                    <param name="type" value="a"/>
+                    <param name="db_aa" value="diamond"/>
+                    <param name="map_dna" value="diamond"/>
+                    <param name="map_aa" value="diamond"/>
+                </conditional>
+                <param name="msa" value="mafft"/>
+                <section name="tree">
+                    <param name="tree1" value="iqtree"/>
+                </section>
+            </conditional>
+            <param name="diversity" value="high"/>
+            <param name="accuracy" value="true"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text_matching expression="\(.?(?:GCA_0000(?:0790|0852|1234|1296|1486|2082)5_truncated:.+)+\);"/>
+                </assert_contents>
+                <discovered_dataset designation="concatenated.aln">
+                    <assert_contents>
+                        <has_line_matching n="6" expression=">GCA_0000(?:0790|0852|1234|1296|1486|2082)5_truncated"/>
+                        <has_n_lines n="18" delta="1"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="input.tre.treefile">
+                    <assert_contents>
+                        <has_text_matching expression="\(.?(?:GCA_0000(?:0790|0852|1234|1296|1486|2082)5_truncated:.+)+\);"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input">
+                <collection type="list">
+                    <element name="GCA_000007905_truncated.fna" ftype="fasta" value="GCA_000007905_truncated.fna"/>
+                    <element name="GCA_000008525_truncated.fna" ftype="fasta" value="GCA_000008525_truncated.fna"/>
+                    <element name="GCA_000012345_truncated.fna" ftype="fasta" value="GCA_000012345_truncated.fna"/>
+                    <element name="GCA_000012965_truncated.fna" ftype="fasta" value="GCA_000012965_truncated.fna"/>
+                    <element name="GCA_000014865_truncated.fna" ftype="fasta" value="GCA_000014865_truncated.fna"/>
+                    <element name="GCA_000020825_truncated.fna" ftype="fasta" value="GCA_000020825_truncated.fna"/>
+                </collection>
+            </param>
+            <conditional name="database">
+                <param name="source" value="history"/>
+                <param name="db_file" ftype="fasta" value="phylophlan_markers_filtered.faa.gz"/>
+            </conditional>
+            <conditional name="config">
+                <param name="analysis" value="custom_supertree"/>
+                <conditional name="maas">
+                    <param name="source" value="default"/> <!-- phylophlan.tsv -->
+                </conditional>
+                <conditional name="db">
+                    <param name="type" value="a"/>
+                    <param name="db_aa" value="diamond"/>
+                    <param name="map_dna" value="diamond"/>
+                    <param name="map_aa" value="diamond"/>
+                </conditional>
+                <param name="msa" value="mafft"/>
+                <section name="gene_tree">
+                    <param name="gene_tree1" value="fasttree"/>
+                </section>
+                <section name="tree">
+                    <param name="tree1" value="astral"/>
+                </section>
+            </conditional>
+            <param name="diversity" value="high"/>
+            <param name="accuracy" value="true"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text_matching expression="\(.?(?:GCA_0000(?:0790|0852|1234|1296|1486|2082)5_truncated.+){6}\);"/>
+                </assert_contents>
+                <discovered_dataset designation="gene_trees.tre">
+                    <assert_contents>
+                        <has_text_matching expression="\(.?(?:GCA_0000(?:0790|0852|1234|1296|1486|2082)5_truncated:.+)+\);"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+PhyloPhlAn is an integrated pipeline for large-scale phylogenetic profiling of genomes and metagenomes.
+It is an accurate, rapid, and easy-to-use method for large-scale microbial genome characterization and phylogenetic analysis at multiple levels of resolution.
+
+When using PhyloPhlAn 3, the user can customize each step of the pipeline to build the tree (marker genes identification,
+multiple sequence alignment, concatenation or gene trees inference, and phylogeny reconstruction).
+
+Required Inputs
+===============
+
+- **Input genomes and/or proteomes**: A collection of (compressed) FASTA files.
+  Genome and proteome inputs can be mixed. Files with `.fna` extensions are treated as genomes, and `.faa` as proteomes.
+- **Reference database of markers**: A multi-fasta file containing the marker sequences.
+- **Substitution models** (for the supertree pipeline): A mapping of amino acid markers to their respective RAxML substitution models.
+
+When both markers and inputs are nucleotides, the phylogenetic analysis will be done on nucleotides.
+Otherwise, it will proceed in translated sequence space (amino acids). If the inputs are all genomes,
+the user can decide to specify the --force_nucletides parameter to perform the phylogenetic analysis on nucleotides.
+
+Main Parameters
+===============
+
+- **Software Configuration**: Tune the pipeline according to the input and the type of markers in the database:
+
+  - Choose one of four predefined configurations for different database types and analysis pipelines.
+  - OR assemble a custom pipeline from available external software (make sure to select the appropriate database type).
+- **Diversity** (--diversity) and **Accuracy** (--accurate or --fast): Set default values for several parameters at once
+  (trimming, subsampling, fragmentary removal, etc.) in accordance with the expected diversity of the phylogeny to be built.
+  [See https://github.com/biobakery/phylophlan/wiki#accurate-or-fast-1]
+- **Input quality thresholds**: Specify minimum requirements to include inputs and markers in the analysis and how to deal with gaps in the MSA.
+- **Trimming strategy** (--trim): Strategy used to remove uninformative regions from MSAs.
+- **Subsampling** (--subsample): Controls how many phylogenetically relevant positions to retain per marker in the alignment. See https://github.com/biobakery/phylophlan/wiki#scoring-function for more information on the scoring functions and substitution matrices.
+- **Force nucleotides** (--force_nucleotides): Perform the phylogenetic analysis on nucleotides (Ignore proteomes in the input collection).
+- **Sort markers** (--sort): sort the markers and consider them in a specific order (used only for the supermatrix pipeline).
+- **Mutation rates**: Calculate a mutation rates table for the concatenated MSA.
+
+Generated Outputs
+=================
+
+The specific outputs depend on the type of analysis and the specific software configuration.
+
+**Supermatrix (FastTree / RAxML)**
+  - concatenated.aln: Final alignment.
+  - input.tre: Initial Approximately-Maximum-Likelihood Trees of the phylogeny.
+  - resolved.tre: Phylogeny with polytomies resolved.
+  - RAxML_log, RAxML_info: Information on the refinement and optimization history.
+  - RAxML_result, RAxML_bestTree: Final phylogenetic tree (refined).
+
+**Supermatrix (iqtree)**
+  - concatenated.aln: Final alignment.
+  - input.tre.bionj, input.tre.treefile: Reconstructed phylogeny.
+  - input.tre.mldist: Pairwise maximum likelihood distances as a matrix.
+  - input.tre.iqtree: Information on the analysis.
+
+**Supertree**
+  - gene_trees.tre: Gene trees before constructing the phylogeny.
+  - input.tre: Final unrooted species tree.
+
+**Mutation rates**
+  - mutation_rates: Summary mutation rates table.
+
+Notes
+=====
+
+This version of the tool is missing some of the functionality of the original PhyloPhlAn pipeline, such as
+
+- the external tools Opal and UPP as well as support for tool configurations files with custom parameters.
+- using aligned markers from StrainPhlAn.
+
+Please don't hesitate to contact the tool maintainer should you need these options.
+
+To add additional reference databases contact your Galaxy administrator.
+
+Additional Resources
+====================
+
+PhyloPhlAn GitHub: https://github.com/biobakery/phylophlan
+
+For further analysis you might consider the other tools of the PhyloPhlAn tool suite:
+
+- phylophlan_assign_sgbs: Reports the closest species-level genome bins.
+- phylophlan_strain_finder: Perform analysis on trees built with phylophlan.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
