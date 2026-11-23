@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+import nh3
+
 # whoosh (a transitive dep of Galaxy's source_store) emits SyntaxWarnings on
 # Python 3.12+ for invalid regex escapes in its source. They're harmless and
 # come from third-party code we can't fix, so suppress them before importing.
@@ -128,8 +130,18 @@ class _HelpHtmlSanitizer(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip_object_text_depth = 0
+        # Pending docutils <object type="image/svg+xml">: (src, collected text).
+        self._svg_object: tuple[str, list[str]] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._svg_object is not None:
+            return  # drop markup nested in the object's fallback content
+        if tag == "object":
+            attrs_by_name = {name: value or "" for name, value in attrs}
+            src = _sanitize_help_url(attrs_by_name.get("data", ""))
+            if src and attrs_by_name.get("type", "").strip().lower() == "image/svg+xml":
+                self._svg_object = (src, [])
+                return
         formatted, stripped_data = self._format_starttag(tag, attrs, close=False)
         self.parts.append(formatted)
         if tag == "object" and stripped_data:
@@ -140,6 +152,15 @@ class _HelpHtmlSanitizer(HTMLParser):
         self.parts.append(formatted)
 
     def handle_endtag(self, tag: str) -> None:
+        if self._svg_object is not None:
+            if tag == "object":
+                # SVG help images become plain <img>: a browser would otherwise embed whatever
+                # document the URL serves, whatever the declared type.
+                src, text = self._svg_object
+                self._svg_object = None
+                alt = "".join(text).strip() or urlsplit(src).path.rsplit("/", 1)[-1]
+                self.parts.append(f'<img src="{html.escape(src, quote=True)}" alt="{html.escape(alt, quote=True)}">')
+            return
         if self._skip_object_text_depth:
             if tag == "object":
                 self._skip_object_text_depth = 0
@@ -148,6 +169,9 @@ class _HelpHtmlSanitizer(HTMLParser):
         self.parts.append(f"</{tag}>")
 
     def handle_data(self, data: str) -> None:
+        if self._svg_object is not None:
+            self._svg_object[1].append(data)
+            return
         if self._skip_object_text_depth:
             return
         self.parts.append(html.escape(data, quote=False))
@@ -167,6 +191,8 @@ class _HelpHtmlSanitizer(HTMLParser):
         for name, value in attrs:
             if name in {"data", "href", "src"}:
                 value = _sanitize_help_url(value or "")
+                if name == "data" and tag == "object":
+                    value = None  # SVG objects are rewritten to <img> in handle_starttag
                 if value is None:
                     stripped_data = stripped_data or name == "data"
                     continue
@@ -182,11 +208,66 @@ class _HelpHtmlSanitizer(HTMLParser):
         return f"<{tag}{suffix}>", stripped_data
 
 
+# Allowlist for rendered tool help (docutils html4css1 + Python-Markdown output).
+_HELP_ALLOWED_TAGS = {
+    "a", "abbr", "b", "big", "blockquote", "br", "caption", "cite", "code", "col", "colgroup", "dd", "del",
+    "dfn", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "ins", "kbd", "li",
+    "ol", "p", "pre", "q", "s", "samp", "small", "span", "strong", "sub", "sup", "table", "tbody",
+    "td", "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var",
+}
+_HELP_ATTRIBUTES = {
+    "*": {"align", "dir", "id", "lang", "title"},
+    "a": {"href"},
+    "col": {"span", "width"},
+    "img": {"alt", "height", "src", "width"},
+    "ol": {"start", "type"},
+    "table": {"border", "width"},
+    "td": {"colspan", "rowspan"},
+    "th": {"colspan", "rowspan", "scope"},
+}
+# docutils html4css1, Pygments short names and Galaxy help markers; none is a site CSS utility class.
+_HELP_CLASSES = {
+    "admonition", "admonition-title", "align-center", "align-left", "align-right", "arabic", "attention",
+    "attribution", "caution", "citation", "classifier", "classifier-delimiter", "code", "danger",
+    "denominator", "description", "docutils", "double", "error", "external", "field", "field-body",
+    "field-list", "field-name", "figure", "first", "footnote", "footnote-reference", "formula", "fraction",
+    "head", "hint", "ignored", "important", "infomark", "integer", "internal", "last", "line", "line-block",
+    "literal", "literal-block", "loweralpha", "lowerroman", "mark", "name", "note", "number", "numerator",
+    "option", "option-group", "option-list", "pre", "punctuation", "reference", "rubric", "section",
+    "simple", "string", "tag", "target", "text", "tip", "topic", "topic-title", "upperalpha", "upperroman",
+    "warning", "warningmark", "whitespace",
+}
+_HELP_ALLOWED_CLASSES = {tag: _HELP_CLASSES for tag in _HELP_ALLOWED_TAGS}
+_HELP_URL_SCHEMES = {"http", "https", "mailto", "ftp"}
+# Help ids share the tool page's id namespace, so they are prefixed and in-help fragment links follow.
+_HELP_ID_PREFIX = "help-"
+
+
+def _help_attribute_filter(tag: str, attr: str, value: str) -> str | None:
+    if attr == "class":
+        # allowed_classes alone would leave an empty class="" behind.
+        return " ".join(name for name in value.split() if name in _HELP_CLASSES) or None
+    # Mirrors id_prefix, which leaves ids that already carry the prefix unchanged.
+    if tag == "a" and attr == "href" and value.startswith("#") and len(value) > 1:
+        if not value[1:].startswith(_HELP_ID_PREFIX):
+            return f"#{_HELP_ID_PREFIX}{value[1:]}"
+    return value
+
+
 def _sanitize_help_html(rendered: str) -> str:
     sanitizer = _HelpHtmlSanitizer()
     sanitizer.feed(rendered)
     sanitizer.close()
-    return "".join(sanitizer.parts)
+    # Final authority: strips script/style/iframe, on* handlers and javascript: URLs.
+    return nh3.clean(
+        "".join(sanitizer.parts),
+        tags=_HELP_ALLOWED_TAGS,
+        attributes=_HELP_ATTRIBUTES,
+        allowed_classes=_HELP_ALLOWED_CLASSES,
+        attribute_filter=_help_attribute_filter,
+        id_prefix=_HELP_ID_PREFIX,
+        url_schemes=_HELP_URL_SCHEMES,
+    )
 
 
 def _render_help(text: str, fmt: str | None) -> str:
