@@ -65,17 +65,14 @@ class FrontendContractsTests(unittest.TestCase):
         self.assertIn("cd astro && npx pagefind --site dist", justfile)
         self.assertIn("cd astro && (npx astro preview", justfile)
 
-    def test_fork_pages_deploy_does_not_use_protected_environment(self) -> None:
+    def test_pages_deploy_uses_upstream_protected_environment(self) -> None:
         workflow = (ROOT.parent / ".github" / "workflows" / "website.yml").read_text(encoding="utf-8")
-        canonical_job = workflow.split("  deploy-pages:", 1)[1].split("  deploy-pages-fork:", 1)[0]
-        fork_job = workflow.split("  deploy-pages-fork:", 1)[1]
+        canonical_job = workflow.split("  deploy-pages:", 1)[1]
 
         self.assertIn("github.repository == 'galaxyproject/tools-iuc'", canonical_job)
         self.assertIn("environment:", canonical_job)
         self.assertIn("timeout: 600000", canonical_job)
-        self.assertIn("github.repository == 'bgruening/tools-iuc'", fork_job)
-        self.assertNotIn("environment:", fork_job)
-        self.assertIn("timeout: 600000", fork_job)
+        self.assertNotIn("deploy-pages-fork:", workflow)
 
     def test_workflow_does_not_publish_generated_data_to_gh_pages(self) -> None:
         workflow = (ROOT.parent / ".github" / "workflows" / "website.yml").read_text(encoding="utf-8")

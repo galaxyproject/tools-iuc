@@ -100,7 +100,10 @@ def extract_tool_availability() -> dict[str, Any]:
 
     import concurrent.futures
 
+    cached = read_yaml(out_path) if out_path.exists() else {}
+    previous_servers = (cached or {}).get("servers", {})
     result: dict[str, Any] = {"servers": {}, "fetched_at": datetime.now(UTC).isoformat()}
+    n_ok = 0
 
     def _fetch_one(srv):
         name = srv["name"]
@@ -112,6 +115,7 @@ def extract_tool_availability() -> dict[str, Any]:
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(servers)) as pool:
         for name, url, fetched in pool.map(_fetch_one, servers):
             if fetched is not None:
+                n_ok += 1
                 tool_ids, repos = fetched
                 result["servers"][name] = {
                     "url": url,
@@ -122,10 +126,15 @@ def extract_tool_availability() -> dict[str, Any]:
                 }
                 print(f"    {name}: {len(tool_ids)} tools, {len(repos)} repos", flush=True)
             else:
-                print(f"    {name}: skipping (unreachable)", flush=True)
+                # Keep last-known results, but retry on the next build rather
+                # than marking this incomplete refresh as fresh for seven days.
+                result.pop("fetched_at", None)
+                previous = previous_servers.get(name)
+                if previous and previous.get("url") == url:
+                    result["servers"][name] = previous
+                print(f"    {name}: unreachable (retaining any previous results)", flush=True)
 
     write_yaml(DATA_DIR / "tool_availability.yaml", result)
-    n_ok = len(result["servers"])
     step_done(
         "Fetching tool availability",
         f"{n_ok}/{len(servers)} servers reachable",

@@ -203,6 +203,8 @@ def _render_help(text: str, fmt: str | None) -> str:
             import docutils.core
             import docutils.utils
             settings_overrides = {
+                "raw_enabled": False,
+                "file_insertion_enabled": False,
                 "embed_stylesheet": False,
                 "doctitle_xform": False,
                 "halt_level": docutils.utils.Reporter.SEVERE_LEVEL + 1,

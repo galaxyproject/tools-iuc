@@ -176,6 +176,8 @@ Installed from upstream git via `pyproject.toml` (no manual checkout or
 
 ## Caching
 
+Only upstream main builds save caches; pull requests can restore them.
+
 - **rse-content** — cloned (blobless) to `website/.rse-content/`, refreshed via
   `git pull` on subsequent runs. CI caches this directory.
 - **uv venv** — CI caches the venv keyed by `pyproject.toml` hash.
@@ -185,12 +187,12 @@ Installed from upstream git via `pyproject.toml` (no manual checkout or
 - **Git history** — `.history-cache/history.sqlite` is restored independently
   with `actions/cache/restore`, updated, closed, and saved with
   `actions/cache/save` before data extraction or Astro runs. Keys use the history
-  schema version, runner OS, commit SHA, and run ID/attempt; prefixes restore
+  schema version, runner OS, and commit SHA; prefixes restore
   the latest compatible checkpoint within GitHub's branch cache scope. Only
   changed or rebuilt indexes are uploaded, so unchanged daily builds do not
-  duplicate the database. Unique save keys also allow a corrupt cache entry
-  to be replaced by a later valid snapshot without overwriting immutable keys. A later website
-  failure therefore does not discard a completed index update.
+  duplicate the database. A later website failure therefore does not discard a
+  completed index update. Delete a corrupt entry from the GitHub Actions cache
+  before rerunning if it needs to be replaced at the same commit.
 - **Tool update dates** — read from the same index; metadata extraction does
   not run a second full-history Git log.
 - **Stats** — `data/stats/tool_events.json` is exported from cached version

@@ -31,6 +31,7 @@ def _slim_repo(r: dict[str, Any]) -> dict[str, Any]:
 def extract_toolshed() -> int:
     step("Pulling ToolShed repository index")
     ts = ToolShedInstance(url=TS_URL)
+    ts.max_get_attempts = 3
     # get_repositories is paginated server-side; bioblend fetches all.
     repos = ts.repositories.get_repositories()
     slim = [_slim_repo(r) for r in repos if r.get("name") and r.get("owner")]

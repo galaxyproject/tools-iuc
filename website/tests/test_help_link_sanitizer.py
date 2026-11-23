@@ -1,11 +1,33 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from pipeline.extract_tools import _render_help
 
 
 class HelpLinkSanitizerTests(unittest.TestCase):
+    def test_rst_disables_raw_html(self) -> None:
+        html = _render_help(
+            "Normal **help**.\n\n.. raw:: html\n\n    <script>alert('raw')</script>",
+            "restructuredtext",
+        )
+
+        self.assertIn("<strong>help</strong>", html)
+        self.assertNotIn("<script>", html)
+
+    def test_rst_cannot_include_local_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "private.txt"
+            source.write_text("private-file-content", encoding="utf-8")
+            html = _render_help(
+                f"Normal **help**.\n\n.. include:: {source}", "restructuredtext",
+            )
+
+        self.assertIn("<strong>help</strong>", html)
+        self.assertNotIn("private-file-content", html)
+
     def test_removes_placeholder_image_sources_from_rendered_markdown(self) -> None:
         html = _render_help(
             "![example]($PATH_TO_IMAGES/example.png)\n"
