@@ -65,8 +65,21 @@ ${section.missing_to_ref}
   --merge 'both,${section.unobserved}'
 #end if
 
-#if $section.missing_rules:
-  --missing-rules '${section.missing_rules}'
+#if str($section.missing_rules.missing_rules_selector) == "none":
+  --missing-rules '-'
+#elif str($section.missing_rules.missing_rules_selector) == "custom":
+  #set $m_rules_list = []
+  #for $r in $section.missing_rules.rules:
+    #set $tags = str($r.tag).strip().split(',')
+    #for $t in $tags:
+      #if $t.strip():
+        #silent $m_rules_list.append($t.strip() + ':' + str($r.replacement))
+      #end if
+    #end for
+  #end for
+  #if $m_rules_list:
+    --missing-rules '#echo ",".join($m_rules_list)#'
+  #end if
 #end if
 
 ## Restrict section
@@ -90,7 +103,18 @@ ${section.missing_to_ref}
     <inputs>
         <expand macro="macro_inputs"/>
         <section name="sec_merge" expanded="true" title="Merge Options">
-            <param name="merge" type="select" label="Merge multiallelic records" optional="True" help="Controls what types of multiallelic records can be created (-m)">
+            <param name="merge" type="select" label="Merge multiallelic records" optional="True">
+                <help><![CDATA[
+Controls what types of multiallelic records can be created when the same site appears in multiple files (-m):
+- <strong>None</strong>: No new multiallelic records are created; separate records are output instead.
+- <strong>Snps</strong>: Allow multiallelic SNP records.
+- <strong>Indels</strong>: Allow multiallelic indel records.
+- <strong>Both</strong>: Both SNP and indel records can be multiallelic (default).
+- <strong>Snp-ins-del</strong>: Allow multiallelic SNVs, insertions, deletions, but don't mix them.
+- <strong>All</strong>: Allow any variant records to be merged together (e.g. SNVs with indels).
+- <strong>Exact</strong>: Allow multiallelic records only when REF and ALT alleles match exactly.
+- <strong>Id</strong>: Merge records matching on the ID column.
+                ]]></help>
                 <option value="none">None</option>
                 <option value="snps">Snps</option>
                 <option value="indels">Indels</option>
@@ -119,8 +143,8 @@ ${section.missing_to_ref}
                 </when>
             </conditional>
             <conditional name="info_rules">
-                <param name="info_rules_selector" type="select" label="Rules for merging INFO fields" help="Rules for merging INFO fields or '-' to turn off the default [DP:sum,DP4:sum] (-i, --info-rules)">
-                    <option value="default" selected="true">Default rules [DP:sum,DP4:sum]</option>
+                <param name="info_rules_selector" type="select" label="Rules for merging INFO fields" help="Rules for merging INFO fields or '-' to turn off the defaults [DP:sum,DP4:sum, or QS:sum,MinDP:min,MIN_DP:min,I16:sum,IDV:max,IMF:max when gVCF merging is active] (-i, --info-rules)">
+                    <option value="default" selected="true">Default rules (DP:sum,DP4:sum or "QS:sum,MinDP:min..." with gVCF)</option>
                     <option value="none">Turn off default rules (-)</option>
                     <option value="custom">Define custom rules</option>
                 </param>
@@ -128,7 +152,9 @@ ${section.missing_to_ref}
                 <when value="none"/>
                 <when value="custom">
                     <repeat name="rules" title="Rule" min="1">
-                        <param name="tag" type="text" label="INFO tag(s)" help="Name of the INFO tag, e.g. DP, TR, AC. Multiple tags using the same method can be separated with commas (e.g. TR,TA,TG)."/>
+                        <param name="tag" type="text" label="INFO tag(s)" help="Name of the INFO tag, e.g. DP, TR, AC. Multiple tags using the same method can be separated with commas (e.g. TR,TA,TG).">
+                            <validator type="regex" message="Tag names must start with a letter or underscore and contain only alphanumeric, underscore, or dot characters (e.g. DP or TR,TA,TG)">^\s*[A-Za-z_][A-Za-z0-9_.]*(\s*,\s*[A-Za-z_][A-Za-z0-9_.]*)*\s*$</validator>
+                        </param>
                         <param name="method" type="select" label="Merge Method" help="Method used to combine values across files">
                             <option value="sum" selected="true">Sum</option>
                             <option value="avg">Avg</option>
@@ -139,7 +165,27 @@ ${section.missing_to_ref}
                     </repeat>
                 </when>
             </conditional>
-            <param name="missing_rules" type="text" value="" optional="true" label="Missing Rules" help="Rules for replacing missing values in numeric vectors (.,0,max) when unknown allele is not present (-M)"/>
+            <conditional name="missing_rules">
+                <param name="missing_rules_selector" type="select" label="Rules for replacing missing values in numeric vectors" help="Rules for replacing missing values when unknown allele is not present (-M, --missing-rules)">
+                    <option value="default" selected="true">Default rules (. or "PL:max,AD:0" with gVCF)</option>
+                    <option value="none">Reset to missing dot (-)</option>
+                    <option value="custom">Define custom missing rules</option>
+                </param>
+                <when value="default"/>
+                <when value="none"/>
+                <when value="custom">
+                    <repeat name="rules" title="Rule" min="1">
+                        <param name="tag" type="text" label="FORMAT tag(s)" help="Name of the FORMAT tag, e.g. DP, PL, AD. Multiple tags using the same replacement can be separated with commas (e.g. PL,AD).">
+                            <validator type="regex" message="Tag names must start with a letter or underscore and contain only alphanumeric, underscore, or dot characters (e.g. DP or PL,AD)">^\s*[A-Za-z_][A-Za-z0-9_.]*(\s*,\s*[A-Za-z_][A-Za-z0-9_.]*)*\s*$</validator>
+                        </param>
+                        <param name="replacement" type="select" label="Replacement value" help="Value to substitute for missing vector entries">
+                            <option value="." selected="true">. (Missing dot)</option>
+                            <option value="max">max (Maximum value)</option>
+                            <option value="0">0 (Zero)</option>
+                        </param>
+                    </repeat>
+                </when>
+            </conditional>
             <param name="local_alleles" type="integer" value="0" min="0" label="Local Alleles limit" help="If more than INT alt alleles are encountered, drop FMT/PL and output LAA+LPL instead; 0=unlimited (-L)"/>
             <param name="force_samples" type="boolean" truevalue="--force-samples" falsevalue="" label="Force Samples" help="Resolve duplicate sample names"/>
             <param name="force_single" type="boolean" truevalue="--force-single" falsevalue="" label="Force Single" help="Run even if only one file is given on input"/>
@@ -276,7 +322,13 @@ ${section.missing_to_ref}
                     <param name="gvcf_merge" value="without_ref"/>
                 </conditional>
                 <param name="local_alleles" value="1"/>
-                <param name="missing_rules" value="DP:max"/>
+                <conditional name="missing_rules">
+                    <param name="missing_rules_selector" value="custom"/>
+                    <repeat name="rules">
+                        <param name="tag" value="DP"/>
+                        <param name="replacement" value="max"/>
+                    </repeat>
+                </conditional>
             </section>
             <section name="sec_restrict">
                 <param name="apply_filters" value="PASS"/>
@@ -333,23 +385,31 @@ gVCF Merging (``-g``)
 ---------------------
 
 Merges non-variant block records produced by haplotype callers (e.g. GATK HaplotypeCaller or DeepVariant) where an ``INFO/END`` tag is present.
-.. note::
-   Using ``--gvcf`` automatically activates the following default rules:
-   * **INFO rules:** ``-i QS:sum,MinDP:min,I16:sum,IDV:max,IMF:max``
-   * **Missing rules:** ``-M PL:max,AD:0``
+note::
+   Using `--gvcf` automatically activates the following default rules:
+   * INFO rules: -i QS:sum,MinDP:min,MIN_DP:min,I16:sum,IDV:max,IMF:max
+   * Missing rules: -M PL:max,AD:0
 
 Merging and Missing Rules (``-i`` and ``-M``)
 ---------------------------------------------
 
-* **Info rules (``-i TAG:METHOD``):** Defines how to combine values of an INFO field across files.
+* **Info rules (-i TAG:METHOD):** Defines how to combine values of an INFO field across files.
   Supported methods:
-  * ``sum``: Sum numeric values.
-  * ``avg``: Average numeric values.
-  * ``min``: Keep the minimum numeric value.
-  * ``max``: Keep the maximum numeric value.
-  * ``join``: Concatenate values (strings or lists).
-  * ``-``: Turn off default rules (by default ``DP:sum,DP4:sum`` are applied).
-* **Missing rules (``-M TAG:METHOD``):** Defines replacement values for numeric vector tags when an allele is not observed in a sample (``.`` for missing, ``0`` or constant number, or ``max``).
+  * **sum**: Sum numeric values.
+  * **avg**: Average numeric values.
+  * **min**: Keep the minimum numeric value.
+  * **max**: Keep the maximum numeric value.
+  * **join**: Concatenate values (strings or lists).
+
+  Use ``-i -`` to turn off all default INFO rules.
+
+* **Missing rules (-M TAG:REPLACEMENT):** Defines replacement values for numeric vector FORMAT tags when an allele is not observed in a sample.
+  Supported replacements:
+  * **.**: Replace with missing dot (default in standard merge).
+  * **max**: Replace with the maximum observed value.
+  * **0**: Replace with zero.
+
+  Use ``-M -`` to reset rules to ``PL:.,AD:.``.
 
 @REGIONS_HELP@
 
