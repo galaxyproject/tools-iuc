@@ -1,0 +1,181 @@
+<tool id="itbins" name="itBins" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>curate metagenome-assembled genomes using GC content, coverage and taxonomy</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="aggressive"><![CDATA[
+        sed
+            #if $advanced.dastool_column
+                -e "s|__DASTOOL_COLUMN__|\$(head -n 1 '$bins' | cut -f $advanced.dastool_column)|"
+            #else
+                -e "s|__DASTOOL_COLUMN__|Bin|"
+            #end if
+            #if $advanced.ubin_column
+                -e "s|__UBIN_COLUMN__|\$(head -n 1 '$bins' | cut -f $advanced.ubin_column)|"
+            #else
+                -e "s|__UBIN_COLUMN__|curated|"
+            #end if
+            '$tasks_template' > 'tasks.json' &&
+        itbins
+            -b '$bins'
+            -g '$genes'
+            -o 'itBins_output.tsv'
+            --estimate 'itBins_estimate.tsv'
+            -s 'itBins_summary.tsv'
+            --log-to-stderr
+            -t 'tasks.json'
+            #if str($advanced.scaffold_prefix).strip()
+                --scaff_prefix '$advanced.scaffold_prefix'
+            #end if
+            #if str($advanced.bin_prefix).strip()
+                --bin_prefix '$advanced.bin_prefix'
+            #end if
+    ]]></command>
+    <configfiles>
+        <configfile name="tasks_template"><![CDATA[
+{
+    "version": "@TOOL_VERSION@",
+    "flags": {
+        "d": "__DASTOOL_COLUMN__",
+        "u": "__UBIN_COLUMN__"
+    },
+    "parameters": {
+        "min_runs": $advanced.curation.min_runs,
+        "max_runs": $advanced.curation.max_runs,
+        "BSE_minimum_coverage": 7,
+        "archaeal_set": "default",
+        "bacterial_set": "default"
+    },
+    "tasks": {
+        "task_00": {"todo": "FAST_entry"},
+        "task_01": {"todo": "check_eukarya", "cutoff": $advanced.curation.eukarya_cutoff},
+        "task_02": {"todo": "comp_cutoff", "cutoff": $advanced.curation.completeness_cutoff, "break": true},
+        "task_03": {"todo": "tax_prep", "remove_viruses": true, "remove_eukarya": true, "remove_bacteria": false, "remove_archaea": false, "remove_unclassified": false, "remove_other": false, "remove_ab_low_comp": true},
+        "task_04": {"todo": "peaklist", "type_of_peaklist": "GC"},
+        "task_05": {"todo": "pick_peak", "type_of_peaklist": "GC"},
+        "task_06": {"todo": "expand_to_baseline", "type_of_peaklist": "GC"},
+        "task_07": {"todo": "limit_peak", "fixed_radius": $advanced.curation.gc_radius, "linear_position_radius": 0, "linear_bin_size_radius": 0, "type_of_peaklist": "GC"},
+        "task_08": {"todo": "peaklist", "type_of_peaklist": "Cov"},
+        "task_09": {"todo": "pick_peak", "type_of_peaklist": "Cov"},
+        "task_10": {"todo": "expand_to_baseline", "type_of_peaklist": "Cov"},
+        "task_11": {"todo": "limit_peak", "fixed_radius": $advanced.curation.coverage_radius, "linear_position_radius": $advanced.curation.coverage_position_radius, "linear_bin_size_radius": 0, "type_of_peaklist": "Cov"},
+        "task_12": {"todo": "tax_drop", "drop_level": $advanced.curation.taxonomy_drop_level, "max_length": 1e-08, "drop_if_pos": true},
+        "task_13": {"todo": "append_remainder", "suffix": "$advanced.curation.remainder_suffix", "reframe": true, "recheck": true},
+        "task_14": {"todo": "cont_cutoff", "cutoff": $advanced.curation.contamination_cutoff, "break": true},
+        "task_15": {"todo": "comp_cutoff", "cutoff": $advanced.curation.completeness_cutoff, "break": true},
+        "task_16": {"todo": "FAST_exit"},
+        "task_17": {"todo": "metrics"},
+        "task_18": {"todo": "stop"}
+    }
+}
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="bins" type="data" format="tabular" label="Bin overview table" help="Tab-separated table with a header and the columns scaffold, length, GC, coverage, taxonomy and the column with the bin assignments. It is the same overview file that is used by uBin."/>
+        <param name="genes" type="data" format="csv" label="Single copy gene table" help="Comma-separated table with a header, the column scaffolds and one column per single copy gene. Contigs without single copy genes must be listed with zeros."/>
+        <section name="advanced" title="Advanced Options" expanded="false">
+            <param name="dastool_column" type="data_column" data_ref="bins" use_header_names="true" optional="true" label="Column with the uncurated bin assignments" help="Column of the overview table that contains the bin names of the uncurated bins, e.g. the bin column of a DAS Tool result. If no column is selected, the column named Bin is used."/>
+            <param name="ubin_column" type="data_column" data_ref="bins" use_header_names="true" optional="true" label="Column with previously curated bin assignments" help="Column of the overview table that contains bin assignments of an earlier curation. Leave empty if the table has no such column, e.g. for the first curation of a binning."/>
+            <param name="scaffold_prefix" type="text" optional="true" label="Prefix for scaffold names" help="Prefix attached to the scaffold names in the output, e.g. a sample name followed by an underscore. Useful when the output of several samples is combined.">
+                <validator type="regex" message="Use letters, digits, dots, dashes and underscores only.">^[A-Za-z0-9._-]*$</validator>
+            </param>
+            <param name="bin_prefix" type="text" optional="true" label="Prefix for bin names" help="Prefix attached to the bin names in the output, e.g. a sample name followed by an underscore. Useful when the output of several samples is combined.">
+                <validator type="regex" message="Use letters, digits, dots, dashes and underscores only.">^[A-Za-z0-9._-]*$</validator>
+            </param>
+            <section name="curation" title="Curation Settings" expanded="false" help="Settings of the individual curation tasks. The defaults are the settings that itBins uses when it is run without a task file.">
+                <param name="min_runs" type="integer" min="0" value="0" label="Minimum number of curation runs" help="Number of curation runs a bin has to pass before the best result is accepted; 0 lets itBins decide."/>
+                <param name="max_runs" type="integer" min="0" value="0" label="Maximum number of curation runs" help="Upper limit for the number of curation runs per bin; 0 lets itBins decide."/>
+                <param name="completeness_cutoff" type="float" min="0" max="1" value="0.7" label="Completeness cutoff" help="Bins with a lower estimated completeness are removed."/>
+                <param name="contamination_cutoff" type="float" min="0" max="1" value="0.1" label="Contamination cutoff" help="Bins with a higher estimated contamination are removed."/>
+                <param name="eukarya_cutoff" type="float" min="0" max="1" value="0.1" label="Eukaryotic fraction cutoff" help="Contigs with at least this fraction of eukaryotic marker genes are removed as eukaryotic contamination."/>
+                <param name="gc_radius" type="integer" min="0" value="7" label="GC content radius" help="Half width of the GC content window (in percent) used to restrict a bin to its GC content peak."/>
+                <param name="coverage_radius" type="integer" min="0" value="10" label="Coverage radius" help="Half width of the coverage window (in fold coverage) used to restrict a bin to its coverage peak."/>
+                <param name="coverage_position_radius" type="float" min="0" value="0.05" label="Coverage position radius" help="Half width of the coverage window as a fraction of the coverage of the bin, an additional limit for bins with a high coverage."/>
+                <param name="taxonomy_drop_level" type="integer" min="1" value="1" label="Taxonomic level for outlier removal" help="Rank at which contigs with a different taxonomy are removed from a bin, counted from the domain (1 = domain, 2 = phylum, ...)."/>
+                <param name="remainder_suffix" type="text" value="_remainder" label="Suffix for remainder bins" help="Suffix of the bins that are split off a bin.">
+                    <validator type="regex" message="Use letters, digits, dots, dashes and underscores only.">^[A-Za-z0-9._-]+$</validator>
+                </param>
+            </section>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="curated_bins" format="tabular" label="${tool.name} on ${on_string}: curated bin assignments" from_work_dir="itBins_output.tsv"/>
+        <data name="summary" format="tabular" label="${tool.name} on ${on_string}: bin summary" from_work_dir="itBins_summary.tsv"/>
+        <data name="estimate" format="tabular" label="${tool.name} on ${on_string}: binning success estimation" from_work_dir="itBins_estimate.tsv"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="bins" value="overview.tsv" ftype="tabular"/>
+            <param name="genes" value="SCGs.csv" ftype="csv"/>
+            <output name="curated_bins" file="itbins_output.tsv"/>
+            <output name="summary" file="itbins_summary.tsv"/>
+            <output name="estimate" file="itbins_estimate.tsv"/>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="bins" value="overview.tsv" ftype="tabular"/>
+            <param name="genes" value="SCGs.csv" ftype="csv"/>
+            <section name="advanced">
+                <param name="dastool_column" value="6"/>
+                <section name="curation">
+                    <param name="max_runs" value="1"/>
+                </section>
+            </section>
+            <output name="curated_bins" file="itbins_output_maxruns1.tsv"/>
+            <output name="summary" file="itbins_summary_maxruns1.tsv"/>
+            <output name="estimate" file="itbins_estimate_maxruns1.tsv"/>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="bins" value="overview.tsv" ftype="tabular"/>
+            <param name="genes" value="SCGs.csv" ftype="csv"/>
+            <section name="advanced">
+                <param name="scaffold_prefix" value="sample_"/>
+                <param name="bin_prefix" value="s_"/>
+            </section>
+            <output name="curated_bins" file="itbins_output_prefixed.tsv"/>
+            <output name="summary" file="itbins_summary_prefixed.tsv"/>
+            <output name="estimate" file="itbins_estimate.tsv"/>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**itBins**
+
+itBins is a fast command line tool for the automated curation of metagenome-assembled genomes (MAGs). It refines an existing binning using the GC content, the coverage and the taxonomic affiliation of the contigs of each bin. For every bin it tries a series of curation tasks (e.g. removing taxonomic outliers, restricting the bin to the GC and coverage peak of the majority of its contigs, splitting off a remainder bin) and keeps the changes that improve the estimated quality of the bin. Bins that do not reach the minimum completeness are removed.
+
+itBins is the automated counterpart of the interactive bin curation tool uBin and uses the same input files.
+
+-----
+
+**Input**
+
+- **Bin overview table**: tab-separated table with a header and the columns
+
+  | column | content |
+  | --- | --- |
+  | `scaffold` | contig name |
+  | `length` | contig length in bp |
+  | `GC` | GC content in percent |
+  | `coverage` | average per-base coverage |
+  | `taxonomy` | taxonomy of the contig, `;`-separated ranks, e.g. `bacteria;Pseudomonadota;...` |
+  | bin column | name of the bin the contig was assigned to, e.g. by DAS Tool |
+
+- **Single copy gene table**: comma-separated table with a header, the column `scaffolds` and one column per single copy gene. The default bacterial (51) and archaeal (38) marker gene sets of itBins must be present. Contigs without single copy genes must still be listed, with zeros.
+
+-----
+
+**Output**
+
+- **Curated bin assignments**: the overview table with the original bin assignments and the new bin assignments of itBins. Contigs that were removed from a bin are assigned to `none`; contigs split off a bin are reported in a new bin with the suffix `_remainder`.
+- **Bin summary**: completeness, contamination and score of every bin before and after curation, together with the estimated improvement and a flag whether the bin was curated, split or removed.
+- **Binning success estimation**: fraction of the assembled base pairs and of the single copy marker genes that are assigned to a bin.
+
+-----
+
+**Notes**
+
+- A bin is only kept if its completeness is above the completeness cutoff (0.7 by default) and its contamination below the contamination cutoff (0.1 by default), so an input binning with many low quality bins can lose most of its bins. Both cutoffs and the settings of the individual curation tasks can be changed in the curation settings.
+- Progress messages are written to stderr; the tool writes no output to stdout.
+- For a tabular result without the removed contigs, filter the curated bin assignments on the bin column.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
