@@ -1,0 +1,221 @@
+<tool id="gunc_run" name="GUNC" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>detect chimerism and contamination in prokaryotic genomes</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xrefs"/>
+    <expand macro="requirements"/>
+    <version_command>gunc --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+#set $names = []
+mkdir -p inputs out tmp levels contigs &&
+#for $f in $input_type.input:
+    #set $name = re.sub(r'\.(fa|fasta|fna|faa)(\.gz)?$', '', str($f.element_identifier))
+    #set $name = re.sub(r'[^\w\-\.]', '_', $name)
+    #silent $names.append($name)
+    #if $f.ext.endswith('.gz'):
+        gzip -cd '$f' > 'inputs/${name}.gunc_in' &&
+    #else:
+        ln -s '$f' 'inputs/${name}.gunc_in' &&
+    #end if
+    echo 'inputs/${name}.gunc_in' >> inputs.txt &&
+#end for
+
+#if $database.source == 'cached':
+    #set $db_file = $database.db.fields.path
+#else:
+    ln -s '$database.db_file' gunc_custom_db.dmnd &&
+    #set $db_file = 'gunc_custom_db.dmnd'
+#end if
+
+gunc run
+    #if $input_type.type == 'proteins':
+        --gene_calls
+    #end if
+    --input_file inputs.txt
+    --file_suffix .gunc_in
+    --db_file '$db_file'
+    #if $database.source == 'history':
+        --custom_genome2taxonomy '$database.custom_genome2taxonomy'
+    #end if
+    --threads \${GALAXY_SLOTS:-1}
+    --out_dir out
+    --temp_dir tmp
+    $sensitive
+    $use_species_level
+    --min_mapped_genes $min_mapped_genes
+    #if 'levels' in str($outputs).split(','):
+        --detailed_output
+    #end if
+    #if 'contigs' in str($outputs).split(','):
+        --contig_taxonomy_output
+    #end if
+&& db=\$(basename out/GUNC.*.maxCSS_level.tsv .maxCSS_level.tsv)
+&& db=\${db\#GUNC.}
+&& mv "out/GUNC.\${db}.maxCSS_level.tsv" maxcss.tsv
+#for $name in $names:
+    #if 'levels' in str($outputs).split(','):
+        && if [ -e "out/gunc_output/${name}.\${db}.all_levels.tsv" ]; then mv "out/gunc_output/${name}.\${db}.all_levels.tsv" 'levels/${name}.tsv'; fi
+    #end if
+    #if 'contigs' in str($outputs).split(','):
+        && if [ -e 'out/gunc_output/${name}.contig_assignments.tsv' ]; then mv 'out/gunc_output/${name}.contig_assignments.tsv' 'contigs/${name}.tsv'; fi
+    #end if
+#end for
+    ]]></command>
+    <inputs>
+        <conditional name="input_type">
+            <param name="type" type="select" label="Input type">
+                <option value="genomes" selected="true">Genomes or bins (nucleotide FASTA, genes are called with Prodigal)</option>
+                <option value="proteins">Gene calls (protein FASTA)</option>
+            </param>
+            <when value="genomes">
+                <param name="input" type="data" format="fasta,fasta.gz" multiple="true" label="Genomes or bins" help="One FASTA file per genome. The file or collection element name is used as the genome name."/>
+            </when>
+            <when value="proteins">
+                <param name="input" type="data" format="fasta,fasta.gz" multiple="true" label="Gene calls" help="One protein FASTA file per genome, with Prodigal-style headers (contig name followed by _gene number)."/>
+            </when>
+        </conditional>
+        <conditional name="database">
+            <param name="source" type="select" label="Reference database">
+                <option value="cached" selected="true">Locally installed</option>
+                <option value="history">Custom database from history</option>
+            </param>
+            <when value="cached">
+                <param name="db" type="select" label="GUNC database">
+                    <options from_data_table="gunc_database">
+                        <validator type="no_options" message="No GUNC database is available"/>
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="db_file" type="data" format="dmnd" label="Custom DIAMOND database"/>
+                <param argument="--custom_genome2taxonomy" type="data" format="tabular" label="Taxonomy of the database genomes" help="Tab-separated table with the columns genome, kingdom, phylum, class, order, family, genus and species."/>
+            </when>
+        </conditional>
+        <param argument="--sensitive" type="boolean" truevalue="--sensitive" falsevalue="" checked="false" label="Run DIAMOND in sensitive mode"/>
+        <param argument="--use_species_level" type="boolean" truevalue="--use_species_level" falsevalue="" checked="false" label="Allow species level to be picked as maxCSS level"/>
+        <param argument="--min_mapped_genes" type="integer" min="0" value="11" label="Minimum number of mapped genes" help="GUNC scores are not calculated for genomes with fewer mapped genes."/>
+        <param name="outputs" type="select" multiple="true" optional="true" label="Additional outputs">
+            <option value="levels">Scores at every taxonomic level (--detailed_output)</option>
+            <option value="contigs">Taxonomic assignment of each contig (--contig_taxonomy_output)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="maxcss" format="tabular" from_work_dir="maxcss.tsv" label="${tool.name} on ${on_string}: scores"/>
+        <collection name="all_levels" type="list" label="${tool.name} on ${on_string}: scores at all levels">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv" directory="levels" format="tabular"/>
+            <filter>outputs and 'levels' in outputs</filter>
+        </collection>
+        <collection name="contig_assignments" type="list" label="${tool.name} on ${on_string}: contig assignments">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv" directory="contigs" format="tabular"/>
+            <filter>outputs and 'contigs' in outputs</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- protein gene calls against the GUNC CI database: one chimeric, one clean genome -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type">
+                <param name="type" value="proteins"/>
+                <param name="input" value="chimeric.faa,clean.faa"/>
+            </conditional>
+            <conditional name="database">
+                <param name="source" value="history"/>
+                <param name="db_file" value="ci_test.dmnd"/>
+                <param name="custom_genome2taxonomy" value="genome2taxonomy.tsv"/>
+            </conditional>
+            <param name="outputs" value="levels,contigs"/>
+            <output name="maxcss" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^chimeric\t35\t35\t31\tphylum\t.*\tFalse$"/>
+                    <has_line_matching expression="^clean\t17\t17\t15\t.*\tTrue$"/>
+                </assert_contents>
+            </output>
+            <output_collection name="all_levels" type="list" count="2">
+                <element name="chimeric" ftype="tabular">
+                    <assert_contents>
+                        <has_line_matching expression="^chimeric\t35\t35\t31\tphylum\t.*\tFalse$"/>
+                    </assert_contents>
+                </element>
+                <element name="clean" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="taxonomic_level"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="contig_assignments" type="list" count="2">
+                <element name="chimeric" ftype="tabular">
+                    <assert_contents>
+                        <has_line line="contig&#009;tax_level&#009;assignment&#009;count_of_genes_assigned"/>
+                        <has_text text="Proteobacteria"/>
+                    </assert_contents>
+                </element>
+                <element name="clean" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="k115_2533"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- nucleotide genomes (plain and gzipped); genes are called with Prodigal -->
+        <test expect_num_outputs="1">
+            <conditional name="input_type">
+                <param name="type" value="genomes"/>
+                <param name="input" value="chimeric_genome.fasta,clean_genome.fasta.gz"/>
+            </conditional>
+            <conditional name="database">
+                <param name="source" value="history"/>
+                <param name="db_file" value="ci_test.dmnd"/>
+                <param name="custom_genome2taxonomy" value="genome2taxonomy.tsv"/>
+            </conditional>
+            <param name="sensitive" value="true"/>
+            <output name="maxcss" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^chimeric_genome\t.*\tFalse$"/>
+                    <has_line_matching expression="^clean_genome\t.*\tTrue$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- installed database (test data table points at the CI database). Without its taxonomy GUNC reports nan scores. -->
+        <test expect_num_outputs="1">
+            <conditional name="input_type">
+                <param name="type" value="proteins"/>
+                <param name="input" value="chimeric.faa"/>
+            </conditional>
+            <conditional name="database">
+                <param name="source" value="cached"/>
+                <param name="db" value="ci_test"/>
+            </conditional>
+            <param name="min_mapped_genes" value="5"/>
+            <output name="maxcss" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_line_matching expression="^chimeric\t35\t35\t31\t.*"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+[GUNC](https://github.com/grp-bork/gunc) (Genome UNClutterer) detects chimerism and contamination in prokaryotic genomes, for example metagenome-assembled genomes (MAGs). It calls genes with Prodigal (or uses given gene calls), maps them with DIAMOND against a reference database of representative genomes, and scores how the genes of the genome split over taxonomic clades.
+
+A genome **fails** (`pass.GUNC` = `False`) when its clade separation score (CSS) is above 0.45 at the reported taxonomic level and the contamination portion is above 5 %. Unlike CheckM-style marker-gene estimates, GUNC also detects contamination by unrelated genomes that complete each other's marker genes.
+
+**Inputs**
+
+- *Genomes or bins*: nucleotide FASTA (optionally gzipped), one file per genome, or *gene calls* as protein FASTA from Prodigal. Use a collection to keep the bin names: the element names become the genome names (a trailing `.fa`, `.fasta`, `.fna` or `.faa` is removed).
+- *Reference database*: a GUNC DIAMOND database installed by the administrator (proGenomes 2.1, proGenomes 3, GTDB 95 or GTDB 214), or a custom DIAMOND database from the history together with the taxonomy of its genomes.
+
+**Outputs**
+
+- *Scores*: one line per genome at the taxonomic level with the highest CSS (maxCSS), with the columns `n_genes_called`, `n_genes_mapped`, `n_contigs`, `taxonomic_level`, `proportion_genes_retained_in_major_clades`, `genes_retained_index`, `clade_separation_score`, `contamination_portion`, `n_effective_surplus_clades`, `mean_hit_identity`, `reference_representation_score` and `pass.GUNC`.
+- *Scores at all levels* (optional): the same scores for every taxonomic level, one table per genome.
+- *Contig assignments* (optional): the taxonomic assignment of each contig, one table per genome.
+
+Genomes with fewer mapped genes than *Minimum number of mapped genes* get `nan` scores.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
