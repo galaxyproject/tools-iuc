@@ -59,11 +59,20 @@ class FrontendContractsTests(unittest.TestCase):
         self.assertIn("--port 4325 --strictPort", workflow)
         self.assertIn("PORT=4325", workflow)
 
+    def test_automated_previews_ignore_the_astro_lock(self) -> None:
+        # Without --ignore-lock Astro >= 7.4 daemonizes `astro preview`, so the checks cannot stop it.
+        for path in (
+            ROOT / "justfile",
+            ROOT.parent / ".github" / "workflows" / "website.yml",
+            ROOT / "astro" / "playwright.config.ts",
+        ):
+            self.assertIn("--ignore-lock", path.read_text(encoding="utf-8"), path.name)
+
     def test_link_check_builds_pagefind_assets_before_preview(self) -> None:
         justfile = (ROOT / "justfile").read_text(encoding="utf-8")
 
         self.assertIn("cd astro && npx pagefind --site dist", justfile)
-        self.assertIn("cd astro && (npx astro preview", justfile)
+        self.assertIn("npx astro preview", justfile)
 
     def test_pages_deploy_uses_upstream_protected_environment(self) -> None:
         workflow = (ROOT.parent / ".github" / "workflows" / "website.yml").read_text(encoding="utf-8")

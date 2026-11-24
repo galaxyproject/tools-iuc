@@ -75,6 +75,10 @@ async function checkLinks() {
       linksToSkip: skipLinkChecker,
       timeout: 30000,
       concurrency: 100,
+      // Retry transient connection errors from the local preview server; 404s are still reported.
+      retryErrors: true,
+      retryErrorsCount: 3,
+      retryErrorsJitter: 1000,
     });
 
     console.log(`Completed checking ${result.links.length} links`);
