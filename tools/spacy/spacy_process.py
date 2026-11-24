@@ -217,7 +217,8 @@ def main():
     parser.add_argument("--download", help="Model name to download on the fly (test use only)")
     parser.add_argument("--format", choices=["json", "conll", "conllu", "text"],
                         default="json", help="Output format")
-    parser.add_argument("--annotators", required=True, help="Annotation type")
+    parser.add_argument("--annotators", required=True,
+                        help="Comma-separated annotation types (tokenize, pos, ner, parse)")
 
     args = parser.parse_args()
 
@@ -232,7 +233,17 @@ def main():
         "parse": ["pos", "lemma", "parse"],
     }
 
-    include_components = component_map.get(args.annotators, ["sentences"])
+    annotators = [a.strip() for a in args.annotators.split(",") if a.strip()]
+    invalid = [a for a in annotators if a not in component_map]
+    if invalid:
+        parser.error(f"unknown annotation type(s): {', '.join(invalid)}")
+
+    # Union the components of all selected annotators. Tokenization and sentence
+    # segmentation are always included.
+    selected = set(annotators) or {"tokenize"}
+    include_components = list(
+        {c for annotator in selected for c in component_map[annotator]}
+    )
 
     # Determine the model directory: download on the fly for tests, otherwise
     # use the data-manager-installed directory passed via --model-dir.
