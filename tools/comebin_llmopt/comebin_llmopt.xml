@@ -1,5 +1,5 @@
 <tool id="comebin_llmopt" name="COMEBin-LLMopt" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>an LLM-optimized, faster COMEBin for binning metagenomic contigs</description>
+    <description>bin metagenomic contigs with contrastive learning and CheckM2 bin selection</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -141,39 +141,67 @@ comebin-llmopt
     <help><![CDATA[
 **What it does**
 
-COMEBin-LLMopt is an LLM-optimized, faster version of COMEBin 1.1.0, improved with the
-help of an AI coding agent, by iterative modification and testing/benchmarking. COMEBin uses data
-augmentation to generate multiple views of each contig and learns embeddings of
-coverage and k-mer features by contrastive learning before clustering them into bins.
+COMEBin-LLMopt sorts the contigs of a metagenomic assembly into bins, so that each bin
+ideally holds one genome (a MAG). It started as a copy of COMEBin 1.1.0 and was then
+changed step by step with the help of an AI coding agent. Every change was only kept
+if a benchmark showed it was at least as good as before.
 
-**Differences from the COMEBin tool**
+It is now a separate tool, not just a faster COMEBin: it uses the same learning method,
+but chooses the final bins differently, so the results differ. Which of the two tools
+works better can depend on the data, so both are available in Galaxy.
 
-- **Faster:** about 2.6–2.8× shorter run time on CPUs (faster loss, training batches,
-  coverage features and dropout), with the same bin quality within seed noise.
-- **More genomes:** the final bins are chosen with CheckM2 (see below).
-- **Minimum contig length** (new): bin only contigs above a length, for example 2500 bp for
-  large assemblies.
-- **Random seed** (new): reproducible runs.
-- **Temperature:** chosen automatically from the assembly N50 when left empty
-  (COMEBin always uses the value given, 0.15 by default).
-- **More robust:** small assemblies (HNSW neighbours are capped), assemblies without
-  marker-gene seeds (empty output instead of an error) and CheckM failures.
-- **Extra outputs:** a contig-to-bin table and, optionally, the CAMI (BioBox) binning format.
+**How it works**
+
+1. Each contig is cut into a few random pieces ("views"). For every view the tool
+   measures the k-mer composition and the read coverage.
+2. A neural network learns to place views of the same contig close to each other and
+   views of different contigs far apart (contrastive learning). Contigs from the same
+   genome end up close together.
+3. The contigs are clustered many times (about 120 clusterings with different settings).
+4. The final bins are picked from these clusterings (see below).
+
+Steps 1 to 3 are the COMEBin method. Step 4 is where COMEBin-LLMopt differs most.
+
+**What is different from COMEBin**
+
+- **Choosing the final bins.** COMEBin keeps one complete clustering: the one whose
+  bins have the best marker-gene score overall. Often a genome is binned well in another
+  clustering, though. COMEBin-LLMopt instead looks at every bin of every clustering,
+  estimates its completeness and contamination with CheckM2, and picks the best bins one
+  by one. Once a bin is picked, its contigs are taken out of all other candidates.
+  Contigs that are left over keep the bin COMEBin would have given them, so plasmids and
+  viruses, which CheckM2 cannot score, are not lost. You can switch back to COMEBin's
+  choice with "Choose the final bins with".
+- **Temperature.** The temperature controls how strictly the network separates contigs
+  during learning. If you leave it empty, it is chosen from the assembly: 0.1 when the
+  assembly is fairly contiguous (N50 above 10 kb), otherwise 0.15. COMEBin always uses
+  the value you give it.
+- **Speed.** The calculations are the same but done in a smarter way, for example the
+  loss is computed without building a very large matrix in memory, and batches are taken
+  directly from memory. A run takes about 2.6 to 2.8 times less time on CPUs.
+- **Minimum contig length** (new option). Very short contigs can be left out. For large
+  assemblies, 2500 bp makes the run several times faster.
+- **Random seed** (new option), for reproducible runs.
+- **Fewer crashes.** Very small assemblies and assemblies without usable marker genes
+  give empty outputs instead of an error, and failing CheckM steps stop the run instead
+  of being ignored.
+- **Extra outputs:** a contig-to-bin table and, optionally, the CAMI binning format.
 - **GPU:** training uses an NVIDIA GPU when Galaxy runs the job on one, otherwise the CPU.
 
-**Final bins:** by default CheckM2 chooses the best bins across all Leiden partitions.
-Alternatively, the partition with the best marker-gene score is kept,
-as COMEBin does.
+**Benchmarks** (32 CPU threads; details and plots at https://github.com/paulzierep/COMEBin-LLMopt)
 
-**Benchmarks** (32 CPU threads; details and plots at https://github.com/paulzierep/COMEBin-LLMopt):
+- **Run time:** CAMI II human gut 33 instead of 85 minutes, BATS medium 14 instead of
+  39 minutes, compared with COMEBin 1.1.0 with the same settings.
+- **Quality:** on CAMI II human gut, scored against the known genomes, the default
+  settings recover 26 to 30 genomes that are more than 90 % complete and less than 5 %
+  contaminated (seeds 42, 7 and 13). With COMEBin's way of choosing the final bins it
+  is 20 to 21.
 
-- **Run time:** CAMI II human gut 33 instead of 85 min, BATS medium 14 instead of 39 min,
-  compared with COMEBin 1.1.0 with the same settings.
-- **Quality:** on CAMI II human gut (scored with AMBER against the gold standard, seeds 42, 7 and 13),
-  the defaults recover 26–30 genomes > 90 % complete and < 5 % contaminated, against
-  20–21 with COMEBin's final-bin selection, with an ARI of 0.84–0.85.
+These benchmarks cover only a few datasets so far. Larger comparisons, for example on
+other biomes, are still to be done.
 
-The changes are listed at https://github.com/paulzierep/COMEBin-LLMopt/blob/master/CHANGELOG.md.
+All changes and their measured effects are listed at
+https://github.com/paulzierep/COMEBin-LLMopt/blob/master/CHANGELOG.md.
 
 **Input**
 
