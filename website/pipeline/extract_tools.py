@@ -52,6 +52,7 @@ from .common import (  # noqa: E402
     env_bool,
     git_head_commit,
     git_tracked_files,
+    http_url,
     md5_files,
     progress,
     read_yaml,
@@ -399,7 +400,15 @@ def _input_dict(inp) -> dict[str, Any]:
 
 def _detail_fields(ts) -> dict[str, Any]:
     """Re-parse fields the index entry doesn't carry but the detail page needs."""
-    creators = _safe(ts.parse_creator, default=[]) or []
+    creators = [dict(c) for c in (_safe(ts.parse_creator, default=[]) or [])]
+    for creator in creators:
+        # Creator URLs become links on the tool page.
+        if "url" in creator:
+            url = http_url(creator["url"])
+            if url:
+                creator["url"] = url
+            else:
+                del creator["url"]
 
     inputs: list[dict[str, Any]] = []
 
