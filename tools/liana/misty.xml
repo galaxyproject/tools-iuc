@@ -14,17 +14,24 @@
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
 @CMD_READ_INPUTS@
-#if str($method.method) == 'genericMistyData'
-misty = li.method.genericMistyData(
+
+#if str($method.method) == 'genericMistyData':
+    #if $method.extra_adata:
+extra_ad = sc.read_h5ad('$method.extra_adata')
+    #else:
+extra_ad = None
+    #end if
+misty = li.mt.genericMistyData(
     intra=adata,
     intra_use_raw=$method.intra_use_raw,
-#if str($method.intra_layer) != ''
-    intra_layer='$method.intra_layer',
-#end if
+    #if str($method.intra_layer).strip() != '':
+    intra_layer='$method.intra_layer'.strip(),
+    #end if
+    extra=extra_ad,
     extra_use_raw=$method.extra_use_raw,
-#if str($method.extra_layer) != ''
-    extra_layer='$method.extra_layer',
-#end if
+    #if str($method.extra_layer).strip() != '':
+    extra_layer='$method.extra_layer'.strip(),
+    #end if
     nz_threshold=$method.nz_threshold,
     add_para=$method.add_para,
     spatial_key='$method.spatial_key',
@@ -37,27 +44,29 @@ misty = li.method.genericMistyData(
     n_neighs=$method.n_neighs,
     max_neighs=$method.max_neighs,
     verbose=False)
-misty(model=li.method.sp.$method.model, bypass_intra=$method.bypass_intra, seed=$method.seed, verbose=False)
-misty.write_h5mu('misty_results.h5mu')
 
-#else if str($method.method) == 'lrMistyData'
-#if str($method.resource_selection.resource_type) == 'resource'
-resource = pd.read_csv('$method.resource_selection.resource', sep='\t')
-misty = li.method.lrMistyData(
+#else if str($method.method) == 'lrMistyData':
+    #if str($method.resource_selection.resource_type) == 'interactions':
+pairs = [tuple(x.strip().split(',')) for x in '''$method.resource_selection.interactions'''.strip().split('\n') if x.strip()]
+res_df = pd.DataFrame(pairs, columns=['ligand', 'receptor'])
+misty = li.mt.lrMistyData(
     adata,
-    resource=resource,
-#else if str($method.resource_selection.resource_api_cached.resource_source_selector) == 'cached'
-resource = pd.read_csv(os.path.join('$method.resource_selection.resource_api_cached.resource_cached.fields.path', '$method.resource_selection.resource_api_cached.resource_cached.fields.value' + '.tsv'), sep='\t')
-misty = li.method.lrMistyData(
+    resource=res_df,
+    #else if str($method.resource_selection.resource_type) == 'resource':
+res_df = pd.read_csv('$method.resource_selection.resource', sep='\t')
+misty = li.mt.lrMistyData(
     adata,
-    resource=resource,
-#else
-misty = li.method.lrMistyData(
+    resource=res_df,
+    #else:
+misty = li.mt.lrMistyData(
     adata,
-    resource_name='$method.resource_selection.resource_api_cached.resource_name',
-#end if
+    resource_name='$method.resource_selection.resource_name',
+    #end if
     nz_threshold=$method.nz_threshold,
     use_raw=$method.use_raw,
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
+    #end if
     spatial_key='$method.spatial_key',
     set_diag=$method.set_diag,
     kernel='$method.kernel',
@@ -65,69 +74,119 @@ misty = li.method.lrMistyData(
     zoi=$method.zoi,
     cutoff=$method.cutoff,
     verbose=False)
-misty(model=li.method.sp.$method.model, bypass_intra=$method.bypass_intra, seed=$method.seed, verbose=False)
-misty.write_h5mu('misty_results.h5mu')
 
+#else if str($method.method) == 'MistyData':
+if isinstance(adata, mu.MuData):
+    misty = li.mt.MistyData(
+        data=adata,
+        spatial_key='$method.spatial_key',
+        enforce_obs=$method.enforce_obs)
+else:
+    views = {'intra': adata}
+    #for $i, $v in enumerate($method.extra_views):
+    views['$v.view_name'] = sc.read_h5ad('$v.view_adata')
+    #end for
+    misty = li.mt.MistyData(
+        data=views,
+        spatial_key='$method.spatial_key',
+        enforce_obs=$method.enforce_obs)
 #end if
+
+misty(
+    model=li.mt.sp.$method.model,
+    bypass_intra=$method.bypass_intra,
+    predict_self=$method.predict_self,
+    #if str($method.maskby).strip() != '':
+    maskby='$method.maskby'.strip(),
+    #end if
+    k_cv=$method.k_cv,
+    seed=$method.seed,
+    verbose=False)
+
+misty.write_h5mu('misty_results.h5mu')
+#if $output_tables:
+misty.uns['target_metrics'].to_csv('target_metrics.tsv', sep='\t', index=False)
+misty.uns['interactions'].to_csv('interactions.tsv', sep='\t', index=False)
+#end if
+with open('anndata_info.txt', 'w', encoding='utf-8') as ainfo:
+    print(misty, file=ainfo)
         ]]></configfile>
     </configfiles>
     <inputs>
-        <expand macro="inputs_anndata"/>
+        <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
         <conditional name="method">
             <param name="method" type="select" label="Method">
-                <option value="genericMistyData" selected="true">genericMistyData - Generic multi-view spatial modelling</option>
+                <option value="genericMistyData" selected="true">genericMistyData - Generic multi-view spatial modelling (intra + juxta + para)</option>
                 <option value="lrMistyData">lrMistyData - Ligand-receptor multi-view spatial modelling</option>
+                <option value="MistyData">MistyData - Build MISTy from custom view AnnDatas or MuData</option>
             </param>
             <when value="genericMistyData">
-                <param argument="intra_use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw counts for intra-view" help=""/>
-                <param argument="intra_layer" type="text" value="" optional="true" label="Intraview  layer" help="">
+                <param argument="intra_use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw counts for intra-view"/>
+                <param argument="intra_layer" type="text" optional="true" label="Intra-view layer">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="extra_use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw counts for extra-views" help=""/>
-                <param argument="extra_layer" type="text" value="" optional="true" label="Extra-view layer" help="">
+                <param name="extra_adata" type="data" format="h5ad" optional="true" label="Separate extra-view AnnData" help="If provided (e.g., pathway/TF activities or cell-type compositions), predictors in juxta/para views are built from this AnnData instead of the intra-view AnnData."/>
+                <param argument="extra_use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use raw counts for extra-views"/>
+                <param argument="extra_layer" type="text" optional="true" label="Extra-view layer">
                     <expand macro="sanitize_query"/>
                 </param>
                 <expand macro="param_nz_threshold"/>
-                <param argument="add_para" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Compute paraview" help=""/>
+                <param argument="add_para" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Compute paraview"/>
                 <expand macro="param_spatial_key"/>
                 <expand macro="param_set_diag"/>
                 <expand macro="param_kernel" DEFAULT_KERNEL="misty_rbf"/>
                 <expand macro="param_bandwidth"/>
                 <expand macro="param_zoi"/>
                 <expand macro="param_cutoff"/>
-                <param argument="add_juxta" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Compute juxtaview" help=""/>
-                <param argument="n_neighs" type="integer" value="6" min="1" label="Juxtaview neighborhood size" help="The number of neighbors to consider when constructing the juxtaview"/>
-                <param argument="max_neighs" type="integer" value="18" min="1" label="Maximum paraview neighbors" help="The maximum number of neighbors to consider when constructing the Paraview"/>
-                <expand macro="param_model"/>
-                <expand macro="param_bypass_intra"/>
-                <expand macro="param_seed"/>
+                <param argument="add_juxta" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Compute juxtaview"/>
+                <param argument="n_neighs" type="integer" value="6" min="1" label="Juxtaview neighborhood size" help="The number of nearest neighbors to consider when constructing the juxtaview."/>
+                <param argument="max_neighs" type="integer" value="18" min="1" label="Maximum paraview neighbors" help="The maximum number of neighbors to consider when constructing the paraview."/>
+                <expand macro="params_misty_fit"/>
             </when>
             <when value="lrMistyData">
                 <expand macro="param_resource_selection"/>
                 <expand macro="param_nz_threshold"/>
-                <param argument="use_raw" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Use the raw data of the AnnData object" help=""/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
                 <expand macro="param_spatial_key"/>
                 <expand macro="param_set_diag"/>
                 <expand macro="param_kernel" DEFAULT_KERNEL="misty_rbf"/>
                 <expand macro="param_bandwidth"/>
                 <expand macro="param_zoi"/>
                 <expand macro="param_cutoff"/>
-                <expand macro="param_model"/>
-                <expand macro="param_bypass_intra"/>
-                <expand macro="param_seed"/>
+                <expand macro="params_misty_fit"/>
+            </when>
+            <when value="MistyData">
+                <repeat name="extra_views" title="Extra spatial views (ignored if primary input is already a MuData)" min="0">
+                    <param name="view_name" type="text" value="extra" label="View name (e.g., 'juxta', 'para', 'TFs', 'receptor', 'ct')">
+                        <expand macro="sanitize_query"/>
+                        <validator type="empty_field" message="View name is required"/>
+                    </param>
+                    <param name="view_adata" type="data" format="h5ad" label="View AnnData (must contain spatial connectivities in .obsp or .obsm)"/>
+                </repeat>
+                <expand macro="param_spatial_key"/>
+                <param argument="enforce_obs" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Enforce matching observations across views (enforce_obs)" help="Enable when all views share the same spots/cells (.obsp['spatial_connectivities']). Disable when views come from unaligned modalities with rectangular connectivities in .obsm['spatial_connectivities']."/>
+                <expand macro="params_misty_fit"/>
             </when>
         </conditional>
+        <param name="output_tables" type="boolean" checked="false" label="Also output target_metrics and interactions as TSV tables?"/>
         <expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
         <data name="misty_out" format="h5mu" from_work_dir="misty_results.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MISTy results"/>
+        <data name="target_metrics_out" format="tabular" from_work_dir="target_metrics.tsv" label="${tool.name} (${method.method}) on ${on_string}: Target metrics">
+            <filter>output_tables</filter>
+        </data>
+        <data name="interactions_out" format="tabular" from_work_dir="interactions.tsv" label="${tool.name} (${method.method}) on ${on_string}: Interactions">
+            <filter>output_tables</filter>
+        </data>
         <data name="hidden_output" format="txt" label="Log file">
             <filter>advanced_common['show_log']</filter>
         </data>
     </outputs>
     <tests>
-        <!-- Test 1: genericMistyData with RandomForestModel -->
-        <test expect_num_outputs="2">
+        <!-- Test 1: genericMistyData with RandomForestModel and tabular outputs -->
+        <test expect_num_outputs="4">
             <param name="adata" location="https://zenodo.org/records/18388645/files/misty_small.h5ad"/>
             <conditional name="method">
                 <param name="method" value="genericMistyData"/>
@@ -148,18 +207,34 @@ misty.write_h5mu('misty_results.h5mu')
                 <param name="bypass_intra" value="false"/>
                 <param name="seed" value="1337"/>
             </conditional>
+            <param name="output_tables" value="true"/>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 50 × 60"/>
+                <has_text_matching expression="target_metrics"/>
+                <has_text_matching expression="interactions"/>
+            </assert_stdout>
             <output name="misty_out" ftype="h5mu">
                 <assert_contents>
-                    <has_size size="380500" delta="100000"/>
                     <has_h5_keys keys="uns/interactions/importances"/>
+                </assert_contents>
+            </output>
+            <output name="target_metrics_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="gain_R2"/>
+                </assert_contents>
+            </output>
+            <output name="interactions_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="importances"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.genericMistyData"/>
+                    <has_text_matching expression="li\.mt\.genericMistyData\("/>
+                    <has_text_matching expression="model=li\.mt\.sp\.RandomForestModel"/>
                 </assert_contents>
             </output>
         </test>
@@ -188,16 +263,20 @@ misty.write_h5mu('misty_results.h5mu')
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 50 × 40"/>
+                <has_text_matching expression="target_metrics"/>
+            </assert_stdout>
             <output name="misty_out" ftype="h5mu">
                 <assert_contents>
-                    <has_size size="253700" delta="100000"/>
                     <has_h5_keys keys="uns/interactions/predictor"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.genericMistyData"/>
+                    <has_text_matching expression="li\.mt\.genericMistyData\("/>
                     <has_text_matching expression="kernel='gaussian'"/>
+                    <has_text_matching expression="model=li\.mt\.sp\.LinearModel"/>
                 </assert_contents>
             </output>
         </test>
@@ -226,16 +305,20 @@ misty.write_h5mu('misty_results.h5mu')
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 50 × 60"/>
+                <has_text_matching expression="target_metrics"/>
+            </assert_stdout>
             <output name="misty_out" ftype="h5mu">
                 <assert_contents>
-                    <has_size size="380700" delta="100000"/>
                     <has_h5_keys keys="uns/interactions/target"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.genericMistyData"/>
+                    <has_text_matching expression="li\.mt\.genericMistyData\("/>
                     <has_text_matching expression="kernel='exponential'"/>
+                    <has_text_matching expression="model=li\.mt\.sp\.RobustLinearModel"/>
                 </assert_contents>
             </output>
         </test>
@@ -246,10 +329,7 @@ misty.write_h5mu('misty_results.h5mu')
                 <param name="method" value="lrMistyData"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="nz_threshold" value="0.1"/>
                 <param name="use_raw" value="false"/>
@@ -266,15 +346,19 @@ misty.write_h5mu('misty_results.h5mu')
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 200 × 35"/>
+                <has_text_matching expression="target_metrics"/>
+            </assert_stdout>
             <output name="misty_out" ftype="h5mu">
                 <assert_contents>
-                    <has_size size="566800" delta="100000"/>
                     <has_h5_keys keys="uns/interactions/view"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.lrMistyData"/>
+                    <has_text_matching expression="li\.mt\.lrMistyData\("/>
+                    <has_text_matching expression="model=li\.mt\.sp\.RandomForestModel"/>
                 </assert_contents>
             </output>
         </test>
@@ -285,10 +369,7 @@ misty.write_h5mu('misty_results.h5mu')
                 <param name="method" value="lrMistyData"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="nz_threshold" value="0.1"/>
                 <param name="use_raw" value="false"/>
@@ -305,16 +386,169 @@ misty.write_h5mu('misty_results.h5mu')
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 200 × 35"/>
+                <has_text_matching expression="target_metrics"/>
+            </assert_stdout>
             <output name="misty_out" ftype="h5mu">
                 <assert_contents>
-                    <has_size size="566800" delta="100000"/>
                     <has_h5_keys keys="uns/target_metrics/gain_R2"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.lrMistyData"/>
+                    <has_text_matching expression="li\.mt\.lrMistyData\("/>
                     <has_text_matching expression="kernel='gaussian'"/>
+                    <has_text_matching expression="model=li\.mt\.sp\.LinearModel"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: genericMistyData with separate extra_adata, bypass_intra, predict_self, and maskby -->
+        <test expect_num_outputs="4">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/misty_small.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="genericMistyData"/>
+                <param name="intra_use_raw" value="false"/>
+                <param name="extra_adata" location="https://zenodo.org/records/18388645/files/misty_small.h5ad"/>
+                <param name="extra_use_raw" value="false"/>
+                <param name="nz_threshold" value="0.1"/>
+                <param name="add_para" value="true"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="set_diag" value="false"/>
+                <param name="kernel" value="misty_rbf"/>
+                <param name="bandwidth" value="100"/>
+                <param name="zoi" value="0"/>
+                <param name="cutoff" value="0.1"/>
+                <param name="add_juxta" value="true"/>
+                <param name="n_neighs" value="6"/>
+                <param name="max_neighs" value="18"/>
+                <param name="model" value="LinearModel"/>
+                <param name="bypass_intra" value="true"/>
+                <param name="predict_self" value="true"/>
+                <param name="maskby" value="cell_type"/>
+                <param name="k_cv" value="5"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <param name="output_tables" value="true"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 50 × 60"/>
+                <has_text_matching expression="target_metrics"/>
+                <has_text_matching expression="interactions"/>
+            </assert_stdout>
+            <output name="misty_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="uns/target_metrics/intra_group"/>
+                </assert_contents>
+            </output>
+            <output name="target_metrics_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="intra_group"/>
+                    <has_text text="TypeA"/>
+                    <has_text text="gain_R2"/>
+                </assert_contents>
+            </output>
+            <output name="interactions_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="intra_group"/>
+                    <has_text text="importances"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="extra_ad = sc\.read_h5ad\("/>
+                    <has_text_matching expression="li\.mt\.genericMistyData\("/>
+                    <has_text_matching expression="bypass_intra=True"/>
+                    <has_text_matching expression="predict_self=True"/>
+                    <has_text_matching expression="maskby='cell_type'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: MistyData from custom view AnnDatas -->
+        <test expect_num_outputs="4">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="MistyData"/>
+                <repeat name="extra_views">
+                    <param name="view_name" value="para"/>
+                    <param name="view_adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+                </repeat>
+                <param name="spatial_key" value="spatial"/>
+                <param name="enforce_obs" value="true"/>
+                <param name="model" value="LinearModel"/>
+                <param name="bypass_intra" value="true"/>
+                <param name="predict_self" value="false"/>
+                <param name="k_cv" value="5"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <param name="output_tables" value="true"/>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 150 × 200"/>
+                <has_text_matching expression="target_metrics"/>
+                <has_text_matching expression="interactions"/>
+            </assert_stdout>
+            <output name="misty_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="uns/target_metrics/gain_R2,uns/interactions/importances"/>
+                </assert_contents>
+            </output>
+            <output name="target_metrics_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="gain_R2"/>
+                    <has_text text="para"/>
+                </assert_contents>
+            </output>
+            <output name="interactions_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="importances"/>
+                    <has_text text="para"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="views = \{'intra': adata\}"/>
+                    <has_text_matching expression="views\['para'\] = sc\.read_h5ad\("/>
+                    <has_text_matching expression="misty = li\.mt\.MistyData\("/>
+                    <has_text_matching expression="enforce_obs=True"/>
+                    <has_text_matching expression="bypass_intra=True"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: MistyData from existing MuData (.h5mu) -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu" ftype="h5mu"/>
+            <conditional name="method">
+                <param name="method" value="MistyData"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="enforce_obs" value="true"/>
+                <param name="model" value="LinearModel"/>
+                <param name="bypass_intra" value="false"/>
+                <param name="predict_self" value="false"/>
+                <param name="k_cv" value="5"/>
+                <param name="seed" value="42"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 50 × 60"/>
+                <has_text_matching expression="target_metrics"/>
+            </assert_stdout>
+            <output name="misty_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="uns/target_metrics/gain_R2,uns/interactions/importances"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="misty = li\.mt\.MistyData\("/>
+                    <has_text_matching expression="data=adata"/>
+                    <has_text_matching expression="model=li\.mt\.sp\.LinearModel"/>
                 </assert_contents>
             </output>
         </test>
@@ -322,34 +556,20 @@ misty.write_h5mu('misty_results.h5mu')
     <help><![CDATA[
 **What it does**
 
-This tool performs multi-view spatial relationship learning using MISTy (Multi-view Intercellular SpaTial modeling framework).
+This tool performs multi-view spatial relationship learning using MISTy (`liana.mt.MistyData`, `genericMistyData`, `lrMistyData`).
 
-MISTy uses machine learning to model how the expression of each target gene is influenced by:
+MISTy uses explainable machine learning to model how each target feature in the **intraview** is explained by:
 
-1. **Intraview**: The expression of other genes within the same cell
-2. **Paraview**: The weighted expression of genes in neighboring cells (using a spatial kernel)
-3. **Juxtaview**: The expression of genes in immediately adjacent cells
+1. **Intraview**: Other features within the same spot/cell
+2. **Juxtaview**: Features in immediately adjacent neighboring cells
+3. **Paraview**: Spatially weighted features in the wider tissue neighborhood
+4. **Custom extra views**: Any additional spatial modality (e.g., cell-type compositions, pathway/TF activities, surface proteins, or spatial metabolomics)
 
 **Methods**
 
-- **genericMistyData**: Creates a generic MISTy model from any AnnData with spatial coordinates
-- **lrMistyData**: Creates a MISTy model specifically for ligand-receptor analysis using known L-R resources
-
-**Models**
-
-- **RandomForestModel**: Uses Random Forest regression with out-of-bag predictions
-- **LinearModel**: Uses linear regression with cross-validation
-- **RobustLinearModel**: Uses robust linear regression
-
-**Outputs**
-
-The tool outputs a MuData (h5mu) file containing:
-
-- The fitted MISTy model results
-- Target metrics (R² improvement from each view)
-- Feature importances for each view
-- Interaction coefficients
-
+- **genericMistyData**: Builds `intra`, `juxta`, and `para` views from an AnnData (plus an optional second `extra` AnnData modality).
+- **lrMistyData**: Builds a receptor `intra` view and a spatially weighted ligand `extra` view from a ligand-receptor resource.
+- **MistyData**: Constructs a `MistyData` model from custom pre-weighted extra view AnnData objects (with `enforce_obs=True` or `False` for unaligned grids) or an existing `MuData`.
     ]]></help>
     <expand macro="citations"/>
 </tool>
