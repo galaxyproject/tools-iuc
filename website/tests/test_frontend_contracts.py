@@ -73,6 +73,10 @@ class FrontendContractsTests(unittest.TestCase):
         self.assertIn("environment:", canonical_job)
         self.assertIn("timeout: 600000", canonical_job)
         self.assertNotIn("deploy-pages-fork:", workflow)
+        self.assertNotIn("bgruening", workflow)
+        self.assertIn("pages: write", canonical_job)
+        self.assertIn("id-token: write", canonical_job)
+        self.assertNotIn("pages: write", workflow.split("jobs:", 1)[0])
 
     def test_workflow_does_not_publish_generated_data_to_gh_pages(self) -> None:
         workflow = (ROOT.parent / ".github" / "workflows" / "website.yml").read_text(encoding="utf-8")
