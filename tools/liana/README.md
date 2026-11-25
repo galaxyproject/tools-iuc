@@ -8,14 +8,14 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ 1. Liana Resource (resource.xml)                                           │
+│ 1. Liana Resource (liana_resource.xml)                                     │
 │    • Extract/translate L-R databases (.tsv)                                │
 │    • Export MetalinksDB metabolite-receptor / enzyme / transporter tables   │
 └───────────────────────────────┬────────────────────────────────────────────┘
                                 │ (Custom L-R .tsv / MetalinksDB .tsv)
                                 ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ 2. Liana Utils (utils.xml)                                                 │
+│ 2. Liana Utils (liana_utils.xml)                                           │
 │    • Build spatial connectivity graphs: query_bandwidth → spatial_neighbors │
 │    • Align/grid spatial slides: expand_coordinates / interpolate_adata      │
 │    • Scale or merge modalities: zi_minmax / neg_to_zero / mdata_to_anndata  │
@@ -35,7 +35,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
                 │ (.h5ad with .uns[liana_res] or lrdata)    │
                 ▼                                           │
 ┌─────────────────────────────────────────┐                 │
-│ 5. Liana Multi-Sample (multi.xml)       │                 │
+│ 5. Liana Multi-Sample (liana_multi.xml) │                 │
 │    • Tensor-cell2cell (to_tensor_c2c)   │                 │
 │    • MOFA views (lrs_to_views,          │                 │
 │      adata_to_views, lrdata_to_mudata)  │                 │
@@ -46,7 +46,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
                 │ (.h5ad / .h5mu)                           │ (.h5mu)
                 ▼                                           ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ 6. Liana Plot (plot.xml)                                                   │
+│ 6. Liana Plot (liana_plot.xml)                                             │
 │    • L-R plots: dotplot, dotplot_by_sample, tileplot, circle               │
 │    • Spatial & NMF plots: connectivity, feature_by_group, elbow            │
 │    • Distance enrichment plots: annulus, lric_lineplot, lric_divergence    │
@@ -86,7 +86,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 
 ## Tool Reference (Functions, Inputs, and Outputs)
 
-### 1. Liana Resource (`resource.xml` — `liana.rs`)
+### 1. Liana Resource (`liana_resource.xml` — `liana.rs`)
 
 | Function | What it does | Input | Output |
 | :--- | :--- | :--- | :--- |
@@ -95,9 +95,9 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 | `translate_resource` | Translates ligand and receptor columns of an L-R resource across species | Built-in/custom L-R `.tsv` + ortholog `.tsv` | Translated L-R table (`.tsv`) |
 | `translate_column` | Translates a single gene symbol column in any table | Input `.tsv` + ortholog `.tsv` | Translated table (`.tsv`) |
 | `generate_lr_geneset` | Links L-R pairs (`ligand^receptor`) to pathway or disease gene sets | Built-in/custom L-R `.tsv` + network `.tsv` | L-R gene set table (`.tsv`) |
-| `get_metalinks` | Queries MetalinksDB metabolite-protein interactions and exports networks for `estimate_metalinks` | Edge type & annotation filters | `metalinks.tsv` (+ optional `lr_resource.tsv`, `pd_net.tsv`, `t_net.tsv`) |
+| `get_metalinks` | Queries MetalinksDB metabolite-protein interactions and exports networks for `estimate_metalinks` | Edge type & annotation filters (+ optional local `db_path` `.sqlite`) | `metalinks.tsv` (+ optional `lr_resource.tsv`, `pd_net.tsv`, `t_net.tsv`) |
 
-### 2. Liana Utils (`utils.xml` — `liana.pp` & `liana.ms`)
+### 2. Liana Utils (`liana_utils.xml` — `liana.pp` & `liana.ms`)
 
 | Function | What it does | Input | Output |
 | :--- | :--- | :--- | :--- |
@@ -133,7 +133,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 | `lrMistyData` | Builds receptor `intra` and spatially weighted ligand `extra` views and fits MISTy | `.h5ad` (+ built-in/custom L-R resource) | MISTy `.h5mu` (+ optional `target_metrics.tsv` & `interactions.tsv`) |
 | `MistyData` | Fits MISTy on custom extra-view `AnnData` files or an existing `MuData` | `.h5ad` + custom view `.h5ad` files, or `.h5mu` | MISTy `.h5mu` (+ optional `target_metrics.tsv` & `interactions.tsv`) |
 
-### 5. Liana Multi-Sample (`multi.xml` — `liana.ms`)
+### 5. Liana Multi-Sample (`liana_multi.xml` — `liana.ms`)
 
 | Function | What it does | Input | Output |
 | :--- | :--- | :--- | :--- |
@@ -144,7 +144,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 | `lrdata_to_mudata` | Splits a spatial Inflow `AnnData` into one `MuData` view per sender cell type | Inflow `.h5ad` | `.h5mu` |
 | `nmf` | Runs NMF on an `AnnData` matrix (fixed `n_components` or automatic elbow rank estimation) | `.h5ad` | `.h5ad` with `.obsm['NMF_W']`, `.varm['NMF_H']`, `.uns['nmf_errors']` |
 
-### 6. Liana Plot (`plot.xml` — `liana.pl`)
+### 6. Liana Plot (`liana_plot.xml` — `liana.pl`)
 
 | Function | What it does | Input | Output |
 | :--- | :--- | :--- | :--- |
