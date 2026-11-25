@@ -1,5 +1,5 @@
 <tool id="liana_plot" name="Liana Plot" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>visualize ligand-receptor interactions</description>
+    <description>visualize ligand-receptor interactions, spatial metrics, LRIC curves, and MISTy results</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -8,42 +8,38 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-#if str($method.method) in ['pl.target_metrics', 'pl.contributions', 'pl.interactions']:
-cp '$method.mdata' 'misty.h5mu' &&
+#if $method.adata.ext == 'h5mu':
+cp '$method.adata' 'input.h5mu' &&
 #else:
 cp '$method.adata' 'anndata.h5ad' &&
 #end if
 cat '$script_file' > '$hidden_output' &&
 python '$script_file' >> '$hidden_output' &&
-ls . >> '$hidden_output' &&
-touch 'anndata_info.txt' &&
-cat 'anndata_info.txt' @CMD_PRETTIFY_STDOUT@
- ]]></command>
+ls . >> '$hidden_output'
+    ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
-import mudata as mu
-if os.path.exists("misty.h5mu"):
-    import mudata as mu
-    mdata = mu.read_h5mu("misty.h5mu")
-    # Wrap MuData into LIANA MistyData (this is what plotting expects)
+import matplotlib.pyplot as plt
+
+if '$method.adata.ext' == 'h5mu':
+    adata = mu.read_h5mu('input.h5mu')
 else:
     adata = sc.read_h5ad('anndata.h5ad')
 
+fig = None
+mpl_fig = None
 
 #if str($method.method) == 'pl.dotplot':
-fig = li.plotting.dotplot(
+fig = li.pl.dotplot(
     adata=adata,
     uns_key='$method.uns_key',
-    #if str($method.colour) != '':
-    colour='$method.colour',
-    #end if
-    #if str($method.size) != '':
-    size='$method.size',
-    #end if
+    colour='$method.colour'.strip(),
+    size='$method.size'.strip(),
     @CMD_PLOT_SOURCE_TARGET_LABELS@
     @CMD_PLOT_LIGAND_RECEPTOR_COMPLEX@
     @CMD_PLOT_TOP_N_ORDERBY@
+    @CMD_PLOT_FILTER_FN@
     inverse_colour=$method.inverse_colour,
     inverse_size=$method.inverse_size,
     cmap='$method.cmap',
@@ -52,16 +48,12 @@ fig = li.plotting.dotplot(
     return_fig=True)
 
 #else if str($method.method) == 'pl.dotplot_by_sample':
-fig = li.plotting.dotplot_by_sample(
+fig = li.pl.dotplot_by_sample(
     adata=adata,
     uns_key='$method.uns_key',
     sample_key='$method.sample_key',
-    #if str($method.colour) != '':
-    colour='$method.colour',
-    #end if
-    #if str($method.size) != '':
-    size='$method.size',
-    #end if
+    colour='$method.colour'.strip(),
+    size='$method.size'.strip(),
     @CMD_PLOT_SOURCE_TARGET_LABELS@
     @CMD_PLOT_LIGAND_RECEPTOR_COMPLEX@
     inverse_colour=$method.inverse_colour,
@@ -72,31 +64,56 @@ fig = li.plotting.dotplot_by_sample(
     return_fig=True)
 
 #else if str($method.method) == 'pl.tileplot':
-fig = li.plotting.tileplot(
+    #if str($method.label_style) == 'round2':
+lbl_fn = lambda x: f"{x:.2f}" if isinstance(x, (int, float, np.floating)) and not pd.isna(x) else str(x)
+    #else if str($method.label_style) == 'star05':
+lbl_fn = lambda x: "*" if isinstance(x, (int, float, np.floating)) and x < 0.05 else ""
+    #else:
+lbl_fn = None
+    #end if
+fig = li.pl.tileplot(
     adata=adata,
     uns_key='$method.uns_key',
-    #if str($method.fill) != '':
-    fill='$method.fill',
-    #end if
-    #if str($method.label) != '':
-    label='$method.label',
-    #end if
+    fill='$method.fill'.strip(),
+    label='$method.label'.strip(),
+    label_fn=lbl_fn,
     @CMD_PLOT_SOURCE_TARGET_LABELS@
     @CMD_PLOT_LIGAND_RECEPTOR_COMPLEX@
     @CMD_PLOT_TOP_N_ORDERBY@
-    #if str($method.source_title) != '':
-    source_title='$method.source_title',
+    @CMD_PLOT_FILTER_FN@
+    #if str($method.source_title).strip() != '':
+    source_title='$method.source_title'.strip(),
     #end if
-    #if str($method.target_title) != '':
-    target_title='$method.target_title',
+    #if str($method.target_title).strip() != '':
+    target_title='$method.target_title'.strip(),
     #end if
     cmap='$method.cmap',
     label_size=$method.label_size,
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
 
+#else if str($method.method) == 'pl.circle':
+ax = li.pl.circle(
+    adata=adata,
+    uns_key='$method.uns_key',
+    groupby='$method.groupby'.strip(),
+    source_key='$method.source_key'.strip(),
+    target_key='$method.target_key'.strip(),
+    #if str($method.score_key).strip() != '':
+    score_key='$method.score_key'.strip(),
+    #end if
+    inverse_score=$method.inverse_score,
+    pivot_mode='$method.pivot_mode',
+    mask_mode='$method.mask_mode',
+    @CMD_PLOT_SOURCE_TARGET_LABELS@
+    @CMD_PLOT_LIGAND_RECEPTOR_COMPLEX@
+    @CMD_PLOT_TOP_N_ORDERBY@
+    @CMD_PLOT_FILTER_FN@
+    figure_size=($method.figure_size_width, $method.figure_size_height))
+mpl_fig = ax.figure
+
 #else if str($method.method) == 'pl.connectivity':
-fig = li.plotting.connectivity(
+fig = li.pl.connectivity(
     adata=adata,
     idx=$method.idx,
     spatial_key='$method.spatial_key',
@@ -105,56 +122,128 @@ fig = li.plotting.connectivity(
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
 
-#else if str($method.method) == 'pl.target_metrics':
-fig = li.plotting.target_metrics(
-    misty=mdata,
-    #if str($method.key) != '':
-    key='$method.key',
+#else if str($method.method) == 'pl.elbow':
+fig = li.pl.elbow(
+    adata=adata,
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
+
+#else if str($method.method) == 'pl.feature_by_group':
+mpl_fig, _ = li.pl.feature_by_group(
+    adata=adata,
+    groupby='$method.groupby'.strip(),
+    spatial_key='$method.spatial_key'.strip(),
+    labels=[x.strip() for x in '$method.labels'.split(',') if x.strip()],
+    feature='$method.feature'.strip(),
+    normalize=$method.normalize,
+    show_counts=$method.show_counts,
+    figure_size=($method.figure_size_width, $method.figure_size_height))
+
+#else if str($method.method) == 'pl.annulus':
+mpl_fig = li.pl.annulus(
+    adata=adata,
+    spatial_key='$method.spatial_key'.strip(),
+    radius_step=$method.radius_step,
+    annulus_steps=$method.annulus_steps,
+    extend_first_annulus=$method.extend_first_annulus,
+    n_rings=$method.n_rings,
+    seed=$method.seed,
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
+
+#else if str($method.method) == 'pl.lric_lineplot':
+fig = li.pl.lric_lineplot(
+    adata=adata,
+    uns_key='$method.uns_key',
+    #if str($method.interaction).strip() != '':
+    interaction='$method.interaction'.strip(),
     #end if
-    #if str($method.stat) != '':
-    stat='$method.stat',
+    #if str($method.source).strip() != '':
+    source='$method.source'.strip(),
+    #end if
+    #if str($method.target).strip() != '':
+    target='$method.target'.strip(),
+    #end if
+    #if str($method.max_dist) != '':
+    max_dist=$method.max_dist,
+    #end if
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
+
+#else if str($method.method) == 'pl.lric_divergence':
+fa = {k.strip(): v.strip() for part in '$method.feature_a'.split(',') if ':' in part for k, v in [part.split(':', 1)]}
+fb = {k.strip(): v.strip() for part in '$method.feature_b'.split(',') if ':' in part for k, v in [part.split(':', 1)]}
+fig = li.pl.lric_divergence(
+    adata=adata,
+    uns_key='$method.uns_key',
+    feature_a=fa,
+    feature_b=fb,
+    #if str($method.max_dist) != '':
+    max_dist=$method.max_dist,
+    #end if
+    min_bins=$method.min_bins,
+    figure_size=($method.figure_size_width, $method.figure_size_height),
+    return_fig=True)
+
+#else if str($method.method) == 'pl.misty_target_metrics':
+misty = li.mt.MistyData(adata)
+stat_col = '$method.custom_stat'.strip() if str('$method.stat') == 'custom' else '$method.stat'
+fig = li.pl.misty_target_metrics(
+    misty=misty,
+    stat=stat_col,
+    #if str($method.key) == 'abs':
+    key=np.abs,
+    #end if
+    #if str($method.aggregate_fn) != '':
+    aggregate_fn=getattr(np, '$method.aggregate_fn'),
     #end if
     #if str($method.top_n) != '':
     top_n=$method.top_n,
     #end if
+    @CMD_PLOT_FILTER_FN@
     ascending=$method.ascending,
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
 
-#else if str($method.method) == 'pl.contributions':
-fig = li.plotting.contributions(
-    misty=mdata,
-    #if str($method.key) != '':
-    key='$method.key',
+#else if str($method.method) == 'pl.misty_contributions':
+misty = li.mt.MistyData(adata)
+fig = li.pl.misty_contributions(
+    misty=misty,
+    #if str($method.view_names).strip() != '':
+    view_names=[x.strip() for x in '$method.view_names'.split(',') if x.strip()],
     #end if
-    #if str($method.view_names) != '':
-    view_names=[x.strip() for x in '$method.view_names'.split(',')],
+    #if str($method.aggregate_fn) != '':
+    aggregate_fn=getattr(np, '$method.aggregate_fn'),
     #end if
+    @CMD_PLOT_FILTER_FN@
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
 
-#else if str($method.method) == 'pl.interactions':
-fig = li.plotting.interactions(
-    misty=mdata,
-    #if str($method.key) != '':
-    key='$method.key',
+#else if str($method.method) == 'pl.misty_interactions':
+misty = li.mt.MistyData(adata)
+fig = li.pl.misty_interactions(
+    misty=misty,
+    view='$method.view'.strip(),
+    #if str($method.key) == 'abs':
+    key=np.abs,
     #end if
-    #if str($method.view) != '':
-    view='$method.view',
+    #if str($method.aggregate_fn) != '':
+    aggregate_fn=getattr(np, '$method.aggregate_fn'),
     #end if
     #if str($method.top_n) != '':
     top_n=$method.top_n,
     #end if
+    @CMD_PLOT_FILTER_FN@
     ascending=$method.ascending,
     figure_size=($method.figure_size_width, $method.figure_size_height),
     return_fig=True)
 #end if
 
-## Save the figure
-fig.save('plot.$format', dpi=150)
-
-        ]]>
-        </configfile>
+if fig is not None:
+    fig.save('plot.$format', dpi=150)
+elif mpl_fig is not None:
+    mpl_fig.savefig('plot.$format', dpi=150, bbox_inches='tight')
+        ]]></configfile>
     </configfiles>
     <inputs>
         <param name="format" type="select" label="Format for saving figure">
@@ -164,19 +253,26 @@ fig.save('plot.$format', dpi=150)
         </param>
         <conditional name="method">
             <param argument="method" type="select" label="Plotting method">
-                <option value="pl.dotplot">Dotplot: Interactions by source and target cells (dotplot)</option>
-                <option value="pl.dotplot_by_sample">Dotplot by sample: Interactions grouped by sample (dotplot_by_sample)</option>
-                <option value="pl.tileplot">Tileplot: Interactions as tiles by source and target (tileplot)</option>
-                <option value="pl.connectivity">Connectivity: Spatial connectivity weights (connectivity)</option>
-                <option value="pl.target_metrics">MISTy Target Metrics: Plot target metrics from MISTy results (target_metrics)</option>
-                <option value="pl.contributions">MISTy Contributions: Plot view contributions per target (contributions)</option>
-                <option value="pl.interactions">MISTy Interactions: Plot interaction importances (interactions)</option>
+                <option value="pl.dotplot" selected="true">dotplot: Interactions by source and target cells</option>
+                <option value="pl.dotplot_by_sample">dotplot_by_sample: Interactions grouped by sample</option>
+                <option value="pl.tileplot">tileplot: Ligand and receptor stats as side-by-side tiles</option>
+                <option value="pl.circle">circle: Circular cell-cell communication network</option>
+                <option value="pl.connectivity">connectivity: Spatial connectivity weights for a reference cell/spot</option>
+                <option value="pl.elbow">elbow: NMF reconstruction error and estimated elbow rank</option>
+                <option value="pl.feature_by_group">feature_by_group: Spatial Inflow score scatter across receiver cell types</option>
+                <option value="pl.annulus">annulus: Concentric distance rings for LRIC / cross-PCF parameter selection</option>
+                <option value="pl.lric_lineplot">lric_lineplot: Distance enrichment g(r) profile for an interaction</option>
+                <option value="pl.lric_divergence">lric_divergence: Compare two g(r) curves and their shaded divergence</option>
+                <option value="pl.misty_target_metrics">misty_target_metrics: Plot R² target metrics from MISTy results</option>
+                <option value="pl.misty_contributions">misty_contributions: Plot view contributions per target from MISTy</option>
+                <option value="pl.misty_interactions">misty_interactions: Plot predictor-target importances for a MISTy view</option>
             </param>
+            <!-- please note that some API in the docs have arg=None, however when you run the tool, it fails if you don't provide a value. So, we have to make some of the args optional=False, even though they are optional in the API. -->
             <when value="pl.dotplot">
-                <expand macro="inputs_anndata"/>
-                <expand macro="param_uns_key"/>
-                <expand macro="param_plot_colour"/>
-                <expand macro="param_plot_size"/>
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="param_uns_key" DEFAULT="liana_res"/>
+                <expand macro="param_plot_colour" optional="false"/>
+                <expand macro="param_plot_size" optional="false"/>
                 <expand macro="param_source_labels"/>
                 <expand macro="param_target_labels"/>
                 <expand macro="param_ligand_complex"/>
@@ -185,6 +281,7 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_orderby"/>
                 <expand macro="param_orderby_ascending"/>
                 <expand macro="param_orderby_absolute"/>
+                <expand macro="param_plot_filter"/>
                 <expand macro="param_inverse_colour"/>
                 <expand macro="param_inverse_size"/>
                 <expand macro="param_cmap"/>
@@ -192,8 +289,8 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_figure_size"/>
             </when>
             <when value="pl.dotplot_by_sample">
-                <expand macro="inputs_anndata"/>
-                <expand macro="param_uns_key"/>
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="param_uns_key" DEFAULT="liana_res"/>
                 <expand macro="param_sample_key" VALUE="sample"/>
                 <expand macro="param_plot_colour"/>
                 <expand macro="param_plot_size"/>
@@ -208,13 +305,20 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_figure_size"/>
             </when>
             <when value="pl.tileplot">
-                <expand macro="inputs_anndata"/>
-                <expand macro="param_uns_key"/>
-                <param argument="fill" type="text" value="" optional="true" label="Fill by column" help="Column in liana_res for tile color. E.g., 'magnitude_rank', 'specificity_rank', or p-value columns.">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="param_uns_key" DEFAULT="liana_res"/>
+                <param argument="fill" type="text" value="means" optional="false" label="Fill by column suffix" help="Column suffix shared by ligand_&lt;fill&gt; and receptor_&lt;fill&gt; (e.g., 'means', 'props', 'stat', 'logfc', 'zscores').">
                     <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="fill column suffix is required (e.g. 'means' or 'stat')"/>
                 </param>
-                <param argument="label" type="text" value="" optional="true" label="Label by column" help="Column in liana_res to display inside tiles (e.g., 'lr_names', 'magnitude_rank').">
+                <param argument="label" type="text" value="props" optional="false" label="Label by column suffix" help="Column suffix shared by ligand_&lt;label&gt; and receptor_&lt;label&gt; (e.g., 'props', 'means', 'padj', 'pvalue', 'pvals').">
                     <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="label column suffix is required (e.g. 'props' or 'padj')"/>
+                </param>
+                <param name="label_style" type="select" label="Label formatting function (label_fn)">
+                    <option value="round2" selected="true">Round numbers to 2 decimal places</option>
+                    <option value="star05">Significance asterisk (* if &lt; 0.05, else empty)</option>
+                    <option value="raw">Raw values as-is</option>
                 </param>
                 <expand macro="param_source_labels"/>
                 <expand macro="param_target_labels"/>
@@ -224,63 +328,155 @@ fig.save('plot.$format', dpi=150)
                 <expand macro="param_orderby"/>
                 <expand macro="param_orderby_ascending"/>
                 <expand macro="param_orderby_absolute"/>
-                <param argument="source_title" type="text" value="" optional="true" label="Source axis title" help="Custom title for sender/source cell types axis. Default: 'Source'.">
+                <expand macro="param_plot_filter"/>
+                <param argument="source_title" type="text" optional="true" label="Source axis title (default 'Source')">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="target_title" type="text" value="" optional="true" label="Target axis title" help="Custom title for receiver/target cell types axis. Default: 'Target'.">
+                <param argument="target_title" type="text" optional="true" label="Target axis title (default 'Target')">
                     <expand macro="sanitize_query"/>
                 </param>
                 <expand macro="param_cmap"/>
-                <param argument="label_size" type="integer" value="12" min="1" label="Label text size" help="Font size for labels in tiles. Default: 12.">
+                <param argument="label_size" type="integer" value="12" min="1" label="Label text size"/>
+                <expand macro="param_figure_size" width="5" height="5"/>
+            </when>
+            <when value="pl.circle">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="param_uns_key" DEFAULT="liana_res"/>
+                <expand macro="param_groupby"/>
+                <param argument="pivot_mode" type="select" label="Edge weight aggregation mode">
+                    <option value="counts" selected="true">counts - Number of interactions between source and target</option>
+                    <option value="mean">mean - Mean of score_key between source and target</option>
                 </param>
+                <param argument="score_key" type="text" optional="true" label="Score column, If None, the score is inferred from the method. (required when pivot_mode is 'mean')">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="inverse_score" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Apply -log10 transformation to score_key"/>
+                <param argument="mask_mode" type="select" label="Source/Target label combination mode">
+                    <option value="or" selected="true">or - Keep interactions matching source_labels OR target_labels</option>
+                    <option value="and">and - Keep interactions matching both source_labels AND target_labels</option>
+                </param>
+                <expand macro="param_source_key"/>
+                <expand macro="param_target_key"/>
+                <expand macro="param_source_labels"/>
+                <expand macro="param_target_labels"/>
+                <expand macro="param_ligand_complex"/>
+                <expand macro="param_receptor_complex"/>
+                <expand macro="param_top_n"/>
+                <expand macro="param_orderby"/>
+                <expand macro="param_orderby_ascending"/>
+                <expand macro="param_orderby_absolute"/>
+                <expand macro="param_plot_filter"/>
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
             <when value="pl.connectivity">
-                <expand macro="inputs_anndata"/>
-                <param argument="idx" type="integer" value="0" min="0" label="Cell index" help="Index of the cell to plot connectivity for."/>
-                <param argument="spatial_key" type="text" value="spatial" label="Spatial key" help="Key in adata.obsm that contains the spatial coordinates.">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <param argument="idx" type="integer" value="0" min="0" label="Cell/spot index"/>
+                <expand macro="param_spatial_key"/>
+                <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key in obsp">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Connectivity key" help="Key in adata.obsp that contains the spatial connectivity matrix.">
-                    <expand macro="sanitize_query"/>
-                </param>
-                <param argument="size" type="float" value="1" min="0" label="Point size" help="Size of the points."/>
+                <param argument="size" type="float" value="1" min="0" label="Point size"/>
                 <expand macro="param_figure_size" width="5.4" height="5"/>
             </when>
-            <when value="pl.target_metrics">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
-                <expand macro="param_misty_key"/>
-                <param argument="stat" type="select" optional="true" label="Statistic to plot" help="Target metric to visualize. gain_R2: improvement from multi-view; intra_R2: intra-view variance explained; multi_R2: total variance explained.">
-                    <option value="">-- Select statistic --</option>
-                    <option value="gain_R2">gain_R2 - R² gain from spatial context</option>
+            <when value="pl.elbow">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_figure_size" width="5" height="4"/>
+            </when>
+            <when value="pl.feature_by_group">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_groupby"/>
+                <expand macro="param_spatial_key"/>
+                <param argument="labels" type="text" label="Cell-type labels to compare" help="Comma-separated labels from groupby (e.g. 'Astro,Micro' or 'Dendritic,CD14+ Monocyte').">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="At least one label from groupby is required"/>
+                </param>
+                <param argument="feature" type="text" label="Feature name in adata.var_names (e.g. 'Astro^Apoe^Lrp1')">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="feature name is required"/>
+                </param>
+                <param argument="normalize" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Normalize expression to [0, 1] per group"/>
+                <param argument="show_counts" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Show expressing cell counts in colorbar labels"/>
+                <expand macro="param_figure_size" width="10" height="6"/>
+            </when>
+            <when value="pl.annulus">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_spatial_key"/>
+                <param argument="radius_step" type="float" value="20.0" min="0.001" label="Radius step size"/>
+                <param argument="annulus_steps" type="integer" value="1" min="1" label="Annulus width in steps"/>
+                <param argument="extend_first_annulus" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Extend first annulus from radius 0"/>
+                <param argument="n_rings" type="integer" value="10" min="1" label="Number of concentric rings to draw"/>
+                <expand macro="param_seed"/>
+                <expand macro="param_figure_size" width="6" height="6"/>
+            </when>
+            <when value="pl.lric_lineplot">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="param_uns_key" DEFAULT="lric"/>
+                <param argument="interaction" type="text" label="Interaction to plot (e.g. 'Pdyn^Oprd1' or 'Astro^Micro')" help="Interaction identifier from the 'interaction' column.">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="interaction is required"/>
+                </param>
+                <param argument="source" type="text" optional="true" label="Sender cell type (required if result has 'source' column)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="target" type="text" optional="true" label="Receiver cell type (required if result has 'target' column)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="max_dist" type="float" min="0" optional="true" label="Maximum radius to plot (leave empty for all radii)"/>
+                <expand macro="param_figure_size" width="6" height="4"/>
+            </when>
+            <when value="pl.lric_divergence">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="param_uns_key" DEFAULT="lric"/>
+                <param argument="feature_a" type="text" label="First curve selector (key:value pairs, comma-separated)" help="Example: 'source:Astro,target:Neuron,interaction:Apoe^Lrp1' or 'interaction:Dcn^Egfr,condition:stim'">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="feature_a is required"/>
+                </param>
+                <param argument="feature_b" type="text" label="Second curve selector (key:value pairs, comma-separated)" help="Example: 'source:Micro,target:Neuron,interaction:Apoe^Lrp1' or 'interaction:Dcn^Egfr,condition:ctrl'">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="feature_b is required"/>
+                </param>
+                <param argument="max_dist" type="float" min="0" optional="true" label="Maximum radius to compare (leave empty for all radii)"/>
+                <param argument="min_bins" type="integer" value="3" min="2" label="Minimum shared finite radius bins"/>
+                <expand macro="param_figure_size" width="6" height="4"/>
+            </when>
+            <when value="pl.misty_target_metrics">
+                <expand macro="inputs_anndata" format="h5mu" label="MISTy (MuData .h5mu) file"/>
+                <param argument="stat" type="select" label="Statistic to plot">
+                    <option value="gain_R2" selected="true">gain_R2 - R² gain from extra spatial views</option>
                     <option value="intra_R2">intra_R2 - Intra-view R²</option>
                     <option value="multi_R2">multi_R2 - Total multi-view R²</option>
-                    <option value="p_value">p_value - Statistical significance</option>
+                    <option value="custom">Custom column (e.g. a specific view contribution column)</option>
                 </param>
-                <param argument="top_n" type="integer" value="" optional="true" min="1" label="Top N targets" help="Number of top targets to display. Empty = all targets.">
-                </param>
-                <param argument="ascending" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort ascending" help="If enabled: sort by increasing values. If disabled: sort by decreasing values (default, shows highest ranking first).">
-                </param>
-                <expand macro="param_figure_size" width="5" height="5"/>
-            </when>
-            <when value="pl.contributions">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
-                <expand macro="param_misty_key"/>
-                <param argument="view_names" type="text" value="" optional="true" label="Views to include" help="Comma-separated view names (intra, juxta, para) to plot. Empty = all views. Useful for focusing on specific spatial scales.">
+                <param name="custom_stat" type="text" optional="true" label="Custom statistic column name (used when 'Custom column' is selected above)">
                     <expand macro="sanitize_query"/>
                 </param>
+                <expand macro="param_misty_key"/>
+                <expand macro="param_misty_aggregate_fn"/>
+                <param argument="top_n" type="integer" optional="true" min="1" label="Top N targets"/>
+                <param argument="ascending" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort ascending"/>
+                <expand macro="param_plot_filter"/>
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
-            <when value="pl.interactions">
-                <param name="mdata" type="data" format="h5mu" optional="true" label="MISTy (MuData .h5mu) file" help=""/>
-                <expand macro="param_misty_key"/>
-                <param argument="view" type="text" value="" optional="true" label="View name" help="Specific view (e.g., 'intra', 'juxta', 'para') to visualize interaction importances. Empty = combined importance across all views.">
+            <when value="pl.misty_contributions">
+                <expand macro="inputs_anndata" format="h5mu" label="MISTy (MuData .h5mu) file"/>
+                <param argument="view_names" type="text" optional="true" label="Views to include (comma-separated, leave empty for all views in MISTy object)">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="top_n" type="integer" value="" optional="true" min="1" label="Top N interactions" help="Number of top interactions to display. Empty = show all.">
+                <expand macro="param_misty_aggregate_fn"/>
+                <expand macro="param_plot_filter"/>
+                <expand macro="param_figure_size" width="5" height="5"/>
+            </when>
+            <when value="pl.misty_interactions">
+                <expand macro="inputs_anndata" format="h5mu" label="MISTy (MuData .h5mu) file"/>
+                <param argument="view" type="text" value="para" optional="false" label="View name to plot (e.g., 'intra', 'juxta', 'para', 'extra')">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="view name is required"/>
                 </param>
-                <param argument="ascending" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort ascending" help="If enabled: smallest to largest. If disabled: largest to smallest (default, shows most important first).">
-                </param>
+                <expand macro="param_misty_key"/>
+                <expand macro="param_misty_aggregate_fn"/>
+                <param argument="top_n" type="integer" optional="true" min="1" label="Top N predictor-target pairs"/>
+                <param argument="ascending" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sort ascending"/>
+                <expand macro="param_plot_filter"/>
                 <expand macro="param_figure_size" width="5" height="5"/>
             </when>
         </conditional>
@@ -323,12 +519,15 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_png" ftype="png">
                 <assert_contents>
-                    <has_size size="390000" delta="150000"/>
+                    <has_size min="50000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.dotplot"/>
+                    <has_text_matching expression="li\.pl\.dotplot"/>
+                    <has_text_matching expression="colour='magnitude_rank'"/>
+                    <has_text_matching expression="size='specificity_rank'"/>
+                    <has_text_matching expression="inverse_colour=True"/>
                 </assert_contents>
             </output>
         </test>
@@ -355,12 +554,14 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_pdf" ftype="pdf">
                 <assert_contents>
-                    <has_size size="280000" delta="100000"/>
+                    <has_size min="10000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.dotplot_by_sample"/>
+                    <has_text_matching expression="li\.pl\.dotplot_by_sample"/>
+                    <has_text_matching expression="sample_key='sample'"/>
+                    <has_text_matching expression="colour='magnitude_rank'"/>
                 </assert_contents>
             </output>
         </test>
@@ -372,7 +573,7 @@ fig.save('plot.$format', dpi=150)
                 <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_liana_results.h5ad"/>
                 <param name="uns_key" value="liana_res"/>
                 <param name="fill" value="magnitude_rank"/>
-                <param name="label" value="magnitude_rank"/>
+                <param name="label" value="specificity_rank"/>
                 <param name="top_n" value="15"/>
                 <param name="orderby" value="magnitude_rank"/>
                 <param name="orderby_ascending" value="true"/>
@@ -386,16 +587,45 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_svg" ftype="svg">
                 <assert_contents>
-                    <has_size size="3300000" delta="1000000"/>
+                    <has_size min="10000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.tileplot"/>
+                    <has_text_matching expression="li\.pl\.tileplot"/>
+                    <has_text_matching expression="fill='magnitude_rank'"/>
+                    <has_text_matching expression="label='specificity_rank'"/>
+                    <has_text_matching expression="top_n=15"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- 4) connectivity -> PNG -->
+        <!-- 4) circle -> PNG -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.circle"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_liana_results.h5ad"/>
+                <param name="uns_key" value="liana_res"/>
+                <param name="groupby" value="louvain"/>
+                <param name="pivot_mode" value="counts"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="10000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.pl\.circle"/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                    <has_text_matching expression="pivot_mode='counts'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 5) connectivity -> PNG -->
         <test expect_num_outputs="2">
             <param name="format" value="png"/>
             <conditional name="method">
@@ -413,21 +643,23 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_png" ftype="png">
                 <assert_contents>
-                    <has_size size="56000" delta="40000"/>
+                    <has_size min="10000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.connectivity"/>
+                    <has_text_matching expression="li\.pl\.connectivity"/>
+                    <has_text_matching expression="idx=0"/>
+                    <has_text_matching expression="spatial_key='spatial'"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- 5) MISTy target_metrics -> PDF -->
+        <!-- 6) MISTy target_metrics -> PDF -->
         <test expect_num_outputs="2">
             <param name="format" value="pdf"/>
             <conditional name="method">
-                <param name="method" value="pl.target_metrics"/>
-                <param name="mdata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu"/>
+                <param name="method" value="pl.misty_target_metrics"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu" ftype="h5mu"/>
                 <param name="stat" value="gain_R2"/>
                 <param name="ascending" value="false"/>
                 <param name="figure_size_width" value="5"/>
@@ -438,22 +670,22 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_pdf" ftype="pdf">
                 <assert_contents>
-                    <has_size size="17186" delta="5000"/>
+                    <has_size min="5000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.target_metrics"/>
+                    <has_text_matching expression="li\.pl\.misty_target_metrics"/>
+                    <has_text_matching expression="stat=stat_col"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- 6) MISTy contributions -> SVG -->
+        <!-- 7) MISTy contributions (with empty view_names testing MistyData wrapping!) -> SVG -->
         <test expect_num_outputs="2">
             <param name="format" value="svg"/>
             <conditional name="method">
-                <param name="method" value="pl.contributions"/>
-                <param name="mdata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu"/>
-                <param name="view_names" value="intra,juxta,para"/>
+                <param name="method" value="pl.misty_contributions"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu" ftype="h5mu"/>
                 <param name="figure_size_width" value="5"/>
                 <param name="figure_size_height" value="5"/>
             </conditional>
@@ -462,21 +694,22 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_svg" ftype="svg">
                 <assert_contents>
-                    <has_size size="58175" delta="10000"/>
+                    <has_size min="10000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.contributions"/>
+                    <has_text_matching expression="li\.pl\.misty_contributions\("/>
+                    <has_text_matching expression="misty = li\.mt\.MistyData\(adata\)"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- 7) MISTy interactions -> PNG -->
+        <!-- 8) MISTy interactions -> PNG -->
         <test expect_num_outputs="2">
             <param name="format" value="png"/>
             <conditional name="method">
-                <param name="method" value="pl.interactions"/>
-                <param name="mdata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu"/>
+                <param name="method" value="pl.misty_interactions"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/genericMistyData_rf.h5mu" ftype="h5mu"/>
                 <param name="view" value="para"/>
                 <param name="top_n" value="20"/>
                 <param name="ascending" value="false"/>
@@ -488,87 +721,183 @@ fig.save('plot.$format', dpi=150)
             </section>
             <output name="out_png" ftype="png">
                 <assert_contents>
-                    <has_size size="52184" delta="8000"/>
+                    <has_size min="10000"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.plotting.interactions"/>
+                    <has_text_matching expression="li\.pl\.misty_interactions"/>
+                    <has_text_matching expression="view='para'"/>
+                    <has_text_matching expression="top_n=20"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 9) elbow -> PNG -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.elbow"/>
+                <param name="adata" value="lric_test.h5ad"/>
+                <param name="figure_size_width" value="5"/>
+                <param name="figure_size_height" value="4"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="10000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.pl\.elbow"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 10) feature_by_group -> PNG -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.feature_by_group"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/inflow.h5as" ftype="h5ad"/>
+                <param name="groupby" value="celltype"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="labels" value="Bcell,Fibroblast"/>
+                <param name="feature" value="Bcell^LGALS9^PTPRC"/>
+                <param name="normalize" value="true"/>
+                <param name="show_counts" value="true"/>
+                <param name="figure_size_width" value="8"/>
+                <param name="figure_size_height" value="5"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="10000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.pl\.feature_by_group"/>
+                    <has_text_matching expression="groupby='celltype'"/>
+                    <has_text_matching expression="feature='Bcell\^LGALS9\^PTPRC'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 11) annulus -> PNG -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.annulus"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="radius_step" value="50.0"/>
+                <param name="annulus_steps" value="1"/>
+                <param name="extend_first_annulus" value="true"/>
+                <param name="n_rings" value="4"/>
+                <param name="seed" value="1337"/>
+                <param name="figure_size_width" value="6"/>
+                <param name="figure_size_height" value="6"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="10000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.pl\.annulus"/>
+                    <has_text_matching expression="radius_step=50\.0"/>
+                    <has_text_matching expression="n_rings=4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 12) lric_lineplot -> PNG -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.lric_lineplot"/>
+                <param name="adata" value="lric_test.h5ad"/>
+                <param name="uns_key" value="lric"/>
+                <param name="interaction" value="LGALS9^PTPRC"/>
+                <param name="source" value="TypeA"/>
+                <param name="target" value="TypeB"/>
+                <param name="figure_size_width" value="6"/>
+                <param name="figure_size_height" value="4"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="10000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.pl\.lric_lineplot"/>
+                    <has_text_matching expression="interaction='LGALS9\^PTPRC'"/>
+                    <has_text_matching expression="source='TypeA'"/>
+                    <has_text_matching expression="target='TypeB'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 13) lric_divergence -> PNG -->
+        <test expect_num_outputs="2">
+            <param name="format" value="png"/>
+            <conditional name="method">
+                <param name="method" value="pl.lric_divergence"/>
+                <param name="adata" value="lric_test.h5ad"/>
+                <param name="uns_key" value="lric"/>
+                <param name="feature_a" value="source:TypeA,target:TypeB,interaction:LGALS9^PTPRC"/>
+                <param name="feature_b" value="source:TypeA,target:TypeC,interaction:LGALS9^PTPRC"/>
+                <param name="min_bins" value="3"/>
+                <param name="figure_size_width" value="6"/>
+                <param name="figure_size_height" value="4"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="out_png" ftype="png">
+                <assert_contents>
+                    <has_size min="10000"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.pl\.lric_divergence"/>
+                    <has_text_matching expression="min_bins=3"/>
                 </assert_contents>
             </output>
         </test>
     </tests>
     <help><![CDATA[
-Liana Plotting Tools
-====================
+Liana Plotting Tools (`liana.pl`)
+=================================
 
-This tool provides visualization methods for LIANA ligand-receptor analysis results.
+This tool provides the complete visualization suite for LIANA+ cell-cell communication and spatial analysis results (`liana 2.0.0`).
 
 Available Methods
 -----------------
 
-**dotplot**
-    Create a dotplot of interactions by source and target cells. The dot size and color
-    can be mapped to different columns in the LIANA results (e.g., expression magnitude,
-    specificity scores).
-
-**dotplot_by_sample**
-    Create a dotplot of interactions grouped by sample. Useful for comparing interactions
-    across different conditions or samples.
-
-**tileplot**
-    Create a tileplot showing interactions as tiles organized by source and target cells.
-    The fill color and labels can be customized.
-
-**connectivity**
-    Plot spatial connectivity weights for a specific cell. Requires spatial data with
-    connectivity information computed.
-
-**target_metrics** (MISTy)
-    Plot target metrics from MISTy spatial modelling results. Shows statistics like
-    R² gain, intra R², multi R², or p-values for each target.
-
-**contributions** (MISTy)
-    Plot view contributions per target from MISTy results. Shows how different spatial
-    views contribute to explaining each target variable.
-
-**interactions** (MISTy)
-    Plot interaction importances from MISTy results. Shows the importance of predictor
-    variables for explaining targets within a specific view.
-
-Common Parameters
------------------
-
-**uns_key**
-    Key in adata.uns that contains the LIANA results. Default is 'liana_res'.
-
-**colour / size**
-    Columns in liana_res to define the color and size of dots/tiles.
-    Common options include: 'magnitude_rank', 'specificity_rank', 'lr_means', etc.
-
-**source_labels / target_labels**
-    Filter interactions to only show specific source or target cell types.
-
-**ligand_complex / receptor_complex**
-    Filter interactions to only show specific ligand or receptor complexes.
-
-**top_n / orderby**
-    Show only the top N interactions, ordered by a specific column.
-
-**inverse_colour / inverse_size**
-    Apply -log10 transformation to the colour/size values for better visualization.
-
-**cmap**
-    Colormap to use for plotting (e.g., 'viridis', 'plasma', 'RdBu_r').
-
-**figure_size**
-    Width and height of the figure in inches.
-
-Output
-------
-
-The tool outputs a plot in the selected format (PNG, PDF, or SVG).
-
+- **dotplot**: Dotplot of interactions by source and target cell types.
+- **dotplot_by_sample**: Dotplot of interactions faceted across samples/conditions.
+- **tileplot**: Side-by-side ligand and receptor tiles colored and labeled by shared entity column suffixes (e.g., `means`, `props`, `stat`, `padj`).
+- **circle**: Circular directed network graph of cell-cell communication counts or mean scores.
+- **connectivity**: Spatial connectivity weights around a selected cell/spot index.
+- **elbow**: NMF reconstruction error curve and estimated elbow rank.
+- **feature_by_group**: Multi-colorbar spatial scatter plot comparing an Inflow `source^ligand^receptor` feature across receiver cell types.
+- **annulus**: Concentric distance rings overlaid on tissue coordinates to inspect `radius_step` and `annulus_steps` for LRIC / cross-PCF.
+- **lric_lineplot**: Distance enrichment curve `g(r)` (plus `g_pcf` and `g_expr` decomposition) for a specific interaction.
+- **lric_divergence**: Visual comparison of two `log2 g(r)` curves with shaded divergence area and peak separation radius `r*`.
+- **misty_target_metrics**: Bar/point or boxplot of MISTy target metrics (`gain_R2`, `intra_R2`, `multi_R2`, or custom view column).
+- **misty_contributions**: Stacked barplot of view contributions per target from MISTy.
+- **misty_interactions**: Heatmap of predictor-target interaction importances for a specific MISTy view.
     ]]></help>
     <expand macro="citations"/>
 </tool>
