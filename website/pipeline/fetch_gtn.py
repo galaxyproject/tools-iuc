@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .common import DATA_DIR, read_yaml, step, step_done, write_yaml
+from .common import DATA_DIR, http_url, http_url_or_handle, read_yaml, step, step_done, write_yaml
 
 # Raw GitHub URLs for the GTN's canonical contributor / organisation files.
 GTN_RAW_BASE = "https://raw.githubusercontent.com/galaxyproject/training-material/main"
@@ -80,8 +80,20 @@ def _clean_contributors(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         cleaned = dict(v)
         cleaned.pop("email", None)
+        _keep_safe_links(cleaned, urls=("url", "website"), handles=("orcid", "fediverse"))
         out[handle] = cleaned
     return out
+
+
+def _keep_safe_links(entry: dict[str, Any], *, urls: tuple[str, ...], handles: tuple[str, ...] = ()) -> None:
+    """Drop link fields the site would turn into a non-http(s) href."""
+    for key, check in [(k, http_url) for k in urls] + [(k, http_url_or_handle) for k in handles]:
+        if key in entry:
+            value = check(entry[key])
+            if value:
+                entry[key] = value
+            else:
+                del entry[key]
 
 
 def _clean_organisations(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -96,6 +108,7 @@ def _clean_organisations(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         cleaned = dict(v)
         cleaned.pop("email", None)
+        _keep_safe_links(cleaned, urls=("url",))
         out[handle] = cleaned
     return out
 

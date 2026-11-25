@@ -43,6 +43,8 @@ def tool_snapshot(data_dir: Path) -> Iterator[Path]:
         shutil.rmtree(stage)
         raise
     # Keep the preceding generation so existing readers can finish using it.
+    # Compare resolved paths: on macOS the temp dir is a /var -> /private/var symlink.
+    keep = {stage.resolve(), previous.resolve() if previous else None}
     for old in snapshots.iterdir():
-        if old not in {stage, previous}:
+        if old.resolve() not in keep:
             shutil.rmtree(old)

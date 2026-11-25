@@ -34,13 +34,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 0  # full history for the git-history stats analyzer
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -52,28 +52,34 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: website/astro/package.json
+          cache-dependency-path: website/astro/package-lock.json
 
       # Cache the rse-content checkout (blobless clone of
       # research-software-ecosystem/content, used for EDAM expansion).
+      # The key rotates weekly; the pipeline runs `git pull` on the restored
+      # clone, and the weekly save keeps the cached clone from going stale.
+      - name: Get rse-content cache week
+        id: rse-week
+        run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+
       - name: Restore rse-content checkout
         id: rse-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: website/.rse-content
-          key: rse-content-${{ runner.os }}-v1
+          key: rse-content-${{ runner.os }}-${{ steps.rse-week.outputs.week }}
           restore-keys: |
             rse-content-${{ runner.os }}-
 
       # Cache the uv venv. Galaxy packages are installed from git as deps,
-      # so the cache avoids re-building them on every run. Keyed by
-      # pyproject.toml hash so dep changes bust the cache.
+      # so the cache avoids re-building them on every run. Keyed by the
+      # uv.lock hash so dependency changes bust the cache.
       - name: Restore uv venv
         id: venv-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: website/.venv
-          key: venv-${{ runner.os }}-${{ hashFiles('website/pyproject.toml') }}
+          key: venv-${{ runner.os }}-${{ hashFiles('website/uv.lock') }}
           restore-keys: |
             venv-${{ runner.os }}-
 
@@ -81,7 +87,7 @@ jobs:
       # pipeline validates cache freshness before reusing expensive outputs.
       - name: Restore generated data
         id: data-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             website/data
@@ -92,7 +98,7 @@ jobs:
 
       - name: Install pipeline deps
         working-directory: website
-        run: uv sync
+        run: uv sync --locked
 
       - name: Install site deps
         working-directory: website/astro
@@ -105,7 +111,7 @@ jobs:
       # This cache is independent of generated metadata and template changes.
       - name: Restore history index
         id: history-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: website/.history-cache/history.sqlite
           key: iuc-history-v1-${{ runner.os }}-${{ github.sha }}
@@ -121,7 +127,7 @@ jobs:
       # Save the completed index even if a later website build fails.
       - name: Save history index
         if: env.DEPLOY_PAGES == 'true' && steps.history-index.outputs.changed == 'true' && steps.history-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: website/.history-cache/history.sqlite
           key: iuc-history-v1-${{ runner.os }}-${{ github.sha }}
@@ -139,21 +145,21 @@ jobs:
 
       - name: Save rse-content checkout
         if: env.DEPLOY_PAGES == 'true' && steps.rse-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: website/.rse-content
           key: ${{ steps.rse-cache.outputs.cache-primary-key }}
 
       - name: Save uv venv
         if: env.DEPLOY_PAGES == 'true' && steps.venv-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: website/.venv
           key: ${{ steps.venv-cache.outputs.cache-primary-key }}
 
       - name: Save generated data
         if: env.DEPLOY_PAGES == 'true' && steps.data-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             website/data
@@ -161,7 +167,7 @@ jobs:
           key: ${{ steps.data-cache.outputs.cache-primary-key }}
 
       - name: Upload generated data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: website-data
           path: website/data
@@ -177,7 +183,18 @@ jobs:
 
       - name: Check internal links
         working-directory: website/astro
-        run: npx astro preview --ignore-lock --host 127.0.0.1 --port 4325 --strictPort & pid=$!; sleep 5; PORT=4325 npm run links:internal; status=$?; kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true; exit $status
+        run: |
+          npx astro preview --ignore-lock --host 127.0.0.1 --port 4325 --strictPort &
+          pid=$!
+          status=0
+          curl --silent --fail --output /dev/null --retry 30 --retry-delay 1 --retry-connrefused \
+            http://127.0.0.1:4325/tools-iuc/ || status=$?
+          if [ "$status" -eq 0 ]; then
+            PORT=4325 npm run links:internal || status=$?
+          fi
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          exit "$status"
 
       - name: Install browser
         working-directory: website/astro

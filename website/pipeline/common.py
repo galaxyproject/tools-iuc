@@ -8,6 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -36,6 +37,32 @@ def write_yaml(path: Path, data: Any) -> None:
 def read_yaml(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
+
+
+def http_url(value: Any) -> str | None:
+    """Return ``value`` if it is an absolute http(s) URL, else None (it ends up in an href)."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+    if parts.scheme.lower() in {"http", "https"} and parts.netloc:
+        return value
+    return None
+
+
+def http_url_or_handle(value: Any) -> str | None:
+    """Keep scheme-less handles (ORCID iD, fediverse address); URLs must be http(s)."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    try:
+        has_scheme = bool(urlsplit(value).scheme)
+    except ValueError:
+        return None
+    return http_url(value) if has_scheme else value
 
 
 def git_tracked_files(repo: Path, pathspec: str) -> list[Path]:

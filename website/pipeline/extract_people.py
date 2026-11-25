@@ -37,7 +37,7 @@ import re
 from contextlib import closing
 from typing import Any
 
-from .common import DATA_DIR, WEBSITE_DIR, read_yaml, step, step_done, write_yaml
+from .common import DATA_DIR, WEBSITE_DIR, http_url, read_yaml, step, step_done, write_yaml
 from .fetch_gtn import fetch_gtn_people
 from .history_contributions import contributor_facts
 from .history_index import HistoryIndex
@@ -68,6 +68,18 @@ def _extract_orcid(value: str | None) -> str | None:
         return None
     m = _ORCID_RE.match(str(value).strip())
     return m.group(1) if m else None
+
+
+def _creator_website(creator: dict[str, Any]) -> str | None:
+    """Personal website from a creator URL; ORCID URLs are identifiers, not websites."""
+    url = http_url(creator.get("url"))
+    if url and _extract_orcid(url):
+        return None
+    return url
+
+
+def _organisation_url(creator: dict[str, Any]) -> str | None:
+    return http_url(creator.get("url"))
 
 
 def _full_name(creator: dict[str, Any]) -> str:
@@ -306,10 +318,7 @@ def extract_people() -> tuple[int, int]:
             name = _full_name(c)
             gh = _extract_github(c.get("url"))
             orcid = _extract_orcid(c.get("identifier")) or _extract_orcid(c.get("url"))
-            url = c.get("url")
-            # If URL is an ORCID URL, don't store it as a website
-            if url and _extract_orcid(url):
-                url = None
+            url = _creator_website(c)
 
             # Handle-like identifier (e.g. "hexylena") — treat as GitHub handle
             ident = c.get("identifier")
@@ -394,12 +403,11 @@ def extract_people() -> tuple[int, int]:
                 orgs[key] = {
                     "id": key,
                     "name": name,
-                    "url": c.get("url"),
+                    "url": _organisation_url(c),
                     "identifier": c.get("identifier"),
                     "tools": [],
                 }
-            if c.get("url"):
-                orgs[key]["url"] = c.get("url") or orgs[key]["url"]
+            orgs[key]["url"] = _organisation_url(c) or orgs[key]["url"]
             if tid and tid not in orgs[key]["tools"]:
                 orgs[key]["tools"].append(tid)
 
