@@ -5,7 +5,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE_PATH = "/tools-iuc/"
+BASE_PATH = "/"
 
 
 class AssetReferenceParser(HTMLParser):

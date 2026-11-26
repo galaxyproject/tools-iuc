@@ -13,7 +13,7 @@ import { LinkChecker } from 'linkinator';
 import fs from 'fs';
 
 const port = process.env.PORT || 4321;
-const base = process.env.BASE_PATH || '/tools-iuc';
+const base = process.env.BASE_PATH || '/';
 const siteURL = `http://localhost:${port}${base}/`;
 const outputFile = './broken-links.md';
 

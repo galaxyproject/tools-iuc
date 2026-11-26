@@ -10,7 +10,7 @@ metadata from the IUC tool wrappers; Astro renders it into ~2,600 pages.
 # from the repo root
 just website-setup    # install Python deps (incl. Galaxy from git) + Node deps
 just website-build    # extract all data + build the site + search index
-just website-serve    # preview at http://localhost:4321/tools-iuc/
+just website-serve    # preview at http://localhost:4321/
 ```
 
 Requires [`just`](https://github.com/casey/just) and [`uv`](https://github.com/astral-sh/uv).
