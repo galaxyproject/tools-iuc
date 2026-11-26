@@ -17,7 +17,11 @@ after every successful run, otherwise the job fails. This wrapper therefore
 The Cas HMM profiles and the other reference data are shipped inside the cctyper
 package, so no database download or configuration is needed.
 
-It also works around two limits of ``cctyper`` 1.9.0 that matter on Galaxy:
+Custom HMM profiles uploaded by the user are joined into one file and handed to
+``cctyper --custom_hmm``, which searches the predicted proteins with them and
+labels the matching genes on the map.
+
+It also works around three limits of ``cctyper`` 1.9.0 that matter on Galaxy:
 
 * an input without a single Cas HMM hit aborts with a ``KeyError``. That is a
   valid input (no CRISPR-Cas system), so the wrapper writes the empty result
@@ -26,6 +30,12 @@ It also works around two limits of ``cctyper`` 1.9.0 that matter on Galaxy:
 * pyrodigal cannot train on sequences shorter than 20 kb, which makes the
   default single mode fail on short contigs. With ``--prodigal-mode auto`` the
   metagenomic mode is used when no sequence reaches that length.
+* with ``--custom_hmm`` every run ends in a ``FileNotFoundError`` for
+  ``hmmer_custom.log``, a log file the previous, subprocess based custom search
+  wrote and the current pyhmmer based one does not. All results, the map
+  included, are written before that crash, so the wrapper treats it as the end
+  of a successful run and removes the temporary files cctyper's own cleanup
+  step did not get to.
 """
 
 import argparse
@@ -75,6 +85,12 @@ PYRODIGAL_MIN_LENGTH = 20000
 # the run completed. The last thing a successful run logs is this message.
 COMPLETION_MARKER = "Removing temporary files"
 MISSING_DB_ERROR = "Could not find HMM profile database"
+# cctyper 1.9.0 crashes in its cleanup step when --custom_hmm was used
+CUSTOM_HMM_CLEANUP_ERRORS = ("FileNotFoundError", "hmmer_custom.log")
+
+# Temporary files cctyper's cleanup step removes after a run, repeated here for
+# the run that dies in that very step
+TEMPORARY_FILES = ("minced.out", "prodigal.log", "proteins.faa", "blast.tab")
 
 PLACEHOLDER_SVG = """<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="60" version="1.1">
@@ -137,6 +153,31 @@ def resolve_prodigal_mode(requested, fasta):
     return "single"
 
 
+def join_custom_hmms(paths, target):
+    """Join the uploaded HMM profile files into the single file cctyper wants.
+
+    cctyper takes one ``--custom_hmm`` file with any number of HMMER3 models in
+    it, so several uploads are simply concatenated. Each profile ends with a
+    ``//`` line, which keeps the models apart.
+    """
+    logging.info("Joining %d custom HMM profile file(s) into %s", len(paths), target)
+    has_model = False
+    with open(target, "w") as dest:
+        for path in paths:
+            source = gzip.open(path, "rt") if is_gzip(path) else open(path)
+            with source:
+                for line in source:
+                    if line.startswith("HMMER"):
+                        has_model = True
+                    dest.write(line if line.endswith("\n") else line + "\n")
+    if not has_model:
+        sys.exit(
+            "The custom HMM profile input does not contain an HMMER3 profile "
+            "(no line starting with 'HMMER')"
+        )
+    return target
+
+
 def run_cctyper(command):
     """Run cctyper, forward its log and return (returncode, captured stderr)."""
     captured = []
@@ -178,6 +219,20 @@ def count_rows(path):
         return 0
     with open(path) as handle:
         return max(sum(1 for _ in handle) - 1, 0)
+
+
+def remove_temporary_files(cctyper_dir):
+    """Delete what cctyper's cleanup step deletes, for runs that died in it."""
+    if not os.path.isdir(cctyper_dir):
+        return
+    shutil.rmtree(os.path.join(cctyper_dir, "hmmer"), ignore_errors=True)
+    for name in TEMPORARY_FILES:
+        path = os.path.join(cctyper_dir, name)
+        if os.path.exists(path):
+            os.remove(path)
+    for name in os.listdir(cctyper_dir):
+        if name.startswith("Flank."):
+            os.remove(os.path.join(cctyper_dir, name))
 
 
 def collect_outputs(cctyper_dir, results_dir, want_plot, stderr_text):
@@ -233,6 +288,9 @@ def parse_arguments(argv=None):
     parser.add_argument("--results", default="results", help="Directory with the Galaxy outputs")
     parser.add_argument("--plot", action="store_true",
                         help="A map was requested, write a placeholder if nothing was drawn")
+    parser.add_argument("--custom-hmm", nargs="+", default=[], metavar="HMM",
+                        help="HMMER3 profile file(s) to search the proteins with, joined and "
+                             "passed to cctyper --custom_hmm")
     parser.add_argument("cctyper_arguments", nargs=argparse.REMAINDER,
                         help="Arguments for cctyper, which have to be preceded by a '--' "
                              "separator because they use the same option names")
@@ -258,11 +316,22 @@ def main(argv=None):
     fasta = unpack_input(args.input, ".")
     mode = resolve_prodigal_mode(args.prodigal_mode, fasta)
 
-    command = ["cctyper", fasta, args.workdir, "--prodigal", mode] + args.cctyper_arguments
+    command = ["cctyper", fasta, args.workdir, "--prodigal", mode]
+    if args.custom_hmm:
+        if "--no_plot" in args.cctyper_arguments:
+            logging.warning(
+                "Custom HMM profiles are only used to label genes on the map, which "
+                "was turned off, so they will not show up in any output"
+            )
+        command += ["--custom_hmm",
+                    join_custom_hmms(args.custom_hmm, "custom_hmm_profiles.hmm")]
+    command += args.cctyper_arguments
+
     returncode, stderr_text = run_cctyper(command)
 
     failed = returncode != 0
     no_hits = False
+    worked_around = False
     if failed and NO_CAS_HIT_ERROR in stderr_text:
         logging.warning(
             "CRISPRCasTyper found no Cas HMM hit in this input. cctyper 1.9.0 stops "
@@ -278,10 +347,22 @@ def main(argv=None):
             "CRISPRCasTyper failed: pyrodigal cannot train a gene model on sequences "
             "shorter than 20 kb. Choose the metagenomic gene prediction mode instead."
         )
+    elif failed and args.custom_hmm and all(
+            error in stderr_text for error in CUSTOM_HMM_CLEANUP_ERRORS):
+        logging.warning(
+            "CRISPRCasTyper finished the analysis but crashed in its last step, the "
+            "removal of temporary files, because cctyper 1.9.0 still looks for the log "
+            "file of the custom HMM search it no longer writes. All results and the map "
+            "were written before that, so the run is treated as successful and the "
+            "temporary files are removed here instead."
+        )
+        remove_temporary_files(args.workdir)
+        failed = False
+        worked_around = True
     elif failed:
         sys.exit("CRISPRCasTyper failed with exit code %d, see the log above" % returncode)
 
-    if not failed and not no_hits and COMPLETION_MARKER not in stderr_text:
+    if not failed and not no_hits and not worked_around and COMPLETION_MARKER not in stderr_text:
         if MISSING_DB_ERROR in stderr_text:
             sys.exit(
                 "CRISPRCasTyper could not find its Cas HMM profile database. Neither "
@@ -295,7 +376,7 @@ def main(argv=None):
         )
 
     collect_outputs(args.workdir, args.results, args.plot,
-                    stderr_text if returncode != 0 else "")
+                    stderr_text if no_hits else "")
 
 
 if __name__ == "__main__":
