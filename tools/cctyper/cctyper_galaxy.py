@@ -21,9 +21,12 @@ Custom HMM profiles uploaded by the user are joined into one file and handed to
 ``cctyper --custom_hmm``, which searches the predicted proteins with them and
 labels the matching genes on the map.
 
-It also works around three limits of ``cctyper`` 1.9.0 that matter on Galaxy:
+It also works around three limits of ``cctyper`` 1.9.0 that matter on Galaxy.
+Two of them are fixed upstream already, the links in the list point to the pull
+requests; the workarounds stay until a release contains the fixes:
 
-* an input without a single Cas HMM hit aborts with a ``KeyError``. That is a
+* an input without a single Cas HMM hit aborts with a ``KeyError``
+  (https://github.com/Russel88/CRISPRCasTyper/pull/75). That is a
   valid input (no CRISPR-Cas system), so the wrapper writes the empty result
   tables, keeps the traceback in ``extras/cctyper_stderr.log`` and reports a
   warning instead of failing the job.
@@ -31,7 +34,8 @@ It also works around three limits of ``cctyper`` 1.9.0 that matter on Galaxy:
   default single mode fail on short contigs. With ``--prodigal-mode auto`` the
   metagenomic mode is used when no sequence reaches that length.
 * with ``--custom_hmm`` every run ends in a ``FileNotFoundError`` for
-  ``hmmer_custom.log``, a log file the previous, subprocess based custom search
+  ``hmmer_custom.log`` (https://github.com/Russel88/CRISPRCasTyper/pull/74), a
+  log file the previous, subprocess based custom search
   wrote and the current pyhmmer based one does not. All results, the map
   included, are written before that crash, so the wrapper treats it as the end
   of a successful run and removes the temporary files cctyper's own cleanup
@@ -75,7 +79,8 @@ MAIN_OUTPUTS = {
     "plot.svg": "plot.svg",
 }
 
-# cctyper 1.9.0 aborts like this when the HMM search returns no hit at all
+# cctyper 1.9.0 aborts like this when the HMM search returns no hit at all, fixed
+# in https://github.com/Russel88/CRISPRCasTyper/pull/75
 NO_CAS_HIT_ERROR = "['Hmm', 'ORF'] not in index"
 SHORT_SEQUENCE_ERROR = "sequence must be at least 20000 characters"
 PYRODIGAL_MIN_LENGTH = 20000
@@ -85,7 +90,8 @@ PYRODIGAL_MIN_LENGTH = 20000
 # the run completed. The last thing a successful run logs is this message.
 COMPLETION_MARKER = "Removing temporary files"
 MISSING_DB_ERROR = "Could not find HMM profile database"
-# cctyper 1.9.0 crashes in its cleanup step when --custom_hmm was used
+# cctyper 1.9.0 crashes in its cleanup step when --custom_hmm was used, fixed in
+# https://github.com/Russel88/CRISPRCasTyper/pull/74
 CUSTOM_HMM_CLEANUP_ERRORS = ("FileNotFoundError", "hmmer_custom.log")
 
 # Temporary files cctyper's cleanup step removes after a run, repeated here for
