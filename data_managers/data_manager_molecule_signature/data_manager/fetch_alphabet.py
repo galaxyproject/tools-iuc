@@ -1,7 +1,11 @@
 #!/usr/bin/env python
+"""Download a molecule-signature alphabet file into a target directory.
+
+The data manager JSON that describes the new data table entry is generated
+by a configfile in the tool wrapper, so this script only downloads data.
+"""
 import argparse
 import hashlib
-import json
 import logging
 import os
 import shutil
@@ -10,24 +14,23 @@ import urllib.request
 
 ZENODO = "https://zenodo.org/records/22691018/files"
 
+# Upstream file names and checksums. The file names are repeated in the
+# "dmjson" configfile of molsig_alphabet_fetcher.xml, which builds the data
+# table row; keep the two in sync.
 ALPHABETS = {
     "chembl": {
-        "name": "ChEMBL alphabet",
         "file": "chembl_alphabet.npz",
         "md5": "9c1f00da7f1bc300c2b7682f9bc06ed0",
     },
     "drugbank": {
-        "name": "DrugBank alphabet",
         "file": "drugbank_alphabet.npz",
         "md5": "62fedf7cceabb6553dec0efd58f0f763",
     },
     "emolecules": {
-        "name": "eMolecules alphabet",
         "file": "emolecules_alphabet.npz",
         "md5": "36fccb3f550e94713a7764e92a086481",
     },
     "metanetx": {
-        "name": "MetaNetX alphabet",
         "file": "metanetx_alphabet.npz",
         "md5": "0eac175891133b29d9172fc14c487ae2",
     },
@@ -48,24 +51,19 @@ def main():
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stderr)],
     )
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--alphabet", required=True, choices=ALPHABETS)
-    parser.add_argument("--version", required=True)
-    parser.add_argument("--out", required=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--alphabet", required=True, choices=sorted(ALPHABETS), help="Alphabet to download"
+    )
+    parser.add_argument(
+        "--out", required=True, help="Directory to download the alphabet file into"
+    )
     args = parser.parse_args()
-
-    # The pre-existing "out" file holds the JSON mapping of the job
-    # parameters; the directory where the alphabet file is staged for
-    # Galaxy to move into the managed data directory is read from the
-    # first output's extra_files_path.
-    with open(args.out) as fh:
-        params = json.load(fh)
-    target_dir = params["output_data"][0]["extra_files_path"]
-    os.makedirs(target_dir, exist_ok=True)
 
     info = ALPHABETS[args.alphabet]
     url = f"{ZENODO}/{info['file']}?download=1"
-    dest = os.path.join(target_dir, info["file"])
+    os.makedirs(args.out, exist_ok=True)
+    dest = os.path.join(args.out, info["file"])
     tmp = dest + ".part"
 
     logging.info("Downloading %s", url)
@@ -85,17 +83,6 @@ def main():
         sys.exit(1)
     os.replace(tmp, dest)
     logging.info("MD5 verified for %s", info["file"])
-
-    entry = {
-        "value": args.alphabet,
-        "name": info["name"],
-        "version": args.version,
-        # Relative to extra_files_path; data_manager_conf.xml moves the file
-        # from there into the managed data directory.
-        "path": info["file"],
-    }
-    with open(args.out, "w") as fh:
-        json.dump({"data_tables": {"molsig_alphabets": [entry]}}, fh, sort_keys=True)
 
 
 if __name__ == "__main__":
