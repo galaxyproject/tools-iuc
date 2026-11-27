@@ -1,0 +1,438 @@
+<tool id="sccellfie_pipeline" name="scCellFie pipeline" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>infer metabolic task and reaction activities from single-cell/spatial data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="creator"/>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+cp '$adata' 'input.h5ad' &&
+#if str($grouping.process_by_group) == 'True'
+mkdir -p group_outputs adata_outputs reactions_outputs metabolic_tasks_outputs &&
+#end if
+#if str($grouping.process_by_group) == 'False' and str($reporting.report) == 'True'
+mkdir -p report_output &&
+#end if
+cat '$script_file' &&
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output'
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+import sccellfie
+import anndata as ad
+
+adata = ad.read_h5ad('input.h5ad')
+
+results = sccellfie.run_sccellfie_pipeline(
+    adata,
+    organism='$organism',
+    sccellfie_db=None, ## the default database is used, later it can be activated if needed by users
+    #if str($n_counts_col) != '':
+    n_counts_col='$n_counts_col',
+    #else
+    n_counts_col=None,
+    #end if
+    process_by_group=$grouping.process_by_group,
+    #if str($grouping.process_by_group) == 'True':
+    groupby='$grouping.groupby',
+    save_folder='group_outputs',
+    #else
+    save_folder='.',
+    #end if
+    save_filename='sccellfie_output',
+    neighbors_key='$neighbors_key',
+    n_neighbors=$n_neighbors,
+    #if str($batch_key) != '':
+    batch_key='$batch_key',
+    #end if
+    threshold_key='sccellfie_threshold',  ## the default database is used, later it can be activated if needed by users
+    smooth_cells=$smoothing.smooth_cells,
+    #if str($smoothing.smooth_cells) == 'True':
+    alpha=$smoothing.alpha,
+    chunk_size=$smoothing.chunk_size,
+    #end if
+    disable_pbar=True,
+    #if str($grouping.process_by_group) == 'False':
+    compute_ablation_impact=$grouping.compute_ablation_impact,
+    #end if
+    verbose=True
+)
+
+#if str($grouping.process_by_group) == 'True':
+# The pipeline saves one file set per group and returns nothing, so the
+# results are collected from disk and split into one collection per output type.
+import glob
+import os
+import shutil
+
+prefix = 'sccellfie_output_'
+for path in sorted(glob.glob(os.path.join('group_outputs', prefix + '*.h5ad'))):
+    name = os.path.basename(path)[len(prefix):]
+    if name.endswith('_reactions.h5ad'):
+        destination, name = 'reactions_outputs', name[:-len('_reactions.h5ad')] + '.h5ad'
+    elif name.endswith('_metabolic_tasks.h5ad'):
+        destination, name = 'metabolic_tasks_outputs', name[:-len('_metabolic_tasks.h5ad')] + '.h5ad'
+    else:
+        destination = 'adata_outputs'
+    shutil.move(path, os.path.join(destination, name))
+#else
+# The pipeline writes sccellfie_output*.h5ad into the working directory itself
+# when save_folder is set, so only the ablation tables have to be exported here.
+    #if str($grouping.compute_ablation_impact) == 'True':
+results['ablation_impact']['rel_change'].to_csv('ablation_rel_change.tsv', sep='\t')
+results['ablation_impact']['abs_change'].to_csv('ablation_abs_change.tsv', sep='\t')
+results['ablation_impact']['fraction_zeroed'].to_csv('ablation_fraction_zeroed.tsv', sep='\t')
+    #end if
+results['task_info'].to_csv('task_info.tsv', sep='\t', index=False)
+    #if str($reporting.report) == 'True':
+report = sccellfie.reports.generate_report_from_adata(
+    results['adata'],
+    group_by='$reporting.groupby',
+    agg_func='$reporting.agg_func',
+        #if str($reporting.layer) != '':
+    layer='$reporting.layer',
+        #end if
+        #if str($reporting.tissue_col) != '':
+    tissue_col='$reporting.tissue_col',
+        #end if
+    feature_name='$reporting.feature_name',
+    min_cells=$reporting.min_cells,
+    threshold=$reporting.report_threshold)
+for key, df in report.items():
+    df.to_csv(f'report_output/{key}.tsv', sep='\t', index=(key != 'melted'))
+    #end if
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="input_adata" label="Annotated data matrix with raw counts in .X"/>
+        <expand macro="organism_param"/>
+        <param argument="n_counts_col" type="text" value="" optional="true" label="Column in adata.obs with total counts per cell" help="Leave empty to compute it from the expression matrix">
+            <expand macro="sanitize_query"/>
+        </param>
+        <param argument="neighbors_key" type="text" value="neighbors" label="Key in adata.uns for neighbors settings" help="If not present, neighbors will be computed">
+            <expand macro="sanitize_query"/>
+        </param>
+        <param argument="n_neighbors" type="integer" min="1" value="10" label="Number of neighbors" help="Used only if neighbors are not already present, and for KNN smoothing"/>
+        <param argument="batch_key" type="text" value="" optional="true" label="Column in adata.obs with batch information" help="If provided, Harmony is used to integrate data before computing neighbors">
+            <expand macro="sanitize_query"/>
+        </param>
+        <conditional name="smoothing">
+            <param argument="smooth_cells" type="select" label="Smooth gene expression using nearest neighbors (KNN)?">
+                <option value="True" selected="true">Yes</option>
+                <option value="False">No</option>
+            </param>
+            <when value="True">
+                <param argument="alpha" type="float" min="0" max="1" value="0.33" label="The weight or fraction of the smoothed expression to use in the final expression matrix"/>
+                <param argument="chunk_size" type="integer" min="1" value="5000" label="Chunk size for smoothing large datasets"/>
+            </when>
+            <when value="False"/>
+        </conditional>
+        <conditional name="grouping">
+            <param name="process_by_group" type="select" label="Process data by groups?" help="Runs the pipeline separately on each group (e.g. cell type). This is more memory efficient for huge datasets, but results are written to disk as one file set per group instead of being returned as a single object">
+                <option value="False" selected="true">No, process the entire dataset at once</option>
+                <option value="True">Yes, process each group separately</option>
+            </param>
+            <when value="True">
+                <expand macro="param_groupby" label="Column in adata.obs to group cells by" help="e.g. cell type or cluster annotation"/>
+            </when>
+            <when value="False">
+                <param argument="compute_ablation_impact" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Compute single-gene ablation impact on metabolic tasks?" help="Runs a synthetic single-gene knockout analysis on the filtered GPR rules"/>
+            </when>
+        </conditional>
+        <conditional name="reporting">
+            <param name="report" type="select" label="Generate a group-level summary report?" help="Computes multiple statistics per group (aggregated value, variance, standard deviation, number of cells passing an expression threshold, number of non-zero cells, cell counts, and min/max) and returns a collection of tables including a long/melted table useful for radial plots">
+                <option value="False" selected="true">No</option>
+                <option value="True">Yes</option>
+            </param>
+            <when value="True">
+                <expand macro="param_groupby" label="The key in adata.obs to group cells by"/>
+                <expand macro="param_agg_func"/>
+                <expand macro="param_layer"/>
+                <param argument="tissue_col" type="text" value="" optional="true" label="Column in adata.obs with tissue/sample information">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="feature_name" type="text" value="feature" label="Name to use for features in the melted result" help="e.g. 'metabolic_task' or 'reaction'. If you want to use radial_plot, use 'metabolic_task'">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_cells" type="integer" min="1" value="1" label="Minimum number of cells required for a group to be included"/>
+                <param name="report_threshold" argument="threshold" type="float" min="0" value="3.4657359027997265" label="Expression threshold" help="Used for counting the number of cells passing the threshold per group (default: 5*ln(2))"/>
+            </when>
+            <when value="False"/>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="adata_out" format="h5ad" from_work_dir="sccellfie_output.h5ad" label="${tool.name} on ${on_string}: Annotated data matrix">
+            <filter>grouping['process_by_group'] == 'False'</filter>
+        </data>
+        <data name="reactions_out" format="h5ad" from_work_dir="sccellfie_output_reactions.h5ad" label="${tool.name} on ${on_string}: Reaction activity">
+            <filter>grouping['process_by_group'] == 'False'</filter>
+        </data>
+        <data name="metabolic_tasks_out" format="h5ad" from_work_dir="sccellfie_output_metabolic_tasks.h5ad" label="${tool.name} on ${on_string}: Metabolic task activity">
+            <filter>grouping['process_by_group'] == 'False'</filter>
+        </data>
+        <data name="ablation_rel_change" format="tabular" from_work_dir="ablation_rel_change.tsv" label="${tool.name} on ${on_string}: Gene ablation impact (relative change)">
+            <filter>grouping['process_by_group'] == 'False' and grouping['compute_ablation_impact']</filter>
+        </data>
+        <data name="ablation_abs_change" format="tabular" from_work_dir="ablation_abs_change.tsv" label="${tool.name} on ${on_string}: Gene ablation impact (absolute change)">
+            <filter>grouping['process_by_group'] == 'False' and grouping['compute_ablation_impact']</filter>
+        </data>
+        <data name="ablation_fraction_zeroed" format="tabular" from_work_dir="ablation_fraction_zeroed.tsv" label="${tool.name} on ${on_string}: Gene ablation impact (fraction zeroed)">
+            <filter>grouping['process_by_group'] == 'False' and grouping['compute_ablation_impact']</filter>
+        </data>
+        <data name="task_info_out" format="tabular" from_work_dir="task_info.tsv" label="${tool.name} on ${on_string}: task information">
+            <filter>grouping['process_by_group'] == 'False'</filter>
+        </data>
+        <collection name="report_collection" type="list" label="${tool.name} on ${on_string}: summary report tables">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tsv$" format="tabular" directory="report_output"/>
+            <filter>grouping['process_by_group'] == 'False' and reporting['report'] == 'True'</filter>
+        </collection>
+        <collection name="group_adata" type="list" label="${tool.name} on ${on_string}: Annotated data matrices per group">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.h5ad$" directory="adata_outputs" format="h5ad" visible="false"/>
+            <filter>grouping['process_by_group'] == 'True'</filter>
+        </collection>
+        <collection name="group_reactions" type="list" label="${tool.name} on ${on_string}: Reaction activity per group">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.h5ad$" directory="reactions_outputs" format="h5ad" visible="false"/>
+            <filter>grouping['process_by_group'] == 'True'</filter>
+        </collection>
+        <collection name="group_metabolic_tasks" type="list" label="${tool.name} on ${on_string}: Metabolic task activity per group">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.h5ad$" directory="metabolic_tasks_outputs" format="h5ad" visible="false"/>
+            <filter>grouping['process_by_group'] == 'True'</filter>
+        </collection>
+        <data name="hidden_output" format="txt" label="${tool.name} on ${on_string}: log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test 1: default -->
+        <test expect_num_outputs="6">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="reporting">
+                <param name="report" value="True"/>
+                <param name="groupby" value="celltype"/>
+                <param name="agg_func" value="trimean"/>
+                <param name="feature_name" value="metabolic_task"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="adata_out" ftype="h5ad">
+                <expand macro="pipeline_adata_out_assert"/>
+            </output>
+            <output name="reactions_out" ftype="h5ad">
+                <expand macro="pipeline_reactions_out_assert"/>
+            </output>
+            <output name="metabolic_tasks_out" ftype="h5ad">
+                <expand macro="pipeline_metabolic_tasks_out_assert"/>
+            </output>
+            <output name="task_info_out" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="219"/>
+                    <has_text_matching expression="CARBOHYDRATES METABOLISM"/>
+                </assert_contents>
+            </output>
+            <output_collection name="report_collection" type="list" count="8">
+                <element name="agg_values" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="28"/>
+                    </assert_contents>
+                </element>
+                <element name="cell_counts" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                    </assert_contents>
+                </element>
+                <element name="melted" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="82"/>
+                    </assert_contents>
+                </element>
+                <element name="min_max" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="5"/>
+                    </assert_contents>
+                </element>
+                <element name="nonzero_cells" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="28"/>
+                    </assert_contents>
+                </element>
+                <element name="std" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="28"/>
+                    </assert_contents>
+                </element>
+                <element name="threshold_cells" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="28"/>
+                    </assert_contents>
+                </element>
+                <element name="variance" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="28"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="run_sccellfie_pipeline"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 2: default parameters (no report, no ablation impact) -->
+        <test expect_num_outputs="4">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <output name="adata_out" ftype="h5ad">
+                <expand macro="pipeline_adata_out_assert"/>
+            </output>
+            <output name="reactions_out" ftype="h5ad">
+                <expand macro="pipeline_reactions_out_assert"/>
+            </output>
+            <output name="metabolic_tasks_out" ftype="h5ad">
+                <expand macro="pipeline_metabolic_tasks_out_assert"/>
+            </output>
+            <output name="task_info_out" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="219"/>
+                    <has_text_matching expression="CARBOHYDRATES METABOLISM"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 3: ablation impact -->
+        <test expect_num_outputs="7">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="grouping">
+                <param name="compute_ablation_impact" value="True"/>
+            </conditional>
+            <output name="adata_out" ftype="h5ad">
+                <expand macro="pipeline_adata_out_assert"/>
+            </output>
+            <output name="reactions_out" ftype="h5ad">
+                <expand macro="pipeline_reactions_out_assert"/>
+            </output>
+            <output name="metabolic_tasks_out" ftype="h5ad">
+                <expand macro="pipeline_metabolic_tasks_out_assert"/>
+            </output>
+            <output name="ablation_rel_change" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="100"/>
+                    <has_text_matching expression="ATP generation from glucose"/>
+                </assert_contents>
+            </output>
+            <output name="ablation_abs_change" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="100"/>
+                    <has_n_lines n="52"/>
+                    <has_text_matching expression="Arginine degradation"/>
+                </assert_contents>
+            </output>
+            <output name="ablation_fraction_zeroed" ftype="tabular">
+                <assert_contents>
+                    <has_n_columns n="100"/>
+                    <has_n_lines n="52"/>
+                    <has_text_matching expression="Acetoacetate synthesis"/>
+                </assert_contents>
+            </output>
+            <output name="task_info_out" ftype="tabular">
+                <assert_contents>
+                    <has_n_lines n="219"/>
+                    <has_text_matching expression="CARBOHYDRATES METABOLISM"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test 4: process data by group (requires internet access) -->
+        <test expect_num_outputs="4">
+            <param name="adata" value="sccellfie_test.h5ad"/>
+            <conditional name="grouping">
+                <param name="process_by_group" value="True"/>
+                <param name="groupby" value="celltype"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output_collection name="group_adata" type="list" count="3">
+                <element name="TypeA" ftype="h5ad">
+                    <expand macro="pipeline_adata_out_assert"/>
+                </element>
+                <element name="TypeB" ftype="h5ad">
+                    <expand macro="pipeline_adata_out_assert"/>
+                </element>
+                <element name="TypeC" ftype="h5ad">
+                    <expand macro="pipeline_adata_out_assert"/>
+                </element>
+            </output_collection>
+            <output_collection name="group_reactions" type="list" count="3">
+                <element name="TypeA" ftype="h5ad">
+                    <expand macro="pipeline_reactions_out_assert"/>
+                </element>
+                <element name="TypeB" ftype="h5ad">
+                    <expand macro="pipeline_reactions_out_assert"/>
+                </element>
+                <element name="TypeC" ftype="h5ad">
+                    <expand macro="pipeline_reactions_out_assert"/>
+                </element>
+            </output_collection>
+            <output_collection name="group_metabolic_tasks" type="list" count="3">
+                <element name="TypeA" ftype="h5ad">
+                    <expand macro="pipeline_metabolic_tasks_out_assert"/>
+                </element>
+                <element name="TypeB" ftype="h5ad">
+                    <expand macro="pipeline_metabolic_tasks_out_assert"/>
+                </element>
+                <element name="TypeC" ftype="h5ad">
+                    <expand macro="pipeline_metabolic_tasks_out_assert"/>
+                </element>
+            </output_collection>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="run_sccellfie_pipeline"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+Runs the complete scCellFie pipeline on a single-cell or spatial AnnData object (raw counts in ``.X``): normalization,
+optional KNN-based expression smoothing, gene score computation, reaction activity computation, and metabolic
+task activity computation.
+
+scCellFie is inspired by CellFie (originally developed in MATLAB) and predicts metabolic task and reaction
+activities from single-cell/spatial transcriptomics data, using a curated database of Gene-Protein-Reaction
+(GPR) rules for human or mouse.
+
+**Input**
+
+- An AnnData object (``.h5ad``) with raw counts in ``.X``.
+
+**Output**
+
+- **Annotated data matrix**: the processed AnnData object, including gene scores in ``layers['gene_scores']``.
+- **Reaction activity**: an AnnData object with reaction activity scores in ``.X`` (cells x reactions).
+- **Metabolic task activity**: an AnnData object with metabolic task activity scores in ``.X`` (cells x tasks).
+  Every Scanpy function can be used on the reaction/task activity objects (e.g. for visualization).
+- Optionally, gene ablation impact tables (relative change, absolute change, and fraction of tasks zeroed
+  out) when the single-gene ablation analysis is enabled.
+- Optionally, a collection of group-level summary report tables (aggregated values, variance, standard
+  deviation, number of cells passing an expression threshold, number of non-zero cells, cell counts, min/max,
+  and a long/melted table useful for radial plots) when the summary report is enabled.
+
+**Processing by group**
+
+When *Process data by groups?* is enabled, the pipeline is run separately on every group defined by the
+selected ``adata.obs`` column (e.g. cell type). This is intended to be memory efficient for very large
+datasets: the first group is used to prepare the scCellFie inputs and to filter reactions, tasks and genes,
+and every following group is restricted to the same gene set. Results are written to disk and returned as
+three collections (annotated data matrices, reaction activities, and metabolic task activities), each with
+one element per group. Gene ablation impact and the single-object outputs are not available in this mode.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

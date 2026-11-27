@@ -4,6 +4,7 @@
         <import>macros.xml</import>
         <import>macros_process.xml</import>
     </macros>
+    <expand macro="xrefs"/>
     <expand macro="requirements"/>
     <expand macro="version_cmd"/>
     <command detect_errors="aggressive"><![CDATA[
@@ -39,16 +40,19 @@ process_radtags
     --renz_2 $options_enzyme.enzyme2
 #end if
 
+--threads "\${GALAXY_SLOTS:-1}"
+
 ## advanced options not shared between shortreads and radtags
 $options_advanced.bestrad
 $options_advanced.disable_rad_check
+$options_advanced.poly_g_check
+$options_advanced.methylrad
 
 ## Output options
 ## --merge not implemented in Galaxy
 
 @PROCESS_FASTQ_POSTPROC@
     ]]></command>
-
     <inputs>
         <conditional name="input_type">
             <param name="input_type_select" type="select" label="Single-end or paired-end reads">
@@ -74,33 +78,36 @@ $options_advanced.disable_rad_check
                 <option value="2">Two</option>
             </param>
             <when value="1">
-                <param name="enzyme" type="select" label="Enzyme" argument="-e" help="provide the restriction enzyme used" >
+                <param name="enzyme" type="select" label="Enzyme" argument="-e" help="provide the restriction enzyme used">
                     <expand macro="enzymes"/>
                 </param>
             </when>
             <when value="2">
-                <param name="enzyme" type="select" label="Enzyme" argument="-e" help="provide the restriction enzyme used" >
+                <param name="enzyme" type="select" label="Enzyme" argument="-e" help="provide the restriction enzyme used">
                     <expand macro="enzymes"/>
                 </param>
-                <param name="enzyme2" type="select" label="Second enzyme" argument="--renz_2" help="provide the second restriction enzyme used" >
+                <param name="enzyme2" type="select" label="Second enzyme" argument="--renz_2" help="provide the second restriction enzyme used">
                     <expand macro="enzymes"/>
                 </param>
             </when>
         </conditional>
-
         <section name="options_advanced" title="advanced options" expanded="False">
             <expand macro="common_advanced"/>
             <param argument="--bestrad" type="boolean" checked="false" truevalue="--bestrad" falsevalue="" label="Library was generated using BestRAD, check for restriction enzyme on either read and potentially tranpose reads"/>
             <param argument="--disable_rad_check" type="boolean" checked="false" truevalue="--disable_rad_check" falsevalue="" label="Disable checking if the RAD site is intact"/>
+            <param name="poly_g_check" type="select" label="Check for runs of poly-Gs" help="default: autodetect based on the machine type in the FASTQ header">
+                <option value="" selected="true">Autodetect</option>
+                <option value="--force-poly-g-check">Force checking</option>
+                <option value="--disable-poly-g-check">Do not check</option>
+            </param>
+            <param argument="--methylrad" type="boolean" checked="false" truevalue="--methylrad" falsevalue="" label="Library was generated using enzymatic methyl-seq (EM-seq) or bisulphite sequencing" help="the restriction enzyme must be sbfI or pstI"/>
             <expand macro="rescue_barcode"/>
             <expand macro="process_adapter"/>
         </section>
-
         <expand macro="process_filter"/>
         <expand macro="process_output_types"/>
         <expand macro="in_log"/>
     </inputs>
-
     <outputs>
         <expand macro="out_log"/>
         <expand macro="process_outputs">
@@ -109,7 +116,7 @@ $options_advanced.disable_rad_check
                 <filter>input_type['barcode_encoding'] == ""</filter>
                 <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;name&gt;.+)" dir="stacks_outputs"/>
             </collection>
-            <collection name="processed_paired" type="list:paired" label="${tool.name} on ${on_string} Processed reads">
+            <collection name="processed_paired" type="list:paired" label="${tool.name} on ${on_string} Processed paired reads">
                 <filter>input_type['input_type_select'] == "paired"</filter>
                 <filter>input_type['barcode_encoding'] == ""</filter>
                 <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;identifier_0&gt;.+)\.(?P&lt;identifier_1&gt;[^.]+)" dir="stacks_outputs"/>
@@ -119,7 +126,7 @@ $options_advanced.disable_rad_check
                 <filter>input_type['barcode_encoding'] != ""</filter>
                 <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;name&gt;.+)" dir="stacks_outputs"/>
             </collection>
-            <collection name="demultiplexed_paired" type="list:paired" label="${tool.name} on ${on_string} Demultiplexed reads">
+            <collection name="demultiplexed_paired" type="list:paired" label="${tool.name} on ${on_string} Demultiplexed paired reads">
                 <filter>input_type['input_type_select'] == "paired"</filter>
                 <filter>input_type['barcode_encoding'] != ""</filter>
                 <expand macro="discover_faqgz_output_macro" pattern="(?P&lt;identifier_0&gt;.+)\.(?P&lt;identifier_1&gt;[^.]+)" dir="stacks_outputs"/>
@@ -150,12 +157,14 @@ $options_advanced.disable_rad_check
             <param name="input_type|barcode" value="procrad/barcodes"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
-            <param name="filter_cond|filter_select" value="yes"/>
-            <param name="filter_cond|discard" value="-q"/>
-            <param name="filter_cond|sliding" value="0.1"/>
-            <param name="filter_cond|score" value="11"/>
-            <param name="filter_cond|remove" value="-c"/>
-            <param name="capture" value="-D"/>
+            <conditional name="filter_cond">
+                <param name="filter_select" value="yes"/>
+                <param name="discard" value="true"/>
+                <param name="sliding" value="0.1"/>
+                <param name="score" value="11"/>
+                <param name="remove" value="true"/>
+            </conditional>
+            <param name="capture" value="true"/>
             <param name="outype" value="gzfastq"/>
             <param name="add_log" value="yes"/>
             <output name="output_log" file="procrad/process_radtags2.out" lines_diff="4"/>
@@ -167,7 +176,7 @@ $options_advanced.disable_rad_check
                 <has_text text="-D"/>
             </assert_command>
             <output_collection name="demultiplexed" count="40">
-                <element name="PopA_01" ftype="fastqsanger.gz"  md5="c7250f50138cbca747b85223aaae9565"/>
+                <element name="PopA_01" file="demultiplexed/PopA_01.filtered.fq" ftype="fastqsanger.gz" decompress="true" sort="true"/>
             </output_collection>
             <output_collection name="discarded" count="2">
                 <element name="R1">
@@ -192,7 +201,7 @@ $options_advanced.disable_rad_check
                     <element name="reads">
                         <collection type="paired">
                             <element name="forward" value="procrad/R1.fq.gzip" ftype="fastqsanger"/>
-                            <element name="reverse" value="procrad/R2.fq.gzip"  ftype="fastqsanger"/>
+                            <element name="reverse" value="procrad/R2.fq.gzip" ftype="fastqsanger"/>
                         </collection>
                     </element>
                 </collection>
@@ -200,9 +209,11 @@ $options_advanced.disable_rad_check
             <param name="input_type|barcode" value="procrad/barcodes"/>
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
-            <param name="filter_cond|filter_select" value="no"/>
-            <param name="filter_cond|len_limit" value="50"/>
-            <param name="capture" value="-D"/>
+            <conditional name="filter_cond">
+                <param name="filter_select" value="no"/>
+                <param name="len_limit" value="50"/>
+            </conditional>
+            <param name="capture" value="true"/>
             <param name="outype" value="gzfasta"/>
             <param name="add_log" value="yes"/>
             <output name="output_log" file="procrad/process_radtags_paired.out" lines_diff="4"/>
@@ -211,14 +222,14 @@ $options_advanced.disable_rad_check
             </assert_command>
             <output_collection name="demultiplexed_paired" type="list:paired" count="40">
                 <element name="PopA_01">
-                    <element name="forward" value="demultiplexed/PopA_01.1.fa.gz" ftype="fasta.gz"/>
-                    <element name="reverse" value="demultiplexed/PopA_01.2.fa.gz" ftype="fasta.gz"/>
+                    <element name="forward" value="demultiplexed/PopA_01.1.fa.gz" ftype="fasta.gz" decompress="true" sort="true"/>
+                    <element name="reverse" file="demultiplexed/PopA_01.2.fa.gz" ftype="fasta.gz" decompress="true" sort="true"/>
                 </element>
             </output_collection>
             <output_collection name="remaining" type="list:paired" count="40">
                 <element name="PopA_01">
-                    <element name="forward" file="demultiplexed/PopA_01.rem.1.fa.gz" ftype="fasta.gz"/>
-                    <element name="reverse" file="demultiplexed/PopA_01.rem.2.fa.gz" ftype="fasta.gz"/>
+                    <element name="forward" file="demultiplexed/PopA_01.rem.1.fa.gz" ftype="fasta.gz" decompress="true" sort="true"/>
+                    <element name="reverse" file="demultiplexed/PopA_01.rem.2.fa.gz" ftype="fasta.gz" decompress="true" sort="true"/>
                 </element>
             </output_collection>
             <output_collection name="discarded_paired" type="list:paired" count="1">
@@ -226,7 +237,7 @@ $options_advanced.disable_rad_check
                     <element name="forward">
                         <assert_contents>
                             <has_size value="609382" delta="200"/>
-                            <has_text text=">lane1_fakedata0_11 1:N:0:"/>
+                            <has_text text="&gt;lane1_fakedata0_11 1:N:0:"/>
                         </assert_contents>
                     </element>
                     <element name="reverse" file="procrad/R2.fa.discards" ftype="fasta"/>
@@ -250,16 +261,20 @@ $options_advanced.disable_rad_check
             <param name="options_enzyme|options_enzyme_selector" value="2"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="options_enzyme|enzyme2" value="ecoRI"/>
-            <param name="options_advanced|truncate" value="70"/>
-            <param name="options_advanced|rescue_cond|rescue" value="-r"/>
-            <param name="options_advanced|rescue_cond|barcode_dist_1" value="2"/>
-            <param name="options_advanced|rescue_cond|barcode_dist_2" value="2"/>
-            <param name="options_advanced|bestrad" value="--bestrad"/>
-            <param name="options_advanced|retain_header" value="--retain_header"/>
-            <param name="options_advanced|disable_rad_check" value="--disable_rad_check"/>
-            <param name="options_advanced|adapter_1" value="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"/>
-            <param name="options_advanced|adapter_2" value="TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"/>
-            <param name="options_advanced|adapter_mm" value="2"/>
+            <section name="options_advanced">
+                <param name="truncate" value="70"/>
+                <conditional name="rescue_cond">
+                    <param name="rescue" value="-r"/>
+                    <param name="barcode_dist_1" value="2"/>
+                    <param name="barcode_dist_2" value="2"/>
+                </conditional>
+                <param name="bestrad" value="true"/>
+                <param name="retain_header" value="true"/>
+                <param name="disable_rad_check" value="true"/>
+                <param name="adapter_1" value="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"/>
+                <param name="adapter_2" value="TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"/>
+                <param name="adapter_mm" value="2"/>
+            </section>
             <param name="outype" value="fasta"/>
             <assert_command>
                 <has_text text="-e ecoRI"/>
@@ -267,24 +282,24 @@ $options_advanced.disable_rad_check
                 <has_text text="-t 70"/>
                 <has_text text="-r"/>
                 <has_text text="--bestrad"/>
-                <has_text text="--retain_header"/>
+                <has_text text="--retain-header"/>
                 <has_text text="--disable_rad_check"/>
                 <has_text text="--barcode_dist_1 2"/>
                 <has_text text="--barcode_dist_2 2"/>
-                <has_text text="--adapter_1 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"/>
-                <has_text text="--adapter_2 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"/>
+                <has_text text="--adapter_1 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'"/>
+                <has_text text="--adapter_2 'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT'"/>
                 <has_text text="--adapter_mm 2"/>
             </assert_command>
             <output_collection name="demultiplexed_paired" type="list:paired" count="40">
                 <element name="PopA_01">
-                    <element name="forward" file="demultiplexed/PopA_01.1.fa" ftype="fasta"/>
-                    <element name="reverse" file="demultiplexed/PopA_01.2.fa" ftype="fasta"/>
+                    <element name="forward" file="demultiplexed/PopA_01.1.fa" ftype="fasta" sort="true"/>
+                    <element name="reverse" file="demultiplexed/PopA_01.2.fa" ftype="fasta" sort="true"/>
                 </element>
             </output_collection>
             <output_collection name="remaining" type="list:paired" count="40">
                 <element name="PopA_01">
-                    <element name="forward" file="demultiplexed/PopA_01.rem.1.fa" ftype="fasta"/>
-                    <element name="reverse" file="demultiplexed/PopA_01.rem.2.fa" ftype="fasta"/>
+                    <element name="forward" file="demultiplexed/PopA_01.rem.1.fa" ftype="fasta" sort="true"/>
+                    <element name="reverse" file="demultiplexed/PopA_01.rem.2.fa" ftype="fasta" sort="true"/>
                 </element>
             </output_collection>
         </test>
@@ -316,12 +331,14 @@ $options_advanced.disable_rad_check
             <param name="options_enzyme|options_enzyme_selector" value="1"/>
             <param name="options_enzyme|enzyme" value="ecoRI"/>
             <param name="add_log" value="yes"/>
-            <param name="capture" value="-D"/>
+            <param name="capture" value="true"/>
             <output name="output_log">
                 <assert_contents>
                     <has_text text="Barcode Not Found"/>
                     <has_text text="Retained Reads"/>
-                    <has_n_lines n="10"/>
+                    <has_text text="BEGIN total_raw_read_counts"/>
+                    <!-- the read count summary is a block per input file plus totals -->
+                    <has_n_lines n="18"/>
                 </assert_contents>
             </output>
             <output_collection name="processed" count="1">
@@ -347,7 +364,7 @@ $options_advanced.disable_rad_check
                     <element name="reads">
                         <collection type="paired">
                             <element name="forward" value="procrad/R1.fq.gzip" ftype="fastqsanger.gz"/>
-                            <element name="reverse" value="procrad/R2.fq.gzip"  ftype="fastqsanger.gz"/>
+                            <element name="reverse" value="procrad/R2.fq.gzip" ftype="fastqsanger.gz"/>
                         </collection>
                     </element>
                 </collection>
@@ -383,13 +400,39 @@ $options_advanced.disable_rad_check
                     </element>
                 </element>
                 <element name="reads_R2_0">
-                    <element name="reverse">
+                    <element name="reverse" decompress="true">
                         <assert_contents>
-                            <has_size value="17607" delta="100"/>
+                            <has_text text="&gt;lane1_fakedata0_0 1:N:0:/2"/>
+                            <has_n_lines n="14000"/>
                         </assert_contents>
                     </element>
                 </element>
             </output_collection>
+        </test>
+        <!-- 09 single ended input, methyl-seq library, forced poly-G check -->
+        <test expect_num_outputs="2">
+            <param name="input_type|input_type_select" value="single"/>
+            <param name="input_type|fqinputs" ftype="fastqsanger" value="procrad/R1_01.fq"/>
+            <param name="input_type|barcode_encoding" value="--inline_null"/>
+            <param name="input_type|barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme|options_enzyme_selector" value="1"/>
+            <param name="options_enzyme|enzyme" value="sbfI"/>
+            <param name="options_advanced|disable_rad_check" value="true"/>
+            <param name="options_advanced|poly_g_check" value="--force-poly-g-check"/>
+            <param name="options_advanced|methylrad" value="true"/>
+            <param name="add_log" value="yes"/>
+            <assert_command>
+                <has_text text="--threads "/>
+                <has_text text="--disable_rad_check"/>
+                <has_text text="--force-poly-g-check"/>
+                <has_text text="--methylrad"/>
+            </assert_command>
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="Retained Reads"/>
+                </assert_contents>
+            </output>
+            <output_collection name="demultiplexed" count="40"/>
         </test>
     </tests>
     <help>

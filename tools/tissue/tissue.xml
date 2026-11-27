@@ -1,0 +1,419 @@
+<tool id="tissue" name="TISSUE" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>predict spatial gene expression with calibrated uncertainty</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="2.1.0">harmonypy</requirement>
+        <requirement type="package" version="1.0.4">tangram-sc</requirement>
+        <requirement type="package" version="0.12.0">leidenalg</requirement>
+    </expand>
+    <expand macro="creators"/>
+    <required_files>
+        <include path="tissue_wrapper.py"/>
+    </required_files>
+    <version_command>python -c "from importlib.metadata import version; print(version('tissue-sc'))"</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+@THREADS@
+export PYTHONHASHSEED=$prediction.seed &&
+python '$__tool_directory__/tissue_wrapper.py'
+    --spatial '$spatial'
+    --spatial-key '$spatial_key'
+    --reference '$reference'
+    #if $targets
+        --targets '$targets'
+    #end if
+    #if $conf_genes
+        --conf-genes '$conf_genes'
+    #end if
+    $prediction.normalize_reference
+    --n-folds $prediction.n_folds
+    --method '$engine.method'
+    #if str($engine.method) == 'spage'
+        --n-pv $engine.n_pv
+    #elif str($engine.method) == 'knn'
+        --knn-neighbors $engine.knn_neighbors
+    #end if
+    --seed $prediction.seed
+    --graph-method '$graph.method'
+    #if str($graph.method) in ('fixed', 'fixed_radius')
+        --n-neighbors $graph.n_neighbors
+    #end if
+    #if str($graph.method) in ('fixed_radius', 'delaunay_radius', 'radius') and str($graph.radius) not in ('None', '')
+        --radius $graph.radius
+    #end if
+    --gene-groups $calibration.gene_groups
+    --cell-groups $calibration.cell_groups
+    --weight '$calibration.weight'
+    --weight-n-pc $calibration.weight_n_pc
+    --alpha $calibration.alpha
+    $calibration.symmetric
+    $compute_wasserstein
+    --output '$output'
+    --predictions '$predictions'
+    --lower '$lower'
+    --upper '$upper'
+    --uncertainty '$uncertainty'
+    #if str($compute_wasserstein) == '--compute-wasserstein'
+        --wasserstein '$wasserstein'
+    #end if
+    ]]></command>
+    <inputs>
+        <param argument="--spatial" type="data" format="h5ad" label="Spatial expression data" help="AnnData with cells in rows, genes in columns, expression in X, and coordinates in obsm."/>
+        <param argument="--spatial-key" type="text" value="spatial" label="Key in obsm containing spatial coordinates">
+            <validator type="empty_field"/>
+        </param>
+        <param argument="--reference" type="data" format="h5ad" label="Single-cell RNA-seq reference" help="AnnData with expression in X and gene identifiers matching the spatial data. SpaGE requires at least 50 reference cells."/>
+        <param argument="--targets" type="data" format="txt" optional="true" label="Target genes" help="One gene per line, without a header. If omitted, predict every reference gene absent from the spatial data. Measured target genes are withheld before training."/>
+        <param argument="--conf-genes" type="data" format="txt" optional="true" label="Calibration genes" help="One gene per line, without a header. Each must be shared by both datasets and absent from the target list. If omitted, use all shared, non-target genes."/>
+        <section name="prediction" title="Gene prediction" expanded="true">
+            <param argument="--normalize-reference" type="boolean" truevalue="--normalize-reference" falsevalue="" checked="true" label="Normalize and log-transform the reference" help="Use for raw counts. Disable for a reference already normalized and log-transformed. Spatial expression is used as supplied."/>
+            <param argument="--n-folds" type="integer" min="2" value="10" label="Cross-validation folds" help="Cannot exceed the number of calibration genes."/>
+            <expand macro="seed"/>
+        </section>
+        <conditional name="engine">
+            <param argument="--method" type="select" label="Prediction method">
+                <option value="spage" selected="true">SpaGE</option>
+                <option value="knn">Harmony-kNN</option>
+                <option value="tangram">Tangram (cluster-level mapping)</option>
+            </param>
+            <when value="spage">
+                <param argument="--n-pv" type="integer" min="1" value="10" label="SpaGE principal vectors" help="Cannot exceed the shared gene count in the smallest training fold or either cell count."/>
+            </when>
+            <when value="knn">
+                <param argument="--knn-neighbors" type="integer" min="1" value="10" label="Reference neighbors for imputation" help="Cannot exceed the reference cell count. Separate from the spatial graph neighbor count."/>
+            </when>
+            <when value="tangram"/>
+        </conditional>
+        <conditional name="graph">
+            <param name="method" argument="--graph-method" type="select" label="Spatial graph construction">
+                <option value="fixed_radius" selected="true">Nearest neighbors with radius pruning</option>
+                <option value="fixed">Nearest neighbors</option>
+                <option value="delaunay">Delaunay triangulation</option>
+                <option value="delaunay_radius">Delaunay triangulation with radius pruning</option>
+                <option value="radius">Radius</option>
+            </param>
+            <when value="fixed_radius">
+                <expand macro="spatial_neighbors"/>
+                <expand macro="spatial_radius"/>
+            </when>
+            <when value="fixed">
+                <expand macro="spatial_neighbors"/>
+            </when>
+            <when value="delaunay"/>
+            <when value="delaunay_radius">
+                <expand macro="spatial_radius"/>
+            </when>
+            <when value="radius">
+                <expand macro="spatial_radius" help="If omitted, estimate from Delaunay neighbor distances."/>
+            </when>
+        </conditional>
+        <section name="calibration" title="Uncertainty calibration">
+            <param argument="--gene-groups" type="integer" min="0" value="0" label="Gene groups" help="K-means gene groups. Use 0 to choose automatically from 2–4, or 1 for a single gene group."/>
+            <param argument="--cell-groups" type="integer" min="0" value="0" label="Cell groups within each gene group" help="Use 0 to choose automatically from 2–4, or 1 for a single cell group."/>
+            <param argument="--weight" type="select" label="Spatial variability weighting">
+                <option value="exp_cos" selected="true">Exponential cosine similarity</option>
+                <option value="spatial_connectivities">Spatial graph connectivities</option>
+            </param>
+            <param argument="--weight-n-pc" type="integer" min="0" value="10" label="Principal components for cosine weighting" help="Use 0 to use all predicted genes directly. Ignored for spatial graph weighting."/>
+            <param argument="--alpha" type="float" min="0" max="1" value="0.33" label="Miscoverage level (alpha)" help="Strictly between 0 and 1. Target interval coverage is 1 − alpha; 0.33 gives 67% coverage.">
+                <validator type="in_range" min="0" max="1" exclude_min="true" exclude_max="true"/>
+            </param>
+            <param argument="--symmetric" type="boolean" truevalue="--symmetric" falsevalue="--no-symmetric" checked="true" label="Use symmetric prediction intervals" help="Disable to calibrate the upper and lower bounds separately."/>
+        </section>
+        <param argument="--compute-wasserstein" type="boolean" truevalue="--compute-wasserstein" falsevalue="" checked="false" label="Compute Wasserstein support distances" help="Compare target-gene variability with its calibration support. Smaller distances indicate better support."/>
+    </inputs>
+    <outputs>
+        <data name="output" format="h5ad" label="${tool.name} on ${on_string}: annotated spatial data"/>
+        <data name="predictions" format="tabular" label="${tool.name} on ${on_string}: target expression"/>
+        <data name="lower" format="tabular" label="${tool.name} on ${on_string}: lower prediction bounds"/>
+        <data name="upper" format="tabular" label="${tool.name} on ${on_string}: upper prediction bounds"/>
+        <data name="uncertainty" format="tabular" label="${tool.name} on ${on_string}: target uncertainty"/>
+        <data name="wasserstein" format="tabular" label="${tool.name} on ${on_string}: Wasserstein support distances">
+            <filter>compute_wasserstein</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Default pipeline, with all unmeasured reference genes as targets. -->
+        <test expect_num_outputs="5">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="reference.h5ad"/>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/spage_predicted_expression,obsm/spage_predicted_expression_score,obsm/spage_predicted_expression_groups,obsm/spage_predicted_expression_lo,obsm/spage_predicted_expression_hi,obsp/spatial_connectivities,uns/conf_genes_used,uns/target_genes_used,uns/alpha"/>
+                </assert_contents>
+            </output>
+            <expand macro="expression_table" name="predictions">
+                <has_line_matching expression="0\t0\.702[0-9]*$"/>
+                <has_line_matching expression="3404\t0\.586[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="lower">
+                <has_line_matching expression="0\t-1\.683[0-9]*$"/>
+                <has_line_matching expression="3404\t-1\.679[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="upper">
+                <has_line_matching expression="0\t3\.088[0-9]*$"/>
+                <has_line_matching expression="3404\t2\.851[0-9]*$"/>
+            </expand>
+            <output name="uncertainty" file="uncertainty.tsv" compare="re_match"/>
+        </test>
+        <!-- Sparse inputs, explicit held-out gene, asymmetric intervals and support distances. -->
+        <test expect_num_outputs="6">
+            <param name="spatial" value="spatial_sparse.h5ad"/>
+            <param name="reference" value="reference_normalized.h5ad"/>
+            <param name="targets" value="targets.txt"/>
+            <section name="prediction">
+                <param name="normalize_reference" value="false"/>
+                <param name="n_folds" value="3"/>
+                <param name="seed" value="42"/>
+            </section>
+            <conditional name="engine">
+                <param name="method" value="spage"/>
+                <param name="n_pv" value="3"/>
+            </conditional>
+            <conditional name="graph">
+                <param name="method" value="radius"/>
+                <param name="radius" value="5000"/>
+            </conditional>
+            <section name="calibration">
+                <param name="gene_groups" value="1"/>
+                <param name="cell_groups" value="1"/>
+                <param name="weight" value="spatial_connectivities"/>
+                <param name="weight_n_pc" value="0"/>
+                <param name="alpha" value="0.2"/>
+                <param name="symmetric" value="false"/>
+            </section>
+            <param name="compute_wasserstein" value="true"/>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/spage_predicted_expression_wasserstein,obsm/spage_predicted_expression_uncertainty,uns/tissue_galaxy"/>
+                </assert_contents>
+            </output>
+            <expand macro="expression_table" name="predictions" columns="3" values="2" header="cell_id\tplp1\tgfap">
+                <has_line_matching expression="0\t0\.227[0-9]*\t0\.046[0-9]*$"/>
+                <has_line_matching expression="3404\t1\.077[0-9]*\t0\.126[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="lower" columns="3" values="2" header="cell_id\tplp1\tgfap">
+                <has_line_matching expression="0\t-0\.933[0-9]*\t-0\.812[0-9]*$"/>
+                <has_line_matching expression="3404\t-0\.186[0-9]*\t-0\.768[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="upper" columns="3" values="2" header="cell_id\tplp1\tgfap">
+                <has_line_matching expression="0\t8\.192[0-9]*\t5\.940[0-9]*$"/>
+                <has_line_matching expression="3404\t9\.754[0-9]*\t6\.269[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="uncertainty" columns="3" values="2" header="cell_id\tplp1\tgfap">
+                <has_line_matching expression="0\t1\.412[0-9]*\t1\.045[0-9]*$"/>
+                <has_line_matching expression="3404\t1\.538[0-9]*\t1\.089[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="wasserstein" columns="3" values="2" header="cell_id\tplp1\tgfap">
+                <has_line_matching expression="0\t0\.403[0-9]*\t0\.403[0-9]*$"/>
+                <has_line_matching expression="3404\t0\.403[0-9]*\t0\.403[0-9]*$"/>
+            </expand>
+        </test>
+        <!-- Automatic grouping, triangulation, and cosine weighting without PCA. -->
+        <test expect_num_outputs="5">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="reference.h5ad"/>
+            <conditional name="graph">
+                <param name="method" value="delaunay"/>
+            </conditional>
+            <section name="calibration">
+                <param name="gene_groups" value="0"/>
+                <param name="cell_groups" value="0"/>
+                <param name="weight_n_pc" value="0"/>
+            </section>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsp/spatial_connectivities,uns/spage_predicted_expression_kg,uns/spage_predicted_expression_kc"/>
+                </assert_contents>
+            </output>
+            <expand macro="expression_table" name="predictions">
+                <has_line_matching expression="0\t0\.702[0-9]*$"/>
+                <has_line_matching expression="3404\t0\.586[0-9]*$"/>
+            </expand>
+            <output name="lower">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="2"/>
+                    <has_text text="NA" negate="true"/>
+                </assert_contents>
+            </output>
+            <output name="upper">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="2"/>
+                    <has_text text="NA" negate="true"/>
+                </assert_contents>
+            </output>
+            <output name="uncertainty">
+                <assert_contents>
+                    <has_n_lines n="129"/>
+                    <has_n_columns n="2"/>
+                    <has_text text="NA" negate="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Replay upstream prediction and calibration settings on all 3405 cells. -->
+        <test expect_num_outputs="6">
+            <param name="spatial" value="upstream_spatial.h5ad"/>
+            <param name="reference" value="reference.h5ad"/>
+            <param name="targets" value="upstream_targets.txt"/>
+            <section name="prediction">
+                <param name="n_folds" value="3"/>
+            </section>
+            <section name="calibration">
+                <param name="gene_groups" value="4"/>
+                <param name="cell_groups" value="2"/>
+                <param name="alpha" value="0.23"/>
+            </section>
+            <conditional name="graph">
+                <param name="method" value="fixed_radius"/>
+                <param name="n_neighbors" value="15"/>
+            </conditional>
+            <param name="compute_wasserstein" value="true"/>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/spage_predicted_expression,obsm/spage_predicted_expression_score,obsm/spage_predicted_expression_groups,obsm/spage_predicted_expression_lo,obsm/spage_predicted_expression_hi,obsm/spage_predicted_expression_wasserstein"/>
+                </assert_contents>
+            </output>
+            <expand macro="expression_table" name="predictions" lines="3406" rows="3405">
+                <has_line_matching expression="0\t0\.720[0-9]*$"/>
+                <has_line_matching expression="3404\t0\.677[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="lower" lines="3406" rows="3405">
+                <has_line_matching expression="0\t\-2\.787[0-9]*$"/>
+                <has_line_matching expression="3404\t\-2\.597[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="upper" lines="3406" rows="3405">
+                <has_line_matching expression="0\t4\.227[0-9]*$"/>
+                <has_line_matching expression="3404\t3\.951[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="uncertainty" lines="3406" rows="3405">
+                <has_line_matching expression="0\t1\.252[0-9]*$"/>
+                <has_line_matching expression="3404\t1\.169[0-9]*$"/>
+            </expand>
+            <expand macro="expression_table" name="wasserstein" lines="3406" rows="3405">
+                <has_line_matching expression="0\t0\.179[0-9]*$"/>
+                <has_line_matching expression="3404\t0\.179[0-9]*$"/>
+            </expand>
+            <assert_stdout>
+                <has_text text="Predicted 1 target genes in 3405 cells; calibrated with 31 shared genes."/>
+            </assert_stdout>
+        </test>
+        <test expect_failure="true">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="spatial.h5ad"/>
+            <param name="targets" value="upstream_targets.txt"/>
+            <assert_stderr>
+                <has_text text="Target genes absent from reference: plp1"/>
+            </assert_stderr>
+        </test>
+        <test expect_failure="true">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="reference.h5ad"/>
+            <section name="prediction">
+                <param name="n_folds" value="100"/>
+            </section>
+            <assert_stderr>
+                <has_text text="Cross-validation folds cannot exceed the number of calibration genes."/>
+            </assert_stderr>
+        </test>
+        <!-- Harmony-kNN, sparse reference, custom coordinates, calibration subset. -->
+        <test expect_num_outputs="5">
+            <param name="spatial" value="spatial_custom_key.h5ad"/>
+            <param name="spatial_key" value="vendor_coordinates"/>
+            <param name="reference" value="reference_normalized.h5ad"/>
+            <param name="conf_genes" value="calibration_genes.txt"/>
+            <section name="prediction">
+                <param name="normalize_reference" value="false"/>
+                <param name="n_folds" value="3"/>
+            </section>
+            <conditional name="engine">
+                <param name="method" value="knn"/>
+                <param name="knn_neighbors" value="10"/>
+            </conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/knn_predicted_expression,obsm/knn_predicted_expression_lo,obsm/knn_predicted_expression_score,obsm/vendor_coordinates,obsm/spatial,uns/conf_genes_used"/>
+                </assert_contents>
+            </output>
+            <expand macro="expression_table" name="predictions">
+                <has_line_matching expression="0\t1\.033[0-9]*$"/>
+                <has_line_matching expression="3404\t0\.285[0-9]*$"/>
+            </expand>
+            <output name="lower"><assert_contents><has_n_lines n="129"/><not_has_text text="NA"/></assert_contents></output>
+            <output name="upper"><assert_contents><has_n_lines n="129"/><not_has_text text="NA"/></assert_contents></output>
+            <output name="uncertainty"><assert_contents><has_n_lines n="129"/><not_has_text text="NA"/></assert_contents></output>
+            <assert_stdout><has_text text="calibrated with 12 shared genes."/></assert_stdout>
+        </test>
+        <test expect_num_outputs="5">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="reference_normalized.h5ad"/>
+            <param name="conf_genes" value="calibration_genes.txt"/>
+            <section name="prediction">
+                <param name="normalize_reference" value="false"/>
+                <param name="n_folds" value="3"/>
+            </section>
+            <conditional name="engine"><param name="method" value="tangram"/></conditional>
+            <output name="output" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/tangram_predicted_expression,obsm/tangram_predicted_expression_score,obsm/tangram_predicted_expression_lo"/>
+                </assert_contents>
+            </output>
+            <output name="predictions"><assert_contents><has_n_lines n="129"/><has_n_columns n="2"/><not_has_text text="NA"/></assert_contents></output>
+            <output name="lower"><assert_contents><has_n_lines n="129"/><not_has_text text="NA"/></assert_contents></output>
+            <output name="upper"><assert_contents><has_n_lines n="129"/><not_has_text text="NA"/></assert_contents></output>
+            <output name="uncertainty"><assert_contents><has_n_lines n="129"/><not_has_text text="NA"/></assert_contents></output>
+        </test>
+        <test expect_failure="true">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="reference.h5ad"/>
+            <param name="conf_genes" value="targets.txt"/>
+            <assert_stderr><has_text text="Calibration genes must be shared, non-target genes: plp1"/></assert_stderr>
+        </test>
+        <test expect_failure="true">
+            <param name="spatial" value="spatial.h5ad"/>
+            <param name="reference" value="reference.h5ad"/>
+            <param name="spatial_key" value="missing"/>
+            <assert_stderr><has_text text="Spatial coordinates are required in obsm['missing']"/></assert_stderr>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+[TISSUE](https://github.com/sunericd/TISSUE) predicts spatial expression of unmeasured genes from a single-cell RNA-seq reference using SpaGE, Harmony-kNN, or Tangram. It cross-validates measured genes, constructs a spatial graph, computes cell-centric variability, and calibrates conformal prediction intervals. Use **TISSUE downstream analysis** on the annotated output for multiple-imputation testing, uncertainty-weighted PCA, uncertain-cell detection, or filtered PCA.
+
+-----
+
+**Inputs**
+
+Supply two AnnData (``h5ad``) datasets with expression in ``X`` and gene identifiers in ``var_names``. The spatial dataset must also contain coordinates in ``obsm``; specify their key if it differs from ``spatial``. The selected coordinates are copied to ``obsm['spatial']`` for compatibility with upstream graph construction. Layers and ``raw`` are not used. Dense and sparse expression matrices are accepted. Data are loaded into memory for normalization and prediction; spatial expression is made dense for calibration, SpaGE densifies both inputs internally, and Harmony-kNN requires both matrices to be dense.
+
+Gene names are matched in lowercase and must be unique after conversion. Only shared, non-target genes remain in the output expression matrix. SpaGE requires nonconstant shared genes and at least 50 reference cells. Prepare spatial expression on the desired analysis scale before running; it is not normalized by this tool. Reference normalization applies Scanpy total-count normalization followed by ``log1p``, as in the upstream tutorial. Disable it for an already prepared reference.
+
+Optionally supply a text file containing one target gene per line, with no header. Empty lines and repeated names are ignored. Each target must occur in the reference. Measured targets are removed from spatial expression before prediction, allowing held-out evaluation. Without this file, all reference genes absent from the original spatial dataset are predicted.
+
+The optional calibration-gene list uses the same text format. Each entry must be a shared gene that is not a target. Without a list, all shared, non-target genes are cross-validated and used for calibration. With a list, the other shared genes remain available for training, but are not cross-validated. The number of folds cannot exceed the calibration-gene count.
+
+-----
+
+**Choosing parameters**
+
+SpaGE's principal-vector count must fit the number of shared genes in every training fold. For example, 24 shared genes and 10 folds with all genes used for calibration leave at least 21 training genes per fold, allowing 10 principal vectors. Harmony-kNN uses a joint PCA/Harmony space and averages reference neighbors; its imputation-neighbor count is independent of spatial graph neighbors. Tangram uses the upstream cluster-level mapping, with Leiden clustering and the RNA-count density prior. The upstream Tangram integration uses its own optimization settings and runs once for the targets and once per cross-validation fold, so it can require substantially more time and memory.
+
+The spatial-neighbor count defaults to 20 and must be smaller than the number of spatial cells. Distances and radii use the units of the supplied coordinates. Self-neighbors are retained for TISSUE calibration.
+
+TISSUE groups genes and then cells by k-means. Both group counts default to 0, selecting automatically from 2–4 groups. Set both to 1 for pooled calibration. Automatic grouping requires at least five predicted genes/cells. With a calibration subset, the predicted genes comprise targets plus cross-validated calibration genes. The random seed controls cross-validation and initializes NumPy and, for Tangram, PyTorch; upstream clustering uses its own fixed seed.
+
+The target coverage is ``1 − alpha``. Symmetric intervals are the default. Calibration groups with too few scores fall back to the pooled calibration set. If there are insufficient calibration scores even after pooling, upstream TISSUE may return missing bounds, represented as ``NA`` in tabular outputs. Prediction bounds are not clipped to zero.
+
+-----
+
+**Outputs**
+
+The annotated spatial AnnData retains cell metadata and stores predictions in ``obsm['{method}_predicted_expression']``, where ``{method}`` is ``spage``, ``knn``, or ``tangram``. Matching ``_uncertainty``, ``_score``, ``_error``, ``_groups``, ``_lo``, and ``_hi`` entries contain calibration results. Predictions, intervals, uncertainty, and groups include targets and cross-validated calibration genes; scores and errors contain only calibration genes. ``uns['conf_genes_used']`` and ``uns['target_genes_used']`` identify the two sets; ``uns['alpha']`` records the miscoverage level.
+
+Four tab-separated tables report target-gene predictions, lower bounds, upper bounds, and cell-centric uncertainty. The first column is ``cell_id`` and subsequent columns are target genes. These tables preserve spatial cell order. An optional fifth table and ``_wasserstein`` matrix report Wasserstein support distances; smaller distances indicate better calibration support.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

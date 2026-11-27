@@ -1,4 +1,4 @@
-<tool profile="16.07" id="mothur_count_groups" name="Count.groups" version="@WRAPPER_VERSION@.0">
+<tool id="mothur_count_groups" name="Count.groups" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>counts the number of sequences represented by a specific group or set of groups</description>
     <macros>
         <import>macros.xml</import>
@@ -16,45 +16,50 @@ ln -s '$group' group.dat &&
     ln -s '$groupnames.accnos' groupnames.accnos.dat &&
 #end if
 
-echo 'count.groups(
-    #if $group.is_of_type("mothur.shared"):
-        shared=group.dat
-    #elif $group.is_of_type("mothur.count_table"):
-        count=group.dat
-    #else:
-        group=group.dat
+## collect the arguments of the mothur command in a list and join them with
+## commas, so that the command can never end with a trailing comma
+#set $mothur_args = []
+#if $group.is_of_type("mothur.shared"):
+    #silent $mothur_args.append("shared=group.dat")
+#elif $group.is_of_type("mothur.count_table"):
+    #silent $mothur_args.append("count=group.dat")
+#else:
+    #silent $mothur_args.append("group=group.dat")
+#end if
+#if $groupnames.source == "groups":
+    #if $groupnames.groups:
+        #silent $mothur_args.append("groups=" + str(str($groupnames.groups).replace(",","-")))
     #end if
-    #if $groupnames.source == "groups":
-        #if $groupnames.groups:
-            ,groups=${ str($groupnames.groups).replace(",","-") }
-        #end if
-    #elif $groupnames.source == "accnos":
-        #if $groupnames.accnos:
-            ,accnos=groupnames.accnos.dat
-        #end if
+#elif $groupnames.source == "accnos":
+    #if $groupnames.accnos:
+        #silent $mothur_args.append("accnos=groupnames.accnos.dat")
     #end if
-)'
-| sed 's/ //g'  ## mothur trips over whitespace
+#end if
+
+echo 'count.groups(${",".join($mothur_args)})'
 | mothur
 | tee mothur.out.log &&
 
 ## parse relevant tool output from logfile to file
+## extract the text mothur prints for this command from its logfile:
+## everything between the echoed command and 'Output File Names:'
 cat mothur.*.logfile
-| head -n-7
-| sed '1,30d'
+| awk '/^mothur > /{f++; next} f==1'
+| awk '/^Output File Names:/{f=1} !f'
+| awk 'NF'
 > '$grp_count'
     ]]></command>
     <inputs>
-        <param name="group" type="data" format="mothur.groups,mothur.shared,mothur.count_table" label="group, shared, or count_table - Group file for sequence count"/>
+        <param argument="group" type="data" format="mothur.groups,mothur.shared,mothur.count_table" label="group, shared, or count_table - Group file for sequence count"/>
         <conditional name="groupnames">
-            <param name="source" type="select" label="Filter group names">
+            <param argument="source" type="select" label="Filter group names">
                 <option value="none">Report on All Groups</option>
                 <option value="groups">A List of Group Names</option>
                 <option value="accnos">A History Group Name Accnos Dataset</option>
             </param>
             <when value="none"/>
             <when value="groups">
-                <param name="groups" type="select" label="groups - Pick groups to include" multiple="true">
+                <param argument="groups" type="select" label="groups - Pick groups to include" multiple="true">
                     <help>All groups displayed if none are selected.</help>
                     <options>
                         <filter type="data_meta" ref="group" key="groups"/>
@@ -62,7 +67,7 @@ cat mothur.*.logfile
                 </param>
             </when>
             <when value="accnos">
-                <param name="accnos" type="data" format="mothur.accnos" optional="true" label="accnos - Group Names from your history"/>
+                <param argument="accnos" type="data" format="mothur.accnos" optional="true" label="accnos - Group Names from your history"/>
             </when>
         </conditional>
         <expand macro="param-savelog"/>
@@ -73,19 +78,49 @@ cat mothur.*.logfile
         <data name="summary" format="tabular" from_work_dir="group*.summary" label="${tool.name} on ${on_string}: summary"/>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="3">
             <param name="group" value="amazon.an.shared" ftype="mothur.shared"/>
-            <output name="summary" md5="58508af98ed02e00a707f0f7812c2359"/>
-            <output name="grp_count" md5="34ea2b8be163cf6c9c68d624d92fc73d"/>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="^forest\t49$"/>
+                    <has_line_matching expression="^pasture\t49$"/>
+                </assert_contents>
+            </output>
+            <!-- grp_count is the tail of mothur's own logfile (see the cat|head|sed in the
+                 command section), so it carries the echoed command line and the summary
+                 text rather than a stable table -->
+            <output name="grp_count" ftype="tabular">
+                <assert_contents>
+                    <has_text text="forest contains 49."/>
+                    <has_text text="pasture contains 49."/>
+                    <has_text text="Total seqs: 98."/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
-        <test>
+        <test expect_num_outputs="3">
             <param name="group" value="amazon.an.shared" ftype="mothur.shared"/>
-            <param name="source" value="groups"/>
-            <param name="groups" value="forest,pasture"/>
-            <output name="summary" md5="58508af98ed02e00a707f0f7812c2359"/>
-            <output name="grp_count" md5="34ea2b8be163cf6c9c68d624d92fc73d"/>
+            <conditional name="groupnames">
+                <param name="source" value="groups"/>
+                <param name="groups" value="forest,pasture"/>
+            </conditional>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_line_matching expression="^forest\t49$"/>
+                    <has_line_matching expression="^pasture\t49$"/>
+                </assert_contents>
+            </output>
+            <!-- grp_count is the tail of mothur's own logfile (see the cat|head|sed in the
+                 command section), so it carries the echoed command line and the summary
+                 text rather than a stable table -->
+            <output name="grp_count" ftype="tabular">
+                <assert_contents>
+                    <has_text text="forest contains 49."/>
+                    <has_text text="pasture contains 49."/>
+                    <has_text text="Total seqs: 98."/>
+                </assert_contents>
+            </output>
             <param name="savelog" value="true"/>
             <expand macro="logfile-test"/>
         </test>
@@ -98,9 +133,9 @@ cat mothur.*.logfile
 
 The count.groups_ command counts sequences from a specific group or set of groups from a group_ or shared_ file.
 
-.. _shared: https://www.mothur.org/wiki/Shared_file
-.. _group: https://www.mothur.org/wiki/Group_file
-.. _count.groups: https://www.mothur.org/wiki/Count.groups
+.. _shared: https://mothur.org/wiki/shared_file/
+.. _group: https://mothur.org/wiki/group_file/
+.. _count.groups: https://mothur.org/wiki/count.groups/
 
     ]]></help>
     <expand macro="citations"/>

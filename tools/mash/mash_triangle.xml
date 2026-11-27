@@ -1,0 +1,500 @@
+<tool id="mash_triangle" name="mash triangle" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
+    <description>Estimate all-vs-all distances between sequences</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="xref"/>
+    <expand macro="requirements"/>
+    <stdio>
+        <!-- mash silently drops sketches whose parameters do not match, which would give a matrix missing samples -->
+        <regex match="This file will be skipped" source="stderr" level="fatal" description="An input sketch does not match the k-mer size, seed or sketch size and was skipped"/>
+    </stdio>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        @SAFE_NAME_HELPERS@
+        ## mash labels whole-file entries by the path it was given, so link each input under its
+        ## Galaxy identifier; mash only recognises sketches by their .msh suffix
+        #set $used = set()
+        #set $links = []
+        #set $sketch_first = False
+        #set $has_sequences = False
+        #set $has_fastq = False
+        #if str($inputs.input_mode) == 'collection':
+            #set $input_files = $inputs.input_collection
+        #else
+            #set $input_files = $inputs.input_datasets
+        #end if
+        ## keep the links out of the job directory so a dataset name can't collide with a file Galaxy reads there, such as galaxy.json
+        mkdir inputs && cd inputs &&
+        #for $input in $input_files:
+            #set $base = $safe_name($input.element_identifier)
+            ## stay under the 255-byte filename limit with room for the collision and .msh suffixes
+            #set $base = $base.encode('utf-8')[:200].decode('utf-8', 'ignore')
+            #if $input.ext == 'msh':
+                #if not $links:
+                    #set $sketch_first = True
+                #end if
+                #set $suffix = '.msh'
+                #if $base.endswith('.msh'):
+                    #set $base = $base[:-4]
+                #end if
+            #else
+                #set $has_sequences = True
+                #if $input.ext.startswith('fastq'):
+                    #set $has_fastq = True
+                #end if
+                #set $suffix = ''
+                #if $base.endswith('.msh'):
+                    #set $base = $base + '_'
+                #end if
+            #end if
+            #set $link = $base + $suffix
+            #set $n = 1
+            #while $link in $used:
+                #set $link = $base + '_' + str($n) + $suffix
+                #set $n += 1
+            #end while
+            #silent $used.add($link)
+            #silent $links.append($link)
+            ln -s '$input' '$link' &&
+        #end for
+        ## mash takes every sketching setting, including -i, from a leading sketch and ignores the form,
+        ## and nothing in the form can check the input order
+        #if $sketch_first and $has_sequences:
+            echo 'The first input is a sketch, so mash would apply its k-mer size, seed, sketch size and individual-sequence setting to the sequence inputs and ignore the settings in this form. Put a sequence dataset first, or sketch every input with the same settings.' >&2 &&
+            exit 1 &&
+        #end if
+        ## with one input mash compares the records inside it, whatever the mode, which for a read set means every read against every other
+        #if len($links) == 1 and ($has_fastq or (str($reads_assembly.reads_assembly_selector) == 'reads' and $has_sequences)):
+            echo 'A single read dataset needs at least one other input. With a single input mash would compare every read against every other read.' >&2 &&
+            exit 1 &&
+        #end if
+        mash triangle
+            -p "\${GALAXY_SLOTS:-1}"
+            -k $kmer_size
+            -s $sketch_size
+            -S $seed
+            #if str($reads_assembly.reads_assembly_selector) == 'reads':
+                -r
+                -m $reads_assembly.minimum_kmer_copies
+                #if $reads_assembly.target_coverage:
+                    -c $reads_assembly.target_coverage
+                #end if
+                #if $reads_assembly.genome_size:
+                    -g $reads_assembly.genome_size
+                #end if
+            #else
+                $reads_assembly.individual_sequences
+            #end if
+            #if str($output_type.output_type_selector) == 'edge':
+                -E
+                -v $output_type.pvalue
+                -d $output_type.distance
+            #end if
+            #for $link in $links:
+                '$link'
+            #end for
+            > '$output'
+    ]]></command>
+    <inputs>
+        <conditional name="inputs">
+            <param name="input_mode" type="select" label="Input type">
+                <option value="individual" selected="true">Individual datasets</option>
+                <option value="collection">Collection</option>
+            </param>
+            <when value="individual">
+                <param name="input_datasets" type="data" format="@INTYPES@,msh" multiple="true" label="Sequences or sketches to compare" help="Each dataset is compared as a whole and labelled with its dataset name"/>
+            </when>
+            <when value="collection">
+                <param name="input_collection" type="data_collection" format="@INTYPES@,msh" collection_type="list" label="Sequences or sketches to compare" help="Each element is compared as a whole and labelled with its element identifier"/>
+            </when>
+        </conditional>
+        <conditional name="reads_assembly">
+            <param name="reads_assembly_selector" type="select" label="Input: Reads or Assemblies">
+                <option value="assembly" selected="true">Assembly</option>
+                <option value="reads">Reads</option>
+            </param>
+            <when value="assembly">
+                <param name="individual_sequences" argument="-i" type="boolean" truevalue="-i" falsevalue="" label="Compare individual sequences" help="Compare every sequence (e.g. contig or chromosome) rather than whole datasets. Labels are then the sequence IDs from the FASTA headers."/>
+            </when>
+            <when value="reads">
+                <param name="minimum_kmer_copies" argument="-m" type="integer" min="1" max="1000" value="1" label="Minimum copies of each k-mer required to pass noise filter"/>
+                <param name="target_coverage" argument="-c" type="integer" min="1" max="500" value="" optional="true" label="Target coverage" help="If specified, sketching will conclude if this coverage is reached before the end of the input file (estimated by average k-mer multiplicity)"/>
+                <param name="genome_size" argument="-g" type="integer" min="1000" max="100000000000" value="" optional="true" label="Genome size" help="If specified, will be used for p-value calculation instead of an estimated size from k-mer content"/>
+            </when>
+        </conditional>
+        <param name="kmer_size" argument="-k" type="integer" min="1" max="32" value="21" label="K-mer size" help="Used to sketch sequence inputs; any sketch (msh) inputs must have been built with the same k-mer size"/>
+        <param name="sketch_size" argument="-s" type="integer" min="10" max="1000000" value="1000" label="Sketch size" help="Each sketch will have at most this many non-redundant min-hashes"/>
+        <param name="seed" argument="-S" type="integer" min="0" max="4294967295" value="42" label="Hash seed" help="Used to sketch sequence inputs; any sketch (msh) inputs must have been built with the same seed"/>
+        <conditional name="output_type">
+            <param name="output_type_selector" type="select" label="Output format">
+                <option value="phylip" selected="true">Lower-triangular distance matrix (relaxed Phylip)</option>
+                <option value="edge">Edge list</option>
+            </param>
+            <when value="phylip"/>
+            <when value="edge">
+                <param name="pvalue" argument="-v" type="float" min="0" max="1.0" value="1.0" label="Maximum p-value to report"/>
+                <param name="distance" argument="-d" type="float" min="0" max="1.0" value="1.0" label="Maximum distance to report"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output" format="txt" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output_type.output_type_selector" value="edge" format="tsv"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- default: Phylip matrix over three separate datasets, labelled by dataset name -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.fasta,triangle_genome_c.fasta" ftype="fasta"/>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_line_matching expression="^\t3$"/>
+                    <has_line line="triangle_genome_a.fasta"/>
+                    <has_line_matching expression="^triangle_genome_b\.fasta\t0\.0096\d*$"/>
+                    <has_line_matching expression="^triangle_genome_c\.fasta\t0\.055\d*\t0\.065\d*$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- edge list from a list collection: labels are the element identifiers -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="collection"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="isolate_A" value="triangle_genome_a.fasta" ftype="fasta"/>
+                        <element name="isolate_B" value="triangle_genome_b.fasta" ftype="fasta"/>
+                        <element name="isolate_C" value="triangle_genome_c.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="output_type">
+                <param name="output_type_selector" value="edge"/>
+            </conditional>
+            <output name="output" ftype="tsv">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_n_columns n="5"/>
+                    <has_line_matching expression="^isolate_B\tisolate_A\t0\.0096\d*\t0\t691/1000$"/>
+                    <has_line_matching expression="^isolate_C\tisolate_A\t0\.055\d*\t0\t184/1000$"/>
+                    <has_line_matching expression="^isolate_C\tisolate_B\t0\.065\d*\t0\t143/1000$"/>
+                    <not_has_text text="triangle_genome"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- edge list filtered by maximum distance, with a non-default sketch size -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.fasta,triangle_genome_c.fasta" ftype="fasta"/>
+            </conditional>
+            <param name="sketch_size" value="500"/>
+            <conditional name="output_type">
+                <param name="output_type_selector" value="edge"/>
+                <param name="distance" value="0.02"/>
+            </conditional>
+            <output name="output" ftype="tsv">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_line_matching expression="^triangle_genome_b\.fasta\ttriangle_genome_a\.fasta\t0\.0099\d*\t0\t341/500$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- identifiers that sanitize to the same name still get distinct rows -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="collection"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="iso 1" value="triangle_genome_a.fasta" ftype="fasta"/>
+                        <element name="iso+1" value="triangle_genome_b.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="iso_1"/>
+                    <has_line_matching expression="^iso_1_1\t0\.0096\d*$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a sequence element whose name ends in .msh is renamed so mash does not read it as a sketch -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="collection"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="x.msh" value="triangle_genome_a.fasta" ftype="fasta"/>
+                        <element name="isolate_C" value="triangle_genome_c.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="x.msh_"/>
+                    <has_line_matching expression="^isolate_C\t0\.055\d*$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- very long identifiers are shortened so the link names fit the filesystem limit -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="collection"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx " value="triangle_genome_a.fasta" ftype="fasta"/>
+                        <element name="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx+" value="triangle_genome_b.fasta" ftype="fasta"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^x{200}$"/>
+                    <has_line_matching expression="^x{200}_1\t0\.0096\d*$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- individual sequences: labels come from the FASTA headers -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.fasta" ftype="fasta"/>
+            </conditional>
+            <conditional name="reads_assembly">
+                <param name="reads_assembly_selector" value="assembly"/>
+                <param name="individual_sequences" value="true"/>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_line_matching expression="^\t4$"/>
+                    <has_line_matching expression="^genome_b_contig1\t0\.008\d*\t1$"/>
+                    <has_line_matching expression="^genome_b_contig2\t1\t0\.010\d*\t1$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- p-value filter: only the matching contig pairs are significant, the cross-contig pairs have p = 1 -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.fasta" ftype="fasta"/>
+            </conditional>
+            <conditional name="reads_assembly">
+                <param name="reads_assembly_selector" value="assembly"/>
+                <param name="individual_sequences" value="true"/>
+            </conditional>
+            <conditional name="output_type">
+                <param name="output_type_selector" value="edge"/>
+                <param name="pvalue" value="0.5"/>
+            </conditional>
+            <output name="output" ftype="tsv">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_line_matching expression="^genome_b_contig1\tgenome_a_contig1\t0\.0088\d*\t0\t709/1000$"/>
+                    <has_line_matching expression="^genome_b_contig2\tgenome_a_contig2\t0\.0101\d*\t0\t677/1000$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- sketch input mixed with sequences; the sketch keeps the name it was built with -->
+        <!-- triangle_genome_b.msh is triangle_genome_b.fasta sketched with -k 21 -s 1000 -S 42 under the name genome_b; rebuild it if that FASTA changes -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.msh,triangle_genome_c.fasta"/>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="4"/>
+                    <has_line line="triangle_genome_a.fasta"/>
+                    <has_line_matching expression="^genome_b\t0\.0096\d*$"/>
+                    <has_line_matching expression="^triangle_genome_c\.fasta\t0\.055\d*\t0\.065\d*$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- sketches only, from a collection: the first sketch sets the parameters and labels are the stored sketch names -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="collection"/>
+                <param name="input_collection">
+                    <collection type="list">
+                        <element name="first" value="triangle_genome_b.msh" ftype="msh"/>
+                        <element name="second" value="test_06_mash_sketch.msh" ftype="msh"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^\t2$"/>
+                    <has_line line="genome_b"/>
+                    <has_line_matching expression="^\S+\t1$"/>
+                    <not_has_text text="first"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- the k=21 sketch does not match -k 15 and mash would silently drop it, so the job fails instead -->
+        <test expect_failure="true">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.msh"/>
+            </conditional>
+            <param name="kmer_size" value="15"/>
+            <assert_stderr>
+                <has_text text="This file will be skipped"/>
+            </assert_stderr>
+        </test>
+        <!-- a seed mismatch is skipped by mash the same way, so it fails too -->
+        <test expect_failure="true">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_a.fasta,triangle_genome_b.msh"/>
+            </conditional>
+            <param name="seed" value="7"/>
+            <assert_stderr>
+                <has_text text="does not match the current seed"/>
+            </assert_stderr>
+        </test>
+        <!-- a leading sketch would override the form's settings for the sequence inputs, so the job fails -->
+        <test expect_failure="true">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="triangle_genome_b.msh,triangle_genome_a.fasta"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="The first input is a sketch"/>
+            </assert_stderr>
+        </test>
+        <!-- gzipped read sets; with -m 1 the distance would be 0.2036, the same as assembly mode -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="ERR024951_seqtk_sample_1000_1.fastq.gz,ERR024951_seqtk_sample_1000_2.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="reads_assembly">
+                <param name="reads_assembly_selector" value="reads"/>
+                <param name="minimum_kmer_copies" value="2"/>
+            </conditional>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="^ERR024951_seqtk_sample_1000_2\.fastq\.gz\t0\.1306\d*$"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- reads mode passes the optional coverage and genome size through -->
+        <test expect_num_outputs="1">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="ERR024951_seqtk_sample_1000_1.fastq.gz,ERR024951_seqtk_sample_1000_2.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="reads_assembly">
+                <param name="reads_assembly_selector" value="reads"/>
+                <param name="target_coverage" value="100"/>
+                <param name="genome_size" value="5000"/>
+            </conditional>
+            <assert_command>
+                <has_text text="-c 100"/>
+                <has_text text="-g 5000"/>
+            </assert_command>
+            <output name="output" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a single read set would turn into an all-vs-all of its reads, so the job fails -->
+        <test expect_failure="true">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="ERR024951_seqtk_sample_1000_1.fastq" ftype="fastqsanger"/>
+            </conditional>
+            <conditional name="reads_assembly">
+                <param name="reads_assembly_selector" value="reads"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="A single read dataset needs at least one other input"/>
+            </assert_stderr>
+        </test>
+        <!-- mash splits a single input into its records in assembly mode too, so a lone FASTQ fails there as well -->
+        <test expect_failure="true">
+            <conditional name="inputs">
+                <param name="input_mode" value="individual"/>
+                <param name="input_datasets" value="ERR024951_seqtk_sample_1000_1.fastq" ftype="fastqsanger"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="A single read dataset needs at least one other input"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Estimates the Mash distance between every pair of inputs and reports the
+results either as a lower-triangular distance matrix or as an edge list. Inputs
+can be FASTA or FASTQ (gzipped or not) or Mash sketches (msh), selected as
+several datasets or as a collection.
+
+By default each dataset is sketched and compared as a whole, and is labelled in
+the output with its dataset name, or its element identifier when it comes from
+a collection. Characters other than letters, digits, ``.``, ``-`` and ``_`` are
+replaced by ``_``, a leading ``-`` or ``.`` gets a ``_`` in front, a sequence
+dataset whose name ends in ``.msh`` gets a trailing ``_`` (so it is not read as
+a sketch), labels longer than 200 bytes are shortened, and a numeric suffix is
+added if two labels would collide.
+
+With **Compare individual sequences** (``-i``) every sequence in every input is
+compared separately and labelled with its FASTA sequence ID. If only a single
+sequence dataset is given, mash compares its individual sequences regardless of
+this setting. Sequence IDs, like the names stored in sketches, are used as they
+are and are not made unique, so the same label can appear more than once, for
+example when the assemblies all name their contigs ``contig00001`` and so on.
+Sequences shorter than the k-mer size cannot be sketched and are left out of
+the result without a warning.
+
+Sketch (msh) inputs are labelled with the names stored in the sketch when it
+was built, not with their Galaxy dataset name. Each sketch must have been built
+with the k-mer size and seed set here, and with a sketch size at least as large
+as the one set here (a larger sketch is reduced to match); the job fails if a
+sketch does not fit, rather than silently leaving it out of the result. When sketches are mixed with sequence datasets the first
+input must be a sequence dataset: mash would otherwise take the k-mer size,
+seed, sketch size and individual-sequence setting from the first sketch and
+ignore this form, so the job fails instead. If every input is a sketch, the
+first one sets the parameters and the others must match it.
+
+**Reads** mode (``-r``) filters out low-copy k-mers that are likely to be
+sequencing errors, as in **mash sketch**. A single FASTQ dataset, or a single
+dataset in reads mode, would be split by mash into a comparison of every read
+against every other read, so the job fails instead; give at least two inputs.
+
+**Output**
+
+*Lower-triangular distance matrix* (relaxed Phylip). The first line holds the
+number of entries, then each row holds a label followed by its distances to
+all entries above it::
+
+        3
+    sample_A
+    sample_B    0.00960897
+    sample_C    0.0556462    0.0659724
+
+*Edge list* (tab-separated, no header). One line per pair with the columns
+``seq1``, ``seq2``, ``distance``, ``p-value`` and ``shared-hashes``::
+
+    sample_B    sample_A    0.00960897    0    691/1000
+    sample_C    sample_A    0.0556462     0    184/1000
+    sample_C    sample_B    0.0659724     0    143/1000
+
+The edge list can be restricted to pairs below a maximum distance (``-d``)
+and/or p-value (``-v``).
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

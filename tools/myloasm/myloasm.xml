@@ -1,0 +1,269 @@
+<tool id="myloasm" name="myloasm" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>high-resolution metagenome assembly with long reads</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.7.1</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@PROFILE@">25.1</token>
+    </macros>
+    <xrefs>
+        <xref type="bio.tools">myloasm</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">myloasm</requirement>
+        <requirement type="package" version="0.1.0">myloasm-kmc</requirement>
+    </requirements>
+    <version_command>myloasm --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+#set $read_files = []
+#for $i, $r in enumerate($reads)
+    #if $r.is_of_type('fastqsanger.gz')
+        #set $ext = 'fq.gz'
+    #elif $r.is_of_type('fastqsanger')
+        #set $ext = 'fq'
+    #elif $r.is_of_type('fasta.gz')
+        #set $ext = 'fa.gz'
+    #else
+        #set $ext = 'fa'
+    #end if
+    #set $fn = 'reads_%d.%s' % ($i, $ext)
+    ln -s '$r' '$fn' &&
+    #set $read_files = $read_files + [$fn]
+#end for
+myloasm
+    #for $fn in $read_files
+        '$fn'
+    #end for
+    --output-dir out
+    --threads "\${GALAXY_SLOTS:-1}"
+    --clean-dir
+    --log-level info
+    $preset
+    --compression $algorithm.compression
+    --quality-value-cutoff $algorithm.quality_value_cutoff
+    --min-ol $algorithm.min_ol
+    --high-freq-kmer-threshold $algorithm.high_freq_kmer_threshold
+    #if str($algorithm.kmc):
+        $algorithm.kmc
+        --kmc-ram \$((\${GALAXY_MEMORY_MB:-12288} / 1024))
+    #end if
+    --min-reads-contig $thresholds.min_reads_contig
+    --singleton-coverage-threshold $thresholds.singleton_coverage_threshold
+    --secondary-coverage-threshold $thresholds.secondary_coverage_threshold
+    #if str($thresholds.absolute_coverage_threshold):
+        --absolute-coverage-threshold $thresholds.absolute_coverage_threshold
+    #end if
+    --dereplication-ani $thresholds.dereplication_ani
+    --dereplication-length $thresholds.dereplication_length
+#if $outputs_extra and 'log' in str($outputs_extra).split(','):
+    && mv out/myloasm_*.log out/myloasm.log
+#end if
+    ]]></command>
+    <inputs>
+        <param name="reads" type="data" format="fastqsanger,fastqsanger.gz,fasta,fasta.gz" multiple="true" label="Long reads" help="Nanopore R10 or PacBio HiFi reads. Multiple files are concatenated and assembled together."/>
+        <param name="preset" type="select" label="Sequencing technology">
+            <option value="--nano-r10" selected="true">Nanopore R10 (default)</option>
+            <option value="--hifi">PacBio HiFi</option>
+        </param>
+        <section name="algorithm" title="Basic algorithmic parameters" expanded="false">
+            <param argument="--compression" type="integer" min="1" value="11" label="Compression ratio" help="1/c k-mers are selected as seeds"/>
+            <param argument="--quality-value-cutoff" type="float" min="0" max="100" value="90" label="Minimum estimated read identity (%)" help="Reads with lower identity (estimated from base qualities) are not used for graph building"/>
+            <param argument="--min-ol" type="integer" min="1" value="500" label="Minimum overlap length for graph construction"/>
+            <param argument="--high-freq-kmer-threshold" type="integer" min="1" value="100000" label="High-frequency k-mer threshold" help="The most frequent 1/N k-mers are removed"/>
+            <param argument="--kmc" type="boolean" truevalue="--kmc" falsevalue="" checked="false" label="Count k-mers on disk with KMC" help="Faster and uses less RAM than the built-in counter. Recommended for large, complex metagenomes such as soil and sediment."/>
+        </section>
+        <section name="thresholds" title="Output thresholds" expanded="false">
+            <param argument="--min-reads-contig" type="integer" min="1" value="1" label="Minimum number of reads per contig"/>
+            <param argument="--singleton-coverage-threshold" type="float" min="0" value="3" label="Singleton contig coverage threshold" help="Remove single-read contigs with estimated coverage depth at or below this value"/>
+            <param argument="--secondary-coverage-threshold" type="float" min="0" value="1" label="Secondary coverage threshold" help="Remove contigs with at most 2 reads and estimated coverage depth at or below this value"/>
+            <param argument="--absolute-coverage-threshold" type="float" min="0" optional="true" label="Absolute coverage threshold" help="Remove all contigs with estimated coverage depth at or below this value. Leave empty to disable."/>
+            <param argument="--dereplication-ani" type="float" min="0" max="100" value="99" label="Dereplication ANI (%)" help="Contigs with at least this ANI to a larger contig are marked as alternate"/>
+            <param argument="--dereplication-length" type="integer" min="0" value="500000" label="Dereplication length (bp)" help="Only contigs shorter than this (and &gt; 90% aligned) are dereplicated"/>
+        </section>
+        <param name="outputs_extra" type="select" multiple="true" optional="true" label="Additional outputs">
+            <option value="edges">Contig graph overlap details (.edges)</option>
+            <option value="alternate">Alternate contigs (99-99.9% similar to a primary contig)</option>
+            <option value="duplicated">Duplicated contigs (&gt; 99.9% similar to a primary contig)</option>
+            <option value="log">Run log</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="assembly" format="fasta" from_work_dir="out/assembly_primary.fa" label="${tool.name} on ${on_string}: primary contigs"/>
+        <data name="graph" format="gfa1" from_work_dir="out/final_contig_graph.gfa" label="${tool.name} on ${on_string}: contig graph"/>
+        <data name="edges" format="txt" from_work_dir="out/final_contig_graph.edges" label="${tool.name} on ${on_string}: contig graph edges">
+            <filter>outputs_extra and 'edges' in outputs_extra</filter>
+        </data>
+        <data name="alternate" format="fasta" from_work_dir="out/alternate_assemblies/assembly_alternate.fa" label="${tool.name} on ${on_string}: alternate contigs">
+            <filter>outputs_extra and 'alternate' in outputs_extra</filter>
+        </data>
+        <data name="duplicated" format="fasta" from_work_dir="out/alternate_assemblies/duplicated_contigs.fa" label="${tool.name} on ${on_string}: duplicated contigs">
+            <filter>outputs_extra and 'duplicated' in outputs_extra</filter>
+        </data>
+        <data name="log" format="txt" from_work_dir="out/myloasm.log" label="${tool.name} on ${on_string}: log">
+            <filter>outputs_extra and 'log' in outputs_extra</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Nanopore R10 defaults: a ~2 kb plasmid assembles into one circular contig -->
+        <test expect_num_outputs="2">
+            <param name="reads" value="2kb_plas.fq" ftype="fastqsanger"/>
+            <output name="assembly" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="^&gt;u\d+ctg_len-1[89]\d\d_circular-yes_depth-\d+-\d+-\d+_duplicated-no mult="/>
+                </assert_contents>
+            </output>
+            <output name="graph" ftype="gfa1">
+                <assert_contents>
+                    <has_text_matching expression="^H\t"/>
+                    <has_text_matching expression="\nS\tu\d+ctg\t\*\tLN:i:\d+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Same reads, gzipped input -->
+        <test expect_num_outputs="2">
+            <param name="reads" value="2kb_plas.fq.gz" ftype="fastqsanger.gz"/>
+            <output name="assembly" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="^&gt;u\d+ctg_len-1[89]\d\d_circular-yes"/>
+                </assert_contents>
+            </output>
+            <output name="graph" ftype="gfa1">
+                <assert_contents>
+                    <has_text_matching expression="\nS\tu\d+ctg\t"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- On-disk k-mer counting with KMC; the circular contig's self-overlap fills the edges file -->
+        <test expect_num_outputs="4">
+            <param name="reads" value="2kb_plas.fq" ftype="fastqsanger"/>
+            <section name="algorithm">
+                <param name="kmc" value="true"/>
+            </section>
+            <param name="outputs_extra" value="edges,log"/>
+            <output name="assembly" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="^&gt;u\d+ctg_len-1[89]\d\d_circular-yes"/>
+                </assert_contents>
+            </output>
+            <output name="graph" ftype="gfa1">
+                <assert_contents>
+                    <has_text_matching expression="\nS\tu\d+ctg\t"/>
+                </assert_contents>
+            </output>
+            <output name="edges" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text_matching expression="^u\d+ctg [+-] u\d+ctg [+-] OL:\d+ SNP_SHARE:\d+ SNP_DIFF:\d+"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="--kmc"/>
+                    <has_text text="Counting k-mers on disk with"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- HiFi preset on gzipped FASTA input with non-default parameters and alternate/duplicated outputs -->
+        <test expect_num_outputs="5">
+            <param name="reads" value="hifi_3strains_sim.fa.gz" ftype="fasta.gz"/>
+            <param name="preset" value="--hifi"/>
+            <section name="algorithm">
+                <param name="min_ol" value="1000"/>
+            </section>
+            <section name="thresholds">
+                <param name="absolute_coverage_threshold" value="1"/>
+            </section>
+            <param name="outputs_extra" value="alternate,duplicated,log"/>
+            <output name="assembly" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="^&gt;u\d+ctg_len-\d+_circular-(yes|no|possibly)_depth-\d+-\d+-\d+_duplicated-no mult="/>
+                </assert_contents>
+            </output>
+            <output name="graph" ftype="gfa1">
+                <assert_contents>
+                    <has_text_matching expression="\nS\tu\d+ctg\t"/>
+                </assert_contents>
+            </output>
+            <output name="alternate" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="^&gt;u\d+ctg_len-\d+_.* secondary_to:\|u\d+ctg_len-\d+_.*\| aligned_frac:[\d.]+ ani:99\.[0-8]\d"/>
+                </assert_contents>
+            </output>
+            <output name="duplicated" ftype="fasta">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="^&gt;u\d+ctg_len-\d+_.* secondary_to:\|u\d+ctg_len-\d+_.*\| aligned_frac:[\d.]+ ani:(99\.9\d|100\.00)"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="--hifi"/>
+                    <has_text text="--min-ol"/>
+                    <has_text text="Number of alt/dup contigs: 1 and 1"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+myloasm is a de novo metagenome assembler for modern long reads. It uses polymorphic k-mers in a string-graph framework to separate closely related strains and to produce complete,
+often circular, contigs.
+
+Supported data:
+
+- Nanopore **R10** simplex reads basecalled with sup or hac (&gt; ~97% median accuracy) - the default mode
+- PacBio **HiFi** reads - select *PacBio HiFi*
+
+Older Nanopore R9 data and PacBio CLR reads are not supported.
+
+-----
+
+**Inputs**
+
+One or more FASTQ/FASTA files (optionally gzipped). Multiple files are concatenated and assembled together.
+FASTQ input is recommended: base qualities are used to estimate read identity (see *Minimum estimated read identity*).
+
+For large, complex metagenomes (e.g. soil, sediment), enable *Count k-mers on disk with KMC*. It is faster and uses
+less RAM than the built-in counter; its memory budget is set from the memory Galaxy allocates to the job.
+
+-----
+
+**Outputs**
+
+- **Primary contigs** (`assembly_primary.fa`) - the polished assembly, used for most downstream analyses.
+- **Contig graph** (`final_contig_graph.gfa`) - the assembly graph with one node per contig, viewable in Bandage.
+  `S` lines carry depth tags (`DP`, `DP2`, `DP3`); `a` lines record the reads making up each contig.
+
+Optional:
+
+- **Contig graph edges** - overlap details between contigs.
+- **Alternate contigs** - contigs 99–99.9% similar to, and contained in, a primary contig.
+- **Duplicated contigs** - contigs &gt; 99.9% similar to, and contained in, a primary contig.
+- **Run log** - the detailed myloasm log.
+
+-----
+
+**Contig header format**
+
+    >u2658272ctg_len-2275750_circular-possibly_depth-10-9-9_duplicated-no mult=1.00
+
+- `len` - contig length
+- `circular` - `yes` (single self-looping contig with &gt; 5x depth), `possibly` (self-loop but fails a `yes` criterion) or `no`
+- `depth-X1-X2-X3` - estimated depth at ~99%, ~99.75% and 100% read identity
+- `duplicated` - `yes` (`mult` &gt; 1.5), `possibly` (`mult` &gt; 1.1) or `no`
+- `mult` - k-mer multiplicity estimate; ~1.00 for a complete prokaryotic genome, higher values may indicate merged strains or duplications
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41587-026-03053-z</citation>
+    </citations>
+    <creator>
+        <person givenName="Saim" familyName="Momin" url="https://github.com/SaimMomin12" identifier="https://orcid.org/0009-0003-9935-828X"/>
+        <organization name="Galaxy Europe"/>
+    </creator>
+</tool>

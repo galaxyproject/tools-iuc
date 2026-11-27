@@ -16,7 +16,7 @@ from safety import Safety
 
 if len(argv) == 2 and argv[1] == "--version":
     print(__version__)
-    exit(-1)
+    exit(0)
 
 # The import below should be generated in the same directory as
 # the table_compute.py script.

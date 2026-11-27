@@ -7,33 +7,59 @@
     </macros>
     <expand macro='xrefs'/>
     <expand macro="requirements" />
+    <version_command><![CDATA[python -m plasmidfinder --version]]></version_command>
     <command detect_errors="aggressive"><![CDATA[
-        mkdir output_dir &&
-        mkdir temp_dir &&
-        plasmidfinder.py
-        -i '$input.input_file'
+        #if $input.reads.type == 'single' and $input.reads.input_file.ext == 'fasta.gz'
+            gzip -cd '$input.reads.input_file' > input.fasta &&
+        #end if
+        python -m plasmidfinder
+        -i
+        #if $input.reads.type == 'paired_collection'
+            '$input.reads.input_pair.forward' '$input.reads.input_pair.reverse'
+        #elif $input.reads.input_file.ext == 'fasta.gz'
+            input.fasta
+        #else
+            '$input.reads.input_file'
+        #end if
         -p '$input.database_name.fields.path'
         -l '$options.min_cov'
         -t '$options.threshold'
-        #if $input.input_file.ext == 'fasta' or $input.input_file.ext == 'fasta.gz'
-            -mp blastn
-        #elif $input.input_file.ext == 'fastqsanger' or $input.input_file.ext == 'fastqsanger.gz'
-            -mp kma
-        #end if
         -x
         -o output_dir
-        -tmp temp_dir
-        #*======================================
-                            LOG file
-        ======================================*#
-        | tee '$log_file'
+        #if $output_files.output_format == 'current'
+            -j output_dir/data.json
+        #else
+            --legacy
+        #end if
+        > plasmidfinder.log 2>&1 || { cat plasmidfinder.log >&2; exit 1; }
+        #if $output_files.output_format == 'old'
+            && sed -i.bak '1s/^{"__main__":/{"plasmidfinder":/' output_dir/data.json
+            && sed -i.bak '1s/^__main__ Results/plasmidfinder Results/' output_dir/results.txt
+            #if $input.reads.type == 'single' and $input.reads.input_file.ext == 'fasta.gz'
+                #import json
+                #set $original_input = $json.dumps([str($input.reads.input_file)]).replace('\\', '\\\\').replace('&', '\\&').replace('|', '\\|')
+                && sed -i.bak 's|"filename(s)": \[[^]]*\]|"filename(s)": $original_input|' output_dir/data.json
+            #end if
+        #end if
         ]]>
     </command>
     <inputs>
         <section name="input" title="Input parameters" expanded="true">
-            <param name="input_file" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" label="Choose a fasta or fastq file" help="File to be analyzed"/>
+            <conditional name="reads">
+                <param name="type" type="select" label="Input type">
+                    <option value="single" selected="true">Single file (FASTA or FASTQ)</option>
+                    <option value="paired_collection">Paired collection</option>
+                </param>
+                <when value="single">
+                    <param name="input_file" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" label="FASTA assembly or FASTQ reads"/>
+                </when>
+                <when value="paired_collection">
+                    <param name="input_pair" type="data_collection" collection_type="paired" format="fastqsanger,fastqsanger.gz" label="Paired FASTQ reads"/>
+                </when>
+            </conditional>
             <param name="database_name" type="select" label="PlasmidFinder database">
                 <options from_data_table="plasmidfinder_database">
+                    <filter type="sort_by" column="date" reverse_sort_order="true"/>
                     <validator message="No PlasmidFinder database is available" type="no_options"/>
                 </options>
             </param>
@@ -43,6 +69,11 @@
             <param name="threshold" type="float" min="0" max="1" value="0.95" label="Minimal identity" help=" Fraction of shared nucleotide on the match (default: 0.95)"/>
         </section>
         <section name="output_files" title="Output file selection">
+            <param name="output_format" type="select" label="Output format" help="The old mode preserves the PlasmidFinder 2.1.6 JSON format and text report heading.">
+                <option value="current">current</option>
+                <option value="--legacy">--legacy</option>
+                <option value="old" selected="true">old</option>
+            </param>
             <param name="output_selection" type="select" display="checkboxes" multiple="true" label="Output files selection">
               <option value="data_json">JSON file result</option>
               <option value="hit_fasta" selected="true">Matching sequences in the genome for plasmid</option>
@@ -69,7 +100,7 @@
         <data name="raw_file" format="txt" from_work_dir="output_dir/results.txt" label="${tool.name} on ${on_string}: raw_result.txt">
             <filter>  "result_txt" in output_files['output_selection'] </filter>
         </data>
-        <data name="log_file" format="txt" from_work_dir="output_dir" label="${tool.name} on ${on_string}: log file">
+        <data name="log_file" format="txt" from_work_dir="plasmidfinder.log" label="${tool.name} on ${on_string}: log file">
             <filter>  "logfile" in output_files['output_selection'] </filter>
         </data>
     </outputs>
@@ -77,7 +108,9 @@
         <!--test_1 with default value and all output files for contigs -->
         <test expect_num_outputs="6">
               <section name="input">
-                  <param name="input_file" value="contigs.fasta"/>
+                  <conditional name="reads">
+                      <param name="input_file" value="contigs.fasta"/>
+                  </conditional>
                   <param name="database_name" value="plasmidfinder_9002e7282dd0_2022-12-20"/>
               </section>
               <section name="output_files">
@@ -93,21 +126,35 @@
         <!--test_2 with default value and for fastq file -->
         <test expect_num_outputs="4">
               <section name="input">
-                  <param name="input_file" value="data.fastq.gz"/>
+                  <conditional name="reads">
+                      <param name="input_file" value="data.fastq.gz" ftype="fastqsanger.gz"/>
+                  </conditional>
                   <param name="database_name" value="plasmidfinder_9002e7282dd0_2022-12-20"/>
               </section>
               <section name="output_files">
                   <param name="output_selection" value="data_json,result_tsv,result_txt,logfile"/>
               </section>
               <output name="json_file" value="test_2/data_test2.json" ftype="json" compare="sim_size"/>
-              <output name="result_file" value="test_2/results_tab_test2.tsv"/>
-              <output name="raw_file" value="test_2/results_test2.txt" lines_diff="2"/>
+              <output name="result_file">
+                  <assert_contents>
+                      <has_line line="Database&#9;Plasmid&#9;Identity&#9;Query / Template length&#9;Contig&#9;Position in contig&#9;Note&#9;Accession number"/>
+                      <has_n_lines n="1"/>
+                  </assert_contents>
+              </output>
+              <output name="raw_file">
+                  <assert_contents>
+                      <has_text text="plasmidfinder Results"/>
+                      <has_text text="No hit found" n="3"/>
+                  </assert_contents>
+              </output>
               <output name="log_file" value="test_2/logfile_test2.log" lines_diff="7"/>
         </test>
-        <!--test_3 with default value and for fastq file -->
+        <!--test_3 with lower coverage and identity thresholds for contigs -->
         <test expect_num_outputs="3">
               <section name="input">
-                  <param name="input_file" value="contigs.fasta"/>
+                  <conditional name="reads">
+                      <param name="input_file" value="contigs.fasta"/>
+                  </conditional>
                   <param name="database_name" value="plasmidfinder_9002e7282dd0_2022-12-20"/>
               </section>
               <section name="options">
@@ -123,20 +170,32 @@
         </test>
     </tests>
     <help><![CDATA[
-      **What it does**
-      PlasmidFinder characterize plasmid sequences into whole genome sequencing.
-      It is based on the [plasmidfinder database](https://bitbucket.org/genomicepidemiology/plasmidfinder_db/) with hundreds sequences.
-      **Input**
-      PlasmidFinder takes raw data (with a k-mer analysisi) as reads or genome assembly (blastn analysis) to search plasmids.
-      **Output**
-      Some output files are availables
-      - A fasta file with all available sequences detected in the genome
-      - A fasta file with all plasmid sequences from the database
-      - A summary of the analysis in tabular format
-      - A Raw result file in text format
-      - A JSON file could be use for other boinformatic analysis
-      - A log file with analysis parameters
+**What it does**
 
+PlasmidFinder identifies plasmid sequences in whole-genome sequencing data using the
+`PlasmidFinder database <https://bitbucket.org/genomicepidemiology/plasmidfinder_db/>`_.
+
+**Input**
+
+FASTA genome assemblies (BLASTn analysis) or FASTQ reads (KMA analysis), optionally
+gzip compressed. Reads can be single-end or a paired collection.
+
+**Output**
+
+- A FASTA file with matching sequences from the input.
+- A FASTA file with matching plasmid sequences from the database.
+- A summary of the analysis in tabular format.
+- Raw results in text format.
+- A JSON file for further bioinformatics analysis.
+- A log file.
+
+Choose an output format:
+
+- **current**: native PlasmidFinder 3 JSON (BeOne format).
+- **--legacy**: native legacy JSON with a ``__main__`` root.
+- **old** (default): JSON and text report heading compatible with PlasmidFinder 2.1.6.
+
+TSV and FASTA formats are the same in all modes.
     ]]></help>
       <expand macro="citations"/>
 </tool>

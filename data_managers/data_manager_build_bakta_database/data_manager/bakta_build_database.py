@@ -39,7 +39,7 @@ class GetBaktaDatabaseInfo:
         self.light_db = bool(re.search(pattern="light", string=self.db_version))
         self.db_version = self.db_version.split(sep="_")[0]
         if self.light_db:
-            self.db_type = "light"
+            self.db_type = "_light"
             self.md5 = self.fetch_db_versions()["md5-light"]
         else:
             self.md5 = self.fetch_db_versions()["md5"]
