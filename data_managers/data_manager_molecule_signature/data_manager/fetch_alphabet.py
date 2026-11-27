@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sys
@@ -42,13 +43,21 @@ def md5sum(path):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stderr)],
+    )
     parser = argparse.ArgumentParser()
     parser.add_argument("--alphabet", required=True, choices=ALPHABETS)
     parser.add_argument("--version", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
-    # Le fichier "out" contient les paramètres du job ; on y lit le dossier cible
+    # The pre-existing "out" file holds the JSON mapping of the job
+    # parameters; the directory where the alphabet file is staged for
+    # Galaxy to move into the managed data directory is read from the
+    # first output's extra_files_path.
     with open(args.out) as fh:
         params = json.load(fh)
     target_dir = params["output_data"][0]["extra_files_path"]
@@ -59,22 +68,31 @@ def main():
     dest = os.path.join(target_dir, info["file"])
     tmp = dest + ".part"
 
+    logging.info("Downloading %s", url)
     with urllib.request.urlopen(url) as resp, open(tmp, "wb") as fh:
         shutil.copyfileobj(resp, fh)
+    logging.info("Downloaded %d bytes", os.path.getsize(tmp))
 
     observed = md5sum(tmp)
     if observed != info["md5"]:
         os.remove(tmp)
-        sys.exit(
-            f"MD5 mismatch for {info['file']}: expected {info['md5']}, got {observed}"
+        logging.error(
+            "MD5 mismatch for %s: expected %s, got %s",
+            info["file"],
+            info["md5"],
+            observed,
         )
+        sys.exit(1)
     os.replace(tmp, dest)
+    logging.info("MD5 verified for %s", info["file"])
 
     entry = {
         "value": args.alphabet,
         "name": info["name"],
         "version": args.version,
-        "path": dest,
+        # Relative to extra_files_path; data_manager_conf.xml moves the file
+        # from there into the managed data directory.
+        "path": info["file"],
     }
     with open(args.out, "w") as fh:
         json.dump({"data_tables": {"molsig_alphabets": [entry]}}, fh, sort_keys=True)
