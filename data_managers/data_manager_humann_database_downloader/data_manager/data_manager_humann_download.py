@@ -4,8 +4,8 @@
 import argparse
 import json
 import subprocess
-from datetime import date
 from pathlib import Path
+from urllib.parse import urlparse
 
 HUMANN_REFERENCE_DATA = {
     "chocophlan": {
@@ -113,6 +113,30 @@ def add_data_table_entry(d, table, entry):
         raise Exception("add_data_table_entry: no table '%s'" % table)
 
 
+def get_database_source_id(database, build):
+    """Return the versioned artifact name advertised by HUMAnN.
+
+    HUMAnN names its reference bundles after the data they contain
+    (e.g. ``full_chocophlan.v201901_v31``), so the artifact name is the
+    only immutable identity available: it changes when the data changes
+    and is identical on every server. The human readable build labels
+    (``full``, ``DEMO``, ``uniref90_diamond``, ...) are not unique across
+    data generations, so they are only used as ``value`` namespaces.
+    """
+    available = subprocess.check_output(
+        ["humann_databases", "--available"], text=True
+    )
+    prefix = f"{database} : {build} = "
+    for line in available.splitlines():
+        if line.startswith(prefix):
+            filename = Path(urlparse(line[len(prefix):]).path).name
+            for suffix in (".tar.gz", ".tar.bz2", ".tgz", ".zip"):
+                if filename.endswith(suffix):
+                    return filename[:-len(suffix)]
+            return filename
+    raise RuntimeError(f"Unable to determine source for {database} {build}")
+
+
 def download_humann_db(data_tables, table_name, database, build, version, target_dp):
     """Download HUMAnN database
 
@@ -134,12 +158,18 @@ def download_humann_db(data_tables, table_name, database, build, version, target
     db_target_dp = target_dp / Path(database)
     db_dp = db_target_dp / Path(database)
     build_target_dp = db_target_dp / Path(build)
+    source_id = get_database_source_id(database, build)
     # launch tool to get db
-    cmd = "humann_databases --download %s %s %s --update-config no" % (
+    cmd = [
+        "humann_databases",
+        "--download",
         database,
         build,
-        db_target_dp)
-    subprocess.check_call(cmd, shell=True)
+        str(db_target_dp),
+        "--update-config",
+        "no",
+    ]
+    subprocess.check_call(cmd)
     # move db
     db_dp.rename(build_target_dp)
     # add details to data table
@@ -148,19 +178,21 @@ def download_humann_db(data_tables, table_name, database, build, version, target
             data_tables,
             table_name,
             dict(
-                value="%s-%s-%s-%s" % (database, build, version, date.today().strftime("%d%m%Y")),
-                name=HUMANN_REFERENCE_DATA[database][build],
+                value=f"{database}-{build}-{source_id}",
+                # the label alone is identical for every data generation, so
+                # append the artifact name to make the choice reproducible
+                name=f"{HUMANN_REFERENCE_DATA[database][build]} ({source_id})",
                 dbkey=version,
                 path=str(build_target_dp)))
-    elif args.database == "utility_mapping":
+    elif database == "utility_mapping":
         for x in build_target_dp.iterdir():
             name = str(x.stem).split('.')[0]
             add_data_table_entry(
                 data_tables,
                 table_name,
                 dict(
-                    value="%s-%s-%s-%s-%s%s" % (database, build, name, version, date.today().strftime("%d%m%Y"), x.suffix),
-                    name=HUMANN_REFERENCE_DATA["utility_mapping"][build][name],
+                    value=f"{database}-{build}-{name}-{source_id}{x.suffix}",
+                    name=f"{HUMANN_REFERENCE_DATA['utility_mapping'][build][name]} ({source_id})",
                     dbkey=version,
                     path=str(x)))
 
