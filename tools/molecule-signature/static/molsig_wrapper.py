@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 from molsig.enumerate_utils import get_first_stereoisomer
-from molsig.SignatureAlphabet import SignatureAlphabet, load_alphabet, merge_alphabets
+from molsig.SignatureAlphabet import load_alphabet, merge_alphabets, SignatureAlphabet
 from rdkit import Chem
 
 RADIUS = 2
