@@ -1,0 +1,628 @@
+<tool id="liana_resource" name="Liana Resource" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>prior knowledge, ligand-receptor databases, orthology translation, and MetalinksDB</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="creators"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output'
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_IMPORTS@
+
+#if str($method.method) == 'select_resource':
+resource = li.rs.select_resource(resource_name='$method.resource_name')
+resource.to_csv('resource_output.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'get_hcop_orthologs':
+target_org = '$method.target_organism'
+    #if $method.format_for_translate:
+cols = ['human_symbol', f'{target_org}_symbol']
+    #else if str($method.columns).strip() != '':
+cols = [x.strip() for x in '$method.columns'.split(',') if x.strip()]
+    #else:
+cols = None
+    #end if
+orthologs = li.rs.get_hcop_orthologs(
+    target_organism=target_org,
+    min_evidence=$method.min_evidence,
+    columns=cols)
+    #if $method.format_for_translate:
+orthologs = orthologs.rename(columns={'human_symbol': 'source', f'{target_org}_symbol': 'target'})
+    #end if
+orthologs.to_csv('orthologs.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'translate_resource':
+    #if str($method.resource_input.resource_source) == 'builtin':
+resource = li.rs.select_resource(resource_name='$method.resource_input.resource_name')
+    #else:
+resource = pd.read_csv('$method.resource_input.resource_file', sep='\t')
+    #end if
+map_df = pd.read_csv('$method.map_df', sep='\t')
+if list(map_df.columns) != ['source', 'target'] and len(map_df.columns) == 2:
+    map_df.columns = ['source', 'target']
+cols = [x.strip() for x in '$method.columns'.split(',') if x.strip()] if str('$method.columns').strip() else None
+translated = li.rs.translate_resource(
+    resource=resource,
+    map_df=map_df,
+    columns=cols,
+    replace=$method.replace,
+    one_to_many=$method.one_to_many)
+translated.to_csv('translated_resource.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'translate_column':
+resource = pd.read_csv('$method.resource_file', sep='\t')
+map_df = pd.read_csv('$method.map_df', sep='\t')
+if list(map_df.columns) != ['source', 'target'] and len(map_df.columns) == 2:
+    map_df.columns = ['source', 'target']
+translated = li.rs.translate_column(
+    resource=resource,
+    map_df=map_df,
+    column='$method.column'.strip(),
+    replace=$method.replace,
+    one_to_many=$method.one_to_many)
+translated.to_csv('translated_resource.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'generate_lr_geneset':
+    #if str($method.resource_input.resource_source) == 'builtin':
+resource = li.rs.select_resource(resource_name='$method.resource_input.resource_name')
+    #else:
+resource = pd.read_csv('$method.resource_input.resource_file', sep='\t')
+    #end if
+net = pd.read_csv('$method.net', sep='\t')
+geneset = li.rs.generate_lr_geneset(
+    resource=resource,
+    net=net,
+    ligand_key='$method.ligand_key'.strip(),
+    receptor_key='$method.receptor_key'.strip(),
+    lr_sep='$method.lr_sep',
+    source='$method.source_col'.strip(),
+    target='$method.target_col'.strip(),
+    #if str($method.weight_col).strip() != '':
+    weight='$method.weight_col'.strip()
+    #else:
+    weight=None
+    #end if
+)
+geneset.to_csv('lr_geneset.tsv', sep='\t', index=False)
+
+#else if str($method.method) == 'get_metalinks':
+metalinks = li.rs.get_metalinks(
+    #if $method.db_path:
+    db_path='$method.db_path',
+    #end if
+    types=[x.strip() for x in '$method.types'.split(',') if x.strip()],
+    #if str($method.tissue_location).strip() != '':
+    tissue_location=[x.strip() for x in '$method.tissue_location'.split(',') if x.strip()],
+    #end if
+    #if str($method.biospecimen_location).strip() != '':
+    biospecimen_location=[x.strip() for x in '$method.biospecimen_location'.split(',') if x.strip()],
+    #end if
+    #if str($method.cell_location).strip() != '':
+    cell_location=[x.strip() for x in '$method.cell_location'.split(',') if x.strip()],
+    #end if
+    #if str($method.disease).strip() != '':
+    disease=[x.strip() for x in '$method.disease'.split(',') if x.strip()],
+    #end if
+    #if str($method.pathway).strip() != '':
+    pathway=[x.strip() for x in '$method.pathway'.split(',') if x.strip()],
+    #end if
+    #if str($method.source).strip() != '':
+    source=[x.strip() for x in '$method.source'.split(',') if x.strip()],
+    #end if
+    #if str($method.hmdb_ids).strip() != '':
+    hmdb_ids=[x.strip() for x in '$method.hmdb_ids'.split(',') if x.strip()],
+    #end if
+    #if str($method.uniprot_ids).strip() != '':
+    uniprot_ids=[x.strip() for x in '$method.uniprot_ids'.split(',') if x.strip()],
+    #end if
+)
+metalinks.to_csv('metalinks.tsv', sep='\t', index=False)
+    #if $method.export_networks:
+id_col = '$method.metabolite_id_col'
+lr_df = metalinks[metalinks['type'] == 'lr'][[id_col, 'gene_symbol']].dropna().drop_duplicates().rename(
+    columns={id_col: 'source', 'gene_symbol': 'receptor'}
+)
+lr_df.to_csv('metalinks_lr_resource.tsv', sep='\t', index=False)
+
+pd_df = (
+    metalinks[metalinks['type'] == 'pd']
+    .dropna(subset=[id_col, 'gene_symbol', 'mor'])
+    .groupby([id_col, 'gene_symbol'])['mor']
+    .mean()
+    .reset_index()
+    .query('mor != 0')
+    .rename(columns={id_col: 'source', 'gene_symbol': 'target', 'mor': 'weight'})
+)
+pd_df.to_csv('metalinks_pd_net.tsv', sep='\t', index=False)
+
+t_df = metalinks[metalinks['type'] == 'pd'][[id_col, 'gene_symbol', 'transport_direction']].dropna().copy()
+t_df['weight'] = t_df['transport_direction'].map({'out': 1.0, 'in': -1.0})
+t_df = (
+    t_df.dropna(subset=['weight'])
+    .groupby([id_col, 'gene_symbol'])['weight']
+    .mean()
+    .reset_index()
+    .query('weight != 0')
+    .rename(columns={id_col: 'source', 'gene_symbol': 'target'})
+)
+t_df.to_csv('metalinks_t_net.tsv', sep='\t', index=False)
+    #end if
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="method">
+            <param name="method" type="select" label="Method">
+                <option value="select_resource" selected="true">select_resource - Extract built-in ligand-receptor resource</option>
+                <option value="get_hcop_orthologs">get_hcop_orthologs - Download ortholog mappings from HCOP</option>
+                <option value="translate_resource">translate_resource - Translate L-R resource to another species</option>
+                <option value="translate_column">translate_column - Translate a single gene column in a table</option>
+                <option value="generate_lr_geneset">generate_lr_geneset - Generate L-R gene sets from pathway/disease network</option>
+                <option value="get_metalinks">get_metalinks - Query MetalinksDB metabolite-protein interactions</option>
+            </param>
+            <when value="select_resource">
+                <expand macro="param_resource_name"/>
+            </when>
+            <when value="get_hcop_orthologs">
+                <param argument="target_organism" type="select" label="Target organism" help="Target organism for human-to-species orthology mapping from HGNC HCOP">
+                    <option value="mouse" selected="true">mouse (Mus musculus)</option>
+                    <option value="rat">rat (Rattus norvegicus)</option>
+                    <option value="zebrafish">zebrafish (Danio rerio)</option>
+                    <option value="chicken">chicken (Gallus gallus)</option>
+                    <option value="chimpanzee">chimpanzee (Pan troglodytes)</option>
+                    <option value="macaque">macaque (Macaca mulatta)</option>
+                    <option value="dog">dog (Canis lupus familiaris)</option>
+                    <option value="cat">cat (Felis catus)</option>
+                    <option value="pig">pig (Sus scrofa)</option>
+                    <option value="cattle">cattle (Bos taurus)</option>
+                    <option value="horse">horse (Equus caballus)</option>
+                    <option value="xenopus">xenopus (Xenopus tropicalis)</option>
+                    <option value="fruitfly">fruitfly (Drosophila melanogaster)</option>
+                    <option value="c.elegans">c.elegans (Caenorhabditis elegans)</option>
+                    <option value="s.cerevisiae">s.cerevisiae (Saccharomyces cerevisiae)</option>
+                    <option value="s.pombe">s.pombe (Schizosaccharomyces pombe)</option>
+                    <option value="anole_lizard">anole_lizard (Anolis carolinensis)</option>
+                    <option value="opossum">opossum (Monodelphis domestica)</option>
+                    <option value="platypus">platypus (Ornithorhynchus anatinus)</option>
+                </param>
+                <param argument="min_evidence" type="integer" value="3" min="1" label="Minimum evidence" help="Minimum number of orthology databases supporting the orthology mapping."/>
+                <param name="format_for_translate" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Format directly for translate_resource / translate_column (source and target columns)" help="If enabled: subsets human_symbol and {target_organism}_symbol and renames them to 'source' and 'target' as required by translate_resource and translate_column."/>
+                <param argument="columns" type="text" value="" optional="true" label="Custom columns to keep (ignored if Format for translate_resource is enabled)" help="Comma-separated column names from the 15-column HCOP table (e.g., human_symbol,mouse_symbol). Empty = keep all 15 columns.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="translate_resource">
+                <conditional name="resource_input">
+                    <param name="resource_source" type="select" label="Resource source">
+                        <option value="builtin" selected="true">Built-in LIANA+ resource</option>
+                        <option value="file">Custom resource file</option>
+                    </param>
+                    <when value="builtin">
+                        <expand macro="param_resource_name"/>
+                    </when>
+                    <when value="file">
+                        <param name="resource_file" type="data" format="tabular" label="Resource file" help="Tabular file with ligand and receptor columns"/>
+                    </when>
+                </conditional>
+                <param name="map_df" type="data" format="tabular" label="Ortholog mapping file" help="Tabular file with 'source' and 'target' columns for ortholog mappings (generated by get_hcop_orthologs)."/>
+                <param argument="columns" type="text" value="ligand,receptor" label="Columns to translate" help="Comma-separated list of column names to translate (default: ligand,receptor).">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="one_to_many" type="integer" value="1" min="1" label="Maximum orthologs per gene" help="Maximum number of target orthologs allowed per source gene (default: 1; use e.g. 3 for zebrafish)."/>
+                <param argument="replace" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Replace original columns" help="If enabled: replaces the original columns with translated symbols. If disabled: adds orthology_&lt;column&gt; columns."/>
+            </when>
+            <when value="translate_column">
+                <param name="resource_file" type="data" format="tabular" label="Input table" help="Tabular file containing a gene symbol column to translate (e.g., MetalinksDB output with 'gene_symbol')."/>
+                <param name="map_df" type="data" format="tabular" label="Ortholog mapping file" help="Tabular file with 'source' and 'target' columns for ortholog mappings."/>
+                <param argument="column" type="text" value="gene_symbol" label="Column to translate" help="Name of the column to translate (e.g., 'gene_symbol', 'ligand', 'receptor').">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="column name is required"/>
+                </param>
+                <param argument="one_to_many" type="integer" value="1" min="1" label="Maximum orthologs per gene" help="Maximum number of target orthologs allowed per source gene. Default: 1."/>
+                <param argument="replace" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Replace original column" help="If enabled: overwrites the column with translated values. If disabled: creates orthology_&lt;column&gt;."/>
+            </when>
+            <when value="generate_lr_geneset">
+                <conditional name="resource_input">
+                    <param name="resource_source" type="select" label="Ligand-receptor resource source">
+                        <option value="builtin" selected="true">Built-in LIANA+ resource</option>
+                        <option value="file">Custom resource file</option>
+                    </param>
+                    <when value="builtin">
+                        <expand macro="param_resource_name"/>
+                    </when>
+                    <when value="file">
+                        <param name="resource_file" type="data" format="tabular" label="Resource file" help="Tabular file with ligand and receptor columns"/>
+                    </when>
+                </conditional>
+                <param argument="net" type="data" format="tabular" label="Prior knowledge network" help="Bipartite gene set / pathway / disease network (e.g., PROGENy) with source, target, and optional weight columns."/>
+                <param name="ligand_key" type="text" value="ligand" label="Ligand column in resource">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="receptor_key" type="text" value="receptor" label="Receptor column in resource">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="lr_sep" type="text" value="^" label="Ligand-receptor separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="source" name="source_col" type="text" value="source" label="Source (gene set / pathway) column in network">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="target" name="target_col" type="text" value="target" label="Target (gene symbol) column in network">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="weight" name="weight_col" type="text" optional="true" label="Weight column in network (leave empty for unweighted sets)" help="Column containing signed weights in network. Leave empty if network is unweighted (e.g., disease annotations).">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="get_metalinks">
+                <param argument="db_path" type="data" format="sqlite" optional="true" label="Custom MetalinksDB SQLite file" help="Optional local MetalinksDB SQLite database file from history for offline execution. Leave empty to download MetalinksDB automatically."/>
+                <param argument="types" type="select" multiple="true" optional="false" label="Interaction edge types" help="Select one or both edge types: lr (ligand-receptor) and/or pd (production-degradation).">
+                    <option value="lr" selected="true">lr (Metabolite-Receptor interactions)</option>
+                    <option value="pd" selected="true">pd (Production-Degradation enzymatic/transporter interactions)</option>
+                </param>
+                <param argument="tissue_location" type="text" value="" optional="true" label="Tissue locations" help="Comma-separated tissue locations to filter (e.g., Brain,Kidney,Liver). Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="biospecimen_location" type="text" value="" optional="true" label="Biospecimen locations" help="Comma-separated biospecimen types to filter (e.g., Blood,Cerebrospinal Fluid,Urine,Saliva). Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="cell_location" type="text" value="" optional="true" label="Cellular locations" help="Comma-separated cell locations (e.g., Extracellular,Cytoplasm,Membrane). Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="disease" type="text" value="" optional="true" label="Diseases" help="Comma-separated disease names to filter. Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="pathway" type="text" value="" optional="true" label="Pathways" help="Comma-separated metabolic pathway names to filter. Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="source" type="text" value="" optional="true" label="Curating source databases" help="Comma-separated database names to filter (e.g., Stich,CellPhoneDB,NeuronChat,rhea,recon,hmr). Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="hmdb_ids" type="text" value="" optional="true" label="Specific HMDB IDs" help="Comma-separated HMDB IDs (e.g., HMDB0000122,HMDB0000148). Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="uniprot_ids" type="text" value="" optional="true" label="Specific UniProt IDs" help="Comma-separated UniProt IDs. Empty = all.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="export_networks" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Also export formatted resource, pd_net, and t_net tables for estimate_metalinks?" help="If enabled: automatically builds the 3 tables required by Liana Methods → estimate_metalinks (LR resource, voted production-degradation network, and transporter network)."/>
+                <param name="metabolite_id_col" type="select" label="Metabolite identifier column for exported networks" help="Choose whether exported networks use human-readable metabolite names or HMDB IDs">
+                    <option value="metabolite" selected="true">metabolite (Metabolite name)</option>
+                    <option value="hmdb">hmdb (HMDB ID)</option>
+                </param>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="resource_out" format="tabular" from_work_dir="resource_output.tsv" label="${tool.name} (${method.method}) on ${on_string}: Resource">
+            <filter>method['method'] == 'select_resource'</filter>
+        </data>
+        <data name="orthologs_out" format="tabular" from_work_dir="orthologs.tsv" label="${tool.name} (${method.method}): Ortholog mappings">
+            <filter>method['method'] == 'get_hcop_orthologs'</filter>
+        </data>
+        <data name="translated_out" format="tabular" from_work_dir="translated_resource.tsv" label="${tool.name} (${method.method}) on ${on_string}: Translated resource">
+            <filter>method['method'] in ['translate_resource', 'translate_column']</filter>
+        </data>
+        <data name="geneset_out" format="tabular" from_work_dir="lr_geneset.tsv" label="${tool.name} (${method.method}) on ${on_string}: LR Gene Set">
+            <filter>method['method'] == 'generate_lr_geneset'</filter>
+        </data>
+        <data name="metalinks_out" format="tabular" from_work_dir="metalinks.tsv" label="${tool.name} (${method.method}): Metalinks">
+            <filter>method['method'] == 'get_metalinks'</filter>
+        </data>
+        <data name="metalinks_lr_out" format="tabular" from_work_dir="metalinks_lr_resource.tsv" label="${tool.name} (get_metalinks): Metabolite-Receptor Resource">
+            <filter>method['method'] == 'get_metalinks' and method['export_networks']</filter>
+        </data>
+        <data name="metalinks_pd_out" format="tabular" from_work_dir="metalinks_pd_net.tsv" label="${tool.name} (get_metalinks): Production-Degradation Network">
+            <filter>method['method'] == 'get_metalinks' and method['export_networks']</filter>
+        </data>
+        <data name="metalinks_t_out" format="tabular" from_work_dir="metalinks_t_net.tsv" label="${tool.name} (get_metalinks): Transporter Network">
+            <filter>method['method'] == 'get_metalinks' and method['export_networks']</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: select_resource (built-in consensus, offline) -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="select_resource"/>
+                <param name="resource_name" value="consensus"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="resource_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                    <has_n_columns n="2"/>
+                    <has_text_matching expression="LGALS9\s+PTPRC"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.select_resource"/>
+                    <has_text_matching expression="resource_name='consensus'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: get_hcop_orthologs formatted for translate_resource -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="get_hcop_orthologs"/>
+                <param name="target_organism" value="mouse"/>
+                <param name="min_evidence" value="3"/>
+                <param name="format_for_translate" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="orthologs_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="source\s+target"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.get_hcop_orthologs"/>
+                    <has_text_matching expression="target_organism=target_org"/>
+                    <has_text_matching expression="min_evidence=3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: translate_resource with built-in resource and ortholog_map.tsv -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_resource"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="builtin"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="map_df" value="ortholog_map.tsv" ftype="tabular"/>
+                <param name="columns" value="ligand,receptor"/>
+                <param name="one_to_many" value="1"/>
+                <param name="replace" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.translate_resource"/>
+                    <has_text_matching expression="one_to_many=1"/>
+                    <has_text_matching expression="replace=True"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: translate_column -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_column"/>
+                <param name="resource_file" value="consensus.tsv" ftype="tabular"/>
+                <param name="map_df" value="ortholog_map.tsv" ftype="tabular"/>
+                <param name="column" value="ligand"/>
+                <param name="one_to_many" value="1"/>
+                <param name="replace" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ligand"/>
+                    <has_text text="receptor"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.translate_column"/>
+                    <has_text_matching expression="column='ligand'"/>
+                    <has_text_matching expression="one_to_many=1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: generate_lr_geneset -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="generate_lr_geneset"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="builtin"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="net" value="lr_net_test.tsv" ftype="tabular"/>
+                <param name="ligand_key" value="ligand"/>
+                <param name="receptor_key" value="receptor"/>
+                <param name="lr_sep" value="^"/>
+                <param name="source_col" value="source"/>
+                <param name="target_col" value="target"/>
+                <param name="weight_col" value="weight"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="geneset_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="interaction"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.generate_lr_geneset"/>
+                    <has_text_matching expression="ligand_key='ligand'"/>
+                    <has_text_matching expression="receptor_key='receptor'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: get_metalinks with export_networks=true -->
+        <test expect_num_outputs="5">
+            <conditional name="method">
+                <param name="method" value="get_metalinks"/>
+                <param name="types" value="lr,pd"/>
+                <param name="tissue_location" value="Brain"/>
+                <param name="biospecimen_location" value="Blood"/>
+                <param name="export_networks" value="true"/>
+                <param name="metabolite_id_col" value="metabolite"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="metalinks_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="hmdb"/>
+                    <has_text text="gene_symbol"/>
+                    <has_text text="metabolite"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="metalinks_lr_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="source\s+receptor"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="metalinks_pd_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="source\s+target\s+weight"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+            </output>
+            <output name="metalinks_t_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="source\s+target\s+weight"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.get_metalinks\("/>
+                    <has_text_matching expression="tissue_location=\["/>
+                    <has_text_matching expression="biospecimen_location=\["/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: translate_resource with custom resource file and replace=false -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="translate_resource"/>
+                <conditional name="resource_input">
+                    <param name="resource_source" value="file"/>
+                    <param name="resource_file" value="consensus.tsv" ftype="tabular"/>
+                </conditional>
+                <param name="map_df" value="ortholog_map.tsv" ftype="tabular"/>
+                <param name="columns" value="ligand,receptor"/>
+                <param name="one_to_many" value="2"/>
+                <param name="replace" value="false"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="translated_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="orthology_ligand"/>
+                    <has_text text="orthology_receptor"/>
+                    <has_n_columns n="4"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.translate_resource"/>
+                    <has_text_matching expression="one_to_many=2"/>
+                    <has_text_matching expression="replace=False"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: get_metalinks with local db_path SQLite file (offline) -->
+        <test expect_num_outputs="5">
+            <conditional name="method">
+                <param name="method" value="get_metalinks"/>
+                <param name="db_path" value="metalinks_test.db" ftype="sqlite"/>
+                <param name="types" value="lr,pd"/>
+                <param name="tissue_location" value="Brain"/>
+                <param name="export_networks" value="true"/>
+                <param name="metabolite_id_col" value="hmdb"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="metalinks_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="HMDB0000148"/>
+                    <has_text text="GRM5"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="metalinks_lr_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="HMDB0000148\s+GRM5"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="metalinks_pd_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="HMDB0000148\s+GLUD1\s+1\.0"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+            </output>
+            <output name="metalinks_t_out" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="HMDB0000122\s+SLC2A1\s+-1\.0"/>
+                    <has_n_columns n="3"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="db_path='.*'"/>
+                    <has_text_matching expression="li\.rs\.get_metalinks\("/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Extracts and translates prior-knowledge ligand-receptor databases, gene ortholog tables, pathway L-R gene sets, and MetalinksDB metabolite-protein networks (`liana.rs`).
+
+**Functions, Inputs, and Outputs**
+
+- **select_resource**: Extracts one of the 17 built-in ligand-receptor resources bundled with LIANA+ (`consensus`, `mouseconsensus`, `cellphonedb`, `cellchatdb`, `connectomedb2020`, etc.).
+  - *Input*: Built-in resource name selection (no input dataset required).
+  - *Output*: Tabular file (`.tsv`) with `ligand` and `receptor` columns.
+
+- **get_hcop_orthologs**: Downloads human-to-species gene ortholog mappings from HGNC HCOP across 19 target organisms.
+  - *Input*: Target organism selection and minimum evidence threshold (no input dataset required).
+  - *Output*: Tabular file (`.tsv`) of ortholog pairs (`source` and `target` columns when formatted for translation).
+
+- **translate_resource**: Translates ligand and receptor columns of an L-R resource to another species using an ortholog mapping file.
+  - *Input*: Built-in resource selection or custom resource table (`.tsv`), plus an ortholog mapping table (`.tsv`) with `source` and `target` columns.
+  - *Output*: Translated resource table (`.tsv`).
+
+- **translate_column**: Translates a single gene symbol column in any tabular file (e.g. `gene_symbol` in MetalinksDB output).
+  - *Input*: Input table (`.tsv`) and an ortholog mapping table (`.tsv`) with `source` and `target` columns.
+  - *Output*: Translated table (`.tsv`).
+
+- **generate_lr_geneset**: Generates sign-coherent ligand-receptor gene sets from a prior pathway or disease gene network.
+  - *Input*: Built-in resource selection or custom resource table (`.tsv`), plus a pathway/disease network table (`.tsv`) with source, target, and optional weight columns.
+  - *Output*: Tabular file (`.tsv`) linking `ligand^receptor` interactions to pathways/gene sets.
+
+- **get_metalinks**: Queries MetalinksDB for metabolite-protein interactions filtered by edge type (`lr`, `pd`), tissue, biospecimen, cellular location, disease, or pathway.
+  - *Input*: Query filter selections and an optional local MetalinksDB SQLite file (`db_path`, `.sqlite`) from history (if omitted, downloads MetalinksDB automatically).
+  - *Output*: MetalinksDB interactions table (`.tsv`), plus (when `export_networks` is enabled) three tables formatted for **Liana Methods** → `estimate_metalinks`: metabolite-receptor `resource` (`.tsv`), production-degradation `pd_net` (`.tsv`), and transporter `t_net` (`.tsv`).
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

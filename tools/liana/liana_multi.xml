@@ -1,0 +1,646 @@
+<tool id="liana_multi" name="Liana Multi-Sample" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>multi-sample views, Tensor-cell2cell export, and NMF pattern discovery</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="creators"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+@CMD@
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_IMPORTS@
+@CMD_READ_INPUTS@
+
+#if str($method.method) == 'to_tensor_c2c':
+tensor = li.ms.to_tensor_c2c(
+    adata=adata,
+    sample_key='$method.sample_key',
+    score_key='$method.score_key',
+    source_key='$method.source_key',
+    target_key='$method.target_key',
+    ligand_key='$method.ligand_key',
+    receptor_key='$method.receptor_key',
+    uns_key='$method.uns_key',
+    #if str($method.non_expressed_fill) != '':
+    non_expressed_fill=$method.non_expressed_fill,
+    #end if
+    non_negative=$method.non_negative,
+    return_dict=False,
+    how='$method.how',
+    #if str($method.lr_fill) == 'nan':
+    lr_fill=np.nan,
+    #else:
+    lr_fill=0.0,
+    #end if
+    #if str($method.cell_fill) == 'nan':
+    cell_fill=np.nan,
+    #else:
+    cell_fill=0.0,
+    #end if
+)
+    #if str($method.output_format) == 'npy':
+arr = getattr(tensor, 'tensor', tensor)
+np.save('tensor_output.npy', np.asarray(arr), allow_pickle=False)
+    #else:
+import h5py
+arr = np.asarray(getattr(tensor, 'tensor', tensor))
+with h5py.File('tensor_output.h5', 'w') as hf:
+    hf.create_dataset('tensor', data=arr, compression='gzip')
+    mask = getattr(tensor, 'mask', None)
+    if mask is not None:
+        hf.create_dataset('mask', data=np.asarray(mask), compression='gzip')
+    order_names = getattr(tensor, 'order_names', None)
+    if order_names is not None:
+        axis_keys = ['samples', 'lrs', 'senders', 'receivers']
+        str_dt = h5py.string_dtype(encoding='utf-8')
+        grp = hf.create_group('order_names')
+        for i, names in enumerate(order_names):
+            key = axis_keys[i] if i < len(axis_keys) else f'axis_{i}'
+            grp.create_dataset(key, data=np.asarray([str(n) for n in names], dtype=object), dtype=str_dt)
+    #end if
+
+#else if str($method.method) == 'lrs_to_views':
+    #if str($method.obs_keys).strip() != '':
+obs_k = [x.strip() for x in '$method.obs_keys'.split(',') if x.strip()]
+    #else:
+obs_k = None
+    #end if
+mdata = li.ms.lrs_to_views(
+    adata=adata,
+    score_key='$method.score_key',
+    obs_keys=obs_k,
+    lr_prop=$method.lr_prop,
+    #if str($method.lr_fill) == 'nan':
+    lr_fill=np.nan,
+    #else:
+    lr_fill=0.0,
+    #end if
+    lrs_per_view=$method.lrs_per_view,
+    lrs_per_sample=$method.lrs_per_sample,
+    samples_per_view=$method.samples_per_view,
+    min_variance=$method.min_variance,
+    min_var_nbatches=$method.min_var_nbatches,
+    #if str($method.batch_key).strip() != '':
+    batch_key='$method.batch_key'.strip(),
+    #end if
+    lr_sep='$method.lr_sep' if str('$method.lr_sep') != '' else '^',
+    cell_sep='$method.cell_sep' if str('$method.cell_sep') != '' else '&',
+    var_sep='$method.var_sep' if str('$method.var_sep') != '' else ':',
+    uns_key='$method.uns_key',
+    sample_key='$method.sample_key',
+    source_key='$method.source_key',
+    target_key='$method.target_key',
+    ligand_key='$method.ligand_key',
+    receptor_key='$method.receptor_key',
+    verbose=False)
+mdata.write_h5mu('mdata_output.h5mu')
+with open('anndata_info.txt', 'w', encoding='utf-8') as ainfo:
+    print(mdata, file=ainfo)
+
+#else if str($method.method) == 'adata_to_views':
+    #if str($method.obs_keys).strip() != '':
+obs_k = [x.strip() for x in '$method.obs_keys'.split(',') if x.strip()]
+    #else:
+obs_k = None
+    #end if
+psbulk_kw = {'skip_checks': $method.psbulk_opts.skip_checks}
+    #if str($method.psbulk_opts.layer).strip() != '':
+psbulk_kw['layer'] = '$method.psbulk_opts.layer'.strip()
+    #end if
+    #if str($method.psbulk_opts.mode) != 'sum':
+psbulk_kw['mode'] = '$method.psbulk_opts.mode'
+    #end if
+filter_samples_kw = {}
+    #if str($method.psbulk_opts.min_cells) != '':
+filter_samples_kw['min_cells'] = $method.psbulk_opts.min_cells
+    #end if
+    #if str($method.psbulk_opts.min_counts) != '':
+filter_samples_kw['min_counts'] = $method.psbulk_opts.min_counts
+    #end if
+filter_expr_kw = {}
+    #if str($method.psbulk_opts.min_count) != '':
+filter_expr_kw['min_count'] = $method.psbulk_opts.min_count
+    #end if
+    #if str($method.psbulk_opts.min_total_count) != '':
+filter_expr_kw['min_total_count'] = $method.psbulk_opts.min_total_count
+    #end if
+mdata = li.ms.adata_to_views(
+    adata=adata,
+    groupby='$method.groupby',
+    sample_key='$method.sample_key',
+    obs_keys=obs_k,
+    view_sep='$method.view_sep' if str('$method.view_sep') != '' else ':',
+    keep_stats=$method.keep_stats,
+    psbulk_kwargs=psbulk_kw,
+    filter_samples_kwargs=filter_samples_kw if filter_samples_kw else None,
+    filter_by_expr_kwargs=filter_expr_kw if filter_expr_kw else None,
+    verbose=False)
+mdata.write_h5mu('mdata_output.h5mu')
+with open('anndata_info.txt', 'w', encoding='utf-8') as ainfo:
+    print(mdata, file=ainfo)
+
+#else if str($method.method) == 'filter_view_markers':
+markers_df = pd.read_csv('$method.markers_file', sep='\t')
+view_col, gene_col = markers_df.columns[0], markers_df.columns[1]
+markers_dict = {m: [] for m in adata.mod.keys()}
+for v, g in zip(markers_df[view_col].astype(str), markers_df[gene_col].astype(str)):
+    markers_dict.setdefault(v, []).append(g)
+li.ms.filter_view_markers(
+    mdata=adata,
+    markers=markers_dict,
+    view_sep='$method.view_sep' if str('$method.view_sep') != '' else ':',
+    #if str($method.var_column).strip() != '':
+    var_column='$method.var_column'.strip(),
+    #else:
+    var_column=None,
+    #end if
+    inplace=True)
+adata.write_h5mu('mdata_output.h5mu')
+with open('anndata_info.txt', 'w', encoding='utf-8') as ainfo:
+    print(adata, file=ainfo)
+
+#else if str($method.method) == 'lrdata_to_mudata':
+    #if str($method.obs_keys).strip() != '':
+obs_k = [x.strip() for x in '$method.obs_keys'.split(',') if x.strip()]
+    #else:
+obs_k = None
+    #end if
+mdata = li.ms.lrdata_to_mudata(
+    lrdata=adata,
+    xy_sep='$method.xy_sep' if str('$method.xy_sep') != '' else '^',
+    #if str($method.min_cells) != '':
+    min_cells=$method.min_cells,
+    #else:
+    min_cells=None,
+    #end if
+    #if str($method.min_features) != '':
+    min_features=$method.min_features,
+    #else:
+    min_features=None,
+    #end if
+    obs_keys=obs_k,
+    verbose=False)
+mdata.write_h5mu('mdata_output.h5mu')
+with open('anndata_info.txt', 'w', encoding='utf-8') as ainfo:
+    print(mdata, file=ainfo)
+
+#else if str($method.method) == 'nmf':
+li.ms.nmf(
+    adata=adata,
+    #if str($method.n_components) != '':
+    n_components=$method.n_components,
+    #else:
+    n_components=None,
+    k_range=range($method.k_range_min, $method.k_range_max),
+    #end if
+    use_raw=$method.use_raw,
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
+    #end if
+    inplace=True,
+    verbose=False,
+    max_iter=$method.max_iter,
+    random_state=$method.random_state)
+@CMD_ANNDATA_WRITE_OUTPUTS@
+#end if
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+        <conditional name="method">
+            <param name="method" type="select" label="Method">
+                <option value="to_tensor_c2c" selected="true">to_tensor_c2c - Convert by-sample LIANA results to 4D tensor for Tensor-cell2cell</option>
+                <option value="lrs_to_views">lrs_to_views - Convert by-sample LIANA results to MuData views (MOFAtalk)</option>
+                <option value="adata_to_views">adata_to_views - Convert AnnData to pseudobulk MuData views by cell type (MOFAcellular)</option>
+                <option value="filter_view_markers">filter_view_markers - Filter background cell-type marker genes across MuData views</option>
+                <option value="lrdata_to_mudata">lrdata_to_mudata - Convert spatial Inflow AnnData to MuData views by sender cell type</option>
+                <option value="nmf">nmf - Non-negative matrix factorization (with optional automatic elbow rank estimation)</option>
+            </param>
+            <when value="to_tensor_c2c">
+                <expand macro="params_multi_keys"/>
+                <expand macro="param_sample_key" VALUE="sample"/>
+                <param argument="how" type="select" label="Tensor join strategy (how)" help="How to handle missing cell types or interactions across samples">
+                    <option value="inner" selected="true">inner - Only cell types and LRs shared across all samples</option>
+                    <option value="outer">outer - All cell types and LRs across samples</option>
+                    <option value="outer_lrs">outer_lrs - All LRs, shared cell types</option>
+                    <option value="outer_cells">outer_cells - All cell types, shared LRs</option>
+                </param>
+                <param name="lr_fill" type="select" label="Missing LR fill value (lr_fill)">
+                    <option value="nan" selected="true">NaN</option>
+                    <option value="zero">0.0</option>
+                </param>
+                <param name="cell_fill" type="select" label="Missing cell fill value (cell_fill)">
+                    <option value="nan" selected="true">NaN</option>
+                    <option value="zero">0.0</option>
+                </param>
+                <param argument="non_expressed_fill" type="float" optional="true" label="Non-expressed fill value" help="Value to fill for non-expressed ligand-receptor pairs (when return_all_lrs=True was used)."/>
+                <param argument="non_negative" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Non-negative" help="Clip negative scores to 0."/>
+                <param name="output_format" type="select" label="Output tensor format">
+                    <option value="h5" selected="true">HDF5 with axis labels and mask (.h5)</option>
+                    <option value="npy">NumPy array only (.npy)</option>
+                </param>
+            </when>
+            <when value="lrs_to_views">
+                <expand macro="params_multi_keys"/>
+                <expand macro="param_sample_key" VALUE="sample"/>
+                <param argument="obs_keys" type="text" optional="true" label="Observation keys" help="Comma-separated list of sample-level metadata column names from adata.obs to include in the MuData object (e.g., 'condition,patient').">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="lr_fill" type="select" label="Missing interaction fill value" help="NaN lets MOFA impute absent interactions; 0.0 treats absence as biologically meaningful.">
+                    <option value="nan" selected="true">NaN (impute in MOFA)</option>
+                    <option value="zero">0.0 (treat absence as zero)</option>
+                </param>
+                <param argument="lr_prop" type="float" value="0.5" min="0" max="1" label="LR proportion" help="Minimum proportion of samples for an interaction to be considered."/>
+                <param argument="lrs_per_view" type="integer" value="20" min="0" label="LRs per view" help="Minimum number of interactions in a view."/>
+                <param argument="lrs_per_sample" type="integer" value="10" min="0" label="LRs per sample" help="Minimum number of interactions in a sample."/>
+                <param argument="samples_per_view" type="integer" value="3" min="0" label="Samples per view" help="Minimum samples required to keep a view."/>
+                <param argument="min_variance" type="float" value="0" label="Minimum variance" help="Minimum variance across samples for each interaction."/>
+                <param argument="batch_key" type="text" optional="true" label="Batch key" help="Optional column in adata.obs for computing variance per batch.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_var_nbatches" type="integer" value="1" min="1" label="Minimum batches exceeding min_variance"/>
+                <param argument="var_sep" type="text" value=":" label="Variable names separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="cell_sep" type="text" value="&amp;" label="Cell names separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="lr_sep" type="text" value="^" label="Ligand and receptor separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="adata_to_views">
+                <expand macro="param_groupby"/>
+                <expand macro="param_sample_key" VALUE="sample"/>
+                <param argument="obs_keys" type="text" optional="true" label="Observation keys" help="Comma-separated sample-level columns in adata.obs to include in mdata.obs (e.g., 'condition,patient').">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="view_sep" type="text" value=":" label="View separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="keep_stats" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Keep pseudobulk statistics in mdata.uns['psbulk_stats']"/>
+                <section name="psbulk_opts" title="Pseudobulk &amp; Filtering Options (decoupler)" expanded="false">
+                    <param name="layer" type="text" optional="true" label="Layer with raw counts for pseudobulking (leave empty for .X)">
+                        <expand macro="sanitize_query"/>
+                    </param>
+                    <param name="mode" type="select" label="Pseudobulk aggregation mode">
+                        <option value="sum" selected="true">sum</option>
+                        <option value="mean">mean</option>
+                        <option value="median">median</option>
+                    </param>
+                    <param name="skip_checks" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Skip integer count checks" help="Enable if pseudobulking normalized/non-integer expression."/>
+                    <param name="min_cells" type="integer" min="0" optional="true" label="Filter samples: minimum cells per sample"/>
+                    <param name="min_counts" type="float" min="0" optional="true" label="Filter samples: minimum total counts per sample"/>
+                    <param name="min_count" type="float" min="0" optional="true" label="Filter genes by expression: minimum count"/>
+                    <param name="min_total_count" type="float" min="0" optional="true" label="Filter genes by expression: minimum total count"/>
+                </section>
+            </when>
+            <when value="filter_view_markers">
+                <param name="markers_file" type="data" format="tabular" label="Cell-type markers file" help="Two-column tab-separated file mapping cell-type view name (column 1) to marker gene symbol (column 2)."/>
+                <param argument="view_sep" type="text" value=":" label="View separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="var_column" type="text" optional="true" label="Variable column to flag (leave empty to remove background marker genes outright)" help="If set (e.g. 'highly_variable'), sets background markers to False in that column. If empty, removes those genes from non-self views.">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="lrdata_to_mudata">
+                <param argument="xy_sep" type="text" value="^" label="Feature name separator" help="Separator in lrdata.var_names ('sender^ligand^receptor').">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_cells" type="integer" value="5" min="0" optional="true" label="Minimum cells expressing a feature"/>
+                <param argument="min_features" type="integer" value="10" min="0" optional="true" label="Minimum features required to keep a sender modality"/>
+                <param argument="obs_keys" type="text" optional="true" label="Observation keys from lrdata.obs to propagate to MuData">
+                    <expand macro="sanitize_query"/>
+                </param>
+            </when>
+            <when value="nmf">
+                <param argument="n_components" type="integer" optional="true" min="1" label="Number of components (leave empty for automatic elbow rank estimation)"/>
+                <param name="k_range_min" type="integer" value="1" min="1" label="K range minimum (used if n_components is empty)"/>
+                <param name="k_range_max" type="integer" value="10" min="2" label="K range maximum (inclusive, used if n_components is empty)"/>
+                <param argument="max_iter" type="integer" value="200" min="10" label="Maximum NMF iterations"/>
+                <param argument="random_state" type="integer" value="0" label="Random state" help="Random seed for reproducibility."/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+            </when>
+        </conditional>
+        <expand macro="inputs_common_advanced"/>
+    </inputs>
+    <outputs>
+        <data name="tensor_out" format="npy" from_work_dir="tensor_output.npy" label="${tool.name} (${method.method}) on ${on_string}: Tensor (NPY)">
+            <filter>method['method'] == 'to_tensor_c2c' and method['output_format'] == 'npy'</filter>
+        </data>
+        <data name="tensor_h5_out" format="h5" from_work_dir="tensor_output.h5" label="${tool.name} (${method.method}) on ${on_string}: Tensor (HDF5)">
+            <filter>method['method'] == 'to_tensor_c2c' and method['output_format'] == 'h5'</filter>
+        </data>
+        <data name="mdata_out" format="h5mu" from_work_dir="mdata_output.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MuData">
+            <filter>method['method'] in ['lrs_to_views', 'adata_to_views', 'filter_view_markers', 'lrdata_to_mudata']</filter>
+        </data>
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
+            <filter>method['method'] == 'nmf'</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test 1: to_tensor_c2c -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="to_tensor_c2c"/>
+                <param name="sample_key" value="sample"/>
+                <param name="score_key" value="magnitude_rank"/>
+                <param name="uns_key" value="liana_res"/>
+                <param name="source_key" value="source"/>
+                <param name="target_key" value="target"/>
+                <param name="ligand_key" value="ligand_complex"/>
+                <param name="receptor_key" value="receptor_complex"/>
+                <param name="non_negative" value="true"/>
+                <param name="output_format" value="npy"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="tensor_out" ftype="npy">
+                <assert_contents>
+                    <has_size min="100"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.to_tensor_c2c\("/>
+                    <has_text_matching expression="sample_key='sample'"/>
+                    <has_text_matching expression="score_key='magnitude_rank'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 2: lrs_to_views -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="lrs_to_views"/>
+                <param name="sample_key" value="sample"/>
+                <param name="score_key" value="magnitude_rank"/>
+                <param name="uns_key" value="liana_res"/>
+                <param name="source_key" value="source"/>
+                <param name="target_key" value="target"/>
+                <param name="ligand_key" value="ligand_complex"/>
+                <param name="receptor_key" value="receptor_complex"/>
+                <param name="lr_prop" value="0.3"/>
+                <param name="lrs_per_view" value="5"/>
+                <param name="lrs_per_sample" value="3"/>
+                <param name="samples_per_view" value="2"/>
+                <param name="min_variance" value="0"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 4 × 367"/>
+                <has_text_matching expression="16 modalities"/>
+            </assert_stdout>
+            <output name="mdata_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/B_cell&amp;B_cell"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.lrs_to_views\("/>
+                    <has_text_matching expression="score_key='magnitude_rank'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 3: nmf -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_nmf_input.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="nmf"/>
+                <param name="n_components" value="3"/>
+                <param name="random_state" value="42"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 30 × 20"/>
+                <has_text_matching expression="NMF_W"/>
+                <has_text_matching expression="NMF_H"/>
+            </assert_stdout>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/NMF_W"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.nmf\("/>
+                    <has_text_matching expression="n_components=3"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4: adata_to_views -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="adata_to_views"/>
+                <param name="groupby" value="cell_type"/>
+                <param name="sample_key" value="sample"/>
+                <section name="psbulk_opts">
+                    <param name="skip_checks" value="true"/>
+                </section>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 4 × 200"/>
+                <has_text_matching expression="4 modalities"/>
+            </assert_stdout>
+            <output name="mdata_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/B_cell"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.adata_to_views\("/>
+                    <has_text_matching expression="groupby='cell_type'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: to_tensor_c2c with HDF5 (.h5) output including axis labels -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="to_tensor_c2c"/>
+                <param name="sample_key" value="sample"/>
+                <param name="score_key" value="magnitude_rank"/>
+                <param name="uns_key" value="liana_res"/>
+                <param name="how" value="outer"/>
+                <param name="lr_fill" value="zero"/>
+                <param name="cell_fill" value="zero"/>
+                <param name="non_negative" value="true"/>
+                <param name="output_format" value="h5"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="tensor_h5_out" ftype="h5">
+                <assert_contents>
+                    <has_h5_keys keys="tensor,order_names/samples,order_names/lrs,order_names/senders,order_names/receivers"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.to_tensor_c2c\("/>
+                    <has_text_matching expression="how='outer'"/>
+                    <has_text_matching expression="lr_fill=0\.0"/>
+                    <has_text_matching expression="h5py\.File\('tensor_output\.h5'"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: filter_view_markers -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/citeseq_test.h5mu" ftype="h5mu"/>
+            <conditional name="method">
+                <param name="method" value="filter_view_markers"/>
+                <param name="markers_file" value="view_markers_test.tsv" ftype="tabular"/>
+                <param name="view_sep" value=":"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 100 × 70"/>
+                <has_text_matching expression="2 modalities"/>
+            </assert_stdout>
+            <output name="mdata_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/rna,mod/prot"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.filter_view_markers\("/>
+                    <has_text_matching expression="var_column=None"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: lrdata_to_mudata -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/inflow.h5as" ftype="h5ad"/>
+            <conditional name="method">
+                <param name="method" value="lrdata_to_mudata"/>
+                <param name="xy_sep" value="^"/>
+                <param name="min_cells" value="1"/>
+                <param name="min_features" value="5"/>
+                <param name="obs_keys" value="celltype"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 150 ×"/>
+                <has_text_matching expression="celltype"/>
+                <has_text_matching expression="Bcell"/>
+            </assert_stdout>
+            <output name="mdata_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/Bcell"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.lrdata_to_mudata\("/>
+                    <has_text_matching expression="min_cells=1"/>
+                    <has_text_matching expression="min_features=5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: nmf with automatic elbow rank estimation (happy path on real PBMC data) -->
+        <test expect_num_outputs="2">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="nmf"/>
+                <param name="k_range_min" value="1"/>
+                <param name="k_range_max" value="7"/>
+                <param name="use_raw" value="true"/>
+                <param name="max_iter" value="200"/>
+                <param name="random_state" value="42"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="NMF_W"/>
+                <has_text_matching expression="NMF_H"/>
+                <has_text_matching expression="nmf_errors"/>
+                <has_text_matching expression="nmf_rank"/>
+            </assert_stdout>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="obsm/NMF_W,varm/NMF_H,uns/nmf_errors,uns/nmf_rank"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.ms\.nmf\("/>
+                    <has_text_matching expression="n_components=None"/>
+                    <has_text_matching expression="k_range=range\(1, 7\)"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 9: nmf with automatic elbow rank estimation (failure path when random matrix has no elbow) -->
+        <test expect_failure="true">
+            <param name="adata" location="https://zenodo.org/records/18388645/files/multi_nmf_input.h5ad"/>
+            <conditional name="method">
+                <param name="method" value="nmf"/>
+                <param name="k_range_min" value="1"/>
+                <param name="k_range_max" value="5"/>
+                <param name="max_iter" value="100"/>
+                <param name="random_state" value="42"/>
+            </conditional>
+            <assert_stderr>
+                <has_text text="No elbow was found within `k_range=range(1, 5)`"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Transforms multi-sample and spatial LIANA+ results into higher-order tensors, multi-view `MuData` objects, and NMF factorizations (`liana.ms`).
+
+**Functions, Inputs, and Outputs**
+
+- **to_tensor_c2c**: Reshapes multi-sample ligand-receptor results into a 4D tensor (`samples × LRs × senders × receivers`) for Tensor-cell2cell decomposition.
+  - *Input*: `AnnData` (`.h5ad`) containing by-sample LIANA results in `.uns[uns_key]`.
+  - *Output*: HDF5 file (`.h5`, containing `tensor`, optional `mask`, and `order_names` axis labels) or 4D NumPy array (`.npy`).
+
+- **lrs_to_views**: Converts multi-sample ligand-receptor results into a multi-view `MuData` where each view is a `source&target` cell-type pair (for MOFAtalk).
+  - *Input*: `AnnData` (`.h5ad`) containing by-sample LIANA results in `.uns[uns_key]` and `.obs[sample_key]`.
+  - *Output*: `MuData` (`.h5mu`).
+
+- **adata_to_views**: Aggregates single-cell data into sample-level pseudobulk views per cell type (for MOFAcellular).
+  - *Input*: `AnnData` (`.h5ad`) with `.obs[groupby]` and `.obs[sample_key]`.
+  - *Output*: `MuData` (`.h5mu`) with one pseudobulk modality per cell type.
+
+- **filter_view_markers**: Filters out background marker genes of other cell types from `adata_to_views` pseudobulk views.
+  - *Input*: `MuData` (`.h5mu`) produced by `adata_to_views` and a two-column marker gene table (`.tsv`, column 1 = cell-type view name, column 2 = marker gene symbol).
+  - *Output*: Filtered `MuData` (`.h5mu`).
+
+- **lrdata_to_mudata**: Splits a spatial Inflow `AnnData` (`source^ligand^receptor`) into a `MuData` with one view per sender cell type.
+  - *Input*: Inflow `AnnData` (`.h5ad`) produced by **Liana Methods** → `inflow`.
+  - *Output*: `MuData` (`.h5mu`).
+
+- **nmf**: Runs Non-negative Matrix Factorization on an `AnnData` matrix (using either a fixed `n_components` or automatic elbow rank estimation over `k_range`).
+  - *Input*: `AnnData` (`.h5ad`, e.g. output from `bivariate` or `inflow`).
+  - *Output*: `AnnData` (`.h5ad`) with factor scores in `.obsm['NMF_W']`, variable loadings in `.varm['NMF_H']`, and reconstruction errors in `.uns['nmf_errors']`.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

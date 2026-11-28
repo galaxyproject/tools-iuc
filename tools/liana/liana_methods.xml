@@ -1,5 +1,5 @@
 <tool id="liana_methods" name="Liana Methods" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
-    <description>Ligand_receptor inference and local bivariate spatial metrics for single-cell or spatial data</description>
+    <description>ligand-receptor inference, spatial bivariate, inflow, LRIC, differential CCC, and metabolite estimation</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -8,254 +8,506 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-@CMD@
-      ]]></command>
+## NOTE: find_causalnet is temporarily disabled until liana supports corneto >= 1.0.0 or Bioconda ships corneto==0.9.1a6
+## find_causalnet takes tabular PPI and node score files instead of an AnnData/MuData object
+## #if str($method.method) != 'find_causalnet':
+#if $method.adata.ext == 'h5mu':
+cp '$method.adata' 'input.h5mu' &&
+#else:
+cp '$method.adata' 'anndata.h5ad' &&
+#end if
+## #end if
+cat '$script_file' > '$hidden_output' &&
+python '$script_file' >> '$hidden_output' &&
+ls . >> '$hidden_output' &&
+touch 'anndata_info.txt' &&
+cat 'anndata_info.txt' @CMD_PRETTIFY_STDOUT@
+    ]]></command>
     <configfiles>
         <configfile name="script_file"><![CDATA[
 @CMD_IMPORTS@
-@CMD_READ_INPUTS@
 
-#if str($method.method) == 'rank_aggregate':
-li.method.rank_aggregate(
+## NOTE: find_causalnet is temporarily disabled until liana supports corneto >= 1.0.0 or Bioconda ships corneto==0.9.1a6
+## find_causalnet takes tabular PPI and node score files instead of an AnnData/MuData object
+## #if str($method.method) != 'find_causalnet':
+if '$method.adata.ext' == 'h5mu':
+    adata = mu.read_h5mu('input.h5mu')
+else:
+    adata = sc.read_h5ad('anndata.h5ad')
+## #end if
+
+#if str($method.method) in ['rank_aggregate', 'cellphonedb', 'cellchat', 'natmi', 'connectome', 'logfc', 'singlecellsignalr', 'geometric_mean', 'scseqcomm']:
+#if str($method.mdata_opts.x_mod).strip() != '' and str($method.mdata_opts.y_mod).strip() != '':
+mdata_kw = {
+    'x_mod': '$method.mdata_opts.x_mod'.strip(),
+    'y_mod': '$method.mdata_opts.y_mod'.strip(),
+    'x_use_raw': $method.mdata_opts.x_use_raw,
+    'y_use_raw': $method.mdata_opts.y_use_raw,
+    #if str($method.mdata_opts.x_layer).strip() != '':
+    'x_layer': '$method.mdata_opts.x_layer'.strip(),
+    #end if
+    #if str($method.mdata_opts.y_layer).strip() != '':
+    'y_layer': '$method.mdata_opts.y_layer'.strip(),
+    #end if
+    #if str($method.mdata_opts.x_transform) != 'none':
+    'x_transform': _get_transform_fn('$method.mdata_opts.x_transform'),
+    #end if
+    #if str($method.mdata_opts.y_transform) != 'none':
+    'y_transform': _get_transform_fn('$method.mdata_opts.y_transform'),
+    #end if
+}
+#end if
+#if str($method.spatial_proximity.spatial_key).strip() != '':
+spatial_kw = {
+    'bandwidth': $method.spatial_proximity.bandwidth,
+    'min_cells_in_proximity': $method.spatial_proximity.min_cells_in_proximity,
+    'trim_fraction': $method.spatial_proximity.trim_fraction,
+    'kernel': '$method.spatial_proximity.kernel',
+    #if str($method.spatial_proximity.contact_bandwidth) != '':
+    'contact_bandwidth': $method.spatial_proximity.contact_bandwidth,
+    #end if
+}
+#end if
+#set $fn_call = 'li.mt.' + str($method.method) + ('.by_sample' if str($method.sample_key).strip() != '' else '')
+${fn_call}(
     adata=adata,
     groupby='$method.groupby',
+    #if str($method.sample_key).strip() != '':
+    sample_key='$method.sample_key'.strip(),
+    #end if
     @CMD_RESOURCE_FOR_METHODS@
     expr_prop=$method.expr_prop,
     min_cells=$method.min_cells,
     #if str($method.groupby_pairs.groupby_pairs_selector) == 'custom':
     groupby_pairs=pd.read_csv('$method.groupby_pairs.pairs_file', sep='\t'),
     #end if
-    #if str($method.base) != '':
+    #if str($method.method) in ['rank_aggregate', 'logfc'] and str($method.base) != '':
     base=$method.base,
     #end if
+    #if str($method.method) == 'rank_aggregate':
     aggregate_method='$method.aggregate_method',
     #if str($method.consensus_opts.consensus_opts_selector) == 'custom':
-    consensus_opts=$method.consensus_opts.opts,
+    consensus_opts=[x.strip() for x in '$method.consensus_opts.opts'.split(',') if x.strip()],
+    #end if
+    #end if
+    #if str($method.supp_columns).strip() != '':
+    supp_columns=[x.strip() for x in '$method.supp_columns'.split(',') if x.strip()],
     #end if
     return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
+    #if str($method.key_added).strip() != '':
+    key_added='$method.key_added'.strip(),
     #end if
     use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
     #end if
     de_method='$method.de_method',
+    #if str($method.method) in ['rank_aggregate', 'cellchat', 'cellphonedb', 'geometric_mean']:
     #if str($method.n_perms) != '':
     n_perms=$method.n_perms,
+    #else:
+    n_perms=None,
+    #end if
     #end if
     seed=$method.seed,
+    #if str($method.spatial_proximity.spatial_key).strip() != '':
+    spatial_key='$method.spatial_proximity.spatial_key'.strip(),
+    spatial_kwargs=spatial_kw,
+    #end if
+    #if str($method.mdata_opts.x_mod).strip() != '' and str($method.mdata_opts.y_mod).strip() != '':
+    mdata_kwargs=mdata_kw,
+    #end if
     verbose=False,
     inplace=True)
-
-#else if str($method.method) == 'cellchat':
-li.method.cellchat(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    #if str($method.n_perms) != '':
-    n_perms=$method.n_perms,
-    #end if
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
-
-#else if str($method.method) == 'cellphonedb':
-li.method.cellphonedb(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    #if str($method.n_perms) != '':
-    n_perms=$method.n_perms,
-    #end if
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
-
-#else if str($method.method) == 'connectome':
-li.method.connectome(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
-
-#else if str($method.method) == 'natmi':
-li.method.natmi(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
-
-#else if str($method.method) == 'logfc':
-li.method.logfc(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    #if str($method.base) != '':
-    base=$method.base,
-    #end if
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
-
-#else if str($method.method) == 'singlecellsignalr':
-li.method.singlecellsignalr(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
-
-#else if str($method.method) == 'geometric_mean':
-li.method.geometric_mean(
-    adata=adata,
-    groupby='$method.groupby',
-    @CMD_RESOURCE_FOR_METHODS@
-    expr_prop=$method.expr_prop,
-    min_cells=$method.min_cells,
-    return_all_lrs=$method.return_all_lrs,
-    #if str($method.key_added) != '':
-    key_added='$method.key_added',
-    #end if
-    use_raw=$method.use_raw,
-    #if str($method.layer) != '':
-    layer='$method.layer',
-    #end if
-    de_method='$method.de_method',
-    seed=$method.seed,
-    verbose=False,
-    inplace=True)
+res_key = '$method.key_added'.strip() if str('$method.key_added').strip() != '' else 'liana_res'
+#if $method.output_tsv:
+adata.uns[res_key].to_csv('liana_res.tsv', sep='\t', index=False)
 #end if
+@CMD_ANNDATA_WRITE_OUTPUTS@
 
-#if str($method.method) == 'bivariate':
-result = li.method.bivariate(
+#else if str($method.method) == 'bivariate':
+bivar_kw = {}
+    #if str($method.mdata_opts.x_mod).strip() != '' and str($method.mdata_opts.y_mod).strip() != '':
+bivar_kw['x_mod'] = '$method.mdata_opts.x_mod'.strip()
+bivar_kw['y_mod'] = '$method.mdata_opts.y_mod'.strip()
+bivar_kw['x_use_raw'] = $method.mdata_opts.x_use_raw
+bivar_kw['y_use_raw'] = $method.mdata_opts.y_use_raw
+        #if str($method.mdata_opts.x_layer).strip() != '':
+bivar_kw['x_layer'] = '$method.mdata_opts.x_layer'.strip()
+        #end if
+        #if str($method.mdata_opts.y_layer).strip() != '':
+bivar_kw['y_layer'] = '$method.mdata_opts.y_layer'.strip()
+        #end if
+if _get_transform_fn('$method.mdata_opts.x_transform') is not None:
+    bivar_kw['x_transform'] = _get_transform_fn('$method.mdata_opts.x_transform')
+if _get_transform_fn('$method.mdata_opts.y_transform') is not None:
+    bivar_kw['y_transform'] = _get_transform_fn('$method.mdata_opts.y_transform')
+    #else:
+bivar_kw['use_raw'] = $method.use_raw
+        #if str($method.layer).strip() != '':
+bivar_kw['layer'] = '$method.layer'.strip()
+        #end if
+if _get_transform_fn('$method.x_transform') is not None:
+    bivar_kw['x_transform'] = _get_transform_fn('$method.x_transform')
+if _get_transform_fn('$method.y_transform') is not None:
+    bivar_kw['y_transform'] = _get_transform_fn('$method.y_transform')
+    #end if
+    #if str($method.x_name).strip() != '':
+bivar_kw['x_name'] = '$method.x_name'.strip()
+    #end if
+    #if str($method.y_name).strip() != '':
+bivar_kw['y_name'] = '$method.y_name'.strip()
+    #end if
+
+    #if str($method.global_name) != 'None' and str($method.global_name).strip() != '':
+g_names = [x.strip() for x in '$method.global_name'.split(',') if x.strip() and x.strip() != 'None']
+global_arg = g_names[0] if len(g_names) == 1 else (g_names if g_names else None)
+    #else:
+global_arg = None
+    #end if
+
+result = li.mt.bivariate(
     adata,
     #if str($method.local_name) != 'None':
     local_name='$method.local_name',
     #else:
     local_name=None,
     #end if
-    #if str($method.global_name) != 'None':
-    global_name='$method.global_name',
-    #else:
-    global_name=None,
-    #end if
+    global_name=global_arg,
     @CMD_RESOURCE_FOR_METHODS@
     connectivity_key='$method.connectivity_key',
     mask_negatives=$method.mask_negatives,
     add_categories=$method.add_categories,
     #if str($method.n_perms) != '':
     n_perms=$method.n_perms,
+    #else:
+    n_perms=None,
     #end if
-    use_raw=$method.use_raw,
     seed=$method.seed,
     nz_prop=$method.nz_prop,
-    verbose=False)
-if result is not None:
-    adata.uns['liana_bivariate'] = result
-#end if
+    remove_self_interactions=$method.remove_self_interactions,
+    xy_sep='$method.xy_sep' if str('$method.xy_sep') != '' else '^',
+    verbose=False,
+    **bivar_kw)
 
+if isinstance(result, anndata.AnnData):
+    adata = result
+    #if $method.output_tsv:
+    adata.var.reset_index().to_csv('liana_res.tsv', sep='\t', index=False)
+    #end if
+elif isinstance(result, pd.DataFrame):
+    #if $method.output_tsv:
+    result.to_csv('liana_res.tsv', sep='\t', index=False)
+    #end if
+    adata.uns['liana_bivariate'] = result
 @CMD_ANNDATA_WRITE_OUTPUTS@
-        ]]>
-        </configfile>
+
+#else if str($method.method) == 'inflow':
+inflow_kw = {}
+    #if str($method.mdata_opts.x_mod).strip() != '' and str($method.mdata_opts.y_mod).strip() != '':
+inflow_kw['x_mod'] = '$method.mdata_opts.x_mod'.strip()
+inflow_kw['y_mod'] = '$method.mdata_opts.y_mod'.strip()
+inflow_kw['x_use_raw'] = $method.mdata_opts.x_use_raw
+inflow_kw['y_use_raw'] = $method.mdata_opts.y_use_raw
+        #if str($method.mdata_opts.x_layer).strip() != '':
+inflow_kw['x_layer'] = '$method.mdata_opts.x_layer'.strip()
+        #end if
+        #if str($method.mdata_opts.y_layer).strip() != '':
+inflow_kw['y_layer'] = '$method.mdata_opts.y_layer'.strip()
+        #end if
+inflow_kw['x_transform'] = _get_transform_fn('$method.mdata_opts.x_transform')
+inflow_kw['y_transform'] = _get_transform_fn('$method.mdata_opts.y_transform')
+    #else:
+inflow_kw['use_raw'] = $method.use_raw
+        #if str($method.layer).strip() != '':
+inflow_kw['layer'] = '$method.layer'.strip()
+        #end if
+inflow_kw['x_transform'] = _get_transform_fn('$method.x_transform')
+inflow_kw['y_transform'] = _get_transform_fn('$method.y_transform')
+    #end if
+    #if str($method.x_name).strip() != '':
+inflow_kw['x_name'] = '$method.x_name'.strip()
+    #end if
+    #if str($method.y_name).strip() != '':
+inflow_kw['y_name'] = '$method.y_name'.strip()
+    #end if
+
+lrdata = li.mt.inflow(
+    adata=adata,
+    #if str($method.source_mode.mode_selector) == 'groupby':
+    groupby='$method.source_mode.groupby',
+    #else:
+    obsm_key='$method.source_mode.obsm_key',
+    #end if
+    @CMD_RESOURCE_FOR_METHODS@
+    nz_prop=$method.nz_prop,
+    connectivity_key='$method.connectivity_key',
+    xy_sep='$method.xy_sep' if str('$method.xy_sep') != '' else '^',
+    verbose=False,
+    **inflow_kw)
+
+    #if str($method.global_spec.run_global_spec) == 'yes':
+li.mt.compute_global_specificity(
+    adata=lrdata,
+    groupby='$method.global_spec.spec_groupby'.strip(),
+    lr_sep='$method.xy_sep' if str('$method.xy_sep') != '' else '^',
+    n_perms=$method.global_spec.n_perms,
+    seed=$method.global_spec.seed,
+    n_jobs=1,
+    use_raw=False,
+    uns_key='$method.global_spec.uns_key'.strip(),
+    verbose=False)
+        #if $method.output_tsv:
+lrdata.uns['$method.global_spec.uns_key'.strip()].to_csv('liana_res.tsv', sep='\t', index=False)
+        #end if
+    #else:
+        #if $method.output_tsv:
+lrdata.var.reset_index().to_csv('liana_res.tsv', sep='\t', index=False)
+        #end if
+    #end if
+adata = lrdata
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+#else if str($method.method) == 'compute_global_specificity':
+li.mt.compute_global_specificity(
+    adata=adata,
+    groupby='$method.groupby'.strip(),
+    lr_sep='$method.lr_sep' if str('$method.lr_sep') != '' else '^',
+    n_perms=$method.n_perms,
+    seed=$method.seed,
+    n_jobs=1,
+    use_raw=$method.use_raw,
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
+    #end if
+    uns_key='$method.uns_key'.strip(),
+    verbose=False)
+    #if $method.output_tsv:
+adata.uns['$method.uns_key'.strip()].to_csv('liana_res.tsv', sep='\t', index=False)
+    #end if
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+#else if str($method.method) == 'cross_pcf':
+li.mt.cross_pcf(
+    adata=adata,
+    groupby='$method.groupby',
+    spatial_key='$method.spatial_key',
+    #if str($method.cell_types).strip() != '':
+    cell_types=[x.strip() for x in '$method.cell_types'.split(',') if x.strip()],
+    #end if
+    #if str($method.min_cells) != '':
+    min_cells=$method.min_cells,
+    #else:
+    min_cells=None,
+    #end if
+    max_radius=$method.max_radius,
+    radius_step=$method.radius_step,
+    annulus_steps=$method.annulus_steps,
+    extend_first_annulus=$method.extend_first_annulus,
+    #if str($method.groupby_pairs.groupby_pairs_selector) == 'custom':
+    groupby_pairs=pd.read_csv('$method.groupby_pairs.pairs_file', sep='\t'),
+    #end if
+    key_added='$method.key_added'.strip(),
+    inplace=True,
+    verbose=False)
+
+    #if $method.auc_opts.compute_auc:
+auc_df = li.mt.get_lric_auc(
+    adata=adata,
+    uns_key='$method.key_added'.strip(),
+        #if str($method.auc_opts.max_dist) != '':
+    max_dist=$method.auc_opts.max_dist,
+        #end if
+    min_bins=$method.auc_opts.min_bins,
+    verbose=False)
+auc_df.to_csv('liana_res.tsv', sep='\t', index=False)
+    #else if $method.output_tsv:
+adata.uns['$method.key_added'.strip()].to_csv('liana_res.tsv', sep='\t', index=False)
+    #end if
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+#else if str($method.method) == 'lric':
+li.mt.lric(
+    adata=adata,
+    @CMD_RESOURCE_FOR_METHODS@
+    #if str($method.groupby).strip() != '':
+    groupby='$method.groupby'.strip(),
+    #else:
+    groupby=None,
+    #end if
+    spatial_key='$method.spatial_key',
+    max_radius=$method.max_radius,
+    radius_step=$method.radius_step,
+    annulus_steps=$method.annulus_steps,
+    extend_first_annulus=$method.extend_first_annulus,
+    #if str($method.cell_types).strip() != '':
+    cell_types=[x.strip() for x in '$method.cell_types'.split(',') if x.strip()],
+    #end if
+    #if str($method.min_cells) != '':
+    min_cells=$method.min_cells,
+    #else:
+    min_cells=None,
+    #end if
+    #if str($method.groupby_pairs.groupby_pairs_selector) == 'custom':
+    groupby_pairs=pd.read_csv('$method.groupby_pairs.pairs_file', sep='\t'),
+    #end if
+    nz_prop=$method.nz_prop,
+    expr_prop=$method.expr_prop,
+    lr_sep='$method.lr_sep' if str('$method.lr_sep') != '' else '^',
+    use_raw=$method.use_raw,
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
+    #end if
+    key_added='$method.key_added'.strip(),
+    inplace=True,
+    verbose=False)
+
+    #if $method.auc_opts.compute_auc:
+auc_df = li.mt.get_lric_auc(
+    adata=adata,
+    uns_key='$method.key_added'.strip(),
+        #if str($method.auc_opts.max_dist) != '':
+    max_dist=$method.auc_opts.max_dist,
+        #end if
+    min_bins=$method.auc_opts.min_bins,
+    verbose=False)
+auc_df.to_csv('liana_res.tsv', sep='\t', index=False)
+    #else if $method.output_tsv:
+adata.uns['$method.key_added'.strip()].to_csv('liana_res.tsv', sep='\t', index=False)
+    #end if
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+#else if str($method.method) == 'df_to_lr':
+dea_df = pd.read_csv('$method.dea_df', sep='\t', index_col=0)
+lr_res = li.mt.df_to_lr(
+    adata=adata,
+    dea_df=dea_df,
+    groupby='$method.groupby'.strip(),
+    stat_keys=[x.strip() for x in '$method.stat_keys'.split(',') if x.strip()],
+    @CMD_RESOURCE_FOR_METHODS@
+    #if str($method.groupby_pairs.groupby_pairs_selector) == 'custom':
+    groupby_pairs=pd.read_csv('$method.groupby_pairs.pairs_file', sep='\t'),
+    #end if
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
+    #end if
+    use_raw=$method.use_raw,
+    expr_prop=$method.expr_prop,
+    min_cells=$method.min_cells,
+    #if str($method.complex_col).strip() != '':
+    complex_col='$method.complex_col'.strip(),
+    #end if
+    return_all_lrs=$method.return_all_lrs,
+    #if str($method.source_labels).strip() != '':
+    source_labels=[x.strip() for x in '$method.source_labels'.split(',') if x.strip()],
+    #end if
+    #if str($method.target_labels).strip() != '':
+    target_labels=[x.strip() for x in '$method.target_labels'.split(',') if x.strip()],
+    #end if
+    lr_sep='$method.lr_sep' if str('$method.lr_sep') != '' else '^',
+    verbose=False)
+adata.uns['$method.key_added'.strip()] = lr_res
+    #if $method.output_tsv:
+lr_res.to_csv('liana_res.tsv', sep='\t', index=False)
+    #end if
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+#else if str($method.method) == 'estimate_metalinks':
+res_df = pd.read_csv('$method.resource', sep='\t')
+pd_net = pd.read_csv('$method.pd_net', sep='\t')
+    #if $method.t_net:
+t_net = pd.read_csv('$method.t_net', sep='\t')
+    #else:
+t_net = None
+    #end if
+meta = li.mt.estimate_metalinks(
+    adata=adata,
+    resource=res_df,
+    pd_net=pd_net,
+    t_net=t_net,
+    x_name='$method.x_name'.strip(),
+    y_name='$method.y_name'.strip(),
+    use_raw=$method.use_raw,
+    #if str($method.layer).strip() != '':
+    layer='$method.layer'.strip(),
+    #end if
+    verbose=False,
+    tmin=$method.tmin)
+for col in adata.obs.columns:
+    meta.obs[col] = adata.obs[col]
+adata = meta
+@CMD_ANNDATA_WRITE_OUTPUTS@
+
+## NOTE: find_causalnet is temporarily disabled until liana supports corneto >= 1.0.0 or Bioconda ships corneto==0.9.1a6
+#*
+#else if str($method.method) == 'find_causalnet':
+ppis_df = pd.read_csv('$method.ppis', sep='\t')
+in_df = pd.read_csv('$method.input_nodes', sep='\t')
+out_df = pd.read_csv('$method.output_nodes', sep='\t')
+input_scores = dict(zip(in_df.iloc[:, 0].astype(str), in_df.iloc[:, 1].astype(float)))
+output_scores = dict(zip(out_df.iloc[:, 0].astype(str), out_df.iloc[:, 1].astype(float)))
+    #if $method.node_weights:
+nw_df = pd.read_csv('$method.node_weights', sep='\t')
+node_w = dict(zip(nw_df.iloc[:, 0].astype(str), nw_df.iloc[:, 1].astype(float)))
+    #else:
+node_w = None
+    #end if
+prior_graph = li.rs.build_prior_network(
+    ppis=ppis_df,
+    input_nodes=input_scores,
+    output_nodes=output_scores,
+    #if str($method.lr_sep).strip() != '':
+    lr_sep='$method.lr_sep'.strip(),
+    #end if
+    verbose=False)
+    #if str($method.lr_sep).strip() != '':
+input_scores = {k.split('$method.lr_sep'.strip())[-1]: v for k, v in input_scores.items()}
+    #end if
+causal_df, _ = li.mt.find_causalnet(
+    prior_graph=prior_graph,
+    input_node_scores=input_scores,
+    output_node_scores=output_scores,
+    node_weights=node_w,
+    node_cutoff=$method.node_cutoff,
+    min_penalty=$method.min_penalty,
+    max_penalty=$method.max_penalty,
+    missing_penalty=$method.missing_penalty,
+    edge_penalty=$method.edge_penalty,
+    seed=$method.seed,
+    max_runs=$method.max_runs,
+    stable_runs=$method.stable_runs,
+    verbose=False)
+causal_df.to_csv('liana_res.tsv', sep='\t', index=False)
+*#
+#end if
+        ]]></configfile>
     </configfiles>
     <inputs>
-        <expand macro="inputs_anndata"/>
         <conditional name="method">
-            <param argument="method" type="select" label="Method for ligand-receptor inference">
-                <option value="cellchat">CellChat method (cellchat)</option>
-                <option value="cellphonedb">CellPhoneDB method (cellphonedb)</option>
-                <option value="connectome">Connectome method (connectome)</option>
-                <option value="natmi">NATMI method (natmi)</option>
-                <option value="logfc">Log fold change method (logfc)</option>
-                <option value="singlecellsignalr">SingleCellSignalR method (singlecellsignalr)</option>
-                <option value="geometric_mean">Geometric mean method (geometric_mean)</option>
-                <option value="rank_aggregate">Aggregate ligand-receptor scores from multiple methods (rank_aggregate)</option>
-                <option value="bivariate">A method for bivariate local spatial metrics</option>
+            <param argument="method" type="select" label="Method for cell-cell communication analysis">
+                <option value="rank_aggregate" selected="true">rank_aggregate - Consensus aggregate of ligand-receptor scores across methods</option>
+                <option value="cellphonedb">cellphonedb - CellPhoneDB ligand-receptor method</option>
+                <option value="cellchat">cellchat - CellChat ligand-receptor method</option>
+                <option value="natmi">natmi - NATMI ligand-receptor method</option>
+                <option value="connectome">connectome - Connectome ligand-receptor method</option>
+                <option value="logfc">logfc - Log fold change ligand-receptor method</option>
+                <option value="singlecellsignalr">singlecellsignalr - SingleCellSignalR ligand-receptor method</option>
+                <option value="geometric_mean">geometric_mean - Geometric mean ligand-receptor method</option>
+                <option value="scseqcomm">scseqcomm - scSeqComm ligand-receptor method</option>
+                <option value="bivariate">bivariate - Spatial bivariate local and global metrics</option>
+                <option value="inflow">inflow - Spatial trivariate sender-ligand-receptor inflow score</option>
+                <option value="compute_global_specificity">compute_global_specificity - Permutation specificity test on spatial Inflow scores</option>
+                <option value="lric">lric - Spatial Ligand-Receptor Interaction Correlation g(r) over distance</option>
+                <option value="cross_pcf">cross_pcf - Spatial cross pair-correlation function g(r) between cell types</option>
+                <option value="df_to_lr">df_to_lr - Combine differential expression (DEA) results with AnnData into L-R pairs</option>
+                <option value="estimate_metalinks">estimate_metalinks - Estimate metabolite abundance from RNA expression (MetalinksDB)</option>
+                <!-- NOTE: Enable find_causalnet when liana supports corneto >= 1.0.0 or if Bioconda ships corneto==0.9.1a6
+                <option value="find_causalnet">find_causalnet - Infer intracellular causal signaling network from receptors to TFs (CORNETO)</option>
+                -->
             </param>
             <when value="rank_aggregate">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_common_basic"/>
-                <conditional name="groupby_pairs">
-                    <param name="groupby_pairs_selector" type="select" label="Subset cell type pairs">
-                        <option value="all" selected="true">Use all possible combinations</option>
-                        <option value="custom">Provide custom pairs</option>
-                    </param>
-                    <when value="all"/>
-                    <when value="custom">
-                        <param name="pairs_file" type="data" format="tabular" label="Cell type pairs file" help="A tabular file with 'source' and 'target' columns to subset interacting cell types."/>
-                    </when>
-                </conditional>
                 <expand macro="param_base"/>
                 <param argument="aggregate_method" type="select" label="Aggregation method">
                     <option value="rra" selected="true">RobustRankAggregate (rra)</option>
@@ -269,140 +521,397 @@ if result is not None:
                     <when value="default"/>
                     <when value="custom">
                         <param name="opts" type="select" multiple="true" label="Strategies to aggregate interactions">
-                            <option value="Specificity">Specificity</option>
-                            <option value="Magnitude">Magnitude</option>
+                            <option value="Specificity" selected="true">Specificity</option>
+                            <option value="Magnitude" selected="true">Magnitude</option>
                         </param>
                     </when>
                 </conditional>
                 <expand macro="params_common_output"/>
+                <expand macro="param_supp_columns"/>
                 <expand macro="param_use_raw"/>
                 <expand macro="param_de_method"/>
-                <expand macro="param_n_perms"/>
+                <expand macro="param_n_perms_sc"/>
                 <expand macro="param_seed"/>
+                <expand macro="param_sc_spatial_proximity"/>
+                <expand macro="param_mdata_kwargs"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="cellchat">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_lr_method_with_perms"/>
-                <expand macro="param_use_raw"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="cellphonedb">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_lr_method_with_perms"/>
-                <expand macro="param_use_raw"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="connectome">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_lr_method_basic"/>
-                <expand macro="param_use_raw"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="natmi">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_lr_method_basic"/>
-                <expand macro="param_use_raw"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="logfc">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_common_basic"/>
                 <expand macro="param_base"/>
-                <expand macro="param_supp_columns"/>
                 <expand macro="params_common_output"/>
+                <expand macro="param_supp_columns"/>
                 <expand macro="param_use_raw"/>
                 <expand macro="param_de_method"/>
                 <expand macro="param_seed"/>
+                <expand macro="param_sc_spatial_proximity"/>
+                <expand macro="param_mdata_kwargs"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="singlecellsignalr">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_lr_method_basic"/>
-                <expand macro="param_use_raw"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="geometric_mean">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <expand macro="params_lr_method_with_perms"/>
+                <expand macro="output_tsv_param"/>
+            </when>
+            <when value="scseqcomm">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
                 <expand macro="params_lr_method_basic"/>
-                <expand macro="param_use_raw"/>
+                <expand macro="output_tsv_param"/>
             </when>
             <when value="bivariate">
-                <param argument="local_name" type="select" label="Local spatial metric" help="Metric for computing local (cell/spot-level) spatial associations with weighted neighbors. cosine: directional similarity; pearson/spearman: correlation-based; morans: spatial autocorrelation. None: skip local metrics.">
-                    <option value="cosine" selected="true">cosine - Directional similarity</option>
-                    <option value="jaccard">jaccard - Overlap-based similarity</option>
-                    <option value="pearson">pearson - Correlation (parametric)</option>
-                    <option value="spearman">spearman - Correlation (non-parametric)</option>
-                    <option value="masked_spearman">masked_spearman - Robust Spearman</option>
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <param argument="local_name" type="select" label="Local spatial metric" help="Metric for computing local (spot/cell-level) spatial associations. None: skip local metrics and compute only global metrics.">
+                    <option value="cosine" selected="true">cosine - Weighted cosine similarity</option>
+                    <option value="jaccard">jaccard - Weighted Jaccard similarity</option>
+                    <option value="pearson">pearson - Weighted Pearson correlation</option>
+                    <option value="spearman">spearman - Weighted Spearman correlation</option>
+                    <option value="masked_spearman">masked_spearman - Masked weighted Spearman correlation</option>
                     <option value="product">product - Simple weighted product</option>
-                    <option value="norm_product">norm_product - Normalized product</option>
-                    <option value="morans">morans - Moran's I (spatial autocorrelation)</option>
+                    <option value="norm_product">norm_product - Normalized weighted product</option>
+                    <option value="morans">morans - Local bivariate Moran's R</option>
                     <option value="None">None - Only global metrics</option>
                 </param>
-                <param argument="global_name" type="select" label="Global spatial metric" help="Tissue-level metric for overall spatial association. Moran's I: univariate spatial clustering; Lee's L: bivariate L-R association. None: skip global metrics (faster).">
+                <param argument="global_name" type="select" label="Global spatial metric" help="Slide-wide metric for overall spatial association (stored in lrdata.var).">
                     <option value="None" selected="true">None - Skip global metrics</option>
-                    <option value="morans">morans - Moran's I (spatial clustering)</option>
-                    <option value="lee">lee - Lee's L (bivariate association)</option>
+                    <option value="morans">morans - Global bivariate Moran's R</option>
+                    <option value="lee">lee - Global Lee's L</option>
+                    <option value="morans,lee">Both Moran's R and Lee's L</option>
                 </param>
                 <expand macro="param_resource_selection"/>
-                <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Spatial connectivity matrix key" help="Key in adata.obsp containing the spatial connectivity/adjacency matrix. Usually created by scanpy.pp.neighbors with spatial coordinates. Default: 'spatial_connectivities'.">
+                <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Spatial connectivity matrix key" help="Key in adata.obsp containing the spatial connectivity matrix (built by spatial_neighbors). Default: 'spatial_connectivities'.">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="use_raw" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Use raw counts" help="If enabled: use adata.raw.X (raw/unprocessed counts). If disabled: use adata.X (processed/normalized expression). Default: enabled."/>
-                <param argument="mask_negatives" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Exclude negative interactions" help="If enabled: mask low-low scores and uncategorized interactions. Useful for focusing on positive spatial associations."/>
-                <param argument="add_categories" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Add spatial categories" help="If enabled: add categorical scores (e.g., high-high, high-low) based on local bivariate statistics for easier interpretation."/>
-                <expand macro="param_n_perms"/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <param argument="mask_negatives" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Exclude negative interactions" help="If enabled: zero out scores and set p=1 wherever category is not high-high."/>
+                <param argument="add_categories" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Add spatial categories" help="If enabled: store categorical scores (1=high-high, -1=high-low, 0=neither) in lrdata.layers['cats']."/>
+                <expand macro="param_n_perms_bivariate"/>
                 <expand macro="param_seed"/>
-                <param argument="nz_prop" type="float" value="0.05" min="0" max="1" label="Minimum non-zero proportion" help="Minimum fraction of cells where both ligand and receptor are non-zero (0-1). Default: 0.05 (5%). Filters out sparse L-R pairs."/>
+                <param argument="nz_prop" type="float" value="0.05" min="0" max="1" label="Minimum non-zero proportion" help="Minimum fraction of observations where ligand and receptor are non-zero."/>
+                <param argument="remove_self_interactions" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Remove self-interactions (ligand == receptor)"/>
+                <param argument="xy_sep" type="text" value="^" label="Interaction separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="x_name" type="text" value="" optional="true" label="Custom X column name in resource (default 'ligand' for AnnData, 'x' for MuData)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="y_name" type="text" value="" optional="true" label="Custom Y column name in resource (default 'receptor' for AnnData, 'y' for MuData)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="x_transform" type="select" label="Transformation for X (AnnData input)">
+                    <option value="none" selected="true">None</option>
+                    <option value="zi_minmax">zi_minmax</option>
+                    <option value="neg_to_zero">neg_to_zero</option>
+                    <option value="scale">scanpy.pp.scale</option>
+                </param>
+                <param name="y_transform" type="select" label="Transformation for Y (AnnData input)">
+                    <option value="none" selected="true">None</option>
+                    <option value="zi_minmax">zi_minmax</option>
+                    <option value="neg_to_zero">neg_to_zero</option>
+                    <option value="scale">scanpy.pp.scale</option>
+                </param>
+                <expand macro="param_mdata_kwargs"/>
+                <param name="output_tsv" type="boolean" checked="false" label="Also export global interaction summary (lrdata.var) as TSV?"/>
             </when>
+            <when value="inflow">
+                <expand macro="inputs_anndata" format="h5ad,h5mu" label="Annotated data matrix (AnnData, or MuData)"/>
+                <conditional name="source_mode">
+                    <param name="mode_selector" type="select" label="Sender cell-type definition">
+                        <option value="groupby" selected="true">Discrete cell-type labels in obs (groupby)</option>
+                        <option value="obsm_key">Deconvolved cell-type proportions/counts in obsm (obsm_key)</option>
+                    </param>
+                    <when value="groupby">
+                        <expand macro="param_groupby"/>
+                    </when>
+                    <when value="obsm_key">
+                        <param argument="obsm_key" type="text" value="proportions" label="Deconvolution DataFrame key in adata.obsm">
+                            <expand macro="sanitize_query"/>
+                            <validator type="empty_field" message="obsm_key is required"/>
+                        </param>
+                    </when>
+                </conditional>
+                <expand macro="param_resource_selection"/>
+                <param argument="connectivity_key" type="text" value="spatial_connectivities" label="Spatial connectivity matrix key in obsp">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="nz_prop" type="float" value="0.05" min="0" max="1" label="Minimum non-zero proportion" help="Minimum fraction of cells where ligand and receptor are non-zero. (use e.g. 0.001 for sparse panels)."/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <param name="x_transform" type="select" label="Transformation for sender-ligand values (x_transform)">
+                    <option value="none" selected="true">None</option>
+                    <option value="zi_minmax">zi_minmax</option>
+                    <option value="neg_to_zero">neg_to_zero</option>
+                </param>
+                <param name="y_transform" type="select" label="Transformation for receptor values (y_transform)">
+                    <option value="none" selected="true">None</option>
+                    <option value="zi_minmax">zi_minmax</option>
+                    <option value="neg_to_zero">neg_to_zero</option>
+                </param>
+                <param argument="xy_sep" type="text" value="^" label="Interaction separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="x_name" type="text" value="" optional="true" label="Custom X column name in resource">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="y_name" type="text" value="" optional="true" label="Custom Y column name in resource">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_mdata_kwargs"/>
+                <conditional name="global_spec">
+                    <param name="run_global_spec" type="select" label="Also run compute_global_specificity on the resulting Inflow scores?">
+                        <option value="no" selected="true">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="yes">
+                        <param name="spec_groupby" type="text" value="" label="Receiver group column in obs (groupby)" help="Column in adata.obs defining receiver cell types or tissue regions for global specificity testing.">
+                            <expand macro="sanitize_query"/>
+                            <validator type="empty_field" message="Receiver groupby column is required"/>
+                        </param>
+                        <param name="n_perms" type="integer" value="100" min="1" label="Number of permutations"/>
+                        <expand macro="param_seed"/>
+                        <param name="uns_key" type="text" value="global_interactions" label="Key in lrdata.uns to store global specificity results">
+                            <expand macro="sanitize_query"/>
+                        </param>
+                    </when>
+                </conditional>
+                <param name="output_tsv" type="boolean" checked="false" label="Also export summary table (global_interactions or lrdata.var) as TSV?"/>
+            </when>
+            <when value="compute_global_specificity">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_groupby"/>
+                <param argument="lr_sep" type="text" value="^" label="Feature separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="n_perms" type="integer" value="1000" min="1" label="Number of permutations"/>
+                <expand macro="param_seed"/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <param argument="uns_key" type="text" value="global_interactions" label="Output key in adata.uns">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="output_tsv" type="boolean" checked="false" label="Also export global_interactions table as TSV?"/>
+            </when>
+            <when value="lric">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_resource_selection"/>
+                <param argument="groupby" type="text" value="" optional="true" label="Group By (leave empty for cell-type-agnostic LRIC; provide obs column for directed pairwise LRIC)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_spatial_key"/>
+                <param argument="max_radius" type="float" value="200" min="0.001" label="Maximum radius (in coordinate units, e.g. µm)"/>
+                <param argument="radius_step" type="float" value="20" min="0.001" label="Radius step size (width of fine distance tiles)"/>
+                <param argument="annulus_steps" type="integer" value="1" min="1" label="Annulus width in steps"/>
+                <param argument="extend_first_annulus" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Extend first annulus to include contact band [0, radius_step)"/>
+                <param argument="cell_types" type="text" value="" optional="true" label="Subset emitted cell types (comma-separated, only when groupby is set)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_cells" type="integer" value="" min="0" optional="true" label="Minimum cells per cell type (leave empty for default 1% of slide)"/>
+                <expand macro="param_groupby_pairs"/>
+                <param argument="nz_prop" type="float" value="0.05" min="0" max="1" label="Minimum non-zero proportion (nz_prop, used in agnostic mode)"/>
+                <param argument="expr_prop" type="float" value="0.05" min="0" max="1" label="Minimum expression proportion per cell type (expr_prop, used in directed mode)"/>
+                <param argument="lr_sep" type="text" value="^" label="Ligand-receptor separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_key_added" value="lric"/>
+                <section name="auc_opts" title="Rank Interactions by AUC-log2 Score (get_lric_auc)" expanded="false">
+                    <param name="compute_auc" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Compute get_lric_auc summary score and export as TSV?"/>
+                    <param name="max_dist" type="float" value="" min="0" optional="true" label="Maximum distance to integrate over (max_dist, empty = all radii)"/>
+                    <param name="min_bins" type="integer" value="3" min="1" label="Minimum finite radius bins required (min_bins)"/>
+                </section>
+                <param name="output_tsv" type="boolean" checked="false" label="Export full g(r) curves table as TSV (when compute_auc is disabled)?"/>
+            </when>
+            <when value="cross_pcf">
+                <expand macro="inputs_anndata"/>
+                <expand macro="param_groupby"/>
+                <expand macro="param_spatial_key"/>
+                <param argument="max_radius" type="float" value="200" min="0.001" label="Maximum radius (in coordinate units, e.g. µm)"/>
+                <param argument="radius_step" type="float" value="20" min="0.001" label="Radius step size"/>
+                <param argument="annulus_steps" type="integer" value="1" min="1" label="Annulus width in steps"/>
+                <param argument="extend_first_annulus" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Extend first annulus to include contact band [0, radius_step)"/>
+                <param argument="cell_types" type="text" value="" optional="true" label="Subset emitted cell types (comma-separated)">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="min_cells" type="integer" value="" min="0" optional="true" label="Minimum cells per cell type (leave empty for default 1% of slide)"/>
+                <expand macro="param_groupby_pairs"/>
+                <expand macro="param_key_added" value="cross_pcf"/>
+                <section name="auc_opts" title="Rank Cell-Type Pairs by AUC-log2 Score (get_lric_auc)" expanded="false">
+                    <param name="compute_auc" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Compute get_lric_auc summary score and export as TSV?"/>
+                    <param name="max_dist" type="float" value="" min="0" optional="true" label="Maximum distance to integrate over (max_dist, empty = all radii)"/>
+                    <param name="min_bins" type="integer" value="3" min="1" label="Minimum finite radius bins required (min_bins)"/>
+                </section>
+                <param name="output_tsv" type="boolean" checked="false" label="Export full g(r) curves table as TSV (when compute_auc is disabled)?"/>
+            </when>
+            <when value="df_to_lr">
+                <expand macro="inputs_anndata"/>
+                <param argument="dea_df" type="data" format="tabular" label="Differential expression results table" help="Tabular DEA file where the first column (index) contains gene symbols matching adata.var_names, plus the groupby column and statistic columns."/>
+                <expand macro="param_groupby"/>
+                <param argument="stat_keys" type="text" value="stat,pvalue,padj" label="Statistic columns in DEA table" help="Comma-separated column names in dea_df (e.g., 'stat,pvalue,padj' or 'logfoldchanges,pvals,pvals_adj').">
+                    <expand macro="sanitize_query"/>
+                    <validator type="empty_field" message="stat_keys is required"/>
+                </param>
+                <param argument="complex_col" type="text" value="stat" optional="true" label="Column for complex subunit reduction" help="Statistic column used to pick the limiting subunit by minimum absolute value (e.g. 'stat'; leave empty to use mean expression 'expr').">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_resource_selection"/>
+                <expand macro="param_groupby_pairs"/>
+                <param argument="expr_prop" type="float" value="0.05" min="0" max="1" label="Minimum expression proportion"/>
+                <param argument="min_cells" type="integer" value="5" min="0" label="Minimum cells per group"/>
+                <expand macro="param_return_all_lrs"/>
+                <expand macro="param_source_labels"/>
+                <expand macro="param_target_labels"/>
+                <param argument="lr_sep" type="text" value="^" label="Ligand-receptor separator">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+                <expand macro="param_key_added" value="liana_res"/>
+                <param name="output_tsv" type="boolean" checked="false" label="Also export differential L-R table as TSV?"/>
+            </when>
+            <when value="estimate_metalinks">
+                <expand macro="inputs_anndata"/>
+                <param argument="resource" type="data" format="tabular" label="Metabolite-Receptor resource table" help="Two-column TSV with 'source' (metabolite) and 'receptor' (gene symbol)."/>
+                <param argument="pd_net" type="data" format="tabular" label="Production-Degradation network" help="Three-column TSV with 'source' (metabolite), 'target' (enzyme gene symbol), and 'weight' (+1 produced / -1 degraded)."/>
+                <param argument="t_net" type="data" format="tabular" optional="true" label="Transporter network" help="Optional three-column TSV with 'source' (metabolite), 'target' (transporter gene symbol), and 'weight' (+1 export / -1 import)."/>
+                <param argument="x_name" type="text" value="metabolite" label="Output metabolite modality name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="y_name" type="text" value="receptor" label="Output receptor modality name">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param name="tmin" type="integer" value="3" min="1" label="Minimum target genes per metabolite regulon"/>
+                <expand macro="param_use_raw"/>
+                <expand macro="param_layer"/>
+            </when>
+            <!-- NOTE: Enable find_causalnet when liana supports corneto >= 1.0.0 or if Bioconda ships corneto==0.9.1a6
+            <when value="find_causalnet">
+                <param argument="ppis" type="data" format="tabular" label="Signed PPI prior knowledge network" help="Tabular file with 'source', 'mor' (+1/-1), and 'target' columns (e.g., OmniPath signed PPIs)."/>
+                <param argument="input_nodes" type="data" format="tabular" label="Input (receptor) node scores" help="Two-column TSV: column 1 = receptor or interaction name, column 2 = signed score."/>
+                <param argument="output_nodes" type="data" format="tabular" label="Output (TF) node scores" help="Two-column TSV: column 1 = transcription factor name, column 2 = signed score."/>
+                <param argument="node_weights" type="data" format="tabular" optional="true" label="Node weights / expression proportions (TSV, optional)" help="Optional two-column TSV: column 1 = gene symbol, column 2 = weight in [0, 1] (e.g. expression proportion in target cell type)."/>
+                <param argument="lr_sep" type="text" value="^" optional="true" label="Ligand-receptor separator in input node names (lr_sep)" help="If input nodes are formatted as 'Ligand^Receptor', strips the ligand prefix to match receptor nodes in the PPI.">
+                    <expand macro="sanitize_query"/>
+                </param>
+                <param argument="node_cutoff" type="float" value="0.1" min="0" max="1" label="Node weight cutoff"/>
+                <param argument="min_penalty" type="float" value="0.01" min="0" label="Minimum node penalty (for nodes above cutoff)"/>
+                <param argument="max_penalty" type="float" value="1.0" min="0" label="Maximum node penalty (for nodes below cutoff)"/>
+                <param argument="missing_penalty" type="float" value="10.0" min="0" label="Missing node penalty"/>
+                <param argument="edge_penalty" type="float" value="0.01" min="0" label="Edge penalty"/>
+                <param argument="max_runs" type="integer" value="1" min="1" label="Maximum solver runs"/>
+                <param argument="stable_runs" type="integer" value="5" min="1" label="Consecutive stable runs to stop"/>
+                <expand macro="param_seed"/>
+            </when>
+            -->
         </conditional>
         <expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
-        <expand macro="anndata_outputs"/>
+        <!-- NOTE: When find_causalnet is re-enabled (once liana supports corneto >= 1.0.0 or Bioconda ships corneto==0.9.1a6), include 'find_causalnet' in the output filters below -->
+        <data name="anndata_out" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${method.method}) on ${on_string}: AnnData">
+            <filter>method['method'] != 'estimate_metalinks' and (method['method'] == 'bivariate' or method['method'] == 'inflow' or method['adata'].ext != 'h5mu')</filter>
+        </data>
+        <data name="mudata_out" format="h5mu" from_work_dir="output.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MuData">
+            <filter>method['method'] == 'estimate_metalinks' or (method['method'] not in ['bivariate', 'inflow'] and method['adata'].ext == 'h5mu')</filter>
+        </data>
+        <data name="tsv_out" format="tabular" from_work_dir="liana_res.tsv" label="${tool.name} (${method.method}) on ${on_string}: Results Table">
+            <filter>method['method'] != 'estimate_metalinks' and (method.get('output_tsv', False) or (method['method'] in ['lric', 'cross_pcf'] and method['auc_opts']['compute_auc']))</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file">
+            <filter>advanced_common['show_log']</filter>
+        </data>
     </outputs>
     <tests>
-        <!-- Test 1: rank_aggregate with default parameters -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+        <!-- Test 1: rank_aggregate with default parameters + TSV output -->
+        <test expect_num_outputs="3">
             <conditional name="method">
                 <param name="method" value="rank_aggregate"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
                 <param name="groupby" value="louvain"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="expr_prop" value="0.1"/>
                 <param name="min_cells" value="5"/>
                 <param name="aggregate_method" value="rra"/>
                 <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
+                <param name="use_raw" value="true"/>
                 <param name="de_method" value="t-test"/>
                 <param name="n_perms" value="10"/>
                 <param name="seed" value="1337"/>
+                <param name="output_tsv" value="true"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.rank_aggregate"/>
+                    <has_text_matching expression="li\.mt\.rank_aggregate\("/>
                     <has_text_matching expression="groupby='louvain'"/>
+                    <has_text_matching expression="resource_name='consensus'"/>
+                    <has_text_matching expression="aggregate_method='rra'"/>
+                    <has_text_matching expression="use_raw=True"/>
+                    <has_text_matching expression="n_perms=10"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="1400000" delta="100000"/>
                     <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="magnitude_rank"/>
+                    <has_text text="specificity_rank"/>
                 </assert_contents>
             </output>
         </test>
         <!-- Test 2: cellphonedb method -->
         <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
             <conditional name="method">
                 <param name="method" value="cellphonedb"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
                 <param name="groupby" value="louvain"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="expr_prop" value="0.1"/>
                 <param name="min_cells" value="5"/>
                 <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
+                <param name="use_raw" value="true"/>
                 <param name="de_method" value="t-test"/>
                 <param name="n_perms" value="10"/>
                 <param name="seed" value="1337"/>
@@ -410,210 +919,37 @@ if result is not None:
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.cellphonedb"/>
+                    <has_text_matching expression="li\.mt\.cellphonedb\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                    <has_text_matching expression="n_perms=10"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="1500000" delta="100000"/>
                     <has_h5_keys keys="uns/liana_res"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 3: natmi method -->
+        <!-- Test 3: cellchat method -->
         <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
-            <conditional name="method">
-                <param name="method" value="natmi"/>
-                <param name="groupby" value="louvain"/>
-                <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
-                </conditional>
-                <param name="expr_prop" value="0.1"/>
-                <param name="min_cells" value="5"/>
-                <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
-                <param name="de_method" value="t-test"/>
-                <param name="seed" value="1337"/>
-            </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true"/>
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.natmi"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" ftype="h5ad">
-                <assert_contents>
-                    <has_size size="1500000" delta="100000"/>
-                    <has_h5_keys keys="uns/liana_res"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 4: connectome method -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
-            <conditional name="method">
-                <param name="method" value="connectome"/>
-                <param name="groupby" value="louvain"/>
-                <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
-                </conditional>
-                <param name="expr_prop" value="0.1"/>
-                <param name="min_cells" value="5"/>
-                <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
-                <param name="de_method" value="t-test"/>
-                <param name="seed" value="1337"/>
-            </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true"/>
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.connectome"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" ftype="h5ad">
-                <assert_contents>
-                    <has_size size="1500000" delta="100000"/>
-                    <has_h5_keys keys="uns/liana_res"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 5: logfc method -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
-            <conditional name="method">
-                <param name="method" value="logfc"/>
-                <param name="groupby" value="louvain"/>
-                <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
-                </conditional>
-                <param name="expr_prop" value="0.1"/>
-                <param name="min_cells" value="5"/>
-                <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
-                <param name="de_method" value="t-test"/>
-                <param name="seed" value="1337"/>
-            </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true"/>
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.logfc"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" ftype="h5ad">
-                <assert_contents>
-                    <has_size size="1500000" delta="100000"/>
-                    <has_h5_keys keys="uns/liana_res"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 6: singlecellsignalr method -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
-            <conditional name="method">
-                <param name="method" value="singlecellsignalr"/>
-                <param name="groupby" value="louvain"/>
-                <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
-                </conditional>
-                <param name="expr_prop" value="0.1"/>
-                <param name="min_cells" value="5"/>
-                <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
-                <param name="de_method" value="t-test"/>
-                <param name="seed" value="1337"/>
-            </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true"/>
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.singlecellsignalr"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" ftype="h5ad">
-                <assert_contents>
-                    <has_size size="1500000" delta="100000"/>
-                    <has_h5_keys keys="uns/liana_res"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 7: geometric_mean method -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
-            <conditional name="method">
-                <param name="method" value="geometric_mean"/>
-                <param name="groupby" value="louvain"/>
-                <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
-                </conditional>
-                <param name="expr_prop" value="0.1"/>
-                <param name="min_cells" value="5"/>
-                <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
-                <param name="de_method" value="t-test"/>
-                <param name="seed" value="1337"/>
-            </conditional>
-            <section name="advanced_common">
-                <param name="show_log" value="true"/>
-            </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.geometric_mean"/>
-                </assert_contents>
-            </output>
-            <output name="anndata_out" ftype="h5ad">
-                <assert_contents>
-                    <has_size size="1500000" delta="100000"/>
-                    <has_h5_keys keys="uns/liana_res"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 8: cellchat method -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
             <conditional name="method">
                 <param name="method" value="cellchat"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
                 <param name="groupby" value="louvain"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="cached"/>
-                        <param name="resource_cached" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="expr_prop" value="0.1"/>
                 <param name="min_cells" value="5"/>
                 <param name="return_all_lrs" value="false"/>
-                <param name="use_raw" value="false"/>
+                <param name="use_raw" value="true"/>
                 <param name="de_method" value="t-test"/>
                 <param name="n_perms" value="10"/>
                 <param name="seed" value="1337"/>
@@ -621,30 +957,251 @@ if result is not None:
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.cellchat"/>
+                    <has_text_matching expression="li\.mt\.cellchat\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                    <has_text_matching expression="n_perms=10"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="1500000" delta="300000"/>
                     <has_h5_keys keys="uns/liana_res"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 9: rank_aggregate with custom key_added -->
+        <!-- Test 4: natmi method -->
         <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
             <conditional name="method">
-                <param name="method" value="rank_aggregate"/>
+                <param name="method" value="natmi"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
                 <param name="groupby" value="louvain"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="cellphonedb"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.1"/>
+                <param name="min_cells" value="5"/>
+                <param name="return_all_lrs" value="false"/>
+                <param name="use_raw" value="true"/>
+                <param name="de_method" value="t-test"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.natmi\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 5: connectome method -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="connectome"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+                <param name="groupby" value="louvain"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.1"/>
+                <param name="min_cells" value="5"/>
+                <param name="return_all_lrs" value="false"/>
+                <param name="use_raw" value="true"/>
+                <param name="de_method" value="t-test"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.connectome\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 6: logfc method -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="logfc"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+                <param name="groupby" value="louvain"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.1"/>
+                <param name="min_cells" value="5"/>
+                <param name="return_all_lrs" value="false"/>
+                <param name="use_raw" value="true"/>
+                <param name="de_method" value="t-test"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.logfc\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 7: singlecellsignalr method -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="singlecellsignalr"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+                <param name="groupby" value="louvain"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.1"/>
+                <param name="min_cells" value="5"/>
+                <param name="return_all_lrs" value="false"/>
+                <param name="use_raw" value="true"/>
+                <param name="de_method" value="t-test"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.singlecellsignalr\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 8: geometric_mean method -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="geometric_mean"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+                <param name="groupby" value="louvain"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.1"/>
+                <param name="min_cells" value="5"/>
+                <param name="return_all_lrs" value="false"/>
+                <param name="use_raw" value="true"/>
+                <param name="de_method" value="t-test"/>
+                <param name="n_perms" value="10"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.geometric_mean\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                    <has_text_matching expression="n_perms=10"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 9: scseqcomm method -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="scseqcomm"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/pbmc_small.h5ad"/>
+                <param name="groupby" value="louvain"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.1"/>
+                <param name="min_cells" value="5"/>
+                <param name="return_all_lrs" value="false"/>
+                <param name="use_raw" value="true"/>
+                <param name="de_method" value="t-test"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 765"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.scseqcomm\("/>
+                    <has_text_matching expression="groupby='louvain'"/>
+                </assert_contents>
+            </output>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 10: rank_aggregate by_sample -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="rank_aggregate"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+                <param name="groupby" value="cell_type"/>
+                <param name="sample_key" value="sample"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="expr_prop" value="0.05"/>
                 <param name="min_cells" value="3"/>
@@ -653,76 +1210,94 @@ if result is not None:
                 <param name="key_added" value="custom_liana"/>
                 <param name="use_raw" value="false"/>
                 <param name="de_method" value="wilcoxon"/>
-                <param name="n_perms" value="5"/>
                 <param name="seed" value="42"/>
+                <param name="output_tsv" value="true"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 50"/>
+                <has_text_matching expression="custom_liana"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.rank_aggregate"/>
+                    <has_text_matching expression="li\.mt\.rank_aggregate\.by_sample\("/>
+                    <has_text_matching expression="sample_key='sample'"/>
                     <has_text_matching expression="key_added='custom_liana'"/>
                     <has_text_matching expression="aggregate_method='mean'"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="896900" delta="100000"/>
                     <has_h5_keys keys="uns/custom_liana"/>
                 </assert_contents>
             </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="sample"/>
+                    <has_text text="magnitude_rank"/>
+                </assert_contents>
+            </output>
         </test>
-        <!-- Test 10: bivariate with cosine local metric -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+        <!-- Test 11: rank_aggregate on multi-modal CITE-seq MuData (mdata_kwargs) -->
+        <test expect_num_outputs="3">
             <conditional name="method">
-                <param name="method" value="bivariate"/>
-                <param name="local_name" value="cosine"/>
-                <param name="global_name" value="None"/>
+                <param name="method" value="rank_aggregate"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/citeseq_test.h5mu" ftype="h5mu"/>
+                <param name="groupby" value="celltype"/>
                 <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
+                    <param name="resource_type" value="interactions"/>
+                    <param name="interactions" value="LGALS9,AB:PTPRC&#10;LGALS9,AB:CD44"/>
                 </conditional>
-                <param name="connectivity_key" value="spatial_connectivities"/>
-                <param name="use_raw" value="false"/>
-                <param name="mask_negatives" value="false"/>
-                <param name="add_categories" value="false"/>
-                <param name="seed" value="1337"/>
-                <param name="nz_prop" value="0.05"/>
+                <param name="expr_prop" value="0.05"/>
+                <param name="min_cells" value="3"/>
+                <param name="n_perms" value="5"/>
+                <section name="mdata_opts">
+                    <param name="x_mod" value="rna"/>
+                    <param name="y_mod" value="prot"/>
+                    <param name="x_transform" value="zi_minmax"/>
+                    <param name="y_transform" value="zi_minmax"/>
+                </section>
+                <param name="output_tsv" value="true"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.bivariate"/>
-                    <has_text_matching expression="local_name='cosine'"/>
+                    <has_text_matching expression="li\.mt\.rank_aggregate\("/>
+                    <has_text_matching expression="mdata_kwargs=mdata_kw"/>
+                    <has_text_matching expression="'x_mod': 'rna'"/>
+                    <has_text_matching expression="'y_mod': 'prot'"/>
                 </assert_contents>
             </output>
-            <output name="anndata_out" ftype="h5ad">
+            <output name="mudata_out" ftype="h5mu">
                 <assert_contents>
-                    <has_size size="260600" delta="200000"/>
-                    <has_h5_keys keys="obsm/spatial"/>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="AB:PTPRC"/>
+                    <has_text text="magnitude_rank"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 11: bivariate with pearson local metric and morans global -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+        <!-- Test 12: bivariate with pearson local metric and morans global -->
+        <test expect_num_outputs="3">
             <conditional name="method">
                 <param name="method" value="bivariate"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
                 <param name="local_name" value="pearson"/>
                 <param name="global_name" value="morans"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="connectivity_key" value="spatial_connectivities"/>
                 <param name="use_raw" value="false"/>
@@ -730,201 +1305,390 @@ if result is not None:
                 <param name="add_categories" value="true"/>
                 <param name="n_perms" value="5"/>
                 <param name="seed" value="42"/>
-                <param name="nz_prop" value="0.1"/>
+                <param name="nz_prop" value="0.05"/>
+                <param name="output_tsv" value="true"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 150 × 11"/>
+                <has_text_matching expression="morans"/>
+            </assert_stdout>
             <output name="hidden_output">
                 <assert_contents>
-                    <has_text_matching expression="li.method.bivariate"/>
+                    <has_text_matching expression="li\.mt\.bivariate\("/>
                     <has_text_matching expression="local_name='pearson'"/>
-                    <has_text_matching expression="global_name='morans'"/>
+                    <has_text_matching expression="add_categories=True"/>
                 </assert_contents>
             </output>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="275300" delta="100000"/>
-                    <has_h5_keys keys="obsm/spatial"/>
+                    <has_h5_keys keys="layers/cats,layers/pvals"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="morans"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 12: bivariate with jaccard metric -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+        <!-- Test 13: inflow + chained compute_global_specificity -->
+        <test expect_num_outputs="3">
             <conditional name="method">
-                <param name="method" value="bivariate"/>
-                <param name="local_name" value="jaccard"/>
-                <param name="global_name" value="None"/>
+                <param name="method" value="inflow"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_inflow_test.h5ad"/>
+                <conditional name="source_mode">
+                    <param name="mode_selector" value="groupby"/>
+                    <param name="groupby" value="celltype"/>
+                </conditional>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
                 <param name="connectivity_key" value="spatial_connectivities"/>
-                <param name="use_raw" value="false"/>
-                <param name="mask_negatives" value="true"/>
-                <param name="add_categories" value="false"/>
-                <param name="seed" value="1337"/>
                 <param name="nz_prop" value="0.05"/>
+                <param name="use_raw" value="false"/>
+                <conditional name="global_spec">
+                    <param name="run_global_spec" value="yes"/>
+                    <param name="spec_groupby" value="celltype"/>
+                    <param name="n_perms" value="5"/>
+                    <param name="seed" value="1337"/>
+                    <param name="uns_key" value="global_interactions"/>
+                </conditional>
+                <param name="output_tsv" value="true"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.bivariate"/>
-                    <has_text_matching expression="local_name='jaccard'"/>
-                    <has_text_matching expression="mask_negatives=True"/>
-                </assert_contents>
-            </output>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 150 × 156"/>
+                <has_text_matching expression="global_interactions"/>
+            </assert_stdout>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="252100" delta="100000"/>
-                    <has_h5_keys keys="obsm/spatial"/>
+                    <has_h5_keys keys="uns/global_interactions"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="lr_mean"/>
+                    <has_text text="pval"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.inflow\("/>
+                    <has_text_matching expression="li\.mt\.compute_global_specificity\("/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 13: bivariate with product metric -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+        <!-- Test 14: standalone compute_global_specificity -->
+        <test expect_num_outputs="3">
             <conditional name="method">
-                <param name="method" value="bivariate"/>
-                <param name="local_name" value="product"/>
-                <param name="global_name" value="lee"/>
-                <conditional name="resource_selection">
-                    <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
-                </conditional>
-                <param name="connectivity_key" value="spatial_connectivities"/>
-                <param name="use_raw" value="false"/>
-                <param name="mask_negatives" value="false"/>
-                <param name="add_categories" value="false"/>
+                <param name="method" value="compute_global_specificity"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/inflow.h5as" ftype="h5ad"/>
+                <param name="groupby" value="celltype"/>
+                <param name="n_perms" value="5"/>
                 <param name="seed" value="1337"/>
-                <param name="nz_prop" value="0.05"/>
+                <param name="uns_key" value="global_interactions"/>
+                <param name="output_tsv" value="true"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.bivariate"/>
-                    <has_text_matching expression="local_name='product'"/>
-                    <has_text_matching expression="global_name='lee'"/>
-                </assert_contents>
-            </output>
+            <assert_stdout>
+                <has_text_matching expression="global_interactions"/>
+            </assert_stdout>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="266000" delta="100000"/>
-                    <has_h5_keys keys="obsm/spatial"/>
+                    <has_h5_keys keys="uns/global_interactions"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="lr_mean"/>
+                    <has_text text="pval"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.compute_global_specificity\("/>
+                    <has_text_matching expression="groupby='celltype'"/>
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 14: bivariate with spearman metric -->
-        <test expect_num_outputs="2">
-            <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+        <!-- Test 15: lric with get_lric_auc -->
+        <test expect_num_outputs="3">
             <conditional name="method">
-                <param name="method" value="bivariate"/>
-                <param name="local_name" value="spearman"/>
-                <param name="global_name" value="None"/>
+                <param name="method" value="lric"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_inflow_test.h5ad"/>
                 <conditional name="resource_selection">
                     <param name="resource_type" value="resource_name"/>
-                    <conditional name="resource_api_cached">
-                        <param name="resource_source_selector" value="builtin"/>
-                        <param name="resource_name" value="consensus"/>
-                    </conditional>
+                    <param name="resource_name" value="consensus"/>
                 </conditional>
-                <param name="connectivity_key" value="spatial_connectivities"/>
+                <param name="groupby" value="celltype"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="max_radius" value="200"/>
+                <param name="radius_step" value="50"/>
                 <param name="use_raw" value="false"/>
-                <param name="mask_negatives" value="false"/>
-                <param name="add_categories" value="false"/>
-                <param name="seed" value="1337"/>
-                <param name="nz_prop" value="0.05"/>
+                <section name="auc_opts">
+                    <param name="compute_auc" value="true"/>
+                    <param name="min_bins" value="2"/>
+                </section>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
-            <output name="hidden_output">
-                <assert_contents>
-                    <has_text_matching expression="li.method.bivariate"/>
-                    <has_text_matching expression="local_name='spearman'"/>
-                </assert_contents>
-            </output>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 150 × 60"/>
+                <has_text_matching expression="lric"/>
+            </assert_stdout>
             <output name="anndata_out" ftype="h5ad">
                 <assert_contents>
-                    <has_size size="262900" delta="100000"/>
-                    <has_h5_keys keys="obsm/spatial"/>
+                    <has_h5_keys keys="uns/lric"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="score"/>
+                    <has_text text="peak_radius"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.lric\("/>
+                    <has_text_matching expression="li\.mt\.get_lric_auc\("/>
                 </assert_contents>
             </output>
         </test>
+        <!-- Test 16: cross_pcf with get_lric_auc -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="cross_pcf"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_inflow_test.h5ad"/>
+                <param name="groupby" value="celltype"/>
+                <param name="spatial_key" value="spatial"/>
+                <param name="max_radius" value="200"/>
+                <param name="radius_step" value="50"/>
+                <section name="auc_opts">
+                    <param name="compute_auc" value="true"/>
+                    <param name="min_bins" value="2"/>
+                </section>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 150 × 60"/>
+                <has_text_matching expression="cross_pcf"/>
+            </assert_stdout>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/cross_pcf"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="score"/>
+                    <has_text text="peak_radius"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.cross_pcf\("/>
+                    <has_text_matching expression="li\.mt\.get_lric_auc\("/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 17: df_to_lr -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="df_to_lr"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
+                <param name="dea_df" value="dea_test.tsv" ftype="tabular"/>
+                <param name="groupby" value="cell_type"/>
+                <param name="stat_keys" value="stat,pvalue,padj"/>
+                <param name="complex_col" value="stat"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.05"/>
+                <param name="min_cells" value="3"/>
+                <param name="use_raw" value="false"/>
+                <param name="output_tsv" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 200 × 50"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="interaction_stat"/>
+                    <has_text text="ligand_stat"/>
+                    <has_text text="receptor_stat"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.df_to_lr\("/>
+                    <has_text_matching expression="groupby='cell_type'"/>
+                    <has_text text="stat,pvalue,padj"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 18: estimate_metalinks -->
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="estimate_metalinks"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/metabolic_test.h5ad"/>
+                <param name="resource" location="https://zenodo.org/records/18388645/files/metabolite_resource.tsv"/>
+                <param name="pd_net" location="https://zenodo.org/records/18388645/files/pd_network.tsv"/>
+                <param name="tmin" value="2"/>
+                <param name="use_raw" value="false"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="MuData object with n_obs × n_vars = 100 × 6"/>
+                <has_text_matching expression="metabolite"/>
+                <has_text_matching expression="receptor"/>
+            </assert_stdout>
+            <output name="mudata_out" ftype="h5mu">
+                <assert_contents>
+                    <has_h5_keys keys="mod/metabolite,mod/receptor"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.estimate_metalinks\("/>
+                    <has_text_matching expression="tmin=2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 19: rank_aggregate with spatial proximity weighting -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="rank_aggregate"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+                <param name="groupby" value="cell_type"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.05"/>
+                <param name="min_cells" value="3"/>
+                <param name="use_raw" value="false"/>
+                <param name="n_perms" value="5"/>
+                <param name="seed" value="42"/>
+                <section name="spatial_proximity">
+                    <param name="spatial_key" value="spatial"/>
+                    <param name="bandwidth" value="250"/>
+                    <param name="min_cells_in_proximity" value="3"/>
+                </section>
+                <param name="output_tsv" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 150 × 100"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="magnitude_rank"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.rank_aggregate\("/>
+                    <has_text_matching expression="spatial_key='spatial'"/>
+                    <has_text_matching expression="spatial_kwargs=spatial_kw"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- NOTE: Enable Test 20 (find_causalnet) when liana supports corneto >= 1.0.0 or if Bioconda ships corneto==0.9.1a6
+        <test expect_num_outputs="2">
+            <conditional name="method">
+                <param name="method" value="find_causalnet"/>
+                <param name="ppis" value="causal_ppis.tsv" ftype="tabular"/>
+                <param name="input_nodes" value="causal_inputs.tsv" ftype="tabular"/>
+                <param name="output_nodes" value="causal_outputs.tsv" ftype="tabular"/>
+                <param name="lr_sep" value="^"/>
+                <param name="seed" value="1337"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="CD4"/>
+                    <has_text text="LCK"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.rs\.build_prior_network\("/>
+                    <has_text_matching expression="li\.mt\.find_causalnet\("/>
+                </assert_contents>
+            </output>
+        </test>
+        -->
     </tests>
     <help><![CDATA[
-Liana: ligand-receptor inference and local bivariate spatial metrics
-====================================================================
+**What it does**
 
-Short summary
--------------
+Infers ligand-receptor cell-cell communication (CCC), spatial co-expression, distance-resolved enrichment, and metabolite-mediated signaling (`liana.mt`).
 
-This tool provides ligand_receptor (L_R) inference methods (wrapping LIANA) and a bivariate spatial-analysis mode that computes local and global spatial association metrics for L_R pairs. The tool supports:
+**Functions, Inputs, and Outputs**
 
-- Non-spatial single-cell data (scRNA-seq grouped by a `groupby` label)
-- Spatially-resolved transcriptomics (spot or cell-level; e.g., Visium or spatial single cells)
-- Hybrid workflows where a connectivity/adjacency matrix is supplied in `adata.obsp`
+- **Single-Cell & Consensus L-R Methods** (`rank_aggregate`, `cellphonedb`, `cellchat`, `natmi`, `connectome`, `logfc`, `singlecellsignalr`, `geometric_mean`, `scseqcomm`): Score ligand-receptor interactions between cell types. Supports single-sample scoring, multi-sample scoring (`sample_key`), spatial proximity weighting (`spatial_key`), and multi-modal inputs (`MuData`).
+  - *Input*: `AnnData` (`.h5ad`) or `MuData` (`.h5mu`), plus a built-in or custom tabular L-R resource (`.tsv`).
+  - *Output*: `AnnData` (`.h5ad`) or `MuData` (`.h5mu`) with results in `.uns[key_added]`, plus an optional tabular result file (`.tsv`).
 
-Available L_R methods
----------------------
+- **bivariate**: Computes local (per-cell/spot) and global (slide-wide) spatial bivariate ligand-receptor scores (`cosine`, `morans`, `pearson`, `spearman`, `masked_spearman`, `jaccard`, `product`, `norm_product`, `lee`).
+  - *Input*: `AnnData` (`.h5ad`) or `MuData` (`.h5mu`) with spatial connectivities in `.obsp[connectivity_key]`.
+  - *Output*: Interaction `AnnData` (`.h5ad`) with local scores in `.X` and global statistics in `.var`, plus an optional global summary table (`.tsv`).
 
-**rank_aggregate**: Aggregate L_R scores across methods using RobustRankAggregate or mean-rank strategies  
-**cellchat**: Run the CellChat L_R method  
-**cellphonedb**: Run the CellPhoneDB method (with permutation testing)  
-**connectome**: Run the Connectome method  
-**natmi**: Run the NATMI method  
-**logfc**: Log fold-change scoring  
-**singlecellsignalr**: Run SingleCellSignalR  
-**geometric_mean**: Geometric mean scoring method  
-**bivariate**: Compute local and/or global bivariate spatial association metrics for L_R pairs:
+- **inflow**: Computes directed spatial inflow scores (`source^ligand^receptor`) per receiver cell/spot.
+  - *Input*: `AnnData` (`.h5ad`) with spatial connectivities in `.obsp[connectivity_key]` and cell-type labels in `.obs[groupby]` (or deconvolved proportions in `.obsm[obsm_key]`).
+  - *Output*: Inflow `AnnData` (`.h5ad`) with `source^ligand^receptor` features in `.var_names`.
 
-- Local metrics (per observation): cosine, jaccard, pearson, spearman, masked_spearman, product, norm_product, morans
-- Global metrics (per pair): morans (Moran's I) and lee (Lee's L)
-- Optional categorical summarization (`add_categories`) produces interpretable labels (e.g., high_high, high_low)
-- `mask_negatives` can be used to ignore negative/low_low interactions
+- **compute_global_specificity**: Computes permutation-based global specificity scores and p-values per receiver cell type from spatial inflow scores.
+  - *Input*: Inflow `AnnData` (`.h5ad`) produced by `inflow`.
+  - *Output*: Updated Inflow `AnnData` (`.h5ad`) with specificity statistics in `.uns['global_interactions']`, plus an optional tabular file (`.tsv`).
 
-Key parameters (common)
------------------------
+- **lric / cross_pcf**: Computes distance-resolved pair correlation `g(r)` curves across concentric spatial rings for ligand-receptor co-expression (`lric`) or cell-type co-localization (`cross_pcf`).
+  - *Input*: `AnnData` (`.h5ad`) with spatial coordinates in `.obsm[spatial_key]`.
+  - *Output*: `AnnData` (`.h5ad`) with per-radius `g(r)` curves stored in `.uns[key_added]`, plus an optional tabular file (`.tsv`).
 
-**groupby**: Column in `adata.obs` that defines cell identities/groups  
+- **get_lric_auc**: Summarizes `lric` or `cross_pcf` `g(r)` profiles into a span-normalized AUC score and peak radius per interaction.
+  - *Input*: `AnnData` (`.h5ad`) containing `lric` or `cross_pcf` results in `.uns[uns_key]`.
+  - *Output*: Tabular file (`.tsv`) of interaction AUC scores and peak radii.
 
-**Resource selection**: priority: interactions > resource > resource_name
+- **df_to_lr**: Combines per-cell-type differential expression (DEA) statistics with expression proportions into a ligand-receptor interaction table.
+  - *Input*: `AnnData` (`.h5ad`) and a DEA table (`.tsv`) containing gene names, cell-type labels (`groupby`), and test statistics.
+  - *Output*: `AnnData` (`.h5ad`) with differential L-R results stored in `.uns[key_added]`, plus an optional tabular file (`.tsv`).
 
-1. `interactions` — explicit list of "ligand,receptor" pairs  
-2. `resource` — user tabular file with `ligand` and `receptor` columns  
-3. `resource_name` — built-in resource (default `consensus`)  
-
-**expr_prop**: Minimum fraction of cells in a group expressing the gene; set `0` to disable  
-**min_cells**: Minimum number of cells per identity  
-**use_raw / layer**: Choose expression source: `adata.raw.X`, `adata.layers[...]`, or `adata.X`  
-**de_method, n_perms, seed**: Differential expression method, permutation count (if applicable), and RNG seed  
-
-Bivariate-specific parameters
------------------------------
-
-**local_name**: Choose the local metric (or `None` to skip local scoring)  
-**global_name**: Choose the global metric (or `None` to skip global scoring)  
-**connectivity_key**: Key in `adata.obsp` holding the adjacency/connectivity matrix (default `spatial_connectivities`)  
-**mask_negatives**: When `True`, ignore negative/low_low local scores  
-**add_categories**: When `True`, produce categorical labels per observation from local scores  
-**nz_prop**: Minimum fraction of observations where both ligand and receptor are non-zero (default `0.05`)  
-
-Outputs
--------
-
-- L_R inference methods write results to `adata.uns['liana_res']` (or `key_added` when provided)  
-- Bivariate analyses write results to `adata.uns['liana_bivariate']`; local scores or categories may also appear in `adata.obsm`/`adata.obs` depending on options
+- **estimate_metalinks**: Estimates metabolite production/secretion scores from enzyme and transporter gene expression and pairs them with receptor expression.
+  - *Input*: `AnnData` (`.h5ad`) and three MetalinksDB tables (`.tsv`, generated by **Liana Resource** → `get_metalinks`): metabolite-receptor `resource`, production-degradation `pd_net`, and optional transporter `t_net`.
+  - *Output*: `MuData` (`.h5mu`) with `metabolite` and `receptor` modalities.
     ]]></help>
     <expand macro="citations"/>
 </tool>
