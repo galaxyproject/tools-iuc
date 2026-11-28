@@ -24,6 +24,8 @@
     ]]></command>
     <configfiles>
         <configfile name="spdata_operation_config" filename="spdata_operation.py">
+#import json
+import ast
 import os
 import dask
 @ANNDATA_SETTINGS@
@@ -32,6 +34,100 @@ n_workers = int(os.getenv("GALAXY_SLOTS", "1"))
 dask.config.set(scheduler="threads", num_workers=n_workers)
 
 import spatialdata as sd
+
+
+def build_transformations(text, what="transformations"):
+    """Build transformation objects from text such as
+    [Translation([10, 20], axes=("x", "y")), Scale([2, 2], axes=("x", "y"))].
+
+    Only calls to the spatialdata transformation constructors are accepted, with
+    numbers, strings, True/False/None, lists, tuples, dicts and keyword arguments
+    as arguments. Numbers can be written as arithmetic (+ - * / **) with
+    math.pi, math.e, math.tau and math functions such as math.cos(math.pi / 4).
+    The text is parsed, never evaluated.
+    """
+    import math
+    import operator
+
+    from spatialdata.transformations import Affine, Identity, MapAxis, Scale, Sequence, Translation
+
+    constructors = {
+        "Affine": Affine,
+        "Identity": Identity,
+        "MapAxis": MapAxis,
+        "Scale": Scale,
+        "Sequence": Sequence,
+        "Translation": Translation,
+    }
+    math_constants = {"pi": math.pi, "e": math.e, "tau": math.tau}
+    math_functions = {
+        name: getattr(math, name)
+        for name in ("sin", "cos", "tan", "asin", "acos", "atan", "atan2", "radians", "degrees", "sqrt", "hypot")
+    }
+    binary_operators = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.Pow: operator.pow,
+    }
+
+    def number(node):
+        value = build(node)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("arithmetic is only allowed on numbers, found: " + ast.get_source_segment(text, node))
+        return value
+
+    def is_math(node):
+        return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "math"
+
+    def build(node):
+        if is_math(node) and node.attr in math_constants:
+            return math_constants[node.attr]
+        if isinstance(node, ast.Call) and is_math(node.func) and node.func.attr in math_functions and not node.keywords:
+            return math_functions[node.func.attr](*[number(arg) for arg in node.args])
+        if isinstance(node, ast.BinOp) and type(node.op) in binary_operators:
+            left, right = number(node.left), number(node.right)
+            if isinstance(node.op, ast.Pow):
+                ## float powers raise OverflowError instead of building huge integers
+                left = float(left)
+            value = binary_operators[type(node.op)](left, right)
+            if not isinstance(value, (int, float)):
+                raise ValueError("the result is not a real number: " + ast.get_source_segment(text, node))
+            return value
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in constructors:
+            args = [build(arg) for arg in node.args]
+            kwargs = {}
+            for keyword in node.keywords:
+                if keyword.arg is None:
+                    raise ValueError("** arguments are not allowed")
+                kwargs[keyword.arg] = build(keyword.value)
+            return constructors[node.func.id](*args, **kwargs)
+        if isinstance(node, ast.List):
+            return [build(element) for element in node.elts]
+        if isinstance(node, ast.Tuple):
+            return tuple(build(element) for element in node.elts)
+        if isinstance(node, ast.Dict):
+            if any(key is None for key in node.keys):
+                raise ValueError("** unpacking is not allowed")
+            return {build(key): build(value) for key, value in zip(node.keys, node.values)}
+        if isinstance(node, ast.Constant) and (node.value is None or isinstance(node.value, (bool, int, float, str))):
+            return node.value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = number(node.operand)
+            return -value if isinstance(node.op, ast.USub) else value
+        raise ValueError(
+            "only " + ", ".join(sorted(constructors)) + " with literal arguments and math are allowed, found: "
+            + ast.get_source_segment(text, node)
+        )
+
+    text = text.strip()
+    if len(text) > 10000:
+        raise SystemExit(f"Invalid {what}: longer than 10000 characters")
+    try:
+        return build(ast.parse(text, mode="eval").body)
+    except (SyntaxError, ValueError, TypeError, ArithmeticError, RecursionError) as error:
+        raise SystemExit(f"Invalid {what}: {error}")
 
 ## Load the SpatialData object
 sdata = sd.read_zarr("./input/spatialdata.zarr")
@@ -257,9 +353,6 @@ result = sd.match_sdata_to_table(
 
 #else if $operation_condi.operation == 'filter_by_table_query':
 ## Filter by table query
-#import json
-import ast
-
 import annsel as an
 
 ## The expressions are parsed, not written into the script. Only annsel column selectors
@@ -394,20 +487,17 @@ from spatialdata.transformations import Scale
 transformation = Scale($scale_list, axes=tuple($axes_list))
         #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'affine':
 from spatialdata.transformations import Affine
-import ast
             #set input_axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.input_axes).split(',')]
             #set output_axes_list = [str(x.strip()) for x in str($operation_condi.maintain_positioning_condi.transformation_condi.output_axes).split(',')]
-matrix = ast.literal_eval('$operation_condi.maintain_positioning_condi.transformation_condi.matrix')
+matrix = build_transformations(${json.dumps(str($operation_condi.maintain_positioning_condi.transformation_condi.matrix))}, "affine matrix")
 transformation = Affine(
     matrix,
     input_axes=tuple($input_axes_list),
     output_axes=tuple($output_axes_list),
 )
         #else if $operation_condi.maintain_positioning_condi.transformation_condi.transformation_type == 'sequence':
-from spatialdata.transformations import Sequence, Identity, MapAxis, Translation, Scale, Affine
-import math
-## Execute user-provided code to create transformation list
-transformations_list = eval('$operation_condi.maintain_positioning_condi.transformation_condi.transformations_code')
+from spatialdata.transformations import Sequence
+transformations_list = build_transformations(${json.dumps(str($operation_condi.maintain_positioning_condi.transformation_condi.transformations_code))})
 transformation = Sequence(transformations_list)
         #end if
         #if str($operation_condi.maintain_positioning_condi.inverse) == 'True':
@@ -438,7 +528,6 @@ from spatialdata.transformations import (
     get_transformation, set_transformation, remove_transformation,
     remove_transformations_to_coordinate_system
 )
-import ast, math
 
     #if str($operation_condi.action_condi.action) in ['set', 'postpone']:
         #if $operation_condi.action_condi.transformation_condi.transformation_type == 'identity':
@@ -458,10 +547,10 @@ transformation = Scale($scale_list, axes=tuple($axes_list))
         #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'affine':
             #set input_axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.input_axes).split(',')]
             #set output_axes_list = [str(x.strip()) for x in str($operation_condi.action_condi.transformation_condi.output_axes).split(',')]
-matrix = eval('$operation_condi.action_condi.transformation_condi.matrix')
+matrix = build_transformations(${json.dumps(str($operation_condi.action_condi.transformation_condi.matrix))}, "affine matrix")
 transformation = Affine(matrix, input_axes=tuple($input_axes_list), output_axes=tuple($output_axes_list))
         #else if $operation_condi.action_condi.transformation_condi.transformation_type == 'sequence':
-transformations_list = eval('$operation_condi.action_condi.transformation_condi.transformations_code')
+transformations_list = build_transformations(${json.dumps(str($operation_condi.action_condi.transformation_condi.transformations_code))})
 transformation = Sequence(transformations_list)
         #end if
         #if str($operation_condi.action_condi.inverse) == 'True':
@@ -828,7 +917,7 @@ mapped = sd.map_raster(
     depth=$operation_condi.depth,
     #end if
     #if $operation_condi.chunks:
-    chunks=eval('$operation_condi.chunks'),
+    chunks=ast.literal_eval(${json.dumps(str($operation_condi.chunks))}),
     #end if
     #if $operation_condi.c_coords:
         #set c_coords_list = [x.strip() for x in str($operation_condi.c_coords).split(',')]
@@ -848,7 +937,7 @@ mapped = sd.map_raster(
     dims=tuple($dims_list),
     #end if
     #if $operation_condi.transformations:
-    transformations=eval('$operation_condi.transformations'),
+    transformations=build_transformations(${json.dumps(str($operation_condi.transformations))}),
     #end if
     relabel=$operation_condi.relabel
 )
@@ -881,8 +970,9 @@ result = sdata
 
 #else if $operation_condi.operation == 'are_extents_equal':
 ## Check if extents are equal
-extent1 = sd.get_extent(sdata['$operation_condi.element1_name'], coordinate_system='$operation_condi.coordinate_system')
-extent2 = sd.get_extent(sdata['$operation_condi.element2_name'], coordinate_system='$operation_condi.coordinate_system')
+coordinate_system = ${json.dumps(str($operation_condi.coordinate_system))}
+extent1 = sd.get_extent(sdata[${json.dumps(str($operation_condi.element1_name))}], coordinate_system=coordinate_system)
+extent2 = sd.get_extent(sdata[${json.dumps(str($operation_condi.element2_name))}], coordinate_system=coordinate_system)
 result = sd.are_extents_equal(extent1, extent2, atol=$operation_condi.atol)
 
 #else if $operation_condi.operation == 'get_pyramid_levels':
@@ -1711,7 +1801,7 @@ print("\nOperation completed successfully!")
                 <param argument="dims" type="text" optional="true" label="Output dimensions (optional)" help="Comma-separated dimensions of output data (e.g., 'c,y,x' or 'y,x'). If not provided, input dimensions are used. Must be specified if callable changes dimensions.">
                     <expand macro="sanitize_query"/>
                 </param>
-                <param argument="transformations" type="text" optional="true" label="Transformations JSON (optional)" help="JSON string for output transformations. If not provided, input transformations are copied. Should be specified if callable changes transformations.">
+                <param argument="transformations" type="text" optional="true" label="Transformations (optional)" help="Output transformations, as a dict from coordinate system name to transformation, e.g. {&quot;global&quot;: Identity()}. Written like Python with the same constructors as the transform operation (Identity, MapAxis, Translation, Scale, Affine, Sequence). If not provided, input transformations are copied. Should be specified if callable changes transformations.">
                     <expand macro="sanitize_query"/>
                 </param>
                 <param argument="relabel" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Relabel blocks?" help="Whether to relabel blocks of output data. Ignored when output is not a labels layer. Recommended if func returns labels not unique across chunks."/>
@@ -2227,6 +2317,32 @@ print("\nOperation completed successfully!")
                 </assert_contents>
             </output>
         </test>
+        <!-- Test 13b: transform with a sequence of transformations -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="transform"/>
+                <param name="elment_name" value="cell_labels"/>
+                <param name="output_element_name" value="sequence_labels"/>
+                <conditional name="maintain_positioning_condi">
+                    <param name="maintain_positioning" value="yes"/>
+                    <conditional name="transformation_condi">
+                        <param name="transformation_type" value="sequence"/>
+                        <param name="transformations_code" value="[Translation([10,20], axes=(&quot;x&quot;,&quot;y&quot;)), Scale([2,2], axes=(&quot;x&quot;,&quot;y&quot;))]"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_stdout>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="labels/sequence_labels"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
         <!-- Test 14: rasterize -->
         <test expect_num_outputs="1">
             <param name="input_spatialdata" location="https://zenodo.org/records/21358431/files/xenium_spatialdata.spatialdata.zip"/>
@@ -2728,6 +2844,35 @@ print("\nOperation completed successfully!")
             </conditional>
             <assert_stdout>
                 <has_text text="translated_cs"/>
+                <has_text text="Operation completed successfully"/>
+            </assert_stdout>
+            <output name="spatialdata_output">
+                <assert_contents>
+                    <has_archive_member path="spatialdata.zarr/zarr.json">
+                        <has_text text="&quot;zarr_format&quot;: 3"/>
+                    </has_archive_member>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 35b: set_transformation with an affine rotation matrix written with math -->
+        <test expect_num_outputs="1">
+            <param name="input_spatialdata" location="https://zenodo.org/records/24355675/files/test_sdata.spatialdata.zip"/>
+            <conditional name="operation_condi">
+                <param name="operation" value="set_transformation"/>
+                <conditional name="action_condi">
+                    <param name="action" value="set"/>
+                    <param name="elment_name" value="image1"/>
+                    <param name="to_coordinate_system" value="rotated_cs"/>
+                    <conditional name="transformation_condi">
+                        <param name="transformation_type" value="affine"/>
+                        <param name="matrix" value="[[math.cos(math.pi / 4), -math.sin(math.pi / 4), 0], [math.sin(math.pi / 4), math.cos(math.pi / 4), 0], [0, 0, 1]]"/>
+                        <param name="input_axes" value="x,y"/>
+                        <param name="output_axes" value="x,y"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_stdout>
+                <has_text text="rotated_cs"/>
                 <has_text text="Operation completed successfully"/>
             </assert_stdout>
             <output name="spatialdata_output">
