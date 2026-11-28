@@ -12,10 +12,9 @@ import re
 import tempfile
 from pathlib import Path
 
-from fontTools.ttLib import TTFont
-
 import mic_50_90
-from mic_50_90.result_view import count_chart
+from fontTools.ttLib import TTFont
+from mic_50_90.result_view import category_label, count_chart
 
 FONTS = Path(mic_50_90.__file__).parent / "report_assets" / "fonts"
 ANSWERS = {"supported": "yes", "contradicted": "no", "undetermined": "not enough information",
@@ -57,17 +56,39 @@ def criterion_text(decision):
     return f"{words} {100 * float(decision['decision_fraction']):g}%"
 
 
+def through_text(cohort, label):
+    """The suggested count covers every recorded group up to and including this one."""
+    for category in cohort.get("panel", {}).get("categories", []):
+        if category.get("label") == label and category.get("upper_bound") is not None:
+            sign = "≤" if category.get("upper_closed") else "<"
+            return f"isolates with MIC {sign} {category['upper_bound']:g} {cohort.get('unit', '')}".rstrip()
+    return f"isolates in the MIC groups up to {category_label(label)}"
+
+
+def cell(value):
+    return re.sub(r"[\t\r\n]+", " ", str(value))
+
+
+def chart_name(cohort_id, used):
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", cohort_id).strip("._") or "cohort"
+    candidate, number = name, 1
+    while candidate in used:
+        number += 1
+        candidate = f"{name}_{number}"
+    used.add(candidate)
+    return candidate
+
+
 def summary_rows(cohort):
     name = cohort["cohort_id"]
     if cohort.get("status") != "ok":
         yield [name, "", "", "", "", "", cohort.get("status", ""), "", "", "", cohort.get("reason", "")]
         return
     n = cohort["n"]
-    unit = cohort.get("unit", "")
     request = ""
     suggested = cohort.get("interpretation", {}).get("suggested_count")
     if suggested:
-        request = (f"isolates with MIC \u2264 {suggested['through_label']} {unit}: now "
+        request = (f"{through_text(cohort, suggested['through_label'])}: now "
                    f"{count_text(suggested['count_components'])}")
     note = ""
     rejected = [v.get("id", "") for v in cohort.get("rejected_variants", []) if isinstance(v, dict)]
@@ -107,9 +128,10 @@ def main():
     Path(args.summary).parent.mkdir(parents=True, exist_ok=True)
     if not args.header:
         lines = lines[1:]
-    Path(args.summary).write_text("".join("\t".join(map(str, line)) + "\n" for line in lines), encoding="utf-8")
+    Path(args.summary).write_text("".join("\t".join(map(cell, line)) + "\n" for line in lines), encoding="utf-8")
     charts = Path(args.charts)
     charts.mkdir(parents=True, exist_ok=True)
+    used = set()
     with tempfile.TemporaryDirectory() as fonts:
         use_program_fonts(Path(fonts))
         import cairosvg
@@ -117,7 +139,7 @@ def main():
             if cohort.get("status") != "ok":
                 continue
             svg = count_chart(cohort["sample"]["categories"], cohort["n"])
-            name = re.sub(r"[^A-Za-z0-9._-]+", "_", cohort["cohort_id"])
+            name = chart_name(cohort["cohort_id"], used)
             cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=str(charts / f"{name}.png"),
                              output_width=args.width)
 
