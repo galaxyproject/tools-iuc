@@ -2,7 +2,7 @@
     <description>genome association analysis toolset</description>
     <macros>
         <token name='@TOOL_VERSION@'>1.90b6.21</token>
-        <token name='@VERSION_SUFFIX@'>2</token>
+        <token name='@VERSION_SUFFIX@'>3</token>
         <token name='@PROFILE@'>25.0</token>
         <xml name='template_sanitizer'>
             <sanitizer>
@@ -57,6 +57,7 @@
         <requirement type='package' version='5.3.0'>gawk</requirement>
     </requirements>
     <command detect_errors='exit_code'><![CDATA[
+    #import re
 
     ## Create Plink folder for any inputs
     mkdir ./plink_output
@@ -140,10 +141,10 @@
             #if $functions.ranges.single_multi == 'single':
                 #if $functions.ranges.window.type == 'variant':
                     #if $functions.ranges.window.from:
-                        --from $functions.ranges.window.from
+                        --from '$functions.ranges.window.from'
                     #end if
                     #if $functions.ranges.window.to:
-                        --to $functions.ranges.window.to
+                        --to '$functions.ranges.window.to'
                     #end if
                 #elif $functions.ranges.window.type == 'window':
                     #if $functions.ranges.window.snp:
@@ -242,7 +243,9 @@
         #end if
         
         #if $functions.template:
-            --set-missing-var-ids  $functions.template
+            ## This value used to be written unquoted, so the dollar signs of the allele placeholders had to be escaped with a backslash. Drop those backslashes.
+            #set $var_id_template = re.sub(r'\\(.)', r'\1', str($functions.template))
+            --set-missing-var-ids '$var_id_template'
         #end if
 
         $functions.recode
@@ -256,12 +259,21 @@
         #end if
 
         #if $functions.update_cols.set == 'update_map':
-            --update-map $functions.update_cols.input $functions.update_cols.col_num $functions.update_cols.old_col $functions.update_cols.skip
+            --update-map $functions.update_cols.input $functions.update_cols.col_num $functions.update_cols.old_col
+            #if $functions.update_cols.skip:
+                '$functions.update_cols.skip'
+            #end if
         #elif $functions.update_cols.set == 'update_name':
-            --update-name $functions.update_cols.input $functions.update_cols.col_num $functions.update_cols.var_col $functions.update_cols.skip
+            --update-name $functions.update_cols.input $functions.update_cols.col_num $functions.update_cols.var_col
+            #if $functions.update_cols.skip:
+                '$functions.update_cols.skip'
+            #end if
         #end if
         #if $functions.ref_allele.set == 'yes':
-            --reference-allele $functions.ref_allele.file $functions.ref_allele.column $functions.ref_allele.var_id $functions.ref_allele.skip
+            --reference-allele $functions.ref_allele.file $functions.ref_allele.column $functions.ref_allele.var_id
+            #if $functions.ref_allele.skip:
+                '$functions.ref_allele.skip'
+            #end if
         #end if
         #if $functions.a2_allele.set == 'yes':
             --a2-allele $functions.a2_allele.file $functions.a2_allele.column $functions.a2_allele.var_id  $functions.a2_allele.skip
@@ -556,8 +568,12 @@
                                 <option value='range'>Within a specific area (Must also specify a single chromosome in above input)</option>
                             </param>
                             <when value='variant'>
-                                <param name='from' type='text' label='From' help='Variant ID. Excludes all variants on different chromosomes than the named variant, as well as those with smaller base-pair position values. If they are used together but the --from variant is after the --to variant, they are automatically swapped.' optional='true'/>
-                                <param name='to' type='text' label='To' help='Variant ID. Excludes all variants on different chromosomes than the named variant, as well as those with larger base-pair position values. If they are used together but the --from variant is after the --to variant, they are automatically swapped.' optional='true'/>
+                                <param name='from' type='text' label='From' help='Variant ID. Excludes all variants on different chromosomes than the named variant, as well as those with smaller base-pair position values. If they are used together but the --from variant is after the --to variant, they are automatically swapped.' optional='true'>
+                                    <validator type='regex' message='A variant ID must not contain whitespace or single quotes and must not start with a dash'>^[^\s&#39;-][^\s&#39;]*$</validator>
+                                </param>
+                                <param name='to' type='text' label='To' help='Variant ID. Excludes all variants on different chromosomes than the named variant, as well as those with larger base-pair position values. If they are used together but the --from variant is after the --to variant, they are automatically swapped.' optional='true'>
+                                    <validator type='regex' message='A variant ID must not contain whitespace or single quotes and must not start with a dash'>^[^\s&#39;-][^\s&#39;]*$</validator>
+                                </param>
                             </when>
                             <when value='window'>
                                 <param name='snp' type='text' label='SNP variant id to include' help='Use this OR SNP variant to exclude' optional='true'>
@@ -695,6 +711,7 @@
                 <param format='tsv,tabular' name='flip' type='data' label='Flip DNA strand for SNPs' help='Given a file containing a list of SNPs with A/C/G/T alleles, --flip swaps A↔T and C↔G.' optional='true'/>
                 <param name='template' type='text' label='Update Variant Info: Template String' help='Replaces missing IDs. The parameter taken by these flags is a special template string, with a @ where the chromosome code should go, and a # where the base-pair position belongs.'>
                     <expand macro='template_sanitizer'/>
+                    <validator type='regex' message='The template string must not contain whitespace or quotes and must not start with a dash'>^(?!\\*-)[^\s&#39;&#34;]*$</validator>
                 </param>
                 <param name='length' type='integer' label='Max allele length' help='Length threshold to rename alleles. Recommended default is 23' optional='true'/>
                 <conditional name='update_cols'>
@@ -708,13 +725,17 @@
                         <param name='input' type='data' format='tabular,tsv' help='By default, the new value is read from column 2 and the (old) variant ID from column 1, but you can adjust these positions with the second and third parameters.'/>
                         <param name='col_num' type='integer' min='0' label='New ID column number' value='2'/>
                         <param name='old_col' type='integer' min='0' label='Old ID column' value='1'/>
-                        <param name='skip' type='text' label='Skip' optional='true' help='Either a nonnegative integer, in which case it indicates the number of lines to skip at the top of the file, or a single nonnumeric character, which causes each line with that leading character to be skipped.'/>
+                        <param name='skip' type='text' label='Skip' optional='true' help='Either a nonnegative integer, in which case it indicates the number of lines to skip at the top of the file, or a single nonnumeric character, which causes each line with that leading character to be skipped.'>
+                            <validator type='regex' message='Skip must be a nonnegative integer or a single character other than whitespace or a single quote'>^([0-9]+|[^\s&#39;])$</validator>
+                        </param>
                     </when>
                     <when value='update_name'>
                         <param name='input' type='data' format='tabular,tsv' help='By default, the new value is read from column 2 and the (old) variant ID from column 1, but you can adjust these positions with the second and third parameters.'/>
                         <param name='col_num' type='integer' min='0' label='BP column number' value='2'/>
                         <param name='var_col' type='integer' min='0' label='Variant ID column' value='1'/>
-                        <param name='skip' type='text' label='Skip' optional='true' help='Either a nonnegative integer, in which case it indicates the number of lines to skip at the top of the file, or a single nonnumeric character, which causes each line with that leading character to be skipped.'/>
+                        <param name='skip' type='text' label='Skip' optional='true' help='Either a nonnegative integer, in which case it indicates the number of lines to skip at the top of the file, or a single nonnumeric character, which causes each line with that leading character to be skipped.'>
+                            <validator type='regex' message='Skip must be a nonnegative integer or a single character other than whitespace or a single quote'>^([0-9]+|[^\s&#39;])$</validator>
+                        </param>
                     </when>
                 </conditional>
                 <conditional name='ref_allele'>
@@ -727,7 +748,9 @@
                         <param name='file' type='data' format='vcf' label='Set all alleles specified in the file to REF'/>
                         <param name='column' type='integer' optional='true' min='1' label='Reference column number'/>
                         <param name='var_id' type='integer' optional='true' min='1' label='Variant id column in file'/>
-                        <param name='skip' label='Skip' type='text' help='Either a nonnegative integer, in which case it indicates the number of lines to skip at the top of the file, or a single nonnumeric character, which causes each line with that leading character to be skipped.'/>
+                        <param name='skip' label='Skip' type='text' help='Either a nonnegative integer, in which case it indicates the number of lines to skip at the top of the file, or a single nonnumeric character, which causes each line with that leading character to be skipped.'>
+                            <validator type='regex' message='Skip must be empty, a nonnegative integer or a single character other than whitespace or a single quote'>^([0-9]+|[^\s&#39;])?$</validator>
+                        </param>
                     </when>
                 </conditional>
                 <conditional name='a2_allele'>
