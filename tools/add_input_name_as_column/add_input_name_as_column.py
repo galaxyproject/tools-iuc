@@ -1,5 +1,6 @@
 import argparse
 import io
+import json
 
 
 def Parser():
@@ -11,11 +12,11 @@ def Parser():
         "--output", required=True, action="store", type=str, help="output file path"
     )
     the_parser.add_argument(
-        "--label",
+        "--label_json",
         required=True,
         action="store",
         type=str,
-        help="label to add in last column",
+        help="JSON file holding the label to add in last column",
     )
     the_parser.add_argument(
         "--header", action="store", type=str, help="column label for last column"
@@ -33,6 +34,9 @@ def Parser():
 
 args = Parser()
 
+with io.open(args.label_json, encoding="utf-8") as label_handle:
+    label = json.load(label_handle)
+
 
 with io.open(args.input, encoding="utf-8") as input, io.open(
     args.output, "w", encoding="utf-8"
@@ -42,7 +46,7 @@ with io.open(args.input, encoding="utf-8") as input, io.open(
         if (i == 0) and args.header:
             new_entry = args.header
         else:
-            new_entry = args.label
+            new_entry = label
         if args.prepend:
             line = "%s\t%s\n" % (new_entry, line)
         else:
