@@ -1,4 +1,4 @@
-<tool id="humann" name="HUMAnN" version="@TOOL_VERSION@+galaxy1" profile="@PROFILE@">
+<tool id="humann" name="HUMAnN" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>to profile presence/absence and abundance of microbial pathways and gene families</description>
     <macros>
         <import>macros.xml</import>
@@ -11,8 +11,17 @@
                     </param>
                     <when value="cached">
                         <param name="cached_db" label="Cached database with clade-specific marker genes" type="select">
-                            <options from_data_table="metaphlan_database">
-                                <filter type="regexp" column="0" value=".*(vOct22_SGB|TOY|demo-db).*"/>
+                            <options from_data_table="metaphlan_database_versioned">
+                                <!-- The prescreen step is run with the MetaPhlAn release HUMAnN was
+                                     built for (3.9 -> MetaPhlAn 4.1) and HUMAnN rejects marker
+                                     databases of the other releases, so do not offer them:
+                                     vJan21 (HUMAnN 3.5/3.6) and vOct22 (HUMAnN 3.7/3.8) produce a
+                                     profile HUMAnN refuses with "The MetaPhlAn taxonomic profile
+                                     provided was not generated with the database version ...",
+                                     and vFeb24/vJan25/vJan26 have no HUMAnN that consumes them
+                                     at all. Pre-v4 databases (db_version: legacy) are usable
+                                     and only need the mpa3 switch (see below). -->
+                                <filter type="regexp" column="dbkey" value=".*(vJan21|vOct22|vFeb24|vJan25|vJan26|TOY).*" keep="false"/>
                                 <validator message="No MetaPhlAn database is available" type="no_options"/>
                             </options>
                         </param>
@@ -47,6 +56,11 @@
             #else
                 #set $metaphlan_option += " --bowtie2db %s" % $wf.prescreen.metaphlan_db.cached_db.fields.path
                 #set $metaphlan_option += " --index %s" % $wf.prescreen.metaphlan_db.cached_db.fields.dbkey
+                ## the data table records whether the database predates MetaPhlAn 4
+                ## (db_version: legacy), which requires the --mpa3 switch
+                #if $wf.prescreen.metaphlan_db.cached_db.fields.db_version == "legacy"
+                    #set $metaphlan_option += " --mpa3"
+                #end if
             #end if
             --metaphlan-options="$metaphlan_option"
             --prescreen-threshold $wf.prescreen.prescreen_threshold
@@ -64,6 +78,15 @@
                     <when value="cached">
                         <param name="nucleotide_database" type="select" label="Nucleotide database">
                             <options from_data_table="humann_nucleotide_database">
+                                <!-- HUMAnN aborts unless every file in the ChocoPhlAn directory
+                                     carries the version string it was built against:
+                                     v201901_v31 for HUMAnN 3.1.1 - 3.9 (HUMAnN 3.0.x used
+                                     v296_201901b, HUMAnN 4 uses v4_alpha). Entries installed
+                                     by older versions of the data manager carry an install
+                                     date instead of the artifact name, so accept those as
+                                     well and exclude the incompatible generation by dbkey. -->
+                                <filter type="regexp" column="value" value="(.*v201901_v31.*|.*-[0-9]{8})" keep="true"/>
+                                <filter type="regexp" column="dbkey" value="^3\.0" keep="false"/>
                                 <validator message="No nucleotide database is available" type="no_options" />
                             </options>
                         </param>
@@ -110,6 +133,12 @@
                     <when value="cached">
                         <param name="protein_database" type="select" label="Protein database">
                             <options from_data_table="humann_protein_database">
+                                <!-- HUMAnN checks the UniRef search database for the 201901b
+                                     version string (identical in every HUMAnN 3.x release,
+                                     a HUMAnN 4 database uses v4_alpha). Older data manager
+                                     versions recorded an install date instead of the
+                                     artifact name, so accept those too. -->
+                                <filter type="regexp" column="value" value="(.*201901b.*|.*-[0-9]{8})" keep="true"/>
                                 <validator message="No protein database is available" type="no_options" />
                             </options>
                         </param>
@@ -977,6 +1006,10 @@ humann
                     <has_text text="Bypass translated search"/>
                 </assert_contents>
             </output>
+            <!-- the selected database is a MetaPhlAn 4 (SGB) one: no mpa3 switch -->
+            <assert_command>
+                <has_text text="--mpa3" negate="true"/>
+            </assert_command>
         </test>
         <!-- This test should fail for as metaphlan v4 is invoked on outdated input DB. -->
         <test expect_exit_code="1" expect_failure="true">
@@ -1057,6 +1090,35 @@ HUMAnN can start from a few different types of input data each in a few differen
 
 HUMAnN uses 3 reference databases
 Locally cached databases have to be downloaded before using them (using the dedicated tool). Custom databases can also be used after upload.
+
+Reference data
+==============
+
+HUMAnN needs four databases: a nucleotide (ChocoPhlAn) and a protein (UniRef) database, the
+utility mappings, and a MetaPhlAn marker database for the prescreen step. All of them are read
+from data tables, and those offer only the entries this wrapper accepts, so an incompatible
+database cannot be selected by accident.
+
+The HUMAnN databases are named after their content, and that name is their version:
+``full_chocophlan.v201901_v31`` and ``uniref90_annotated_v201901b_full`` are unchanged from
+HUMAnN 3.1.1 to 3.9. HUMAnN 3.0.x is the exception: it fetched ``v296_201901b``, which every
+later release refuses.
+
+MetaPhlAn marker databases
+--------------------------
+
+``mpa_vOct22_CHOCOPhlAnSGB_202212`` packs two independent pieces of information:
+
+- ``vOct22`` is the **marker release tag**. It changes when the SGB marker set changes (vJan21 ->
+  vOct22 -> vJun23 -> vJan25) and it is what HUMAnN tests in the profile header, i.e. the part
+  that decides compatibility.
+- ``_202212`` is only the **build date of that tarball**. A release is rebuilt when bugs are fixed
+  (``_202212`` -> ``_202403``, which also fixes truncated profile lines), so the same suffix
+  appears under more than one release tag. Prefer the ``_202403`` builds.
+
+HUMAnN 3.9 accepts the releases ``v3`` (MetaPhlAn 3.x) and ``vJun23``; ``vJan21`` belonged to
+HUMAnN 3.5-3.6.1 and ``vOct22`` to 3.7/3.8, while ``vJan25`` and later have no HUMAnN at all.
+A pre-v4 database (``mpa_v30_CHOCOPhlAn_201901``) is passed with ``--mpa3`` automatically.
 
 Outputs
 =======
