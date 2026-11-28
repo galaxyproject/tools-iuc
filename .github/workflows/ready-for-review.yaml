@@ -3,18 +3,28 @@ name: Auto-Label Ready for Review
 on:
   issue_comment:
     types: [created]
+  # Reviews on fork PRs only get a read-only token, so the unprivileged
+  # "PR Review Submitted" workflow fires on the review and this one does the write.
+  workflow_run:
+    workflows: [PR Review Submitted]
+    types: [completed]
 
 permissions: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check-and-label:
     if: |
-      github.event.issue.pull_request != null &&
-      contains(github.event.comment.body, 'please review')
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, 'please review')) ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request_review')
+    # Job-level so skipped runs (every other comment) never enter the queue and cancel a pending one.
+    # shortcut: the comment and review paths of one PR use different keys (the PR number isn't known
+    # here for workflow_run), so they can still race; a later review or "please review" corrects it.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.issue.number || github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -30,6 +40,7 @@ jobs:
 
       - name: Check PR Status and Apply Label
         id: check-pr
+        if: github.event_name == 'issue_comment'
         uses: actions/github-script@v9
         with:
           github-token: ${{ steps.repo-token.outputs.token }}
@@ -100,7 +111,9 @@ jobs:
             });
 
             const relevant = checkRunsData.check_runs.filter(r =>
-              r.name !== context.workflow
+              r.name !== context.workflow &&
+              // the review trigger stub runs on every review, including thread replies
+              r.name !== 'PR Review Submitted (trigger)'
             );
 
             // No check runs yet → not ready
@@ -148,6 +161,7 @@ jobs:
             }
 
             // 4. All good - add the label
+            const alreadyLabeled = pr.labels.some(l => l.name === 'ready-for-review');
             console.log("All checks passed. Adding 'ready-for-review' label.");
             await github.rest.issues.addLabels({
               owner,
@@ -155,10 +169,103 @@ jobs:
               issue_number: pull_number,
               labels: ['ready-for-review']
             });
-            core.setOutput('labeled', 'true');
+            core.setOutput('status', 'Needs Review');
+            core.setOutput('pr-node-id', pr.node_id);
+
+            // 5. Ping everyone who reviewed before (not the author, commenter or bots),
+            // once per review round: repeating "please review" must not re-ping.
+            if (alreadyLabeled) return;
+            try {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number });
+              const skip = [pr.user.login, context.payload.comment.user.login];
+              const reviewers = [...new Set(reviews
+                .filter(r => r.user && r.user.type !== 'Bot' && !skip.includes(r.user.login))
+                .map(r => r.user.login))];
+              if (reviewers.length > 0) {
+                // Must not contain the trigger phrase, or this comment re-runs the workflow.
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pull_number,
+                  body: `🔔 ${reviewers.map(u => '@' + u).join(' ')}: the contributor has addressed the earlier feedback and asked for another look.`
+                });
+              }
+            } catch (e) {
+              // The label is already on; a failed ping must not skip the board update.
+              core.warning(`Could not ping previous reviewers: ${e.message}`);
+            }
+
+      - name: Remove Label After a Review
+        id: check-review
+        if: github.event_name == 'workflow_run'
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ steps.repo-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const run = context.payload.workflow_run;
+
+            // For fork PRs, workflow_run.pull_requests is empty, head_repository is the base repo and
+            // /commits/{sha}/pulls returns nothing, so match the head SHA among recently updated open PRs.
+            // The PR was just reviewed, so it is at the top of this list.
+            // shortcut: a push landing between the review and this run changes the SHA and the review is
+            // missed; the next review or "please review" corrects it.
+            // Nothing from the unprivileged run is trusted beyond this lookup; everything is re-checked below.
+            const { data: prs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100,
+            });
+            const pr = prs.find(p => p.head.sha === run.head_sha);
+            if (!pr) { console.log(`No open PR found with head ${run.head_sha}.`); return; }
+            if (!pr.labels.some(l => l.name === 'ready-for-review')) {
+              console.log(`PR #${pr.number} is not labeled. Skipping.`);
+              return;
+            }
+
+            // Only reviews submitted after the label was (last) added count,
+            // otherwise an old review would strip the label right after "please review".
+            const events = await github.paginate(github.rest.issues.listEvents, {
+              owner, repo, issue_number: pr.number, per_page: 100,
+            });
+            const labeledAt = events
+              .filter(e => e.event === 'labeled' && e.label?.name === 'ready-for-review')
+              .map(e => e.created_at)
+              .pop();
+
+            // The author replying in a review thread also creates a COMMENTED review, so exclude them.
+            // Only reviews from repo members/collaborators count, so a drive-by review can't pull a PR from the queue.
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number: pr.number,
+            });
+            const review = reviews.filter(r =>
+              r.user && r.user.type !== 'Bot' && r.user.login !== pr.user.login &&
+              ['MEMBER', 'OWNER', 'COLLABORATOR'].includes(r.author_association) &&
+              r.state !== 'PENDING' && (!labeledAt || r.submitted_at > labeledAt)
+            ).pop();
+            if (!review) { console.log(`No new non-author review on PR #${pr.number}. Skipping.`); return; }
+
+            console.log(`PR #${pr.number} reviewed by ${review.user.login} (${review.state}). Removing 'ready-for-review' label.`);
+            try {
+              await github.rest.issues.removeLabel({
+                owner, repo, issue_number: pr.number, name: 'ready-for-review',
+              });
+            } catch (e) {
+              // Already removed (by hand or by a parallel run): nothing left to do.
+              if (e.status === 404) { console.log('Label already removed.'); return; }
+              throw e;
+            }
+            // An approved PR waits on a maintainer to merge, not on the contributor: keep its board status.
+            if (review.state === 'APPROVED') return;
+            core.setOutput('status', 'In progress');
+            core.setOutput('pr-node-id', pr.node_id);
 
       - name: Generate App Token (project-scoped)
-        if: steps.check-pr.outputs.labeled == 'true'
+        if: steps.check-pr.outputs.status || steps.check-review.outputs.status
         id: project-token
         uses: actions/create-github-app-token@v3
         with:
@@ -166,9 +273,12 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-organization-projects: write
 
-      - name: Move PR to "Needs Review" on Project Board
-        if: steps.check-pr.outputs.labeled == 'true'
+      - name: Update PR Status on Project Board
+        if: steps.check-pr.outputs.status || steps.check-review.outputs.status
         uses: actions/github-script@v9
+        env:
+          STATUS: ${{ steps.check-pr.outputs.status || steps.check-review.outputs.status }}
+          PR_NODE_ID: ${{ steps.check-pr.outputs.pr-node-id || steps.check-review.outputs.pr-node-id }}
         with:
           github-token: ${{ steps.project-token.outputs.token }}
           script: |
@@ -197,10 +307,10 @@ jobs:
 
             const project = organization.projectV2;
             const statusField = project.fields.nodes.find(f => f.name === 'Status');
-            const option = statusField.options.find(o => o.name === 'Needs Review');
+            const option = statusField.options.find(o => o.name === process.env.STATUS);
 
             // Find the PR's item ID on the project board
-            const prNodeId = context.payload.issue.node_id;
+            const prNodeId = process.env.PR_NODE_ID;
             const { node } = await github.graphql(`
               query($id: ID!) {
                 node(id: $id) {
@@ -236,4 +346,4 @@ jobs:
               optionId: option.id
             });
 
-            console.log('PR moved to "Needs Review".');
+            console.log(`PR moved to "${process.env.STATUS}".`);

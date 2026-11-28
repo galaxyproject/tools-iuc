@@ -2,31 +2,59 @@
     <token name="@QUALIMAP_COMMAND@"><![CDATA[
         #if str($repeat.software_cond.input) != "None"
             #set $at_least_one_input="T"
+            ## MultiQC names a sample after the 'bam file = ' line of its results file
+            ## (genome_results for BamQC, rnaseq_qc_results for RNASeq) and expects the
+            ## sample's other raw data files under <sample>/raw_data_qualimapReport/.
+            ## Each other file is paired with the results file of the same Qualimap mode
+            ## whose element identifier has the same prefix (e.g. "sample1_" after
+            ## Flatten Collection), falling back to the last results file seen before it.
+            ## Files with no results file to pair with, and files MultiQC does not read
+            ## (e.g. coverage_profile_along_genes_high/low), are skipped.
+            #set $qualimap_files = [("genome_results", "bamqc", "genome_results.txt"), ("coverage_histogram", "bamqc", "raw_data_qualimapReport/coverage_histogram.txt"), ("gc-content_distribution", "bamqc", "raw_data_qualimapReport/mapped_reads_gc-content_distribution.txt"), ("rnaseq_qc_results", "rnaseq", "rnaseq_qc_results.txt"), ("coverage_profile_along_genes_total", "rnaseq", "raw_data_qualimapReport/coverage_profile_along_genes_(total).txt")]
+            #set $results_patterns = {"bamqc": "genome_results", "rnaseq": "rnaseq_qc_results"}
+            #set $results_by_prefix = {}
             #for $file in $repeat.software_cond.input
-                #if re.search("genome_results", str($file.element_identifier))
-                    sample="\$(grep 'bam file = ' $file | sed 's/bam file = //g' | sed 's: ::g')" &&
-                    dir_name="$software_dir/\${sample}" &&
-                    mkdir -p \${dir_name} &&
-                    filepath_1="\${dir_name}/genome_results.txt" &&
-                    ln -sf '$file' \${filepath_1} &&
-                #elif re.search("coverage_histogram", str($file.element_identifier))
-                    nested_dir_name="\${dir_name}/raw_data_qualimapReport/" &&
-                    mkdir -p \${nested_dir_name} &&
-                    filepath_2="\${nested_dir_name}/coverage_histogram.txt" &&
-                    ln -sf '$file' \${filepath_2} &&
-                #elif re.search("gc-content_distribution", str($file.element_identifier))
-                    nested_dir_name="\${dir_name}/raw_data_qualimapReport/" &&
-                    mkdir -p \${nested_dir_name} &&
-                    filepath_3="\${nested_dir_name}/mapped_reads_gc-content_distribution.txt" &&
-                    ln -sf '$file' \${filepath_3} &&
-                #else
-                    #pass
+                #set $identifier = str($file.element_identifier)
+                #for $mode, $pattern in $results_patterns.items()
+                    #set $match = re.search($pattern, $identifier)
+                    #if $match
+                        #silent $results_by_prefix.setdefault(($mode, $identifier[:$match.start()]), $file)
+                    #end if
+                #end for
+            #end for
+            #set $last_results = {}
+            #for $file in $repeat.software_cond.input
+                #set $identifier = str($file.element_identifier)
+                #set $target = None
+                #for $pattern, $mode, $path in $qualimap_files
+                    #set $match = re.search($pattern, $identifier)
+                    #if $match and $target is None
+                        #set $target = $path
+                        #set $target_mode = $mode
+                        #set $prefix = $identifier[:$match.start()]
+                    #end if
+                #end for
+                #if $target is not None
+                    #if $target == $results_patterns[$target_mode] + ".txt"
+                        #silent $last_results.__setitem__($target_mode, $file)
+                        #set $results_file = $file
+                    #elif ($target_mode, $prefix) in $results_by_prefix
+                        #set $results_file = $results_by_prefix[($target_mode, $prefix)]
+                    #else
+                        #set $results_file = $last_results.get($target_mode)
+                    #end if
+                    #if $results_file is not None
+                        sample="\$(grep 'bam file = ' '$results_file' | sed 's/bam file = //g' | sed 's: ::g' | sed 's:.*/::')" &&
+                        dir_name="$software_dir/\${sample}" &&
+                        mkdir -p "\${dir_name}/raw_data_qualimapReport" &&
+                        ln -sf '$file' "\${dir_name}/$target" &&
+                    #end if
                 #end if
             #end for
         #end if
     ]]></token>
     <xml name="qualimap_form">
-        <param name="input" type="data" format="txt,tabular,tsv" multiple="true" label="Output of Qualimap BamQC" help="First result input should be genome_coverage (default from tool output). Run the Flatten Collection tool to keep all output in one report" optional="true"/>
+        <param name="input" type="data" format="txt,tabular,tsv" multiple="true" label="Output of Qualimap BamQC or RNASeq" help="Raw data output of Qualimap BamQC (genome_results, coverage_histogram, gc-content_distribution) or Qualimap RNASeq (rnaseq_qc_results, coverage_profile_along_genes_total). Each sample needs its genome_results or rnaseq_qc_results file; the other files are matched to it by the part of their name before the file type (e.g. 'sample1_' after Flatten Collection). Run the Flatten Collection tool to keep all output in one report" optional="true"/>
     </xml>
     <!-- add here your test files and tests, the more stringent the better -->
     <xml name="qualimap_test">
@@ -60,6 +88,78 @@
                 </assert_contents>
             </output>
             <output_collection name="plots" type="list" count="0"/>
+        </test>
+        <!-- Qualimap RNASeq: rnaseq_qc_results gives the general stats and genomic origin plot,
+             coverage_profile_along_genes_total gives the gene coverage profile plot -->
+        <test expect_num_outputs="2">
+            <repeat name="results">
+                <conditional name="software_cond">
+                    <param name="software" value="qualimap"/>
+                    <param name="input" value="rnaseq_qc_results.txt,coverage_profile_along_genes_total.txt"/>
+                </conditional>
+            </repeat>
+            <output name="html_report">
+                <assert_contents>
+                    <has_text text="rnaseq_sample"/>
+                    <has_text text="qualimap_genomic_origin"/>
+                    <has_text text="qualimap_gene_coverage_profile"/>
+                </assert_contents>
+            </output>
+            <output name="stats">
+                <assert_contents>
+                    <has_text text="qualimap_rnaseq-reads_aligned"/>
+                    <has_text text="qualimap_rnaseq-reads_aligned_exonic"/>
+                    <has_text text="rnaseq_sample"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- a raw data file listed before its results file is still staged under that sample -->
+        <test expect_num_outputs="2">
+            <repeat name="results">
+                <conditional name="software_cond">
+                    <param name="software" value="qualimap"/>
+                    <param name="input" value="coverage_profile_along_genes_total.txt,rnaseq_qc_results.txt"/>
+                </conditional>
+            </repeat>
+            <output name="html_report">
+                <assert_contents>
+                    <has_text text="rnaseq_sample"/>
+                    <has_text text="qualimap_gene_coverage_profile"/>
+                </assert_contents>
+            </output>
+            <output name="stats">
+                <assert_contents>
+                    <has_text text="qualimap_rnaseq-reads_aligned"/>
+                    <has_n_lines n="2"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- two samples, raw data files listed before both results files: each coverage profile is
+             paired with the results file of the same identifier prefix (the last-results fallback
+             would have nothing to pair with yet and skip them, dropping the gene coverage plot) -->
+        <test expect_num_outputs="2">
+            <repeat name="results">
+                <conditional name="software_cond">
+                    <param name="software" value="qualimap"/>
+                    <param name="input" value="sample1_coverage_profile_along_genes_total.txt,sample2_coverage_profile_along_genes_total.txt,sample1_rnaseq_qc_results.txt,sample2_rnaseq_qc_results.txt"/>
+                </conditional>
+            </repeat>
+            <output name="html_report">
+                <assert_contents>
+                    <has_text text="sample1"/>
+                    <has_text text="sample2"/>
+                    <has_text text="qualimap_gene_coverage_profile"/>
+                </assert_contents>
+            </output>
+            <output name="stats">
+                <assert_contents>
+                    <has_text text="qualimap_rnaseq-reads_aligned"/>
+                    <has_line_matching expression="^sample1\t.*"/>
+                    <has_line_matching expression="^sample2\t.*"/>
+                    <has_n_lines n="3"/>
+                </assert_contents>
+            </output>
         </test>
     </xml>
 </macros>

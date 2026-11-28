@@ -20,8 +20,18 @@
     ]]></command>
     <configfiles>
         <configfile name="spdata_plot_config" filename="spdata_plot.py">
+import os
+import dask
+@ANNDATA_SETTINGS@
+## spatialdata-plot triggers Dask .compute() when rendering images/labels/points;
+n_workers = int(os.getenv("GALAXY_SLOTS", "1"))
+dask.config.set(scheduler="threads", num_workers=n_workers)
+
 import spatialdata as sd
 import spatialdata_plot
+from matplotlib.colors import Normalize
+from spatialdata_plot.pl._color import PercentileNormalize
+from spatialdata_plot.pl.utils import set_zero_in_cmap_to_transparent
 
 ## Load the SpatialData object
 spdata = sd.read_zarr("./input/spatialdata.zarr")
@@ -37,16 +47,38 @@ spdata = spdata.pl.render_images(
     element=None,
     #end if
     #if $img.channel:
-    channel='$img.channel',
+        ## Pass numeric channels as int and named channels as str
+        #set $ch_raw = [x.strip() for x in str($img.channel).split(',')]
+        #set $ch_parsed = [int(x) if x.isdigit() else str(x) for x in $ch_raw]
+        #if len($ch_parsed) == 1:
+    channel=$ch_parsed[0],
+        #else:
+    channel=$ch_parsed,
+        #end if
     #end if
     #if str($img.cmap_or_palette_condi.color_map_type) == 'cmap':
         #set $cmap_list = [str(x.strip()) for x in str($img.cmap_or_palette_condi.cmap).split(',')]
+        ## Make background (0) pixels transparent in colormap
+        #if str($img.cmap_or_palette_condi.zero_to_transparent) == 'True':
+            #if len($cmap_list) == 1:
+    cmap=set_zero_in_cmap_to_transparent(cmap='$cmap_list[0]'),
+            #else:
+    cmap=[set_zero_in_cmap_to_transparent(cmap=c) for c in $cmap_list],
+            #end if
+        #else:
     cmap=$cmap_list,
+        #end if
     #end if
     #if str($img.normalize_condi.normalize) == 'yes':
     norm=Normalize(
         vmin=$img.normalize_condi.vmin if $img.normalize_condi.vmin else None,
         vmax=$img.normalize_condi.vmax if $img.normalize_condi.vmax else None,
+        clip=$img.normalize_condi.clip
+    ),
+    #else if str($img.normalize_condi.normalize) == 'percentile':
+    norm=PercentileNormalize(
+        pmin=$img.normalize_condi.pmin,
+        pmax=$img.normalize_condi.pmax,
         clip=$img.normalize_condi.clip
     ),
     #end if
@@ -97,7 +129,13 @@ spdata = spdata.pl.render_labels(
     element=None,
     #end if
     #if $lbl.color:
+        ## Support multi-column RGB coloring (e.g. ['r', 'g', 'b']) or single column/color
+        #if ',' in str($lbl.color):
+            #set $lbl_colors = [str(x.strip()) for x in str($lbl.color).split(',')]
+    color=$lbl_colors,
+        #else:
     color='$lbl.color',
+        #end if
     #end if
     #if $lbl.groups:
         #set $groups_list = [str(x.strip()) for x in str($lbl.groups).split(',')]
@@ -107,15 +145,28 @@ spdata = spdata.pl.render_labels(
         #set $palette_list = [str(x.strip()) for x in str($lbl.cmap_or_palette_condi.palette).split(',')]
     palette=$palette_list,
     #end if
+    #if str($lbl.contour_px):
     contour_px=$lbl.contour_px,
+    #else:
+    contour_px=None,
+    #end if
     #if str($lbl.cmap_or_palette_condi.color_map_type) == 'cmap':
-        #set $cmap_list = [str(x.strip()) for x in str($lbl.cmap_or_palette_condi.cmap).split(',')]
-    cmap=$cmap_list,
+        #if str($lbl.cmap_or_palette_condi.zero_to_transparent) == 'True':
+    cmap=set_zero_in_cmap_to_transparent(cmap='$lbl.cmap_or_palette_condi.cmap'),
+        #else:
+    cmap='$lbl.cmap_or_palette_condi.cmap',
+        #end if
     #end if
     #if str($lbl.normalize_condi.normalize) == 'yes':
     norm=Normalize(
         vmin=$lbl.normalize_condi.vmin if $lbl.normalize_condi.vmin else None,
         vmax=$lbl.normalize_condi.vmax if $lbl.normalize_condi.vmax else None,
+        clip=$lbl.normalize_condi.clip
+    ),
+    #else if str($lbl.normalize_condi.normalize) == 'percentile':
+    norm=PercentileNormalize(
+        pmin=$lbl.normalize_condi.pmin,
+        pmax=$lbl.normalize_condi.pmax,
         clip=$lbl.normalize_condi.clip
     ),
     #end if
@@ -160,6 +211,13 @@ spdata = spdata.pl.render_labels(
     #if $lbl.gene_symbols:
     gene_symbols='$lbl.gene_symbols',
     #end if
+    as_points=$lbl.as_points,
+    size=$lbl.size,
+    #if $lbl.method and str($lbl.method) != 'None':
+    method='$lbl.method',
+    #else:
+    method=None,
+    #end if
     <!-- we can enable this later if we got user request -->
             <!-- #if $lbl.transfunc: -->
             <!-- transfunc=eval('$lbl.transfunc'), -->
@@ -194,13 +252,22 @@ spdata = spdata.pl.render_points(
     na_color=eval('$pt.na_color') if '$pt.na_color' == 'None' or '$pt.na_color'.startswith('[') or '$pt.na_color'.startswith('(') else '$pt.na_color',
     #end if
     #if str($pt.cmap_or_palette_condi.color_map_type) == 'cmap':
-        #set $cmap_list = [str(x.strip()) for x in str($pt.cmap_or_palette_condi.cmap).split(',')]
-    cmap=$cmap_list,
+        #if str($pt.cmap_or_palette_condi.zero_to_transparent) == 'True':
+    cmap=set_zero_in_cmap_to_transparent(cmap='$pt.cmap_or_palette_condi.cmap'),
+        #else:
+    cmap='$pt.cmap_or_palette_condi.cmap',
+        #end if
     #end if
     #if str($pt.normalize_condi.normalize) == 'yes':
     norm=Normalize(
         vmin=$pt.normalize_condi.vmin if $pt.normalize_condi.vmin else None,
         vmax=$pt.normalize_condi.vmax if $pt.normalize_condi.vmax else None,
+        clip=$pt.normalize_condi.clip
+    ),
+    #else if str($pt.normalize_condi.normalize) == 'percentile':
+    norm=PercentileNormalize(
+        pmin=$pt.normalize_condi.pmin,
+        pmax=$pt.normalize_condi.pmax,
         clip=$pt.normalize_condi.clip
     ),
     #end if
@@ -257,7 +324,13 @@ spdata = spdata.pl.render_shapes(
     element=None,
     #end if
     #if $shp.color:
+        ## Support multi-column RGB coloring (e.g. ['r', 'g', 'b']) or single column/color
+        #if ',' in str($shp.color):
+            #set $shp_colors = [str(x.strip()) for x in str($shp.color).split(',')]
+    color=$shp_colors,
+        #else:
     color='$shp.color',
+        #end if
     #end if
     #if $shp.fill_alpha:
     fill_alpha=$shp.fill_alpha,
@@ -284,19 +357,28 @@ spdata = spdata.pl.render_shapes(
     outline_color='$shp.outline_condi.outline_color1',
     outline_alpha=$shp.outline_condi.outline_alpha1,
     #else if str($shp.outline_condi.outline_type) == 'yes2':
-    outline_width=[$shp.outline_condi.outline_width1, $shp.outline_condi.outline_width2],
-    outline_color=['$shp.outline_condi.outline_color1', '$shp.outline_condi.outline_color2'],
-    outline_alpha=[$shp.outline_condi.outline_alpha1, $shp.outline_condi.outline_alpha2],
+    outline_width=($shp.outline_condi.outline_width1, $shp.outline_condi.outline_width2),
+    outline_color=('$shp.outline_condi.outline_color1', '$shp.outline_condi.outline_color2'),
+    outline_alpha=($shp.outline_condi.outline_alpha1, $shp.outline_condi.outline_alpha2),
     #end if
 
     #if str($shp.cmap_or_palette_condi.color_map_type) == 'cmap':
-        #set $cmap_list = [str(x.strip()) for x in str($shp.cmap_or_palette_condi.cmap).split(',')]
-    cmap=$cmap_list,
+        #if str($shp.cmap_or_palette_condi.zero_to_transparent) == 'True':
+    cmap=set_zero_in_cmap_to_transparent(cmap='$shp.cmap_or_palette_condi.cmap'),
+        #else:
+    cmap='$shp.cmap_or_palette_condi.cmap',
+        #end if
     #end if
     #if str($shp.normalize_condi.normalize) == 'yes':
     norm=Normalize(
         vmin=$shp.normalize_condi.vmin if $shp.normalize_condi.vmin else None,
         vmax=$shp.normalize_condi.vmax if $shp.normalize_condi.vmax else None,
+        clip=$shp.normalize_condi.clip
+    ),
+    #else if str($shp.normalize_condi.normalize) == 'percentile':
+    norm=PercentileNormalize(
+        pmin=$shp.normalize_condi.pmin,
+        pmax=$shp.normalize_condi.pmax,
         clip=$shp.normalize_condi.clip
     ),
     #end if
@@ -340,10 +422,92 @@ spdata = spdata.pl.render_shapes(
     #else:
     datashader_reduction=None,
     #end if
+    as_points=$shp.as_points,
+    size=$shp.size,
     <!-- we can enable this later if we got user request -->
             <!-- #if $shp.transfunc: -->
             <!-- transfunc=eval('$shp.transfunc'), -->
             <!-- #end if -->
+)
+#end for
+
+## Render spatial neighborhood graph (table.obsp) over element centroids
+#for $gr in $render_graph:
+spdata = spdata.pl.render_graph(
+    #if $gr.graph_element:
+    element='$gr.graph_element',
+    #else:
+    element=None,
+    #end if
+    #if $gr.color:
+    color='$gr.color',
+    #end if
+    connectivity_key='$gr.connectivity_key',
+    #if $gr.obsp_key:
+    obsp_key='$gr.obsp_key',
+    #end if
+    #if str($gr.cmap_or_palette_condi.color_map_type) == 'palette':
+        #set $palette_list = [str(x.strip()) for x in str($gr.cmap_or_palette_condi.palette).split(',')]
+    palette=$palette_list,
+    #end if
+    #if str($gr.na_color) != 'default':
+    na_color=eval('$gr.na_color') if '$gr.na_color' == 'None' or '$gr.na_color'.startswith('[') or '$gr.na_color'.startswith('(') else '$gr.na_color',
+    #end if
+    #if str($gr.cmap_or_palette_condi.color_map_type) == 'cmap':
+        #if str($gr.cmap_or_palette_condi.zero_to_transparent) == 'True':
+    cmap=set_zero_in_cmap_to_transparent(cmap='$gr.cmap_or_palette_condi.cmap'),
+        #else:
+    cmap='$gr.cmap_or_palette_condi.cmap',
+        #end if
+    #end if
+    #if str($gr.normalize_condi.normalize) == 'yes':
+    norm=Normalize(
+        vmin=$gr.normalize_condi.vmin if $gr.normalize_condi.vmin else None,
+        vmax=$gr.normalize_condi.vmax if $gr.normalize_condi.vmax else None,
+        clip=$gr.normalize_condi.clip
+    ),
+    #else if str($gr.normalize_condi.normalize) == 'percentile':
+    norm=PercentileNormalize(
+        pmin=$gr.normalize_condi.pmin,
+        pmax=$gr.normalize_condi.pmax,
+        clip=$gr.normalize_condi.clip
+    ),
+    #end if
+    #if $gr.groups:
+        #set $groups_list = [str(x.strip()) for x in str($gr.groups).split(',')]
+    groups=$groups_list,
+    #end if
+    #if $gr.group_key:
+    group_key='$gr.group_key',
+    #end if
+    #if str($gr.edge_width) == 'weight':
+    edge_width='weight',
+    #else:
+    edge_width=float('$gr.edge_width'),
+    #end if
+    #if str($gr.edge_alpha) == 'weight':
+    edge_alpha='weight',
+    #else:
+    edge_alpha=float('$gr.edge_alpha'),
+    #end if
+    #if $gr.weight_key:
+    weight_key='$gr.weight_key',
+    #end if
+    linestyle='$gr.linestyle',
+    rasterize=$gr.rasterize,
+    include_self_loops=$gr.include_self_loops,
+    #if $gr.colorbar == 'True':
+    colorbar=True,
+    #elif $gr.colorbar == 'False':
+    colorbar=False,
+    #else:
+    colorbar='auto',
+    #end if
+    #if $gr.table_name:
+    table_name='$gr.table_name',
+    #else:
+    table_name=None,
+    #end if
 )
 #end for
 
@@ -386,7 +550,17 @@ spdata.pl.show(
     #if $show_params.title:
     title='$show_params.title',
     #end if
+    #if $show_params.xlabel:
+    xlabel='$show_params.xlabel',
+    #end if
+    #if $show_params.ylabel:
+    ylabel='$show_params.ylabel',
+    #end if
     pad_extent=$show_params.pad_extent,
+    #if $show_params.crop_coord:
+        #set $crop_coord_tuple = tuple(float(x.strip()) for x in str($show_params.crop_coord).split(','))
+    crop_coord=$crop_coord_tuple,
+    #end if
     #if $show_params.scalebar_dx:
     scalebar_dx=$show_params.scalebar_dx,
     scalebar_units='$show_params.scalebar_units',
@@ -417,7 +591,7 @@ print("Plot saved successfully")
             <expand macro="cmap_or_palette_condi"/>
             <expand macro="normalize_condi"/>
             <param argument="alpha" type="float" value="1.0" min="0.0" max="1.0" label="Alpha (opacity)" help="Transparency level (0=transparent, 1=opaque)"/>
-            <param argument="scale" type="text" optional="true" label="Scale" help="Resolution control: leave empty for auto, 'full' for highest resolution, or specify a scale name. Please note that full resolution, takes more time to render.">
+            <param argument="scale" type="text" optional="true" label="Scale" help="Resolution control: leave empty for auto, 'full' for highest resolution, or specify a scale name. Please note that full resolution takes more time to render.">
                 <expand macro="sanitize_query"/>
             </param>
             <param argument="grayscale" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Convert the image to grayscale before rendering using luminance weights?"/>
@@ -438,8 +612,8 @@ print("Plot saved successfully")
             <param argument="groups" type="text" optional="true" label="Groups to show" help="When using color and the key represents discrete labels, groups can be used to show only a subset of them. Other values are set to NA. The list can contain multiple discrete labels to be visualized.">
                 <expand macro="sanitize_query"/>
             </param>
-            <expand macro="cmap_or_palette_condi"/>
-            <param argument="contour_px" type="integer" value="3" min="0" label="Contour width (pixels)" help="Width of contour to draw for each segment. 0 fills entire segment."/>
+            <expand macro="cmap_or_palette_single_condi"/>
+            <param argument="contour_px" type="integer" value="3" min="2" optional="true" label="Contour width (pixels)" help="Width of contour to draw for each segment (must be &gt;= 2). Leave empty to fill entire segment."/>
             <expand macro="normalize_condi"/>
             <expand macro="param_na_color"/>
             <param argument="outline_alpha" type="float" value="0.0" min="0.0" max="1.0" label="Alpha value for the outline of the labels"/>
@@ -447,13 +621,18 @@ print("Plot saved successfully")
             <param argument="outline_color" type="text" optional="true" label="Outline color" help="Accepts named color, hex string, RGB/RGBA list, or None. If None, outlines inherit from the color parameter.">
                 <expand macro="sanitize_query"/>
             </param>
-            <param argument="scale" type="text" optional="true" label="Scale" help="Resolution control: leave empty for auto, 'full' for highest resolution, or specify a scale name. Please note that full resolution, takes more time to render.">
+            <param argument="scale" type="text" optional="true" label="Scale" help="Resolution control: leave empty for auto, 'full' for highest resolution, or specify a scale name. Please note that full resolution takes more time to render.">
                 <expand macro="sanitize_query"/>
             </param>
             <expand macro="param_colorbar"/>
             <expand macro="param_table_name" value="" optional="true" help="Name of table containing color columns"/>
             <expand macro="param_table_layer"/>
             <expand macro="param_gene_symbols"/>
+            <param argument="as_points" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Render labels as centroid points?"/>
+            <param argument="size" type="float" value="1.0" min="0.0" label="Point size (when rendering as points)"/>
+            <expand macro="param_rendering_method" help="Whether to use matplotlib or datashader. When Auto, chosen automatically based on the size of the data.">
+                <option value="None">Auto</option>
+            </expand>
             <!-- we can enable this later if we got user request -->
             <!-- <expand macro="param_transfunc"/> -->
         </repeat>
@@ -466,7 +645,7 @@ print("Plot saved successfully")
             <param argument="groups" type="text" optional="true" label="Groups to show" help="When using color and the key represents discrete labels, groups can be used to show only a subset of them. Other values are set to NA. The list can contain multiple discrete labels to be visualized.">
                 <expand macro="sanitize_query"/>
             </param>
-            <expand macro="cmap_or_palette_condi"/>
+            <expand macro="cmap_or_palette_single_condi"/>
             <expand macro="normalize_condi"/>
             <expand macro="param_na_color"/>
             <param argument="size" type="float" value="1.0" min="0.0" label="Point size"/>
@@ -477,7 +656,7 @@ print("Plot saved successfully")
             <expand macro="param_table_layer"/>
             <expand macro="param_gene_symbols"/>
             <expand macro="param_colorbar"/>
-            <expand macro="param_datashader_reduction"/>
+            <expand macro="param_points_shapes_datashader_reduction"/>
             <param argument="density" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Render as 2D density?" help="Render the points as a 2-D count density via datashader instead of plotting individual markers."/>
             <param argument="density_how" type="select" label="Density mapping method" help="How datashader maps aggregated counts to color intensity. Ignored when density is False.">
                 <option value="linear" selected="true">linear</option>
@@ -497,7 +676,7 @@ print("Plot saved successfully")
             <param argument="groups" type="text" optional="true" label="Groups to show" help="When using color and the key represents discrete labels, groups can be used to show only a subset of them. Other values are set to NA. The list can contain multiple discrete labels to be visualized.">
                 <expand macro="sanitize_query"/>
             </param>
-            <expand macro="cmap_or_palette_condi"/>
+            <expand macro="cmap_or_palette_single_condi"/>
             <expand macro="param_na_color"/>
             <conditional name="outline_condi">
                 <param name="outline_type" type="select" label="Shape outline type">
@@ -507,11 +686,11 @@ print("Plot saved successfully")
                 </param>
                 <when value="no"/>
                 <when value="yes">
-                    <param name="outline_width1" type="float" optional="false" value="1.5" min="0.0" label="Outline width"/>
-                    <param name="outline_color1" type="text" optional="false" value="#000000" label="Outline color" help="Color name or hex code">
+                    <param argument="outline_width" name="outline_width1" type="float" optional="false" value="1.5" min="0.0" label="Outline width"/>
+                    <param argument="outline_color" name="outline_color1" type="text" optional="false" value="#000000" label="Outline color" help="Color name or hex code">
                         <expand macro="sanitize_query"/>
                     </param>
-                    <param name="outline_alpha1" type="float" optional="false" value="1.0" min="0.0" max="1.0" label="Outline alpha"/>
+                    <param argument="outline_alpha" name="outline_alpha1" type="float" optional="false" value="1.0" min="0.0" max="1.0" label="Outline alpha"/>
                 </when>
                 <when value="yes2">
                     <param name="outline_width1" type="float" optional="false" value="1.5" min="0.0" label="First outline width"/>
@@ -542,9 +721,51 @@ print("Plot saved successfully")
                 <option value="square">Square</option>
             </param>
             <expand macro="param_colorbar"/>
-            <expand macro="param_datashader_reduction"/>
+            <expand macro="param_points_shapes_datashader_reduction"/>
+            <param argument="as_points" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Render shapes as centroid points?"/>
+            <param argument="size" type="float" value="1.0" min="0.0" label="Point size (when rendering as points)"/>
             <!-- we can enable this later if we got user request -->
             <!-- <expand macro="param_transfunc"/> -->
+        </repeat>
+        <repeat name="render_graph" min="0" title="Render Graph">
+            <param argument="element" name="graph_element" type="text" optional="true" label="Element name" help="Name of the shapes/points/labels element the graph connects. Auto-resolved from the table if omitted.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <expand macro="param_color"/>
+            <param argument="connectivity_key" type="text" value="spatial" label="Connectivity key in table.obsp" help="Tries key first, then '{key}_connectivities'">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="obsp_key" type="text" optional="true" label="Edge scalar matrix key in table.obsp (optional)" help="Matrix in table.obsp used as per-edge scalar; colored via cmap/norm. Mutually exclusive with color.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <expand macro="cmap_or_palette_single_condi"/>
+            <expand macro="normalize_condi"/>
+            <expand macro="param_na_color"/>
+            <param argument="groups" type="text" optional="true" label="Groups to show (optional)" help="Show only edges where both endpoints fall in these groups. Requires group_key.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="group_key" type="text" optional="true" label="Group key in table.obs (optional)" help="Column in table.obs used for group filtering.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="edge_width" type="text" value="1.0" label="Edge width" help="Numeric line width (e.g. 1.0) or 'weight' to scale by weight_key values.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="edge_alpha" type="text" value="1.0" label="Edge alpha" help="Numeric transparency (e.g. 1.0) or 'weight' to scale by weight_key values.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="weight_key" type="text" optional="true" label="Weight key in table.obsp (optional)" help="Matrix providing per-edge weights. Defaults to connectivity_key when omitted.">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="linestyle" type="select" label="Edge line style">
+                <option value="solid" selected="true">Solid</option>
+                <option value="dashed">Dashed</option>
+                <option value="dashdot">Dash-dot</option>
+                <option value="dotted">Dotted</option>
+            </param>
+            <param argument="rasterize" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Rasterize edge collection?"/>
+            <param argument="include_self_loops" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Include self loops?"/>
+            <expand macro="param_colorbar"/>
+            <expand macro="param_table_name" value="" optional="true"/>
         </repeat>
         <section name="show_params" title="Plot Display Parameters" expanded="true">
             <param argument="coordinate_systems" type="text" optional="true" label="Coordinate system(s)" help="Comma-separated list of coordinate systems to plot. Leave empty for all.  If a coordinate system doesn't contain any relevant elements (as specified in the render_* calls), it is automatically not plotted.">
@@ -591,7 +812,16 @@ print("Plot saved successfully")
             <param argument="title" type="text" optional="true" label="Plot title" help="If not provided the plot will have the name of the coordinate system as title.">
                 <expand macro="sanitize_query"/>
             </param>
+            <param argument="xlabel" type="text" optional="true" label="X-axis label">
+                <expand macro="sanitize_query"/>
+            </param>
+            <param argument="ylabel" type="text" optional="true" label="Y-axis label">
+                <expand macro="sanitize_query"/>
+            </param>
             <param argument="pad_extent" type="float" value="0.0" label="Padding around extent" help="Padding added around the computed spatial extent on all sides."/>
+            <param argument="crop_coord" type="text" optional="true" label="Crop coordinates (xmin,xmax,ymin,ymax)" help="Restrict the plot to a bounding box (xmin, xmax, ymin, ymax) in the rendered coordinate system's units.">
+                <expand macro="sanitize_digits"/>
+            </param>
             <param argument="scalebar_dx" type="float" optional="true" label="Scalebar physical size" help="Physical size of one axes-unit in scalebar_units (e.g. 1.0 if axes in micrometers). If empty, no scalebar is drawn."/>
             <param argument="scalebar_units" type="text" value="um" label="Scalebar units" help="Unit string for the scalebar. Only takes effect if scalebar physical size is set.">
                 <expand macro="sanitize_query"/>
@@ -686,10 +916,10 @@ print("Plot saved successfully")
             </assert_stdout>
             <output name="plot_output" ftype="jpg">
                 <assert_contents>
-                    <has_image_center_of_mass center_of_mass="295, 245" eps="10"/>
+                    <has_image_center_of_mass center_of_mass="290, 250" eps="30"/>
                     <has_image_channels channels="3"/>
                     <has_image_height height="491"/>
-                    <has_image_width width="586"/>
+                    <has_image_width width="581"/>
                 </assert_contents>
             </output>
         </test>
@@ -833,7 +1063,7 @@ This tool creates rich static plots from SpatialData objects. It provides compre
 
 **Rendering Options**
 
-The tool supports four types of spatial elements:
+The tool supports five types of spatial elements:
 
 **1. Images**: Render microscopy images, H&E stains, or fluorescence channels
    - Select specific channels or view all
@@ -851,17 +1081,22 @@ The tool supports four types of spatial elements:
    - Choose between matplotlib (smaller datasets) or datashader (large datasets) rendering
 
 **4. Shapes**: Render geometric shapes (circles, polygons, boundaries)
-   - Color by annotations or use solid colors
-   - Control outline and fill properties
+   - Color by annotations (single column or comma-separated multi-panel column list) or use solid colors
+   - Control single or double outline and fill properties, or render shapes as centroid points (`as_points`)
    - Convert shapes to standard geometries (circles, hexagons, squares)
+
+**5. Graph**: Render spatial neighborhood graphs (`render_graph`)
+   - Visualize connectivity matrices from `table.obsp` (e.g., Squidpy spatial neighbors)
+   - Color edges by scalar, `obs` column, or `obsp` matrix, and scale width/alpha by edge weights
 
 -----
 
 **Display Parameters**
 
 - **Coordinate Systems**: Select which spatial coordinate systems to visualize
-- **Figure Layout**: Control subplot arrangement, figure size, and resolution
-- **Legend**: Customize font, position, and content
+- **Crop Coordinates**: Zoom into a specific bounding box `(xmin, xmax, ymin, ymax)` at full figure resolution
+- **Figure Layout**: Control subplot arrangement, figure size, axis labels (`xlabel`, `ylabel`), and resolution (`dpi`)
+- **Legend & Colorbars**: Customize font, position, scalebar, linear or percentile normalization (`PercentileNormalize`), and transparent zero-values (`set_zero_in_cmap_to_transparent`)
 - **Title**: Add custom titles to plots
 
 -----
