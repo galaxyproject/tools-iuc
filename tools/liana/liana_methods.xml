@@ -215,6 +215,15 @@ inflow_kw['x_layer'] = '$method.mdata_opts.x_layer'.strip()
         #if str($method.mdata_opts.y_layer).strip() != '':
 inflow_kw['y_layer'] = '$method.mdata_opts.y_layer'.strip()
         #end if
+inflow_kw['x_transform'] = _get_transform_fn('$method.mdata_opts.x_transform')
+inflow_kw['y_transform'] = _get_transform_fn('$method.mdata_opts.y_transform')
+    #else:
+inflow_kw['use_raw'] = $method.use_raw
+        #if str($method.layer).strip() != '':
+inflow_kw['layer'] = '$method.layer'.strip()
+        #end if
+inflow_kw['x_transform'] = _get_transform_fn('$method.x_transform')
+inflow_kw['y_transform'] = _get_transform_fn('$method.y_transform')
     #end if
     #if str($method.x_name).strip() != '':
 inflow_kw['x_name'] = '$method.x_name'.strip()
@@ -233,12 +242,6 @@ lrdata = li.mt.inflow(
     @CMD_RESOURCE_FOR_METHODS@
     nz_prop=$method.nz_prop,
     connectivity_key='$method.connectivity_key',
-    x_transform=_get_transform_fn('$method.x_transform'),
-    y_transform=_get_transform_fn('$method.y_transform'),
-    use_raw=$method.use_raw,
-    #if str($method.layer).strip() != '':
-    layer='$method.layer'.strip(),
-    #end if
     xy_sep='$method.xy_sep' if str('$method.xy_sep') != '' else '^',
     verbose=False,
     **inflow_kw)
@@ -791,7 +794,7 @@ causal_df.to_csv('liana_res.tsv', sep='\t', index=False)
                 <expand macro="param_use_raw"/>
                 <expand macro="param_layer"/>
                 <expand macro="param_key_added" value="liana_res"/>
-                <param name="output_tsv" type="boolean" checked="true" label="Also export differential L-R table as TSV?"/>
+                <param name="output_tsv" type="boolean" checked="false" label="Also export differential L-R table as TSV?"/>
             </when>
             <when value="estimate_metalinks">
                 <expand macro="inputs_anndata"/>
@@ -1189,7 +1192,7 @@ causal_df.to_csv('liana_res.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 10: rank_aggregate by_sample + spatial proximity weighting -->
+        <!-- Test 10: rank_aggregate by_sample -->
         <test expect_num_outputs="3">
             <conditional name="method">
                 <param name="method" value="rank_aggregate"/>
@@ -1573,7 +1576,54 @@ causal_df.to_csv('liana_res.tsv', sep='\t', index=False)
                 </assert_contents>
             </output>
         </test>
-        <!-- NOTE: Enable Test 19 (find_causalnet) when liana supports corneto >= 1.0.0 or if Bioconda ships corneto==0.9.1a6
+        <!-- Test 19: rank_aggregate with spatial proximity weighting -->
+        <test expect_num_outputs="3">
+            <conditional name="method">
+                <param name="method" value="rank_aggregate"/>
+                <param name="adata" location="https://zenodo.org/records/18388645/files/spatial_small.h5ad"/>
+                <param name="groupby" value="cell_type"/>
+                <conditional name="resource_selection">
+                    <param name="resource_type" value="resource_name"/>
+                    <param name="resource_name" value="consensus"/>
+                </conditional>
+                <param name="expr_prop" value="0.05"/>
+                <param name="min_cells" value="3"/>
+                <param name="use_raw" value="false"/>
+                <param name="n_perms" value="5"/>
+                <param name="seed" value="42"/>
+                <section name="spatial_proximity">
+                    <param name="spatial_key" value="spatial"/>
+                    <param name="bandwidth" value="250"/>
+                    <param name="min_cells_in_proximity" value="3"/>
+                </section>
+                <param name="output_tsv" value="true"/>
+            </conditional>
+            <section name="advanced_common">
+                <param name="show_log" value="true"/>
+            </section>
+            <assert_stdout>
+                <has_text_matching expression="n_obs × n_vars = 150 × 100"/>
+                <has_text_matching expression="liana_res"/>
+            </assert_stdout>
+            <output name="anndata_out" ftype="h5ad">
+                <assert_contents>
+                    <has_h5_keys keys="uns/liana_res"/>
+                </assert_contents>
+            </output>
+            <output name="tsv_out" ftype="tabular">
+                <assert_contents>
+                    <has_text text="magnitude_rank"/>
+                </assert_contents>
+            </output>
+            <output name="hidden_output">
+                <assert_contents>
+                    <has_text_matching expression="li\.mt\.rank_aggregate\("/>
+                    <has_text_matching expression="spatial_key='spatial'"/>
+                    <has_text_matching expression="spatial_kwargs=spatial_kw"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- NOTE: Enable Test 20 (find_causalnet) when liana supports corneto >= 1.0.0 or if Bioconda ships corneto==0.9.1a6
         <test expect_num_outputs="2">
             <conditional name="method">
                 <param name="method" value="find_causalnet"/>
@@ -1622,7 +1672,7 @@ Infers ligand-receptor cell-cell communication (CCC), spatial co-expression, dis
 
 - **compute_global_specificity**: Computes permutation-based global specificity scores and p-values per receiver cell type from spatial inflow scores.
   - *Input*: Inflow `AnnData` (`.h5ad`) produced by `inflow`.
-  - *Output*: Updated Inflow `AnnData` (`.h5ad`) with specificity statistics in `.uns['global_res']`, plus an optional tabular file (`.tsv`).
+  - *Output*: Updated Inflow `AnnData` (`.h5ad`) with specificity statistics in `.uns['global_interactions']`, plus an optional tabular file (`.tsv`).
 
 - **lric / cross_pcf**: Computes distance-resolved pair correlation `g(r)` curves across concentric spatial rings for ligand-receptor co-expression (`lric`) or cell-type co-localization (`cross_pcf`).
   - *Input*: `AnnData` (`.h5ad`) with spatial coordinates in `.obsm[spatial_key]`.
@@ -1634,7 +1684,7 @@ Infers ligand-receptor cell-cell communication (CCC), spatial co-expression, dis
 
 - **df_to_lr**: Combines per-cell-type differential expression (DEA) statistics with expression proportions into a ligand-receptor interaction table.
   - *Input*: `AnnData` (`.h5ad`) and a DEA table (`.tsv`) containing gene names, cell-type labels (`groupby`), and test statistics.
-  - *Output*: Tabular file (`.tsv`) of differential ligand-receptor interactions.
+  - *Output*: `AnnData` (`.h5ad`) with differential L-R results stored in `.uns[key_added]`, plus an optional tabular file (`.tsv`).
 
 - **estimate_metalinks**: Estimates metabolite production/secretion scores from enzyme and transporter gene expression and pairs them with receptor expression.
   - *Input*: `AnnData` (`.h5ad`) and three MetalinksDB tables (`.tsv`, generated by **Liana Resource** → `get_metalinks`): metabolite-receptor `resource`, production-degradation `pd_net`, and optional transporter `t_net`.

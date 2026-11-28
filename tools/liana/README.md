@@ -122,7 +122,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 | `compute_global_specificity` | Computes permutation-based receiver cell-type specificity from Inflow scores | Inflow `.h5ad` | Updated `.h5ad` with `.uns['global_res']` (+ optional `.tsv`) |
 | `lric` / `cross_pcf` | Computes distance-resolved pair correlation `g(r)` curves across concentric rings | `.h5ad` with `.obsm[spatial_key]` | `.h5ad` with `.uns[key_added]` (+ optional `.tsv`) |
 | `get_lric_auc` | Summarizes `lric`/`cross_pcf` `g(r)` curves into AUC scores and peak radii | `.h5ad` with `.uns[uns_key]` | AUC summary table (`.tsv`) |
-| `df_to_lr` | Combines per-cell-type DEA statistics with expression proportions into L-R scores | `.h5ad` + DEA table (`.tsv`) | Differential L-R table (`.tsv`) |
+| `df_to_lr` | Combines per-cell-type DEA statistics with expression proportions into L-R scores | `.h5ad` + DEA table (`.tsv`) | `.h5ad` with `.uns[key_added]` (+ optional `.tsv`) |
 | `estimate_metalinks` | Estimates metabolite abundance from enzyme/transporter expression and pairs with receptors | `.h5ad` + MetalinksDB `resource`, `pd_net` (& optional `t_net`) `.tsv` | `.h5mu` (`metabolite` & `receptor` modalities) |
 
 ### 4. Liana MISTy (`liana_misty.xml` — `liana.mt`)
