@@ -44,10 +44,23 @@ tensor = li.ms.to_tensor_c2c(
 )
     #if str($method.output_format) == 'npy':
 arr = getattr(tensor, 'tensor', tensor)
-np.save('tensor_output.npy', np.asarray(arr))
+np.save('tensor_output.npy', np.asarray(arr), allow_pickle=False)
     #else:
-import cell2cell as c2c
-c2c.io.export_variable_with_pickle(tensor, 'tensor_output.pkl')
+import h5py
+arr = np.asarray(getattr(tensor, 'tensor', tensor))
+with h5py.File('tensor_output.h5', 'w') as hf:
+    hf.create_dataset('tensor', data=arr, compression='gzip')
+    mask = getattr(tensor, 'mask', None)
+    if mask is not None:
+        hf.create_dataset('mask', data=np.asarray(mask), compression='gzip')
+    order_names = getattr(tensor, 'order_names', None)
+    if order_names is not None:
+        axis_keys = ['samples', 'lrs', 'senders', 'receivers']
+        str_dt = h5py.string_dtype(encoding='utf-8')
+        grp = hf.create_group('order_names')
+        for i, names in enumerate(order_names):
+            key = axis_keys[i] if i < len(axis_keys) else f'axis_{i}'
+            grp.create_dataset(key, data=np.asarray([str(n) for n in names], dtype=object), dtype=str_dt)
     #end if
 
 #else if str($method.method) == 'lrs_to_views':
@@ -227,8 +240,8 @@ li.ms.nmf(
                 <param argument="non_expressed_fill" type="float" optional="true" label="Non-expressed fill value" help="Value to fill for non-expressed ligand-receptor pairs (when return_all_lrs=True was used)."/>
                 <param argument="non_negative" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Non-negative" help="Clip negative scores to 0."/>
                 <param name="output_format" type="select" label="Output tensor format">
-                    <option value="npy" selected="true">NumPy array (.npy)</option>
-                    <option value="pkl">Cell2Cell InteractionTensor pickle (.pkl)</option>
+                    <option value="h5" selected="true">HDF5 with axis labels and mask (.h5)</option>
+                    <option value="npy">NumPy array only (.npy)</option>
                 </param>
             </when>
             <when value="lrs_to_views">
@@ -321,8 +334,8 @@ li.ms.nmf(
         <data name="tensor_out" format="npy" from_work_dir="tensor_output.npy" label="${tool.name} (${method.method}) on ${on_string}: Tensor (NPY)">
             <filter>method['method'] == 'to_tensor_c2c' and method['output_format'] == 'npy'</filter>
         </data>
-        <data name="tensor_pkl_out" format="binary" from_work_dir="tensor_output.pkl" label="${tool.name} (${method.method}) on ${on_string}: InteractionTensor (PKL)">
-            <filter>method['method'] == 'to_tensor_c2c' and method['output_format'] == 'pkl'</filter>
+        <data name="tensor_h5_out" format="h5" from_work_dir="tensor_output.h5" label="${tool.name} (${method.method}) on ${on_string}: Tensor (HDF5)">
+            <filter>method['method'] == 'to_tensor_c2c' and method['output_format'] == 'h5'</filter>
         </data>
         <data name="mdata_out" format="h5mu" from_work_dir="mdata_output.h5mu" label="${tool.name} (${method.method}) on ${on_string}: MuData">
             <filter>method['method'] in ['lrs_to_views', 'adata_to_views', 'filter_view_markers', 'lrdata_to_mudata']</filter>
@@ -461,7 +474,7 @@ li.ms.nmf(
                 </assert_contents>
             </output>
         </test>
-        <!-- Test 5: to_tensor_c2c with InteractionTensor pickle (.pkl) output -->
+        <!-- Test 5: to_tensor_c2c with HDF5 (.h5) output including axis labels -->
         <test expect_num_outputs="2">
             <param name="adata" location="https://zenodo.org/records/18388645/files/multi_sample_test.h5ad"/>
             <conditional name="method">
@@ -473,14 +486,14 @@ li.ms.nmf(
                 <param name="lr_fill" value="zero"/>
                 <param name="cell_fill" value="zero"/>
                 <param name="non_negative" value="true"/>
-                <param name="output_format" value="pkl"/>
+                <param name="output_format" value="h5"/>
             </conditional>
             <section name="advanced_common">
                 <param name="show_log" value="true"/>
             </section>
-            <output name="tensor_pkl_out" ftype="binary">
+            <output name="tensor_h5_out" ftype="h5">
                 <assert_contents>
-                    <has_size min="100"/>
+                    <has_h5_keys keys="tensor,order_names/samples,order_names/lrs,order_names/senders,order_names/receivers"/>
                 </assert_contents>
             </output>
             <output name="hidden_output">
@@ -488,7 +501,7 @@ li.ms.nmf(
                     <has_text_matching expression="li\.ms\.to_tensor_c2c\("/>
                     <has_text_matching expression="how='outer'"/>
                     <has_text_matching expression="lr_fill=0\.0"/>
-                    <has_text_matching expression="c2c\.io\.export_variable_with_pickle"/>
+                    <has_text_matching expression="h5py\.File\('tensor_output\.h5'"/>
                 </assert_contents>
             </output>
         </test>
@@ -605,9 +618,9 @@ Transforms multi-sample and spatial LIANA+ results into higher-order tensors, mu
 
 **Functions, Inputs, and Outputs**
 
-- **to_tensor_c2c**: Reshapes multi-sample ligand-receptor results into a 4D tensor (`samples × senders × receivers × LRs`) for Tensor-cell2cell decomposition.
+- **to_tensor_c2c**: Reshapes multi-sample ligand-receptor results into a 4D tensor (`samples × LRs × senders × receivers`) for Tensor-cell2cell decomposition.
   - *Input*: `AnnData` (`.h5ad`) containing by-sample LIANA results in `.uns[uns_key]`.
-  - *Output*: 4D NumPy array (`.npy`) or Cell2Cell `InteractionTensor` pickle (`.pkl`).
+  - *Output*: HDF5 file (`.h5`, containing `tensor`, optional `mask`, and `order_names` axis labels) or 4D NumPy array (`.npy`).
 
 - **lrs_to_views**: Converts multi-sample ligand-receptor results into a multi-view `MuData` where each view is a `source&target` cell-type pair (for MOFAtalk).
   - *Input*: `AnnData` (`.h5ad`) containing by-sample LIANA results in `.uns[uns_key]` and `.obs[sample_key]`.

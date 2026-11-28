@@ -60,7 +60,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 1. **Single-Cell & Multi-Sample CCC**:
    - *(Optional)* **Liana Resource** (`get_hcop_orthologs` → `translate_resource`) to translate human L-R pairs to another species (`.tsv`).
    - **Liana Methods** (`rank_aggregate`, `cellphonedb`, `cellchat`, etc.) on an `AnnData` (`.h5ad`) or `MuData` (`.h5mu`) → outputs `.h5ad`/`.h5mu` with `.uns['liana_res']` (and `.tsv`).
-   - *(Multi-sample)* **Liana Multi-Sample** (`to_tensor_c2c` for 4D tensor `.npy`/`.pkl`, or `lrs_to_views` / `adata_to_views` → `filter_view_markers` for `.h5mu` views).
+   - *(Multi-sample)* **Liana Multi-Sample** (`to_tensor_c2c` for 4D tensor `.h5`/`.npy`, or `lrs_to_views` / `adata_to_views` → `filter_view_markers` for `.h5mu` views).
    - **Liana Plot** (`dotplot`, `dotplot_by_sample`, `tileplot`, or `circle`) on the resulting `.h5ad`/`.h5mu`.
 
 2. **Spatial Local Co-Expression, Inflow & NMF**:
@@ -137,7 +137,7 @@ Galaxy tools for [LIANA+](https://liana-py.readthedocs.io/), a framework for sin
 
 | Function | What it does | Input | Output |
 | :--- | :--- | :--- | :--- |
-| `to_tensor_c2c` | Reshapes multi-sample L-R scores into a 4D tensor (`samples × senders × receivers × LRs`) | `.h5ad` with by-sample `.uns[uns_key]` | 4D tensor (`.npy` or `.pkl`) |
+| `to_tensor_c2c` | Reshapes multi-sample L-R scores into a 4D tensor (`samples × LRs × senders × receivers`) | `.h5ad` with by-sample `.uns[uns_key]` | 4D tensor (`.h5` or `.npy`) |
 | `lrs_to_views` | Converts multi-sample L-R scores into `source&target` views for MOFAtalk | `.h5ad` with by-sample `.uns[uns_key]` | `.h5mu` |
 | `adata_to_views` | Aggregates single-cell data into pseudobulk views per cell type for MOFAcellular | `.h5ad` with `.obs[groupby]` & `.obs[sample_key]` | `.h5mu` |
 | `filter_view_markers` | Filters background marker genes of other cell types from `adata_to_views` modalities | `.h5mu` + marker gene table (`.tsv`) | Filtered `.h5mu` |
