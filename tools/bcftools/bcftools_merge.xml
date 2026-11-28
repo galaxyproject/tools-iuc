@@ -20,6 +20,7 @@ ${section.print_header}
 #if $section.use_header:
   --use-header '${section.use_header}'
 #end if
+@NO_VERSION@
 
 ## Merge section
 #set $section = $sec_merge
@@ -33,8 +34,21 @@ ${section.missing_to_ref}
   --gvcf '${section.gvcf.ref_file}'
 #end if
 
-#if $section.info_rules:
-  --info-rules '${section.info_rules}'
+#if str($section.info_rules.info_rules_selector) == "none":
+  --info-rules '-'
+#elif str($section.info_rules.info_rules_selector) == "custom":
+  #set $rules_list = []
+  #for $r in $section.info_rules.rules:
+    #set $tags = str($r.tag).strip().split(',')
+    #for $t in $tags:
+      #if $t.strip():
+        #silent $rules_list.append($t.strip() + ':' + str($r.method))
+      #end if
+    #end for
+  #end for
+  #if $rules_list:
+    --info-rules '#echo ",".join($rules_list)#'
+  #end if
 #end if
 
 #if $section.local_alleles > 0:
@@ -47,14 +61,26 @@ ${section.missing_to_ref}
   #else:
       --merge '${section.merge}'
   #end if
-  ${section.no_index}
+#elif str($section.unobserved) != "none":
+  --merge 'both,${section.unobserved}'
 #end if
 
-#if $section.missing_rules:
-  --missing-rules '${section.missing_rules}'
+#if str($section.missing_rules.missing_rules_selector) == "none":
+  --missing-rules '-'
+#elif str($section.missing_rules.missing_rules_selector) == "custom":
+  #set $m_rules_list = []
+  #for $r in $section.missing_rules.rules:
+    #set $tags = str($r.tag).strip().split(',')
+    #for $t in $tags:
+      #if $t.strip():
+        #silent $m_rules_list.append($t.strip() + ':' + str($r.replacement))
+      #end if
+    #end for
+  #end for
+  #if $m_rules_list:
+    --missing-rules '#echo ",".join($m_rules_list)#'
+  #end if
 #end if
-
-@NO_VERSION@
 
 ## Restrict section
 #set $section = $sec_restrict
@@ -76,19 +102,34 @@ ${section.missing_to_ref}
     </command>
     <inputs>
         <expand macro="macro_inputs"/>
-        <section name="sec_restrict" expanded="false" title="Restrict to">
-            <expand macro="macro_apply_filters"/>
-            <param name="filter_logic" type="select" label="Filter Logic" help="Remove filters if some input is PASS ('x'), or apply all filters ('+') (-F)">
-                <option value="+" selected="True">Apply all filters (+)</option>
-                <option value="x">Remove filters if some input is PASS (x)</option>
-            </param>
-            <expand macro="macro_region_restrict"/>
-        </section>
         <section name="sec_merge" expanded="true" title="Merge Options">
-            <param name="force_samples" type="boolean" truevalue="--force-samples" falsevalue="" label="Force Samples" help="Resolve duplicate sample names"/>
-            <param name="force_single" type="boolean" truevalue="--force-single" falsevalue="" label="Force Single" help="Run even if only one file is given on input"/>
+            <param name="merge" type="select" label="Merge multiallelic records" optional="True">
+                <help><![CDATA[
+Controls what types of multiallelic records can be created when the same site appears in multiple files (-m):
+- <strong>None</strong>: No new multiallelic records are created; separate records are output instead.
+- <strong>Snps</strong>: Allow multiallelic SNP records.
+- <strong>Indels</strong>: Allow multiallelic indel records.
+- <strong>Both</strong>: Both SNP and indel records can be multiallelic (default).
+- <strong>Snp-ins-del</strong>: Allow multiallelic SNVs, insertions, deletions, but don't mix them.
+- <strong>All</strong>: Allow any variant records to be merged together (e.g. SNVs with indels).
+- <strong>Exact</strong>: Allow multiallelic records only when REF and ALT alleles match exactly.
+- <strong>Id</strong>: Merge records matching on the ID column.
+                ]]></help>
+                <option value="none">None</option>
+                <option value="snps">Snps</option>
+                <option value="indels">Indels</option>
+                <option value="both">Both</option>
+                <option value="snp-ins-del">Snp-ins-del</option>
+                <option value="all">All</option>
+                <option value="exact">Exact</option>
+                <option value="id">Id</option>
+            </param>
+            <param name="unobserved" type="select" label="Drop unobserved alleles" help="Remove the unobserved allele &lt;*&gt; or &lt;NON_REF&gt; (* or **)">
+                <option value="none" selected="True">Do not remove</option>
+                <option value="*">Remove from variant sites (*)</option>
+                <option value="**">Remove from all sites (**)</option>
+            </param>
             <param name="missing_to_ref" type="boolean" truevalue="-0" falsevalue="" label="Assume genotypes at missing sites are 0/0" help="--missing-to-ref (-0)"/>
-
             <conditional name="gvcf">
                 <param name="gvcf_merge" type="select" label="Merge gVCF blocks (-g)">
                     <option value="none" selected="True">Do not merge gVCF blocks</option>
@@ -101,32 +142,66 @@ ${section.missing_to_ref}
                     <param name="ref_file" type="data" format="fasta" label="Reference FASTA"/>
                 </when>
             </conditional>
-
-            <param name="info_rules" type="text" label="Info Rules" help="Rules for merging INFO fields (method is one of sum,avg,min,max,join) or &quot;-&quot; to turn off the default [DP:sum,DP4:sum]"/>
+            <conditional name="info_rules">
+                <param name="info_rules_selector" type="select" label="Rules for merging INFO fields" help="Rules for merging INFO fields or '-' to turn off the defaults [DP:sum,DP4:sum, or QS:sum,MinDP:min,MIN_DP:min,I16:sum,IDV:max,IMF:max when gVCF merging is active] (-i, --info-rules)">
+                    <option value="default" selected="true">Default rules (DP:sum,DP4:sum or "QS:sum,MinDP:min..." with gVCF)</option>
+                    <option value="none">Turn off default rules (-)</option>
+                    <option value="custom">Define custom rules</option>
+                </param>
+                <when value="default"/>
+                <when value="none"/>
+                <when value="custom">
+                    <repeat name="rules" title="Rule" min="1">
+                        <param name="tag" type="text" label="INFO tag(s)" help="Name of the INFO tag, e.g. DP, TR, AC. Multiple tags using the same method can be separated with commas (e.g. TR,TA,TG).">
+                            <validator type="regex" message="Tag names must start with a letter or underscore and contain only alphanumeric, underscore, or dot characters (e.g. DP or TR,TA,TG)">^\s*[A-Za-z_][A-Za-z0-9_.]*(\s*,\s*[A-Za-z_][A-Za-z0-9_.]*)*\s*$</validator>
+                        </param>
+                        <param name="method" type="select" label="Merge Method" help="Method used to combine values across files">
+                            <option value="sum" selected="true">Sum</option>
+                            <option value="avg">Avg</option>
+                            <option value="min">Min</option>
+                            <option value="max">Max</option>
+                            <option value="join">Join</option>
+                        </param>
+                    </repeat>
+                </when>
+            </conditional>
+            <conditional name="missing_rules">
+                <param name="missing_rules_selector" type="select" label="Rules for replacing missing values in numeric vectors" help="Rules for replacing missing values when unknown allele is not present (-M, --missing-rules)">
+                    <option value="default" selected="true">Default rules (. or "PL:max,AD:0" with gVCF)</option>
+                    <option value="none">Reset to missing dot (-)</option>
+                    <option value="custom">Define custom missing rules</option>
+                </param>
+                <when value="default"/>
+                <when value="none"/>
+                <when value="custom">
+                    <repeat name="rules" title="Rule" min="1">
+                        <param name="tag" type="text" label="FORMAT tag(s)" help="Name of the FORMAT tag, e.g. DP, PL, AD. Multiple tags using the same replacement can be separated with commas (e.g. PL,AD).">
+                            <validator type="regex" message="Tag names must start with a letter or underscore and contain only alphanumeric, underscore, or dot characters (e.g. DP or PL,AD)">^\s*[A-Za-z_][A-Za-z0-9_.]*(\s*,\s*[A-Za-z_][A-Za-z0-9_.]*)*\s*$</validator>
+                        </param>
+                        <param name="replacement" type="select" label="Replacement value" help="Value to substitute for missing vector entries">
+                            <option value="." selected="true">. (Missing dot)</option>
+                            <option value="max">max (Maximum value)</option>
+                            <option value="0">0 (Zero)</option>
+                        </param>
+                    </repeat>
+                </when>
+            </conditional>
             <param name="local_alleles" type="integer" value="0" min="0" label="Local Alleles limit" help="If more than INT alt alleles are encountered, drop FMT/PL and output LAA+LPL instead; 0=unlimited (-L)"/>
-
-            <param name="merge" type="select" label="Merge multiallelic records" optional="True" help="Controls what types of multiallelic records can be created (-m)">
-                <option value="none">None - no new multiallelics, output multiple records instead</option>
-                <option value="snps">Snps - allow multiallelic SNP records</option>
-                <option value="indels">Indels - allow multiallelic indel records</option>
-                <option value="both">Both - both SNP and indel records can be multiallelic</option>
-                <option value="snp-ins-del">Snp-ins-del - allow multiallelic SNVs, insertions, deletions, but don't mix them</option>
-                <option value="all">All - SNP records can be merged with indel records</option>
-                <option value="id">Id - merge by ID</option>
+            <param name="force_samples" type="boolean" truevalue="--force-samples" falsevalue="" label="Force Samples" help="Resolve duplicate sample names"/>
+            <param name="force_single" type="boolean" truevalue="--force-single" falsevalue="" label="Force Single" help="Run even if only one file is given on input"/>
+        </section>
+        <section name="sec_restrict" expanded="false" title="Restrict to">
+            <expand macro="macro_apply_filters"/>
+            <param name="filter_logic" type="select" label="Filter Logic" help="Remove filters if some input is PASS ('x'), or apply all filters ('+') (-F)">
+                <option value="+" selected="True">Apply all filters (+)</option>
+                <option value="x">Remove filters if some input is PASS (x)</option>
             </param>
-            <param name="unobserved" type="select" label="Drop unobserved alleles" help="Remove the unobserved allele &lt;*&gt; or &lt;NON_REF&gt; (* or **)">
-                <option value="none" selected="True">Do not remove</option>
-                <option value="*">Remove from variant sites (*)</option>
-                <option value="**">Remove from all sites (**)</option>
-            </param>
-
-            <param name="missing_rules" type="text" value="" optional="true" label="Missing Rules" help="Rules for replacing missing values in numeric vectors (.,0,max) when unknown allele is not present (-M)"/>
-            <param argument="--no-index" type="boolean" truevalue="--no-index" falsevalue="" checked="false" label="Allow merge unindexed files" help="Requires the input files to have chromosomes in th same order and consistent with the order of sequences in the header"/>
-            <expand macro="macro_no_version" />
+            <expand macro="macro_region_restrict"/>
         </section>
         <section name="sec_header" expanded="false" title="Header Options">
             <param name="use_header" type="data" format="vcf" label="Use Header" optional="True" help="Use the provided header"/>
             <param name="print_header" type="boolean" truevalue="--print-header" falsevalue="" label="Print Header" help="Print only the merged header and exit"/>
+            <expand macro="macro_no_version" />
         </section>
         <expand macro="macro_select_output_type"/>
     </inputs>
@@ -193,7 +268,13 @@ ${section.missing_to_ref}
             <param name="input_files" ftype="vcf" value="merge.3.a.vcf,merge.3.b.vcf"/>
             <section name="sec_merge">
                 <param name="force_samples" value="true"/>
-                <param name="info_rules" value="TR:sum,TA:sum,TG:sum"/>
+                <conditional name="info_rules">
+                    <param name="info_rules_selector" value="custom"/>
+                    <repeat name="rules">
+                        <param name="tag" value="TR,TA,TG"/>
+                        <param name="method" value="sum"/>
+                    </repeat>
+                </conditional>
             </section>
             <param name="output_type" value="v"/>
             <output name="output_file">
@@ -202,23 +283,8 @@ ${section.missing_to_ref}
                     <has_text_matching expression="TR=[^;\t]*11"/>
                 </assert_contents>
             </output>
-        </test>
-        <!-- Test no_index option -->
-        <test>
-            <param name="input_files" ftype="vcf" value="merge.4.a.vcf,merge.4.b.vcf"/>
-            <section name="sec_merge">
-                <param name="force_samples" value="true"/>
-                <param name="merge" value="id"/>
-                <param name="no_index" value="true"/>
-            </section>
-            <param name="output_type" value="v"/>
-            <output name="output_file">
-                <assert_contents>
-                    <has_text_matching expression="1\t3000000\tid1\tC\t(A,CCG|CCG,A)\t"/>
-                </assert_contents>
-            </output>
             <assert_command>
-                <has_text text="--no-index"/>
+                <has_text text="--info-rules &apos;TR:sum,TA:sum,TG:sum&apos;"/>
             </assert_command>
         </test>
         <!-- Test region overlap option -->
@@ -256,8 +322,13 @@ ${section.missing_to_ref}
                     <param name="gvcf_merge" value="without_ref"/>
                 </conditional>
                 <param name="local_alleles" value="1"/>
-                <param name="missing_rules" value="DP:max"/>
-                <param name="no_version" value="true"/>
+                <conditional name="missing_rules">
+                    <param name="missing_rules_selector" value="custom"/>
+                    <repeat name="rules">
+                        <param name="tag" value="DP"/>
+                        <param name="replacement" value="max"/>
+                    </repeat>
+                </conditional>
             </section>
             <section name="sec_restrict">
                 <param name="apply_filters" value="PASS"/>
@@ -265,6 +336,7 @@ ${section.missing_to_ref}
             </section>
             <section name="sec_header">
                 <param name="print_header" value="true"/>
+                <param name="no_version" value="true"/>
             </section>
             <param name="output_type" value="v"/>
             <output name="output_file">
@@ -291,11 +363,57 @@ ${section.missing_to_ref}
  bcftools @EXECUTABLE@
 =====================================
 
-
 Merge multiple VCF/BCF files from non-overlapping sample sets to create one multi-sample file.
 
 Note that only records from different files can be merged, never from the same file.
-For "vertical" merge take a look at "bcftools norm" instead.
+For "vertical" merge take a look at bcftools concat or bcftools norm -m instead.
+
+Multiallelic record merging (``-m``)
+------------------------------------
+
+Controls what types of multiallelic records can be created when the same site appears in multiple files:
+
+* **none**: No new multiallelic records are created; separate records are output instead.
+* **snps**: Allow multiallelic SNP records.
+* **indels**: Allow multiallelic indel records.
+* **both**: Both SNP and indel records can be multiallelic (default).
+* **snp-ins-del**: Allow multiallelic SNVs, insertions, and deletions, but do not mix these types.
+* **all**: Allow any variant records to be merged together (e.g. SNVs with indels).
+* **exact**: Allow multiallelic records only when REF and ALT alleles match exactly.
+* **id**: Merge records matching on the ``ID`` column.
+* **Drop unobserved alleles (``*`` or ``**``)**: Remove unobserved placeholder alleles (``<*>`` or ``<NON_REF>``) from variant sites (``*``) or from all sites (``**``).
+
+gVCF Merging (``-g``)
+---------------------
+
+Merges non-variant block records produced by haplotype callers (e.g. GATK HaplotypeCaller or DeepVariant) where an ``INFO/END`` tag is present.
+
+.. note::
+   Using ``--gvcf`` automatically activates the following default rules:
+
+   * INFO rules: ``-i QS:sum,MinDP:min,MIN_DP:min,I16:sum,IDV:max,IMF:max``
+   * Missing rules: ``-M PL:max,AD:0``
+
+Merging and Missing Rules (``-i`` and ``-M``)
+---------------------------------------------
+
+* **Info rules (-i TAG:METHOD):** Defines how to combine values of an INFO field across files. Supported methods:
+
+  * **sum**: Sum numeric values.
+  * **avg**: Average numeric values.
+  * **min**: Keep the minimum numeric value.
+  * **max**: Keep the maximum numeric value.
+  * **join**: Concatenate values (strings or lists).
+
+  Use ``-i -`` to turn off all default INFO rules.
+
+* **Missing rules (-M TAG:REPLACEMENT):** Defines replacement values for numeric vector FORMAT tags when an allele is not observed in a sample. Supported replacements:
+
+  * **.**: Replace with missing dot (default in standard merge).
+  * **max**: Replace with the maximum observed value.
+  * **0**: Replace with zero.
+
+  Use ``-M -`` to reset rules to ``PL:.,AD:.``.
 
 @REGIONS_HELP@
 

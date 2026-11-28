@@ -41,7 +41,7 @@
     #set $annotation_hdr = $section.annofile.header_file
   #elif $section.annofile.header_lines:
     #set $annotation_hdr = 'annotation.hdr'
-    grep '^\#\#INFO' '${hdr_file}' > $annotation_hdr &&
+    grep '^\#\#' '${hdr_file}' > $annotation_hdr &&
   #end if
 #end if
 #set $section = $sec_restrict
@@ -50,7 +50,11 @@ bcftools @EXECUTABLE@
 @PREPARE_REGIONS_FILE@
 
 #set $section = $sec_annofile
-@COLUMNS@
+#if $section.columns_file:
+  --columns-file '$section.columns_file'
+#else:
+  @COLUMNS@
+#end if
 #if $annotation_file:
   --annotations '${annotation_file}'
 #end if
@@ -109,13 +113,15 @@ ${section.keep_sites}
     <configfiles>
         <configfile name="hdr_file"><![CDATA[#slurp
 #if $sec_annofile.annofile.anno_fmt == 'tab' and str($sec_annofile.annofile.header_lines) != '':
-$sec_annofile.annofile.header_lines.__str__.strip()#slurp
+$sec_annofile.annofile.header_lines.strip()
 #end if]]></configfile>
     </configfiles>
     <inputs>
         <expand macro="macro_input" />
         <section name="sec_annofile" expanded="false" title="Add Annotations">
             <expand macro="macro_columns" />
+            <param argument="--columns-file" type="data" format="tabular,txt" optional="true" label="Columns file"
+                   help="Read column names from a file (one name per row, with optional merge logic). Can be used instead of comma-separated columns above." />
             <conditional name="annofile">
                 <param name="anno_fmt" type="select" label="Annotations File">
                     <option value="none">None</option>
@@ -447,15 +453,73 @@ $sec_annofile.annofile.header_lines.__str__.strip()#slurp
                 <has_text text="--merge-logic 'T_INT:sum'" />
             </assert_command>
         </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate.vcf" />
+            <section name="sec_annofile">
+                <conditional name="annofile">
+                    <param name="anno_fmt" value="tab" />
+                    <param name="annotations" value="annotate.tab" />
+                    <param name="header_file" value="annotate.hdr" />
+                </conditional>
+                <param name="columns_file" value="annotate_columns.txt" />
+            </section>
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="snp_3000150" />
+                    <has_text_matching expression="1\t3000150\tsnp_3000150\tC\tT\t999\tPASS\t.*T_INT=1,2" />
+                    <has_text text="T_FLOAT=1e-10,2e-10" />
+                    <has_text text="indel_3062915" />
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--columns-file" />
+            </assert_command>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate.vcf" />
+            <section name="sec_annofile">
+                <conditional name="annofile">
+                    <param name="anno_fmt" value="tab" />
+                    <param name="annotations" value="annotate.tab" />
+                    <param name="header_lines" value="##INFO=&lt;ID=T_INT,Number=.,Type=Integer,Description=&quot;Test INT&quot;&gt;&#10;##INFO=&lt;ID=T_FLOAT,Number=.,Type=Float,Description=&quot;Test FLOAT&quot;&gt;&#10;##FILTER=&lt;ID=CustomFilter,Description=&quot;Custom filter test&quot;&gt;" />
+                </conditional>
+                <param name="columns" value="CHROM,POS,REF,ALT,ID,QUAL,INFO/T_INT,INFO/T_FLOAT,INDEL" />
+            </section>
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="snp_3000150" />
+                    <has_text text="CustomFilter" />
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 ==================================
  bcftools @EXECUTABLE@
 ==================================
 
-Annotate and edit VCF/BCF files.
+Annotate and edit VCF/BCF files. This tool allows adding annotations from external VCF/BCF or tab-delimited/BED files, removing unwanted fields, setting or updating variant IDs, and renaming chromosomes or annotation tags.
 
-Examples:
+Annotation Sources
+------------------
+
+* **VCF/BCF files (``-a``):** Transfers existing ID, QUAL, FILTER, INFO, and FORMAT fields from a secondary VCF/BCF file.
+* **Tab-delimited / BED files (``-a``):** Imports arbitrary annotations from a tabix-indexed table. Tab-delimited files use 1-based coordinates (CHROM, POS or FROM, TO), while BED files use 0-based half-open intervals. Header lines (``-h``) must be provided for newly introduced tags.
+
+Key Capabilities
+----------------
+
+* **Column specifications:** Define columns to import directly or via a columns file (``-C``), with optional per-tag merge logic.
+* **Overlap controls:** Handle multi-region overlaps with customizable merge logic (``-l``) and minimum overlap thresholds (``--min-overlap``).
+* **ID & site manipulation:** Assign custom IDs on the fly (``--set-id``), flag matching sites (``--mark-sites``), or selectively strip tags (``--remove``).
+* **Tag & sequence renaming:** Rename contigs (``--rename-chrs``) or INFO/FORMAT/FILTER tags (``--rename-annots``) using translation mappings.
+
+Examples
+--------
+
+::
 
     # Remove three fields
     bcftools annotate -x ID,INFO/DP,FORMAT/DP file.vcf.gz
